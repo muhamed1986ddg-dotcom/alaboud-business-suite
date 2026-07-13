@@ -2117,5 +2117,22 @@ export default function App(){
         {content}
       </AppErrorBoundary>
     </main>
+    <nav className="mobile-bottom-nav no-print" aria-label="التنقل السريع">
+      <button className={page==="customers"?"active":""} onClick={()=>navigate("customers")}>
+        <span>👥</span><small>العملاء</small>
+      </button>
+      <button className={page==="transactions"?"active":""} onClick={()=>navigate("transactions")}>
+        <span>⇄</span><small>الحوالات</small>
+      </button>
+      <button className={page==="dashboard"?"active":""} onClick={()=>navigate("dashboard")}>
+        <span>⌂</span><small>الرئيسية</small>
+      </button>
+      <button className={page==="monthly-report"?"active":""} onClick={()=>navigate("monthly-report")}>
+        <span>▥</span><small>التقارير</small>
+      </button>
+      <button onClick={()=>setMobileMenuOpen(true)}>
+        <span>•••</span><small>المزيد</small>
+      </button>
+    </nav>
   </div>;
 }
