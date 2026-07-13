@@ -428,3 +428,66 @@ aside h1{
   .statement-balance{width:100%;box-sizing:border-box}
   .statement-table{min-width:1100px}
 }
+
+
+.dashboard-title{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.notification-button{
+  position:relative;
+  background:#111827;
+}
+.notification-button span{
+  display:inline-grid;
+  place-items:center;
+  min-width:22px;
+  height:22px;
+  border-radius:999px;
+  margin-inline-start:6px;
+  background:#ce1126;
+  color:#fff;
+  font-size:12px;
+}
+.notification-center{
+  border-inline-start:6px solid #f59e0b;
+}
+.notification-item{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  padding:12px;
+  border-radius:12px;
+  margin:8px 0;
+  border:1px solid #e2e8f0;
+}
+.notification-item p{margin:5px 0 0}
+.severity-notice{background:#fffbeb}
+.severity-warning{background:#fff7ed;border-color:#fdba74}
+.severity-danger{background:#fff1f2;border-color:#fda4af}
+.severity-critical{background:#1f2937;color:#fff;border-color:#111827}
+.quick-actions>div{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:10px;
+}
+.quick-actions button{
+  width:100%;
+  min-height:48px;
+}
+.settings-form{
+  max-width:720px;
+}
+.settings-form textarea{
+  width:100%;
+  box-sizing:border-box;
+  resize:vertical;
+}
+@media(max-width:700px){
+  .notification-item{align-items:stretch;flex-direction:column}
+  .dashboard-title .notification-button{width:100%}
+}

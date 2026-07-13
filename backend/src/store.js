@@ -6,7 +6,7 @@ const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path
 const dataFile = path.join(dataDir, "store.json");
 
 const emptyStore = () => ({
-  users: [], customers: [], transactions: [], payments: [], expenses: [], capitalMovements: [], exchangeRates: [], generalDebts: [], generalDebtPayments: [], partners: [], partnerTransactions: [], partnerPayments: [], auditLogs: []
+  users: [], customers: [], transactions: [], payments: [], expenses: [], capitalMovements: [], exchangeRates: [], generalDebts: [], generalDebtPayments: [], partners: [], partnerTransactions: [], partnerPayments: [], notificationSettings: { overdueDays: 7, lowCashLimit: 5000, whatsappTemplate: "" }, notificationActions: [], auditLogs: []
 });
 
 function ensureStore() {
@@ -19,8 +19,18 @@ function readStore() {
   try {
     const store = JSON.parse(fs.readFileSync(dataFile, "utf8"));
     const fresh = emptyStore();
-    for (const key of Object.keys(fresh)) {
-      if (!Array.isArray(store[key])) store[key] = [];
+    for (const [key, defaultValue] of Object.entries(fresh)) {
+      if (Array.isArray(defaultValue)) {
+        if (!Array.isArray(store[key])) store[key] = [];
+      } else if (defaultValue && typeof defaultValue === "object") {
+        if (!store[key] || Array.isArray(store[key]) || typeof store[key] !== "object") {
+          store[key] = { ...defaultValue };
+        } else {
+          store[key] = { ...defaultValue, ...store[key] };
+        }
+      } else if (store[key] === undefined) {
+        store[key] = defaultValue;
+      }
     }
     return store;
   }

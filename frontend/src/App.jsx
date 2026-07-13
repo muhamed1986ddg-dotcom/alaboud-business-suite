@@ -25,7 +25,67 @@ class AppErrorBoundary extends React.Component{
 }
 
 function Login({onLogin}){const[email,setEmail]=useState("admin@alaboud.local"),[password,setPassword]=useState("Admin123!"),[error,setError]=useState("");async function submit(e){e.preventDefault();try{const{data}=await api.post("/auth/login",{email,password});localStorage.setItem("afs_token",data.token);localStorage.setItem("afs_user",JSON.stringify(data.user));onLogin();}catch{setError("فشل تسجيل الدخول");}}return <div className="login"><form className="panel" onSubmit={submit}><div className="logo">A</div><h1>نظام العبود المالي</h1><p>إدارة الحوالات والحسابات</p><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد"/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور"/>{error&&<div className="error">{error}</div>}<button>تسجيل الدخول</button><small>admin@alaboud.local / Admin123!</small></form></div>}
-function Dashboard(){const[d,setD]=useState(null);useEffect(()=>{api.get("/dashboard").then(r=>setD(r.data))},[]);if(!d)return <p>جاري التحميل...</p>;return <><h2>لوحة التحكم</h2><div className="stats">{[["العملاء",d.customers],["حوالات اليوم",d.todayTransactions],["ربح اليوم",money(d.todayProfit)],["ذمم العملاء",money(d.receivables)],["رأس المال",money(d.capital)]].map(([a,b])=><div className="card" key={a}><span>{a}</span><strong>{b}</strong></div>)}</div></>}
+function Dashboard({navigate}){
+  const [data,setData]=useState(null);
+  const [noticeData,setNoticeData]=useState({count:0,overdueCount:0,overdueTotal:0,notifications:[]});
+  const [open,setOpen]=useState(false);
+
+  useEffect(()=>{
+    Promise.all([api.get("/dashboard"),api.get("/notifications")])
+      .then(([dashboardResponse,notificationResponse])=>{
+        setData(dashboardResponse.data);
+        setNoticeData(notificationResponse.data);
+      });
+  },[]);
+
+  if(!data)return <p>جاري التحميل...</p>;
+
+  return <>
+    <div className="dashboard-title">
+      <h2>لوحة التحكم</h2>
+      <button className="notification-button" onClick={()=>setOpen(!open)}>
+        🔔 التنبيهات <span>{noticeData.count}</span>
+      </button>
+    </div>
+
+    {open&&<div className="card notification-center">
+      <h3>مركز التنبيهات</h3>
+      {noticeData.notifications.length?noticeData.notifications.map(item=>
+        <div className={`notification-item severity-${item.severity}`} key={item.id}>
+          <div><strong>{item.title}</strong><p>{item.message}</p></div>
+          {item.customerId&&<button onClick={()=>navigate("customers")}>فتح العملاء</button>}
+        </div>
+      ):<p>لا توجد تنبيهات حالياً.</p>}
+    </div>}
+
+    <div className="quick-actions card">
+      <h3>إجراءات سريعة</h3>
+      <div>
+        <button onClick={()=>navigate("customers")}>➕ عميل / حوالة / دفعة</button>
+        <button onClick={()=>navigate("rates")}>💱 آخر الأسعار</button>
+        <button onClick={()=>navigate("capital-overview")}>💰 رأس المال</button>
+        <button onClick={()=>navigate("monthly-report")}>📊 التقرير الشهري</button>
+      </div>
+    </div>
+
+    <div className="stats">
+      {[
+        ["العملاء",data.customers],
+        ["حوالات اليوم",data.todayTransactions],
+        ["ربح اليوم",money(data.todayProfit)],
+        ["ذمم العملاء",money(data.receivables)],
+        ["رأس المال",money(data.capital)],
+        ["عملاء متأخرون",noticeData.overdueCount],
+        ["إجمالي المتأخر",money(noticeData.overdueTotal)]
+      ].map(([label,value])=>
+        <div className={`card ${label==="عملاء متأخرون"||label==="إجمالي المتأخر"?"overdue-card":""}`} key={label}>
+          <span>{label}</span><strong>{value}</strong>
+        </div>
+      )}
+    </div>
+  </>;
+}
+
 function Customers({open}){
   const [list,setList]=useState([]);
   const [alerts,setAlerts]=useState({count:0,totalOverdue:0,rows:[]});
@@ -1632,6 +1692,48 @@ function MonthlyReport(){
   </>;
 }
 
+function NotificationSettings(){
+  const [settings,setSettings]=useState({overdueDays:7,lowCashLimit:5000,whatsappTemplate:""});
+  const [message,setMessage]=useState("");
+
+  useEffect(()=>{
+    api.get("/notification-settings").then(response=>setSettings(response.data));
+  },[]);
+
+  async function save(event){
+    event.preventDefault();
+    try{
+      const response=await api.patch("/notification-settings",settings);
+      setSettings(response.data);
+      setMessage("تم حفظ إعدادات التنبيهات");
+    }catch(error){
+      setMessage(error.response?.data?.message||"تعذر حفظ الإعدادات");
+    }
+  }
+
+  return <>
+    <h2>إعدادات التنبيهات وواتساب</h2>
+    {message&&<div className="card rate-message">{message}</div>}
+    <form className="card form settings-form" onSubmit={save}>
+      <label>بدء تنبيه التأخير بعد عدد الأيام</label>
+      <input type="number" min="1" max="365" value={settings.overdueDays}
+        onChange={e=>setSettings({...settings,overdueDays:e.target.value})}/>
+      <label>حد انخفاض السيولة (CAD)</label>
+      <input type="number" min="0" step=".01" value={settings.lowCashLimit}
+        onChange={e=>setSettings({...settings,lowCashLimit:e.target.value})}/>
+      <label>قالب رسالة واتساب (اختياري)</label>
+      <textarea rows="6" value={settings.whatsappTemplate}
+        onChange={e=>setSettings({...settings,whatsappTemplate:e.target.value})}
+        placeholder="يمكن استخدام: {name} {balance} {days}"/>
+      <button>حفظ الإعدادات</button>
+    </form>
+    <div className="card">
+      <strong>ملاحظة:</strong>
+      <p>زر واتساب يفتح الرسالة جاهزة للإرسال. الإرسال التلقائي دون ضغط يحتاج ربط WhatsApp Business API رسمي.</p>
+    </div>
+  </>;
+}
+
 function Simple({type}){const[list,setList]=useState([]),[title,setTitle]=useState(""),[amount,setAmount]=useState(""),[move,setMove]=useState("IN");const endpoint=type==="expenses"?"/expenses":"/capital";const load=()=>api.get(endpoint).then(r=>setList(r.data));useEffect(()=>{load();},[type]);async function add(e){e.preventDefault();await api.post(endpoint,type==="expenses"?{title,amount}:{type:move,amount,description:title});setTitle("");setAmount("");load();}return <><h2>{type==="expenses"?"المصروفات":"رأس المال"}</h2><form className="card form" onSubmit={add}>{type==="capital"&&<select value={move} onChange={e=>setMove(e.target.value)}><option value="IN">زيادة</option><option value="OUT">سحب</option></select>}<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="الوصف" required/><input type="number" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="المبلغ" required/><button>حفظ</button></form><div className="card tablewrap"><table><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.title||x.description}</td><td>{x.type||x.category}</td><td>{money(x.amount)}</td></tr>)}</tbody></table></div></>}
 export default function App(){
   const [token,setToken]=useState(localStorage.getItem("afs_token"));
@@ -1663,7 +1765,7 @@ export default function App(){
   }else if(partnerId){
     content=<PartnerProfile id={partnerId} back={()=>setPartnerId(null)}/>;
   }else if(page==="dashboard"){
-    content=<Dashboard/>;
+    content=<Dashboard navigate={navigate}/>;
   }else if(page==="customers"){
     content=<Customers open={setCustomerId}/>;
   }else if(page==="partners"){
@@ -1680,6 +1782,8 @@ export default function App(){
     content=<CapitalOverview/>;
   }else if(page==="monthly-report"){
     content=<MonthlyReport/>;
+  }else if(page==="notification-settings"){
+    content=<NotificationSettings/>;
   }else if(page==="expenses"){
     content=<Simple type="expenses"/>;
   }else{
@@ -1696,6 +1800,7 @@ export default function App(){
     ["debts","الدَّين العام"],
     ["capital-overview","رأس المال الكلي"],
     ["monthly-report","التقارير الشهرية"],
+    ["notification-settings","إعدادات التنبيهات"],
     ["expenses","المصروفات"],
     ["capital","حركة رأس المال"]
   ];
