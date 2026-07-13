@@ -24,7 +24,7 @@ class AppErrorBoundary extends React.Component{
   }
 }
 
-function Login({onLogin}){const[email,setEmail]=useState("admin@alaboud.local"),[password,setPassword]=useState("Admin123!"),[error,setError]=useState("");async function submit(e){e.preventDefault();try{const{data}=await api.post("/auth/login",{email,password});localStorage.setItem("afs_token",data.token);localStorage.setItem("afs_user",JSON.stringify(data.user));onLogin();}catch{setError("فشل تسجيل الدخول");}}return <div className="login"><form className="panel" onSubmit={submit}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><h1>AlAboud Business Suite</h1><p>إدارة الحوالات والحسابات</p><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد"/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور"/>{error&&<div className="error">{error}</div>}<button>تسجيل الدخول</button><small>admin@alaboud.local / Admin123!</small></form></div>}
+function Login({onLogin}){const[email,setEmail]=useState("admin@alaboud.local"),[password,setPassword]=useState("Admin123!"),[error,setError]=useState("");async function submit(e){e.preventDefault();try{const{data}=await api.post("/auth/login",{email,password});localStorage.setItem("afs_token",data.token);localStorage.setItem("afs_user",JSON.stringify(data.user));onLogin();}catch{setError("فشل تسجيل الدخول");}}return <div className="login"><form className="panel" onSubmit={submit}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><h1>شركة العبود التجارية</h1><p className="login-company-en">ALABOUD TRADING COMPANY</p><p>إدارة الحوالات والحسابات</p><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد"/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور"/>{error&&<div className="error">{error}</div>}<button>تسجيل الدخول</button><small>admin@alaboud.local / Admin123!</small></form></div>}
 function Dashboard({navigate}){
   const [data,setData]=useState(null);
   const [noticeData,setNoticeData]=useState({count:0,overdueCount:0,overdueTotal:0,notifications:[]});
@@ -2080,7 +2080,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v12.2 Professional</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>

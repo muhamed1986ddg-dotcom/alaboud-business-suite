@@ -2369,3 +2369,54 @@ aside button.active{
     grid-template-columns:1fr!important;
   }
 }
+
+
+/* v12.2 Professional FINAL branding */
+.login-company-en{
+  margin:4px 0 18px!important;
+  color:#d8bf66!important;
+  font-size:12px!important;
+  letter-spacing:1.4px!important;
+  text-align:center!important;
+}
+.mobile-brand-center{
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:1px!important;
+}
+.mobile-brand-center small{
+  color:#d9b63f!important;
+  font-size:8px!important;
+  line-height:1!important;
+  white-space:nowrap!important;
+}
+@media(max-width:800px){
+  .app.mobile-page-view .mobile-page-header{
+    grid-template-columns:54px 1fr 54px!important;
+    height:62px!important;
+    min-height:62px!important;
+  }
+  .mobile-brand-center .mobile-header-logo{
+    width:44px!important;
+    height:44px!important;
+  }
+  .app.mobile-page-view .app-main-content{
+    padding:12px 12px 108px!important;
+  }
+  .app.mobile-page-view .stats .card{
+    min-height:118px!important;
+    padding:13px!important;
+  }
+  .app.mobile-page-view .stats .card strong{
+    font-size:27px!important;
+  }
+  .app.mobile-page-view .quick-actions button{
+    min-height:72px!important;
+    font-size:13px!important;
+  }
+  .mobile-bottom-nav{
+    height:72px!important;
+  }
+}
