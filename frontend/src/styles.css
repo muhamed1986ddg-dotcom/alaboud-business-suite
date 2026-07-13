@@ -915,3 +915,107 @@ aside button.active{
     max-height:74px!important;
   }
 }
+
+
+/* v11.2 — Phone-only layout correction */
+@media(max-width:800px){
+  .app.mobile-page-view .mobile-page-header{
+    height:52px!important;
+    padding:5px 8px!important;
+    gap:6px!important;
+  }
+
+  .app.mobile-page-view .mobile-page-header button{
+    min-height:38px!important;
+    height:38px!important;
+    padding:4px 8px!important;
+    font-size:14px!important;
+    border-radius:9px!important;
+    line-height:1!important;
+  }
+
+  .app.mobile-page-view main{
+    padding:60px 8px 18px!important;
+    width:100%!important;
+    max-width:100%!important;
+    overflow-x:hidden!important;
+  }
+
+  .app.mobile-page-view main > *{
+    max-width:100%!important;
+    box-sizing:border-box!important;
+  }
+
+  .app.mobile-page-view .dashboard-title,
+  .app.mobile-page-view .card,
+  .app.mobile-page-view .quick-actions,
+  .app.mobile-page-view .stats{
+    width:100%!important;
+    max-width:100%!important;
+    box-sizing:border-box!important;
+  }
+
+  .app.mobile-page-view .stats{
+    display:grid!important;
+    grid-template-columns:1fr!important;
+    gap:10px!important;
+  }
+
+  .app.mobile-page-view .stats .card{
+    min-height:auto!important;
+    padding:14px!important;
+  }
+
+  .app.mobile-page-view .quick-actions{
+    padding:14px!important;
+  }
+
+  .app.mobile-page-view .quick-actions button{
+    width:100%!important;
+    min-height:48px!important;
+    margin:5px 0!important;
+  }
+
+  .app.mobile-menu-view aside{
+    width:100%!important;
+    min-height:100vh!important;
+    padding:12px 14px 28px!important;
+    overflow-y:auto!important;
+  }
+
+  .mobile-menu-heading{
+    min-height:76px!important;
+    height:76px!important;
+    padding:4px 0 8px!important;
+    margin-bottom:8px!important;
+  }
+
+  .mobile-menu-heading .mobile-logo{
+    width:62px!important;
+    height:62px!important;
+    min-width:62px!important;
+  }
+
+  .app.mobile-menu-view aside>button{
+    min-height:50px!important;
+    max-height:58px!important;
+    height:auto!important;
+    padding:9px 14px!important;
+    font-size:18px!important;
+    margin:4px 0!important;
+  }
+
+  .app.mobile-menu-view aside>button.active{
+    min-height:50px!important;
+    max-height:58px!important;
+    height:auto!important;
+  }
+
+  .app.mobile-menu-view main{
+    display:none!important;
+  }
+
+  .app.mobile-page-view aside{
+    display:none!important;
+  }
+}

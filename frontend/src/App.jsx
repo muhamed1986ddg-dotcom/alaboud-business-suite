@@ -2032,7 +2032,7 @@ export default function App(){
   return <div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
     <div className="mobile-page-header no-print">
       <button onClick={()=>setMobileMenuOpen(true)}>☰ القائمة</button>
-      <button onClick={()=>navigate("dashboard")}>🏠 الرئيسية</button>
+      <button onClick={()=>setMobileMenuOpen(true)}>🏠 الرئيسية</button>
     </div>
     <aside>
       <div className="mobile-menu-heading no-print">
