@@ -491,3 +491,67 @@ aside h1{
   .notification-item{align-items:stretch;flex-direction:column}
   .dashboard-title .notification-button{width:100%}
 }
+
+
+.overdue-filters{
+  display:grid;
+  grid-template-columns:2fr 1fr;
+  gap:12px;
+  margin-bottom:16px;
+}
+.overdue-filters input,
+.overdue-filters select{
+  width:100%;
+  box-sizing:border-box;
+}
+.overdue-customers-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+  gap:16px;
+}
+.overdue-customer-card{
+  border-top-width:5px;
+  border-top-style:solid;
+}
+.overdue-customer-card.severity-notice{border-top-color:#eab308}
+.overdue-customer-card.severity-warning{border-top-color:#f97316}
+.overdue-customer-card.severity-danger{border-top-color:#dc2626}
+.overdue-customer-card.severity-critical{border-top-color:#111827}
+.overdue-customer-head{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  align-items:flex-start;
+}
+.overdue-customer-head h3{margin:0 0 5px}
+.overdue-customer-head p{margin:0;color:#64748b}
+.overdue-customer-head>span{
+  border-radius:999px;
+  padding:7px 11px;
+  background:#fee2e2;
+  color:#991b1b;
+  font-weight:900;
+  white-space:nowrap;
+}
+.overdue-customer-details{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:9px;
+  margin:16px 0;
+}
+.overdue-customer-details>div{
+  padding:10px;
+  background:#f8fafc;
+  border-radius:10px;
+}
+.overdue-customer-details span{
+  display:block;
+  color:#64748b;
+  font-size:12px;
+  margin-bottom:5px;
+}
+@media(max-width:700px){
+  .overdue-filters{grid-template-columns:1fr}
+  .overdue-customers-grid{grid-template-columns:1fr}
+  .overdue-customer-details{grid-template-columns:1fr}
+}
