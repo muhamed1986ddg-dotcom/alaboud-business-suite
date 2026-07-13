@@ -42,7 +42,7 @@ function Dashboard({navigate}){
 
   return <>
     <div className="dashboard-title">
-      <h2>لوحة التحكم</h2>
+      <h2>القائمة الرئيسية</h2>
       <button className="notification-button" onClick={()=>setOpen(!open)}>
         🔔 التنبيهات <span>{noticeData.count}</span>
       </button>
@@ -1999,8 +1999,15 @@ export default function App(){
     content=<Simple type="capital"/>;
   }
 
+  const showHomeButton =
+    page !== "dashboard" ||
+    Boolean(customerId) ||
+    Boolean(invoiceId) ||
+    Boolean(statementCustomerId) ||
+    Boolean(partnerId);
+
   const menu=[
-    ["dashboard","لوحة التحكم"],
+    ["dashboard","القائمة الرئيسية"],
     ["customers","العملاء"],
     ["overdue-customers",`⏰ العملاء المتأخرون${overdueCount?` (${overdueCount})`:""}`],
     ["partners","الموردون والشركات"],
@@ -2018,13 +2025,22 @@ export default function App(){
   return <div className="app">
     <aside>
       <h1>AlAboud</h1>
-      {menu.map(([key,label])=><button key={key} onClick={()=>navigate(key)}>{label}</button>)}
+      {menu.map(([key,label])=><button
+        key={key}
+        className={page===key&&!customerId&&!invoiceId&&!statementCustomerId&&!partnerId?"active":""}
+        onClick={()=>navigate(key)}
+      >{label}</button>)}
       <button className="logout" onClick={()=>{
         localStorage.clear();
         setToken(null);
       }}>خروج</button>
     </aside>
     <main>
+      {showHomeButton&&<div className="home-return-bar no-print">
+        <button className="home-return-button" onClick={()=>navigate("dashboard")}>
+          ⬅ العودة إلى القائمة الرئيسية
+        </button>
+      </div>}
       <AppErrorBoundary key={`${page}-${customerId}-${invoiceId}-${statementCustomerId}-${partnerId}`}>
         {content}
       </AppErrorBoundary>
