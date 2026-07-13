@@ -1,0 +1,344 @@
+:root{font-family:Arial,sans-serif;color:#172033;background:#f3f5f7}*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}.login{min-height:100vh;display:grid;place-items:center;background:linear-gradient(135deg,#00732f,#10291e)}.panel{width:min(420px,92vw);background:white;padding:30px;border-radius:20px;display:grid;gap:13px;box-shadow:0 20px 50px #0005}.logo{width:64px;height:64px;border-radius:18px;background:#00732f;color:white;display:grid;place-items:center;font-size:34px;font-weight:bold;border-bottom:6px solid #ce1126}.panel h1{margin:0}.panel p,.panel small{color:#697281}.error{background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px}.app{display:grid;grid-template-columns:240px 1fr;min-height:100vh}aside{background:linear-gradient(180deg,#111827,#0f172a);color:white;padding:22px;border-inline-start:6px solid #00732f}aside button{width:100%;margin:5px 0;text-align:right;background:#ffffff12;color:white;border:1px solid #ffffff12;transition:.2s}.logout{margin-top:25px!important;background:#ce1126!important}main{padding:26px;overflow:auto}.card{background:white;padding:18px;border-radius:14px;margin-bottom:18px;box-shadow:0 8px 24px #1111}.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}.stats span{display:block;color:#697281}.stats strong{display:block;font-size:28px;margin-top:7px}.final{border-top:5px solid #ce1126}.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}input,select,button{padding:11px;border-radius:8px;border:1px solid #d6dce2}button{background:#00732f;color:white;border:0;cursor:pointer}.tablewrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:650px}th,td{padding:11px;border-bottom:1px solid #e8ebef;text-align:right}@media(max-width:800px){.app{grid-template-columns:1fr}aside{position:static}main{padding:14px}.form{grid-template-columns:1fr}}
+
+
+.auto-rate-bar{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:18px;
+  border-inline-start:5px solid #00732f;
+}
+.auto-rate-bar p{margin:6px 0 0;color:#6b7280}
+.rate-message{background:#eefbf3;color:#166534;font-weight:700}
+@media(max-width:700px){.auto-rate-bar{align-items:stretch;flex-direction:column}}
+
+
+.customer-error{
+  border-inline-start:5px solid #ce1126;
+  background:#fff1f2;
+  color:#9f1239;
+}
+
+
+.receivable-card{
+  border-top:5px solid #00732f;
+}
+.payable-card{
+  border-top:5px solid #ce1126;
+}
+.debt-tabs{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.debt-message{
+  background:#eefbf3;
+  color:#166534;
+  font-weight:700;
+}
+.debt-type{
+  display:inline-block;
+  padding:5px 9px;
+  border-radius:999px;
+  font-weight:700;
+  font-size:12px;
+}
+.debt-type.receivable{
+  background:#dcfce7;
+  color:#166534;
+}
+.debt-type.payable{
+  background:#fee2e2;
+  color:#991b1b;
+}
+
+
+.invoice-sheet{
+  background:#fff;
+  max-width:980px;
+  margin:0 auto 28px;
+  padding:30px;
+  border-radius:16px;
+  box-shadow:0 8px 28px rgba(17,24,39,.08);
+}
+.invoice-header{
+  display:flex;
+  justify-content:space-between;
+  gap:22px;
+  border-bottom:2px solid #111;
+  padding-bottom:18px;
+  margin-bottom:18px;
+}
+.invoice-header h1{margin:0 0 4px}
+.invoice-header p{margin:4px 0}
+.invoice-customer{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:8px 18px;
+  margin:18px 0;
+}
+.invoice-note{
+  text-align:center;
+  margin-top:28px;
+  font-weight:700;
+}
+.no-print{display:block}
+@media print{
+  .sidebar,.no-print,.install-app-button{display:none!important}
+  .app-shell{display:block}
+  .content{padding:0}
+  .invoice-sheet{box-shadow:none;margin:0;max-width:none;padding:0}
+  body{background:#fff}
+}
+@media(max-width:700px){
+  .invoice-header{flex-direction:column}
+  .invoice-customer{grid-template-columns:1fr}
+}
+
+
+:root{
+  --uae-green:#00732f;
+  --uae-red:#ce1126;
+  --uae-black:#111;
+}
+.receivable-card{border-top:5px solid var(--uae-green)}
+.payable-card{border-top:5px solid var(--uae-red)}
+button:disabled{opacity:.55;cursor:not-allowed}
+
+aside button:hover{
+  background:#00732f;
+  border-color:#00732f;
+  transform:translateX(-2px);
+}
+aside h1{
+  margin:0 0 22px;
+  padding-bottom:14px;
+  border-bottom:1px solid #ffffff22;
+}
+.logout{
+  background:#ce1126!important;
+  border-color:#ce1126!important;
+}
+
+
+.actions{
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.actions button{
+  padding:7px 10px;
+  font-size:12px;
+}
+.danger-button{
+  background:#ce1126!important;
+}
+.edit-panel{
+  border-inline-start:5px solid #f59e0b;
+  background:#fffbeb;
+}
+
+
+.customer-search{
+  width:100%;
+  box-sizing:border-box;
+  font-size:16px;
+  margin-bottom:14px;
+}
+.action-section summary{
+  cursor:pointer;
+  font-weight:800;
+  font-size:17px;
+}
+.action-section[open] summary{
+  margin-bottom:14px;
+}
+.overdue-card{
+  border-top:5px solid #ce1126;
+  background:#fff1f2;
+}
+.overdue-panel{
+  border-inline-start:6px solid #ce1126;
+  background:#fff7f7;
+}
+.overdue-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  padding:9px 0;
+  border-bottom:1px solid #fecdd3;
+}
+.overdue-customer{
+  background:#fff1f2;
+}
+.turnover-card{
+  border-top:5px solid #2563eb;
+}
+.turnover-card small{
+  display:block;
+  margin-top:6px;
+}
+.capital-explanation{
+  border-inline-start:5px solid #00732f;
+}
+@media(max-width:720px){
+  .overdue-row{align-items:stretch;flex-direction:column}
+  .actions{min-width:230px}
+}
+
+
+.rate-legend{
+  display:flex;
+  gap:16px;
+  flex-wrap:wrap;
+  font-weight:800;
+}
+.legend-up,.trend-up{color:#15803d}
+.legend-down,.trend-down{color:#b91c1c}
+.legend-same,.trend-same{color:#475569}
+.legend-new,.trend-new{color:#d97706}
+
+.currency-badge{
+  display:inline-block;
+  background:#dbeafe;
+  color:#1d4ed8;
+  font-weight:900;
+  padding:5px 9px;
+  border-radius:999px;
+}
+.source-badge{
+  display:inline-block;
+  padding:4px 8px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:800;
+}
+.source-badge.auto{
+  background:#dcfce7;
+  color:#166534;
+}
+.source-badge.manual{
+  background:#fef3c7;
+  color:#92400e;
+}
+.sell-rate{
+  display:flex;
+  gap:9px;
+  align-items:center;
+  justify-content:flex-start;
+  flex-wrap:wrap;
+}
+.sell-rate.up strong{color:#15803d}
+.sell-rate.down strong{color:#b91c1c}
+.sell-rate.same strong{color:#334155}
+.sell-rate.new strong{color:#d97706}
+.trend{
+  font-size:12px;
+  font-weight:900;
+}
+.rate-row.rate-up{background:#f0fdf4}
+.rate-row.rate-down{background:#fff1f2}
+.rate-row.rate-new{background:#fffbeb}
+.rate-row.rate-same{background:#f8fafc}
+
+
+.customer-toolbar{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.customer-cards{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(310px,1fr));
+  gap:16px;
+}
+.customer-account-card{
+  background:#fff;
+  border-radius:16px;
+  padding:18px;
+  box-shadow:0 8px 25px rgba(15,23,42,.08);
+  border-top:5px solid #94a3b8;
+}
+.customer-account-card.is-paid{border-top-color:#16a34a}
+.customer-account-card.has-balance{border-top-color:#f59e0b}
+.customer-account-card.is-overdue{border-top-color:#dc2626;background:#fffafa}
+.customer-card-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+}
+.customer-card-header h3{margin:0 0 5px}
+.customer-card-header p{margin:0;color:#64748b}
+.customer-status{
+  padding:5px 10px;
+  border-radius:999px;
+  background:#f1f5f9;
+  font-size:12px;
+  font-weight:900;
+}
+.customer-totals{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:9px;
+  margin:18px 0;
+}
+.customer-totals>div{
+  background:#f8fafc;
+  padding:12px;
+  border-radius:12px;
+}
+.customer-totals span{
+  display:block;
+  color:#64748b;
+  font-size:12px;
+  margin-bottom:6px;
+}
+.customer-totals strong{font-size:18px}
+.customer-totals .final-balance{
+  background:#eefbf3;
+  border:1px solid #bbf7d0;
+}
+.customer-card-actions{
+  display:flex;
+  gap:7px;
+  flex-wrap:wrap;
+}
+.customer-card-actions button{
+  padding:8px 10px;
+  font-size:12px;
+}
+.whatsapp-button{
+  background:#16a34a!important;
+}
+.overdue-text{
+  color:#b91c1c;
+  font-weight:800;
+}
+@media(max-width:600px){
+  .customer-totals{grid-template-columns:1fr}
+  .customer-card-actions button{flex:1 1 45%}
+}
+
+
+.page-title-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:15px;
+  flex-wrap:wrap;
+}
+.transfer-total-card{
+  border-top:5px solid #7c3aed;
+  background:#faf5ff;
+}
+.capital-formula{
+  border-inline-start:6px solid #2563eb;
+  background:#eff6ff;
+}
+@media print{
+  .no-print, aside{display:none!important}
+  main{padding:0!important}
+  .card{box-shadow:none}
+}
