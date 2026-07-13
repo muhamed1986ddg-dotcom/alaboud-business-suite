@@ -611,3 +611,68 @@ aside h1{
   .followup-form{grid-template-columns:1fr}
   .whatsapp-options{grid-template-columns:1fr}
 }
+
+
+/* AlAboud v9 — Black & Gold */
+:root{
+  --ab-black:#050505;--ab-black2:#121212;--ab-gold:#d4af37;
+  --ab-gold2:#f4d675;--ab-cream:#fffaf0;--ab-border:rgba(212,175,55,.30);
+}
+html,body,#root{min-height:100%;background:linear-gradient(180deg,#f8f5ea,#eee9dc)}
+body{color:#171717}
+.app>aside{
+  background:linear-gradient(180deg,#050505,#121212)!important;
+  color:#fff!important;border-left:1px solid var(--ab-border);
+  box-shadow:-10px 0 30px rgba(0,0,0,.25)
+}
+.app>aside h1,.app>aside h2{color:var(--ab-gold2)!important}
+.app>aside button{
+  background:transparent!important;color:#f6ecc7!important;
+  border:1px solid transparent!important;transition:.2s
+}
+.app>aside button:hover,.app>aside button.active{
+  background:linear-gradient(135deg,var(--ab-gold),var(--ab-gold2))!important;
+  color:#111!important;border-color:#ffe99d!important;
+  box-shadow:0 8px 20px rgba(212,175,55,.25)
+}
+.app-version{
+  margin:18px 12px 8px;padding:8px;border:1px solid var(--ab-border);
+  border-radius:10px;text-align:center;color:var(--ab-gold2);font-weight:900;font-size:12px
+}
+.card{
+  background:rgba(255,255,255,.96)!important;border:1px solid rgba(212,175,55,.22)!important;
+  box-shadow:0 14px 34px rgba(0,0,0,.12)!important
+}
+.stats .card{position:relative;overflow:hidden}
+.stats .card:before{
+  content:"";position:absolute;top:0;right:0;left:0;height:4px;
+  background:linear-gradient(90deg,#111,var(--ab-gold),#111)
+}
+button{
+  background:linear-gradient(135deg,#0b0b0b,#272727)!important;
+  color:var(--ab-gold2)!important;border:1px solid rgba(212,175,55,.5)!important;
+  box-shadow:0 5px 14px rgba(0,0,0,.14)
+}
+button:hover{background:linear-gradient(135deg,#9a7b18,var(--ab-gold))!important;color:#111!important}
+.whatsapp-button{background:linear-gradient(135deg,#0b6f3f,#15945d)!important;color:#fff!important}
+.danger-button{background:linear-gradient(135deg,#7f1d1d,#b91c1c)!important;color:#fff!important}
+input,select,textarea{
+  background:#fffdf7!important;border:1px solid rgba(212,175,55,.35)!important;border-radius:12px!important
+}
+input:focus,select:focus,textarea:focus{
+  outline:none!important;border-color:var(--ab-gold)!important;
+  box-shadow:0 0 0 3px rgba(212,175,55,.15)!important
+}
+thead th{background:linear-gradient(135deg,#070707,#1b1b1b)!important;color:var(--ab-gold2)!important}
+.dashboard-title{
+  background:linear-gradient(135deg,#050505,#181818);color:#fff;padding:16px 18px;
+  border-radius:16px;border:1px solid var(--ab-border);box-shadow:0 12px 30px rgba(0,0,0,.2)
+}
+.dashboard-title h2{color:var(--ab-gold2)!important;margin:0}
+.customer-account-card,.overdue-customer-card{border-top-color:var(--ab-gold)!important}
+@media(max-width:900px){
+  .app>main{padding-top:70px!important}
+  .stats{grid-template-columns:1fr 1fr!important}
+  .card{border-radius:16px!important}
+}
+@media(max-width:560px){.stats{grid-template-columns:1fr!important}}
