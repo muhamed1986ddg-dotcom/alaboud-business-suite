@@ -1941,6 +1941,9 @@ export default function App(){
   const [statementCustomerId,setStatementCustomerId]=useState(null);
   const [partnerId,setPartnerId]=useState(null);
   const [overdueCount,setOverdueCount]=useState(0);
+  const [mobileMenuOpen,setMobileMenuOpen]=useState(
+    typeof window!=="undefined" ? window.matchMedia("(max-width: 800px)").matches : false
+  );
 
   useEffect(()=>{
     if(token){
@@ -1960,6 +1963,10 @@ export default function App(){
     setInvoiceId(null);
     setStatementCustomerId(null);
     setPartnerId(null);
+    if(typeof window!=="undefined"&&window.matchMedia("(max-width: 800px)").matches){
+      setMobileMenuOpen(false);
+      window.scrollTo({top:0,behavior:"smooth"});
+    }
   }
 
   let content;
@@ -2022,8 +2029,16 @@ export default function App(){
     ["capital","حركة رأس المال"]
   ];
 
-  return <div className="app">
+  return <div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
+    <div className="mobile-page-header no-print">
+      <button onClick={()=>setMobileMenuOpen(true)}>☰ القائمة</button>
+      <button onClick={()=>navigate("dashboard")}>🏠 الرئيسية</button>
+    </div>
     <aside>
+      <div className="mobile-menu-heading no-print">
+        <strong>AlAboud</strong>
+        <button onClick={()=>setMobileMenuOpen(false)}>✕</button>
+      </div>
       <h1>AlAboud</h1>
       {menu.map(([key,label])=><button
         key={key}
@@ -2037,7 +2052,13 @@ export default function App(){
     </aside>
     <main>
       {showHomeButton&&<div className="home-return-bar no-print">
-        <button className="home-return-button" onClick={()=>navigate("dashboard")}>
+        <button className="home-return-button" onClick={()=>{
+          if(typeof window!=="undefined"&&window.matchMedia("(max-width: 800px)").matches){
+            setMobileMenuOpen(true);
+          }else{
+            navigate("dashboard");
+          }
+        }}>
           ⬅ العودة إلى القائمة الرئيسية
         </button>
       </div>}

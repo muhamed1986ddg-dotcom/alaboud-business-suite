@@ -720,3 +720,136 @@ aside button.active{
     width:100%;
   }
 }
+
+
+/* v11 — Mobile: menu or one page only */
+.mobile-page-header,
+.mobile-menu-heading{
+  display:none;
+}
+
+@media(max-width:800px){
+  html,body,#root{
+    min-height:100%;
+    overflow-x:hidden;
+  }
+
+  .app{
+    display:block!important;
+    min-height:100vh;
+  }
+
+  .app.mobile-menu-view aside{
+    display:flex!important;
+    position:relative!important;
+    width:100%!important;
+    min-height:100vh!important;
+    height:auto!important;
+    right:auto!important;
+    left:auto!important;
+    top:auto!important;
+    overflow:visible!important;
+    padding:18px 16px 38px!important;
+    box-sizing:border-box!important;
+  }
+
+  .app.mobile-menu-view main,
+  .app.mobile-menu-view .mobile-page-header{
+    display:none!important;
+  }
+
+  .app.mobile-page-view aside{
+    display:none!important;
+  }
+
+  .app.mobile-page-view main{
+    display:block!important;
+    width:100%!important;
+    max-width:100%!important;
+    margin:0!important;
+    padding:78px 12px 24px!important;
+    box-sizing:border-box!important;
+  }
+
+  .app.mobile-page-view .mobile-page-header{
+    display:flex!important;
+    position:fixed;
+    top:0;
+    left:0;
+    right:0;
+    z-index:9999;
+    height:62px;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:8px 12px;
+    box-sizing:border-box;
+    background:linear-gradient(135deg,#050505,#171717);
+    border-bottom:1px solid rgba(212,175,55,.55);
+    box-shadow:0 5px 18px rgba(0,0,0,.28);
+  }
+
+  .mobile-page-header button{
+    flex:1;
+    min-height:44px;
+    border-radius:11px!important;
+    font-size:15px;
+    font-weight:900;
+  }
+
+  .mobile-menu-heading{
+    display:flex!important;
+    align-items:center;
+    justify-content:space-between;
+    width:100%;
+    margin-bottom:12px;
+    padding:4px 4px 12px;
+    border-bottom:1px solid rgba(212,175,55,.28);
+    color:#f4d675;
+    font-size:29px;
+  }
+
+  .mobile-menu-heading button{
+    width:44px!important;
+    min-width:44px!important;
+    height:44px!important;
+    margin:0!important;
+    padding:0!important;
+    border-radius:50%!important;
+  }
+
+  .app.mobile-menu-view aside>h1{
+    display:none!important;
+  }
+
+  .app.mobile-menu-view aside>button{
+    display:block!important;
+    width:100%!important;
+    min-height:58px!important;
+    margin:5px 0!important;
+    padding:12px 18px!important;
+    text-align:right!important;
+    font-size:20px!important;
+    border-radius:13px!important;
+  }
+
+  .app.mobile-menu-view aside .logout{
+    margin-top:18px!important;
+  }
+
+  .app.mobile-page-view .home-return-bar{
+    display:none!important;
+  }
+
+  .app.mobile-page-view .card,
+  .app.mobile-page-view .tablewrap,
+  .app.mobile-page-view form{
+    max-width:100%!important;
+    overflow-x:auto;
+    box-sizing:border-box;
+  }
+
+  .app.mobile-page-view table{
+    min-width:680px;
+  }
+}
