@@ -102,7 +102,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"8.6.0",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"8.7.0",cloud:true}));
 app.post("/api/auth/login", (req,res)=>{
   const { email, password } = req.body || {};
   const store = readStore();
@@ -215,12 +215,18 @@ app.get("/api/notifications", auth, (_req,res)=>{
 });
 
 app.post("/api/notification-actions", auth, (req,res)=>{
-  const {customerId,action="CONTACTED",notes=""}=req.body||{};
+  const {customerId,action="CONTACTED",notes="",promiseDate=null,expectedAmount=null}=req.body||{};
   const saved=mutate((store)=>{
     store.notificationActions ||= [];
     const item={
-      id:id(),customerId:customerId||null,action,notes,
-      createdAt:now(),createdBy:req.user.id
+      id:id(),
+      customerId:customerId||null,
+      action,
+      notes:String(notes||""),
+      promiseDate:promiseDate?String(promiseDate).slice(0,10):null,
+      expectedAmount:expectedAmount===null||expectedAmount===""?null:+safeNumber(expectedAmount).toFixed(2),
+      createdAt:now(),
+      createdBy:req.user.id
     };
     store.notificationActions.push(item);
     audit(store,req.user.id,"CREATE","NOTIFICATION_ACTION",item.id,item);
@@ -229,16 +235,71 @@ app.post("/api/notification-actions", auth, (req,res)=>{
   res.status(201).json(saved);
 });
 
+app.get("/api/notification-actions/:customerId", auth, (req,res)=>{
+  const store=readStore();
+  const rows=(Array.isArray(store.notificationActions)?store.notificationActions:[])
+    .filter(item=>item?.customerId===req.params.customerId)
+    .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+  res.json(rows);
+});
+
 app.get("/api/customer-alerts", auth, (_req,res)=>{
   const store = readStore();
+  const payments=Array.isArray(store.payments)?store.payments:[];
+  const actions=Array.isArray(store.notificationActions)?store.notificationActions:[];
+  const today=new Date().toISOString().slice(0,10);
+
+  const latestActionByCustomer=new Map();
+  for(const action of actions){
+    if(!action?.customerId)continue;
+    const current=latestActionByCustomer.get(action.customerId);
+    if(!current||String(action.createdAt)>String(current.createdAt)){
+      latestActionByCustomer.set(action.customerId,action);
+    }
+  }
+
   const rows = (Array.isArray(store.customers) ? store.customers : [])
-    .map((customer)=>customerSummary(store,customer))
+    .map((customer)=>{
+      const summary=customerSummary(store,customer);
+      const customerPayments=payments
+        .filter(payment=>payment&&!payment.isDeleted)
+        .filter(payment=>{
+          const transaction=(Array.isArray(store.transactions)?store.transactions:[])
+            .find(item=>item?.id===payment.transactionId);
+          return transaction?.customerId===customer.id;
+        })
+        .sort((a,b)=>String(b.paymentDate||b.createdAt).localeCompare(String(a.paymentDate||a.createdAt)));
+      const latestAction=latestActionByCustomer.get(customer.id)||null;
+      return {
+        ...summary,
+        lastPaymentDate:customerPayments[0]
+          ? String(customerPayments[0].paymentDate||customerPayments[0].createdAt).slice(0,10)
+          : null,
+        latestAction,
+        promiseDate:latestAction?.promiseDate||null,
+        expectedAmount:latestAction?.expectedAmount??null,
+        contacted:latestAction?.action==="CONTACTED"||latestAction?.action==="PROMISE_TO_PAY"
+      };
+    })
     .filter((customer)=>customer.overdue)
     .sort((a,b)=>b.overdueDays-a.overdueDays);
+
+  const expectedToday=rows.reduce((sum,item)=>{
+    if(item.promiseDate!==today)return sum;
+    return sum+safeNumber(item.expectedAmount,item.finalBalance);
+  },0);
+
+  const largestBalance=rows.reduce((max,item)=>safeNumber(item.finalBalance)>safeNumber(max?.finalBalance)?item:max,null);
+  const oldest=rows[0]||null;
 
   res.json({
     count:rows.length,
     totalOverdue:+rows.reduce((sum,item)=>sum+safeNumber(item.finalBalance),0).toFixed(2),
+    largestOverdueBalance:largestBalance?+safeNumber(largestBalance.finalBalance).toFixed(2):0,
+    largestOverdueCustomer:largestBalance?.name||null,
+    oldestCustomer:oldest?.name||null,
+    oldestDays:oldest?.overdueDays||0,
+    expectedToday:+expectedToday.toFixed(2),
     rows
   });
 });

@@ -390,17 +390,22 @@ function Customers({open}){
   </>;
 }
 
-function OverdueCustomers({openCustomer,navigateCustomers}){
-  const [data,setData]=useState({count:0,totalOverdue:0,rows:[]});
+function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
+  const [data,setData]=useState({
+    count:0,totalOverdue:0,largestOverdueBalance:0,largestOverdueCustomer:null,
+    oldestCustomer:null,oldestDays:0,expectedToday:0,rows:[]
+  });
   const [search,setSearch]=useState("");
   const [days,setDays]=useState("7");
   const [error,setError]=useState("");
+  const [success,setSuccess]=useState("");
+  const [drafts,setDrafts]=useState({});
 
   async function load(){
     setError("");
     try{
       const response=await api.get("/customer-alerts");
-      setData(response.data||{count:0,totalOverdue:0,rows:[]});
+      setData(response.data||{rows:[]});
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل العملاء المتأخرين");
     }
@@ -408,20 +413,77 @@ function OverdueCustomers({openCustomer,navigateCustomers}){
 
   useEffect(()=>{load();},[]);
 
-  function sendWhatsapp(customer){
+  function updateDraft(customerId,patch){
+    setDrafts(current=>({
+      ...current,
+      [customerId]:{promiseDate:"",expectedAmount:"",notes:"",messageType:"gentle",...(current[customerId]||{}),...patch}
+    }));
+  }
+
+  function whatsappText(customer,type){
+    const templates={
+      gentle:[
+        `السلام عليكم ${customer.name}،`,
+        `نذكّركم بلطف بوجود رصيد مستحق قدره ${money(customer.finalBalance)} CAD.`,
+        `مدة التأخير: ${customer.overdueDays} يوم.`,
+        `نرجو التكرم بالسداد في الوقت المناسب.`,
+        `شكراً لتعاملكم مع شركة العبود للتجارة.`
+      ],
+      formal:[
+        `السيد/السيدة ${customer.name} المحترم/ة،`,
+        `نفيدكم بوجود رصيد مستحق على حسابكم بقيمة ${money(customer.finalBalance)} CAD.`,
+        `وقد تجاوزت مدة التأخير ${customer.overdueDays} يومًا.`,
+        `يرجى تسوية الرصيد أو التواصل معنا لتحديد موعد الدفع.`,
+        `شركة العبود للتجارة.`
+      ],
+      statement:[
+        `السلام عليكم ${customer.name}،`,
+        `ملخص حسابكم الحالي:`,
+        `إجمالي الحساب: ${money(customer.totalTransactions)} CAD`,
+        `إجمالي المدفوع: ${money(customer.totalPaid)} CAD`,
+        `الرصيد المتبقي: ${money(customer.finalBalance)} CAD`,
+        `يمكننا تزويدكم بكشف الحساب الكامل عند الطلب.`
+      ]
+    };
+    return (templates[type]||templates.gentle).join("\n");
+  }
+
+  async function sendWhatsapp(customer){
     const phone=String(customer.phone||"").replace(/\D/g,"");
     if(!phone){
       setError(`لا يوجد رقم واتساب محفوظ للعميل ${customer.name}`);
       return;
     }
-    const message=[
-      `السلام عليكم ${customer.name}،`,
-      `نذكّركم بوجود رصيد مستحق قدره ${money(customer.finalBalance)} CAD.`,
-      `مدة التأخير: ${customer.overdueDays} يوم.`,
-      `نرجو التكرم بالسداد في أقرب وقت.`,
-      `شكراً لتعاملكم مع شركة العبود للتجارة.`
-    ].join("\n");
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank");
+    const type=drafts[customer.id]?.messageType||"gentle";
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(whatsappText(customer,type))}`,"_blank");
+    try{
+      await api.post("/notification-actions",{
+        customerId:customer.id,
+        action:"WHATSAPP_OPENED",
+        notes:`تم فتح رسالة واتساب من النوع ${type}`
+      });
+      load();
+    }catch{}
+  }
+
+  async function saveAction(customer,action){
+    const draft=drafts[customer.id]||{};
+    setError("");
+    setSuccess("");
+    try{
+      await api.post("/notification-actions",{
+        customerId:customer.id,
+        action,
+        notes:draft.notes||"",
+        promiseDate:draft.promiseDate||null,
+        expectedAmount:draft.expectedAmount||null
+      });
+      setSuccess(action==="PROMISE_TO_PAY"?"تم حفظ وعد الدفع":"تم تسجيل التواصل والملاحظة");
+      updateDraft(customer.id,{notes:""});
+      load();
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر حفظ المتابعة");
+    }
   }
 
   const minDays=Number(days||7);
@@ -432,7 +494,8 @@ function OverdueCustomers({openCustomer,navigateCustomers}){
     )
     .sort((a,b)=>Number(b.overdueDays||0)-Number(a.overdueDays||0));
 
-  const total=rows.reduce((sum,customer)=>sum+Number(customer.finalBalance||0),0);
+  const filteredTotal=rows.reduce((sum,customer)=>sum+Number(customer.finalBalance||0),0);
+  const largest=rows.reduce((max,item)=>Number(item.finalBalance||0)>Number(max?.finalBalance||0)?item:max,null);
   const oldest=rows[0];
 
   function severity(daysLate){
@@ -444,17 +507,19 @@ function OverdueCustomers({openCustomer,navigateCustomers}){
 
   return <>
     <div className="dashboard-title">
-      <h2>⏰ العملاء المتأخرون</h2>
+      <h2>⏰ مركز تحصيل العملاء المتأخرين</h2>
       <button onClick={load}>تحديث القائمة</button>
     </div>
 
     {error&&<div className="card customer-error">{error}</div>}
+    {success&&<div className="card rate-message">{success}</div>}
 
-    <div className="stats">
+    <div className="stats overdue-top-stats">
       <div className="card overdue-card"><span>عدد العملاء المتأخرين</span><strong>{rows.length}</strong></div>
-      <div className="card overdue-card"><span>إجمالي المبالغ المتأخرة</span><strong>{money(total)} CAD</strong></div>
-      <div className="card"><span>أكثر مدة تأخير</span><strong>{oldest?`${oldest.overdueDays} يوم`:"0 يوم"}</strong></div>
-      <div className="card"><span>أكثر عميل متأخر</span><strong>{oldest?.name||"-"}</strong></div>
+      <div className="card overdue-card"><span>إجمالي المبالغ المتأخرة</span><strong>{money(filteredTotal)} CAD</strong></div>
+      <div className="card"><span>أكبر رصيد متأخر</span><strong>{money(largest?.finalBalance||0)} CAD</strong><small>{largest?.name||"-"}</small></div>
+      <div className="card"><span>أكثر عميل تأخرًا</span><strong>{oldest?.name||"-"}</strong><small>{oldest?`${oldest.overdueDays} يوم`:"0 يوم"}</small></div>
+      <div className="card expected-today-card"><span>المتوقع تحصيله اليوم</span><strong>{money(data.expectedToday||0)} CAD</strong></div>
     </div>
 
     <div className="card overdue-filters">
@@ -468,8 +533,9 @@ function OverdueCustomers({openCustomer,navigateCustomers}){
     </div>
 
     <div className="overdue-customers-grid">
-      {rows.length?rows.map(customer=>
-        <article className={`card overdue-customer-card severity-${severity(customer.overdueDays)}`} key={customer.id}>
+      {rows.length?rows.map(customer=>{
+        const draft={promiseDate:"",expectedAmount:"",notes:"",messageType:"gentle",...(drafts[customer.id]||{})};
+        return <article className={`card overdue-customer-card severity-${severity(customer.overdueDays)}`} key={customer.id}>
           <div className="overdue-customer-head">
             <div>
               <h3>{customer.name}</h3>
@@ -478,20 +544,46 @@ function OverdueCustomers({openCustomer,navigateCustomers}){
             <span>{customer.overdueDays} يوم</span>
           </div>
 
-          <div className="overdue-customer-details">
+          <div className="overdue-customer-details expanded">
             <div><span>الرصيد المتبقي</span><strong>{money(customer.finalBalance)} CAD</strong></div>
             <div><span>إجمالي الحساب</span><strong>{money(customer.totalTransactions)} CAD</strong></div>
             <div><span>إجمالي المدفوع</span><strong>{money(customer.totalPaid)} CAD</strong></div>
+            <div><span>أقدم حوالة غير مدفوعة</span><strong>{customer.oldestUnpaidDate||"-"}</strong></div>
+            <div><span>آخر دفعة</span><strong>{customer.lastPaymentDate||"-"}</strong></div>
+            <div><span>آخر متابعة</span><strong>{customer.latestAction?.action||"-"}</strong></div>
           </div>
 
-          <div className="customer-card-actions">
-            <button onClick={()=>openCustomer(customer.id)}>فتح كشف الحساب</button>
+          {customer.promiseDate&&<div className="promise-banner">
+            وعد بالدفع: <strong>{customer.promiseDate}</strong>
+            {customer.expectedAmount!=null&&<> — {money(customer.expectedAmount)} CAD</>}
+          </div>}
+
+          <div className="whatsapp-options">
+            <label>نوع رسالة واتساب</label>
+            <select value={draft.messageType} onChange={e=>updateDraft(customer.id,{messageType:e.target.value})}>
+              <option value="gentle">تذكير لطيف</option>
+              <option value="formal">تذكير رسمي</option>
+              <option value="statement">ملخص كشف الحساب</option>
+            </select>
+          </div>
+
+          <div className="followup-form">
+            <input type="date" value={draft.promiseDate} onChange={e=>updateDraft(customer.id,{promiseDate:e.target.value})}/>
+            <input type="number" step=".01" value={draft.expectedAmount} onChange={e=>updateDraft(customer.id,{expectedAmount:e.target.value})} placeholder="المبلغ المتوقع"/>
+            <input value={draft.notes} onChange={e=>updateDraft(customer.id,{notes:e.target.value})} placeholder="ملاحظة مثل: وعد بالدفع يوم الجمعة"/>
+          </div>
+
+          <div className="customer-card-actions overdue-actions">
+            <button onClick={()=>openCustomer(customer.id)}>فتح الحساب</button>
             <button onClick={()=>openCustomer(customer.id)}>إضافة دفعة</button>
-            <button className="whatsapp-button" onClick={()=>sendWhatsapp(customer)}>تذكير واتساب</button>
+            <button onClick={()=>onStatement(customer.id)}>طباعة / PDF</button>
+            <button className="whatsapp-button" onClick={()=>sendWhatsapp(customer)}>إرسال واتساب</button>
+            <button onClick={()=>saveAction(customer,"CONTACTED")}>تم التواصل</button>
+            <button onClick={()=>saveAction(customer,"PROMISE_TO_PAY")}>حفظ وعد الدفع</button>
             <button onClick={navigateCustomers}>تعديل العميل</button>
           </div>
         </article>
-      ):<div className="card">لا يوجد عملاء متأخرون ضمن الفلتر المحدد.</div>}
+      }):<div className="card">لا يوجد عملاء متأخرون ضمن الفلتر المحدد.</div>}
     </div>
   </>;
 }
@@ -1884,7 +1976,7 @@ export default function App(){
   }else if(page==="customers"){
     content=<Customers open={setCustomerId}/>;
   }else if(page==="overdue-customers"){
-    content=<OverdueCustomers openCustomer={setCustomerId} navigateCustomers={()=>navigate("customers")}/>;
+    content=<OverdueCustomers openCustomer={setCustomerId} onStatement={setStatementCustomerId} navigateCustomers={()=>navigate("customers")}/>;
   }else if(page==="partners"){
     content=<Partners open={setPartnerId}/>;
   }else if(page==="transactions"){
