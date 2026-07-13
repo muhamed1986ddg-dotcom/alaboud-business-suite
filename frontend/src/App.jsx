@@ -2036,10 +2036,10 @@ export default function App(){
     </div>
     <aside>
       <div className="mobile-menu-heading no-print">
-        <strong>AlAboud</strong>
+        <img className="alaboud-sidebar-logo mobile-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية" />
         <button onClick={()=>setMobileMenuOpen(false)}>✕</button>
       </div>
-      <h1>AlAboud</h1>
+      <div className="sidebar-logo-wrap"><img className="alaboud-sidebar-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية" /></div>
       {menu.map(([key,label])=><button
         key={key}
         className={page===key&&!customerId&&!invoiceId&&!statementCustomerId&&!partnerId?"active":""}
