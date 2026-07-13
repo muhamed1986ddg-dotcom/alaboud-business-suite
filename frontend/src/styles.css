@@ -1019,3 +1019,73 @@ aside button.active{
     display:none!important;
   }
 }
+
+
+/* v11.3 — Fix invisible mobile menu items */
+@media(max-width:800px){
+  .app.mobile-menu-view aside{
+    display:flex!important;
+    flex-direction:column!important;
+    flex-wrap:nowrap!important;
+    align-items:stretch!important;
+    justify-content:flex-start!important;
+    width:100%!important;
+    max-width:100%!important;
+    height:100vh!important;
+    min-height:100vh!important;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+    padding:10px 14px 30px!important;
+    box-sizing:border-box!important;
+  }
+
+  .app.mobile-menu-view aside > *{
+    flex-shrink:0!important;
+  }
+
+  .app.mobile-menu-view aside > button{
+    display:block!important;
+    position:relative!important;
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    height:auto!important;
+    min-height:50px!important;
+    max-height:none!important;
+    margin:4px 0!important;
+    padding:10px 14px!important;
+    box-sizing:border-box!important;
+    white-space:normal!important;
+    text-align:right!important;
+  }
+
+  .app.mobile-menu-view .mobile-menu-heading{
+    display:flex!important;
+    flex-direction:row!important;
+    flex-shrink:0!important;
+    width:100%!important;
+    max-width:100%!important;
+    height:76px!important;
+    min-height:76px!important;
+    position:relative!important;
+    align-items:center!important;
+    justify-content:flex-end!important;
+  }
+
+  .app.mobile-menu-view .mobile-menu-heading .mobile-logo{
+    position:absolute!important;
+    left:50%!important;
+    top:50%!important;
+    transform:translate(-50%,-50%)!important;
+  }
+
+  .app.mobile-menu-view .mobile-menu-heading button{
+    position:relative!important;
+    z-index:2!important;
+    margin-right:auto!important;
+  }
+
+  .app.mobile-menu-view main{
+    display:none!important;
+  }
+}
