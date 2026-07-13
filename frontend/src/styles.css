@@ -1361,3 +1361,51 @@ aside button.active{
     height:calc(28px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+
+/* v11.6 — Hard Android navigation-bar clearance */
+@media(max-width:800px){
+
+  /* Android WebView may report safe-area as zero, so use explicit clearance */
+  .app.mobile-page-view main{
+    padding-bottom:150px!important;
+  }
+
+  .app.mobile-page-view main::after{
+    content:"";
+    display:block!important;
+    width:100%;
+    height:120px!important;
+    min-height:120px!important;
+  }
+
+  .app.mobile-page-view form{
+    margin-bottom:110px!important;
+  }
+
+  .app.mobile-page-view form > button:last-child,
+  .app.mobile-page-view .form-actions,
+  .app.mobile-page-view .actions,
+  .app.mobile-page-view .bottom-actions,
+  .app.mobile-page-view .mobile-bottom-actions{
+    position:relative!important;
+    bottom:auto!important;
+    margin-bottom:90px!important;
+    z-index:2!important;
+  }
+
+  /* Ensure last control can be scrolled fully above Android navigation */
+  .app.mobile-page-view input:last-child,
+  .app.mobile-page-view select:last-child,
+  .app.mobile-page-view textarea:last-child,
+  .app.mobile-page-view button:last-child{
+    scroll-margin-bottom:150px!important;
+  }
+
+  body,
+  #root,
+  .app.mobile-page-view{
+    min-height:100vh!important;
+    overflow-y:auto!important;
+  }
+}
