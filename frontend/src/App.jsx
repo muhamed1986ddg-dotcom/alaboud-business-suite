@@ -24,7 +24,7 @@ class AppErrorBoundary extends React.Component{
   }
 }
 
-function Login({onLogin}){const[email,setEmail]=useState("admin@alaboud.local"),[password,setPassword]=useState("Admin123!"),[error,setError]=useState("");async function submit(e){e.preventDefault();try{const{data}=await api.post("/auth/login",{email,password});localStorage.setItem("afs_token",data.token);localStorage.setItem("afs_user",JSON.stringify(data.user));onLogin();}catch{setError("فشل تسجيل الدخول");}}return <div className="login"><form className="panel" onSubmit={submit}><div className="logo">A</div><h1>نظام العبود المالي</h1><p>إدارة الحوالات والحسابات</p><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد"/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور"/>{error&&<div className="error">{error}</div>}<button>تسجيل الدخول</button><small>admin@alaboud.local / Admin123!</small></form></div>}
+function Login({onLogin}){const[email,setEmail]=useState("admin@alaboud.local"),[password,setPassword]=useState("Admin123!"),[error,setError]=useState("");async function submit(e){e.preventDefault();try{const{data}=await api.post("/auth/login",{email,password});localStorage.setItem("afs_token",data.token);localStorage.setItem("afs_user",JSON.stringify(data.user));onLogin();}catch{setError("فشل تسجيل الدخول");}}return <div className="login"><form className="panel" onSubmit={submit}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><h1>AlAboud Business Suite</h1><p>إدارة الحوالات والحسابات</p><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد"/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور"/>{error&&<div className="error">{error}</div>}<button>تسجيل الدخول</button><small>admin@alaboud.local / Admin123!</small></form></div>}
 function Dashboard({navigate}){
   const [data,setData]=useState(null);
   const [noticeData,setNoticeData]=useState({count:0,overdueCount:0,overdueTotal:0,notifications:[]});
@@ -306,10 +306,33 @@ function Customers({open}){
           {list.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
         <input type="date" value={transferForm.transferDate} onChange={e=>setTransferForm({...transferForm,transferDate:e.target.value})}/>
-        <input type="number" min=".01" step=".01" value={transferForm.amount} onChange={e=>setTransferForm({...transferForm,amount:e.target.value})} placeholder="مبلغ الحوالة" required/>
-        <input type="number" min=".0001" step=".0001" value={transferForm.costRate} onChange={e=>setTransferForm({...transferForm,costRate:e.target.value})} placeholder="سعر التكلفة" required/>
-        <input type="number" min=".0001" step=".0001" value={transferForm.finalRate} onChange={e=>setTransferForm({...transferForm,finalRate:e.target.value})} placeholder="سعر الحوالة" required/>
-        <input type="number" min="0" step=".01" value={transferForm.transferFee} onChange={e=>setTransferForm({...transferForm,transferFee:e.target.value})} placeholder="أجور الحوالة"/>
+        <label className="currency-field">
+          <span className="currency-field-title">مبلغ الحوالة</span>
+          <span className="currency-badge usd">USD</span>
+          <input type="number" inputMode="decimal" min=".01" step=".01" value={transferForm.amount} onChange={e=>setTransferForm({...transferForm,amount:e.target.value})} placeholder="0.00" required/>
+          <small>المبلغ المرسل بالدولار الأمريكي</small>
+        </label>
+        <label className="currency-field">
+          <span className="currency-field-title">سعر التكلفة</span>
+          <span className="currency-badge cad">CAD</span>
+          <input type="number" inputMode="decimal" min=".0001" step=".0001" value={transferForm.costRate} onChange={e=>setTransferForm({...transferForm,costRate:e.target.value})} placeholder="0.0000" required/>
+          <small>تكلفة كل دولار أمريكي بالدولار الكندي</small>
+        </label>
+        <label className="currency-field">
+          <span className="currency-field-title">سعر الحوالة</span>
+          <span className="currency-badge cad">CAD</span>
+          <input type="number" inputMode="decimal" min=".0001" step=".0001" value={transferForm.finalRate} onChange={e=>setTransferForm({...transferForm,finalRate:e.target.value})} placeholder="0.0000" required/>
+          <small>سعر بيع كل دولار أمريكي بالدولار الكندي</small>
+        </label>
+        <div className="transfer-total-preview">
+          <span>إجمالي الحوالة المتوقع</span>
+          <strong>{((Number(transferForm.amount)||0)*(Number(transferForm.finalRate)||0)+(Number(transferForm.transferFee)||0)).toFixed(2)} CAD</strong>
+        </div>
+        <label className="currency-field">
+          <span className="currency-field-title">أجور الحوالة</span>
+          <span className="currency-badge cad">CAD</span>
+          <input type="number" inputMode="decimal" min="0" step=".01" value={transferForm.transferFee} onChange={e=>setTransferForm({...transferForm,transferFee:e.target.value})} placeholder="0.00"/>
+        </label>
         <button>حفظ الحوالة</button>
         <button type="button" onClick={()=>setActivePanel("")}>إلغاء</button>
       </form>
@@ -741,8 +764,8 @@ function Customer({id,back,onStatement}){
         <h3>تعديل الحوالة {editingTransaction.number}</h3>
         <input type="date" value={editingTransaction.transferDate||""} onChange={e=>setEditingTransaction({...editingTransaction,transferDate:e.target.value})}/>
         <input type="number" step=".01" value={editingTransaction.amount} onChange={e=>setEditingTransaction({...editingTransaction,amount:e.target.value})} placeholder="المبلغ"/>
-        <input type="number" step=".0001" value={editingTransaction.costRate} onChange={e=>setEditingTransaction({...editingTransaction,costRate:e.target.value})} placeholder="سعر التكلفة"/>
-        <input type="number" step=".0001" value={editingTransaction.finalRate} onChange={e=>setEditingTransaction({...editingTransaction,finalRate:e.target.value})} placeholder="سعر الحوالة"/>
+        <input type="number" step=".0001" value={editingTransaction.costRate} onChange={e=>setEditingTransaction({...editingTransaction,costRate:e.target.value})} placeholder="سعر التكلفة (CAD)"/>
+        <input type="number" step=".0001" value={editingTransaction.finalRate} onChange={e=>setEditingTransaction({...editingTransaction,finalRate:e.target.value})} placeholder="سعر الحوالة (CAD)"/>
         <input type="number" step=".01" value={editingTransaction.transferFee} onChange={e=>setEditingTransaction({...editingTransaction,transferFee:e.target.value})} placeholder="الأجور"/>
         <select value={editingTransaction.feeMethod} onChange={e=>setEditingTransaction({...editingTransaction,feeMethod:e.target.value})}>
           <option value="ADD">إضافة الأجور</option>
@@ -1086,10 +1109,33 @@ function Transactions({openInvoice}){
         {customers.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
       </select>
       <input type="date" value={f.transferDate} onChange={e=>setF({...f,transferDate:e.target.value})} required/>
-      <input type="number" step=".01" value={f.amount} onChange={e=>setF({...f,amount:e.target.value})} placeholder="المبلغ" required/>
-      <input type="number" step=".0001" value={f.costRate} onChange={e=>setF({...f,costRate:e.target.value})} placeholder="سعر التكلفة" required/>
-      <input type="number" step=".0001" value={f.finalRate} onChange={e=>setF({...f,finalRate:e.target.value})} placeholder="سعر الحوالة" required/>
-      <input type="number" step=".01" value={f.transferFee} onChange={e=>setF({...f,transferFee:e.target.value})} placeholder="أجور الحوالة"/>
+      <label className="currency-field">
+        <span className="currency-field-title">مبلغ الحوالة</span>
+        <span className="currency-badge usd">USD</span>
+        <input type="number" inputMode="decimal" step=".01" value={f.amount} onChange={e=>setF({...f,amount:e.target.value})} placeholder="0.00" required/>
+        <small>المبلغ بالدولار الأمريكي</small>
+      </label>
+      <label className="currency-field">
+        <span className="currency-field-title">سعر التكلفة</span>
+        <span className="currency-badge cad">CAD</span>
+        <input type="number" inputMode="decimal" step=".0001" value={f.costRate} onChange={e=>setF({...f,costRate:e.target.value})} placeholder="0.0000" required/>
+        <small>سعر التكلفة بالدولار الكندي لكل USD</small>
+      </label>
+      <label className="currency-field">
+        <span className="currency-field-title">سعر الحوالة</span>
+        <span className="currency-badge cad">CAD</span>
+        <input type="number" inputMode="decimal" step=".0001" value={f.finalRate} onChange={e=>setF({...f,finalRate:e.target.value})} placeholder="0.0000" required/>
+        <small>سعر البيع بالدولار الكندي لكل USD</small>
+      </label>
+      <div className="transfer-total-preview">
+        <span>إجمالي الحوالة المتوقع</span>
+        <strong>{((Number(f.amount)||0)*(Number(f.finalRate)||0)+(Number(f.transferFee)||0)).toFixed(2)} CAD</strong>
+      </div>
+      <label className="currency-field">
+        <span className="currency-field-title">أجور الحوالة</span>
+        <span className="currency-badge cad">CAD</span>
+        <input type="number" inputMode="decimal" step=".01" value={f.transferFee} onChange={e=>setF({...f,transferFee:e.target.value})} placeholder="0.00"/>
+      </label>
       <select value={f.feeMethod} onChange={e=>setF({...f,feeMethod:e.target.value})}>
         <option value="ADD">إضافة الأجور</option>
         <option value="DEDUCT">خصم الأجور</option>
@@ -2014,25 +2060,30 @@ export default function App(){
     Boolean(partnerId);
 
   const menu=[
-    ["dashboard","القائمة الرئيسية"],
-    ["customers","العملاء"],
+    ["dashboard","⌂ القائمة الرئيسية"],
+    ["customers","👥 العملاء"],
     ["overdue-customers",`⏰ العملاء المتأخرون${overdueCount?` (${overdueCount})`:""}`],
-    ["partners","الموردون والشركات"],
-    ["transactions","الحوالات"],
-    ["profits","الأرباح"],
-    ["rates","أسعار الصرف"],
-    ["debts","الدَّين العام"],
-    ["capital-overview","رأس المال الكلي"],
-    ["monthly-report","التقارير الشهرية"],
-    ["notification-settings","إعدادات التنبيهات"],
-    ["expenses","المصروفات"],
-    ["capital","حركة رأس المال"]
+    ["partners","🏢 الموردون والشركات"],
+    ["transactions","⇄ الحوالات"],
+    ["profits","📈 الأرباح"],
+    ["rates","💱 أسعار الصرف"],
+    ["debts","📒 الدَّين العام"],
+    ["capital-overview","💰 رأس المال الكلي"],
+    ["monthly-report","📊 التقارير الشهرية"],
+    ["notification-settings","🔔 إعدادات التنبيهات"],
+    ["expenses","🧾 المصروفات"],
+    ["capital","🏦 حركة رأس المال"]
   ];
 
   return <div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
     <div className="mobile-page-header no-print">
-      <button onClick={()=>setMobileMenuOpen(true)}>☰ القائمة</button>
-      <button onClick={()=>setMobileMenuOpen(true)}>🏠 الرئيسية</button>
+      <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
+        <span className="mobile-header-icon">☰</span><span>القائمة</span>
+      </button>
+      <img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+      <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
+        <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
+      </button>
     </div>
     <aside>
       <div className="mobile-menu-heading no-print">
@@ -2050,7 +2101,7 @@ export default function App(){
         setToken(null);
       }}>خروج</button>
     </aside>
-    <main>
+    <main className="app-main-content">
       {showHomeButton&&<div className="home-return-bar no-print">
         <button className="home-return-button" onClick={()=>{
           if(typeof window!=="undefined"&&window.matchMedia("(max-width: 800px)").matches){
