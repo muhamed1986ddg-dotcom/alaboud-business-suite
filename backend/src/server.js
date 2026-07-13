@@ -100,7 +100,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"8.3.0",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"8.4.0",cloud:true}));
 app.post("/api/auth/login", (req,res)=>{
   const { email, password } = req.body || {};
   const store = readStore();
@@ -887,61 +887,113 @@ app.patch("/api/general-debts/:id", auth, (req,res)=>{
 app.get("/api/customers/:id/statement", auth, (req,res)=>{
   try{
     const store=readStore();
-    const customer=(Array.isArray(store.customers)?store.customers:[]).find(item=>item?.id===req.params.id&&!item?.isDeleted);
+    const customer=(Array.isArray(store.customers)?store.customers:[])
+      .find(item=>item?.id===req.params.id);
+
     if(!customer)return res.status(404).json({message:"العميل غير موجود"});
 
     const from=String(req.query.from||"");
     const to=String(req.query.to||"");
+
     const inRange=(transaction)=>{
       const date=String(transaction.transferDate||transaction.createdAt||"").slice(0,10);
       return (!from||date>=from)&&(!to||date<=to);
     };
 
+    const allPayments=(Array.isArray(store.payments)?store.payments:[])
+      .filter(payment=>payment&&!payment.isDeleted);
+
+    const today=new Date();
+    today.setHours(0,0,0,0);
+
     const transactions=(Array.isArray(store.transactions)?store.transactions:[])
-      .filter(transaction=>transaction?.customerId===customer.id&&!transaction?.isDeleted&&transaction.status!=="CANCELLED"&&inRange(transaction))
+      .filter(transaction=>
+        transaction?.customerId===customer.id &&
+        !transaction?.isDeleted &&
+        transaction.status!=="CANCELLED" &&
+        inRange(transaction)
+      )
       .map(transaction=>{
-        const paid=(Array.isArray(store.payments)?store.payments:[])
-          .filter(payment=>payment?.transactionId===transaction.id&&!payment?.isDeleted)
+        const paid=allPayments
+          .filter(payment=>payment.transactionId===transaction.id)
           .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
 
-        const due=safeNumber(
+        const usdAmount=safeNumber(transaction.amount);
+        const costRate=safeNumber(transaction.costRate);
+        const finalRate=safeNumber(transaction.finalRate);
+
+        const costCad=transaction.direction==="USD_TO_CAD"
+          ? usdAmount*costRate
+          : usdAmount*costRate;
+
+        const totalCad=safeNumber(
           transaction.totalCustomerDue,
-          safeNumber(transaction.amount)+safeNumber(transaction.transferFee)
+          usdAmount*finalRate + safeNumber(transaction.transferFee)
         );
 
+        const remaining=Math.max(totalCad-paid,0);
+        const date=transaction.transferDate||String(transaction.createdAt||"").slice(0,10);
+        const transferDate=new Date(`${date}T00:00:00`);
+        const overdueDays=!Number.isNaN(transferDate.getTime())
+          ? Math.max(0,Math.floor((today-transferDate)/86400000))
+          : 0;
+
+        let paymentStatus="UNPAID";
+        if(remaining<=0.001)paymentStatus="PAID";
+        else if(paid>0)paymentStatus="PARTIAL";
+        if(remaining>0.001&&overdueDays>7)paymentStatus="OVERDUE";
+
         return {
-          ...transaction,
-          transferDate:transaction.transferDate||String(transaction.createdAt||"").slice(0,10),
-          totalCustomerDue:+due.toFixed(2),
+          id:transaction.id,
+          number:transaction.number||transaction.id,
+          transferDate:date,
+          usdAmount:+usdAmount.toFixed(2),
+          costCad:+costCad.toFixed(2),
+          totalCad:+totalCad.toFixed(2),
           paid:+paid.toFixed(2),
-          remaining:+Math.max(due-paid,0).toFixed(2)
+          remaining:+remaining.toFixed(2),
+          status:paymentStatus,
+          overdueDays,
+          transferFee:+safeNumber(transaction.transferFee).toFixed(2)
         };
       })
       .sort((a,b)=>String(a.transferDate).localeCompare(String(b.transferDate)));
 
-    const totals=transactions.reduce((acc,transaction)=>{
-      acc.total+=safeNumber(transaction.totalCustomerDue);
-      acc.paid+=safeNumber(transaction.paid);
-      acc.remaining+=safeNumber(transaction.remaining);
-      acc.fees+=safeNumber(transaction.transferFee);
+    const totals=transactions.reduce((acc,item)=>{
+      acc.usdAmount+=safeNumber(item.usdAmount);
+      acc.costCad+=safeNumber(item.costCad);
+      acc.totalCad+=safeNumber(item.totalCad);
+      acc.paid+=safeNumber(item.paid);
+      acc.remaining+=safeNumber(item.remaining);
       return acc;
-    },{total:0,paid:0,remaining:0,fees:0});
+    },{usdAmount:0,costCad:0,totalCad:0,paid:0,remaining:0});
+
+    const lastActivity=transactions.length
+      ? transactions[transactions.length-1].transferDate
+      : null;
 
     res.json({
       company:{
         name:"شركة العبود للتجارة",
         nameEn:"AlAboud Trading Company"
       },
-      customer:customerSummary(store,customer),
+      customer:{
+        ...customer,
+        totalTransactions:+totals.totalCad.toFixed(2),
+        totalPaid:+totals.paid.toFixed(2),
+        finalBalance:+totals.remaining.toFixed(2)
+      },
       from:from||null,
       to:to||null,
       generatedAt:now(),
+      lastActivity,
       transactions,
       totals:{
-        total:+totals.total.toFixed(2),
+        usdAmount:+totals.usdAmount.toFixed(2),
+        costCad:+totals.costCad.toFixed(2),
+        totalCad:+totals.totalCad.toFixed(2),
         paid:+totals.paid.toFixed(2),
-        remaining:+totals.remaining.toFixed(2),
-        fees:+totals.fees.toFixed(2)
+        remaining:+totals.remaining.toFixed(2)
       }
     });
   }catch(error){

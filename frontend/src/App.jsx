@@ -651,41 +651,53 @@ function Statement({customerId,back}){
 
   useEffect(()=>{load();},[customerId]);
 
-  function sendWhatsApp(){
+  function whatsappStatement(){
     if(!data)return;
     const phone=String(data.customer.phone||"").replace(/\D/g,"");
     if(!phone){
-      setError("لا يوجد رقم هاتف محفوظ للعميل");
+      setError("لا يوجد رقم واتساب محفوظ للعميل");
       return;
     }
+
     const message=[
       `السلام عليكم ${data.customer.name}،`,
-      `تم تجهيز كشف حسابكم لدى شركة العبود للتجارة.`,
-      `إجمالي الحساب: ${money(data.totals.total)}`,
-      `المدفوع: ${money(data.totals.paid)}`,
-      `المتبقي: ${money(data.totals.remaining)}`
+      `كشف حسابكم لدى شركة العبود للتجارة:`,
+      `إجمالي الحوالات: ${Number(data.totals.usdAmount).toFixed(2)} USD`,
+      `إجمالي تكلفة الحوالات: ${money(data.totals.costCad)} CAD`,
+      `إجمالي المبلغ النهائي: ${money(data.totals.totalCad)} CAD`,
+      `إجمالي الدفعات: ${money(data.totals.paid)} CAD`,
+      `الرصيد المتبقي: ${money(data.totals.remaining)} CAD`,
+      `شكراً لتعاملكم معنا.`
     ].join("\n");
+
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank");
   }
 
+  const statusLabel={
+    PAID:"مسددة",
+    PARTIAL:"مسدد جزئياً",
+    UNPAID:"غير مسددة",
+    OVERDUE:"متأخرة"
+  };
+
   return <>
-    <div className="card no-print form">
+    <div className="card no-print statement-toolbar">
       <button onClick={back}>رجوع</button>
       <input type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/>
       <input type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/>
-      <button onClick={load}>إنشاء كشف الحساب</button>
+      <button onClick={load}>عرض كشف الحساب</button>
       <button onClick={()=>window.print()} disabled={!data}>طباعة / حفظ PDF</button>
-      <button onClick={sendWhatsApp} disabled={!data}>إرسال عبر واتساب</button>
+      <button className="whatsapp-button" onClick={whatsappStatement} disabled={!data}>إرسال واتساب</button>
     </div>
 
     {error&&<div className="card customer-error">{error}</div>}
 
-    {data&&<section className="invoice-sheet">
+    {data&&<section className="invoice-sheet statement-sheet">
       <div className="invoice-header">
         <div>
           <h1>{data.company.name}</h1>
           <p>{data.company.nameEn}</p>
-          <h3>كشف حساب عميل</h3>
+          <h3>كشف حساب العميل</h3>
         </div>
         <div>
           <p><strong>تاريخ الإصدار:</strong> {String(data.generatedAt).slice(0,10)}</p>
@@ -693,50 +705,65 @@ function Statement({customerId,back}){
         </div>
       </div>
 
-      <div className="invoice-customer">
-        <p><strong>اسم العميل:</strong> {data.customer.name}</p>
-        <p><strong>الهاتف:</strong> {data.customer.phone||"-"}</p>
-        <p><strong>البريد:</strong> {data.customer.email||"-"}</p>
+      <div className="statement-customer-header">
+        <div>
+          <h2>{data.customer.name}</h2>
+          <p><strong>الهاتف / واتساب:</strong> {data.customer.phone||"-"}</p>
+          <p><strong>البريد:</strong> {data.customer.email||"-"}</p>
+          <p><strong>آخر حركة:</strong> {data.lastActivity||"-"}</p>
+        </div>
+        <div className="statement-balance">
+          <span>الرصيد الحالي</span>
+          <strong>{money(data.totals.remaining)} CAD</strong>
+        </div>
       </div>
 
-      <div className="stats">
-        <div className="card"><span>إجمالي الحساب</span><strong>{money(data.totals.total)}</strong></div>
-        <div className="card"><span>المدفوع</span><strong>{money(data.totals.paid)}</strong></div>
-        <div className="card final"><span>المتبقي</span><strong>{money(data.totals.remaining)}</strong></div>
-        <div className="card"><span>أجور الحوالات</span><strong>{money(data.totals.fees)}</strong></div>
+      <div className="statement-summary">
+        <div><span>إجمالي الحوالات</span><strong>{Number(data.totals.usdAmount).toFixed(2)} USD</strong></div>
+        <div><span>إجمالي تكلفة الحوالات</span><strong>{money(data.totals.costCad)} CAD</strong></div>
+        <div><span>إجمالي المبلغ النهائي</span><strong>{money(data.totals.totalCad)} CAD</strong></div>
+        <div><span>إجمالي الدفعات</span><strong>{money(data.totals.paid)} CAD</strong></div>
+        <div className="remaining"><span>الرصيد المتبقي</span><strong>{money(data.totals.remaining)} CAD</strong></div>
       </div>
 
       <div className="tablewrap">
-        <table>
+        <table className="statement-table">
           <thead>
             <tr>
-              <th>رقم الحوالة</th>
               <th>التاريخ</th>
-              <th>المبلغ</th>
-              <th>الأجور</th>
-              <th>الإجمالي</th>
-              <th>المدفوع</th>
-              <th>المتبقي</th>
+              <th>رقم الحوالة</th>
+              <th>مبلغ الحوالة (USD)</th>
+              <th>تكلفة الحوالة (CAD)</th>
+              <th>المجموع النهائي (CAD)</th>
+              <th>الدفعات (CAD)</th>
+              <th>المتبقي (CAD)</th>
+              <th>الحالة</th>
             </tr>
           </thead>
           <tbody>
             {data.transactions.length?
-              data.transactions.map(transaction=><tr key={transaction.id}>
-                <td>{transaction.number||transaction.id}</td>
-                <td>{transaction.transferDate||"-"}</td>
-                <td>{money(transaction.amount)}</td>
-                <td>{money(transaction.transferFee)}</td>
-                <td>{money(transaction.totalCustomerDue)}</td>
-                <td>{money(transaction.paid)}</td>
-                <td>{money(transaction.remaining)}</td>
+              data.transactions.map(item=><tr key={item.id} className={`statement-row status-${item.status.toLowerCase()}`}>
+                <td>{item.transferDate}</td>
+                <td>{item.number}</td>
+                <td>{Number(item.usdAmount).toFixed(2)}</td>
+                <td>{money(item.costCad)}</td>
+                <td>{money(item.totalCad)}</td>
+                <td>{money(item.paid)}</td>
+                <td><strong>{money(item.remaining)}</strong></td>
+                <td>
+                  <span className={`statement-status ${item.status.toLowerCase()}`}>
+                    {statusLabel[item.status]||item.status}
+                  </span>
+                  {item.status==="OVERDUE"&&<small>{item.overdueDays} يوم</small>}
+                </td>
               </tr>)
-              :<tr><td colSpan="7">لا توجد عمليات في هذه الفترة.</td></tr>
+              :<tr><td colSpan="8">لا توجد حوالات في هذه الفترة.</td></tr>
             }
           </tbody>
         </table>
       </div>
 
-      <p className="invoice-note">هذا الكشف صادر إلكترونيًا من نظام شركة العبود للتجارة.</p>
+      <p className="invoice-note">هذا الكشف لا يتضمن أي معلومات داخلية عن أرباح الشركة.</p>
     </section>}
   </>;
 }

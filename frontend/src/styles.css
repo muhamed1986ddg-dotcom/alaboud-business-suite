@@ -342,3 +342,89 @@ aside h1{
   main{padding:0!important}
   .card{box-shadow:none}
 }
+
+
+.statement-toolbar{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.statement-customer-header{
+  display:flex;
+  justify-content:space-between;
+  gap:20px;
+  align-items:flex-start;
+  margin:20px 0;
+  padding:18px;
+  background:#f8fafc;
+  border-radius:14px;
+}
+.statement-balance{
+  min-width:220px;
+  padding:18px;
+  background:#ecfdf5;
+  border:1px solid #bbf7d0;
+  border-radius:14px;
+  text-align:center;
+}
+.statement-balance span{
+  display:block;
+  color:#64748b;
+  margin-bottom:8px;
+}
+.statement-balance strong{
+  font-size:26px;
+  color:#166534;
+}
+.statement-summary{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  gap:12px;
+  margin:18px 0;
+}
+.statement-summary>div{
+  background:#fff;
+  border:1px solid #e2e8f0;
+  padding:15px;
+  border-radius:12px;
+}
+.statement-summary span{
+  display:block;
+  color:#64748b;
+  font-size:13px;
+  margin-bottom:7px;
+}
+.statement-summary strong{
+  font-size:19px;
+}
+.statement-summary .remaining{
+  background:#fff7ed;
+  border-color:#fed7aa;
+}
+.statement-status{
+  display:inline-block;
+  padding:5px 9px;
+  border-radius:999px;
+  font-size:12px;
+  font-weight:900;
+}
+.statement-status.paid{background:#dcfce7;color:#166534}
+.statement-status.partial{background:#fef3c7;color:#92400e}
+.statement-status.unpaid{background:#fee2e2;color:#991b1b}
+.statement-status.overdue{background:#7f1d1d;color:#fff}
+.statement-row.status-paid{background:#f0fdf4}
+.statement-row.status-partial{background:#fffbeb}
+.statement-row.status-unpaid{background:#fff7f7}
+.statement-row.status-overdue{background:#fff1f2}
+.statement-row small{
+  display:block;
+  margin-top:4px;
+  color:#b91c1c;
+  font-weight:800;
+}
+@media(max-width:760px){
+  .statement-customer-header{flex-direction:column}
+  .statement-balance{width:100%;box-sizing:border-box}
+  .statement-table{min-width:1100px}
+}
