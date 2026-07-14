@@ -3330,4 +3330,16 @@ tbody td:last-child{border-radius:12px 0 0 12px}
 
 .customer-account-card .customer-totals > div:last-child {
   background: linear-gradient(145deg, #151918, #0b100e) !important;
+}/* Compact customer stats cards on mobile */
+@media (max-width: 600px) {
+  .customers-v153 .stats > div {
+    min-height: 105px !important;
+    height: auto !important;
+    padding: 14px 18px !important;
+    margin: 0 !important;
+  }
+
+  .customers-v153 .stats {
+    gap: 10px !important;
+  }
 }
