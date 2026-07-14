@@ -3357,4 +3357,26 @@ tbody td:last-child{border-radius:12px 0 0 12px}
   .customers-v153 .stats {
     gap: 10px !important;
   }
+}/* v15.3.6 - compact mobile customer stats */
+@media (max-width: 600px) {
+  .stats {
+    gap: 10px !important;
+  }
+
+  .stats > .card {
+    min-height: 0 !important;
+    height: 92px !important;
+    padding: 10px 16px !important;
+    margin: 0 !important;
+  }
+
+  .stats > .card span {
+    margin: 0 !important;
+    line-height: 1.25 !important;
+  }
+
+  .stats > .card strong {
+    margin: 0 !important;
+    line-height: 1 !important;
+  }
 }
