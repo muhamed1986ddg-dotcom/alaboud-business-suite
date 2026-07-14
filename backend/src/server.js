@@ -102,7 +102,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"13.0.0-alpha.1",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"13.1.0",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login", (req,res)=>{
   const { email, password } = req.body || {};
   const store = readStore();
@@ -829,7 +829,7 @@ app.post("/api/exchange-rates/refresh", auth, async (req,res)=>{
     const results = await refreshAutomaticRates(req.user.id);
     const successCount = results.filter(x=>x.ok).length;
     res.json({
-      message:`تم تحديث ${successCount} من ${results.length} أزواج عملات`,
+      message:`تم تحديث ${successCount} من ${results.length} أزواج تلقائية. سعر SYP يُحدّث يدويًا لضمان الدقة.`,
       successCount,
       total:results.length,
       updatedAt:now(),

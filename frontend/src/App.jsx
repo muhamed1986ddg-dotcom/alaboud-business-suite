@@ -1,5 +1,6 @@
 import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
+const cad=n=>`${money(n)} CAD`;
 
 class AppErrorBoundary extends React.Component{
   constructor(props){
@@ -241,14 +242,14 @@ function Customers({open}){
 
     const message=urgent
       ? `السلام عليكم ${customer.name}،
-نذكّركم بضرورة تسديد الرصيد المستحق وقدره ${money(customer.finalBalance)}.
+نذكّركم بضرورة تسديد الرصيد المستحق وقدره ${cad(customer.finalBalance)}.
 عدد أيام التأخير: ${customer.overdueDays} يوم.
 يرجى التواصل معنا لتسوية الحساب.
 شكراً لتعاملكم مع شركة العبود للتجارة.`
       : `السلام عليكم ${customer.name}،
-مجموع حسابكم الكلي: ${money(customer.totalTransactions)}
-إجمالي المدفوع: ${money(customer.totalPaid)}
-الرصيد النهائي المتبقي: ${money(customer.finalBalance)}
+مجموع حسابكم الكلي: ${cad(customer.totalTransactions)}
+إجمالي المدفوع: ${cad(customer.totalPaid)}
+الرصيد النهائي المتبقي: ${cad(customer.finalBalance)}
 شكراً لتعاملكم مع شركة العبود للتجارة.`;
 
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank");
@@ -264,9 +265,9 @@ function Customers({open}){
 
     <div className="stats">
       <div className="card"><span>عدد العملاء</span><strong>{list.length}</strong></div>
-      <div className="card"><span>مجموع الحسابات الكلي</span><strong>{money(list.reduce((sum,item)=>sum+Number(item.totalTransactions||0),0))}</strong></div>
-      <div className="card"><span>مجموع المدفوع</span><strong>{money(list.reduce((sum,item)=>sum+Number(item.totalPaid||0),0))}</strong></div>
-      <div className="card final"><span>المجموع النهائي المتبقي</span><strong>{money(list.reduce((sum,item)=>sum+Number(item.finalBalance||0),0))}</strong></div>
+      <div className="card"><span>مجموع الحسابات الكلي</span><strong>{cad(list.reduce((sum,item)=>sum+Number(item.totalTransactions||0),0))}</strong></div>
+      <div className="card"><span>مجموع المدفوع</span><strong>{cad(list.reduce((sum,item)=>sum+Number(item.totalPaid||0),0))}</strong></div>
+      <div className="card final"><span>المجموع النهائي المتبقي</span><strong>{cad(list.reduce((sum,item)=>sum+Number(item.finalBalance||0),0))}</strong></div>
       <div className="card overdue-card"><span>المتأخرون أكثر من أسبوع</span><strong>{alerts.count}</strong></div>
     </div>
 
@@ -372,7 +373,7 @@ function Customers({open}){
       <div className="card overdue-panel">
         <h3>تنبيهات العملاء المتأخرين</h3>
         {alerts.rows.slice(0,8).map(customer=><div className="overdue-row" key={customer.id}>
-          <span><strong>{customer.name}</strong> — متأخر {customer.overdueDays} يوم — الرصيد {money(customer.finalBalance)}</span>
+          <span><strong>{customer.name}</strong> — متأخر {customer.overdueDays} يوم — الرصيد {cad(customer.finalBalance)}</span>
           <button className="danger-button" onClick={()=>whatsappFinalBalance(customer,true)}>تنبيه واتساب</button>
         </div>)}
       </div>
@@ -393,9 +394,9 @@ function Customers({open}){
         </div>
 
         <div className="customer-totals">
-          <div><span>مجموع الحساب</span><strong>{money(customer.totalTransactions)}</strong></div>
-          <div><span>المدفوع</span><strong>{money(customer.totalPaid)}</strong></div>
-          <div className="final-balance"><span>المجموع النهائي</span><strong>{money(customer.finalBalance)}</strong></div>
+          <div><span>مجموع الحساب</span><strong>{cad(customer.totalTransactions)}</strong></div>
+          <div><span>المدفوع</span><strong>{cad(customer.totalPaid)}</strong></div>
+          <div className="final-balance"><span>المجموع النهائي</span><strong>{cad(customer.finalBalance)}</strong></div>
         </div>
 
         {customer.overdue&&<p className="overdue-text">متأخر {customer.overdueDays} يوم من أقدم حوالة غير مدفوعة.</p>}
@@ -447,14 +448,14 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
     const templates={
       gentle:[
         `السلام عليكم ${customer.name}،`,
-        `نذكّركم بلطف بوجود رصيد مستحق قدره ${money(customer.finalBalance)} CAD.`,
+        `نذكّركم بلطف بوجود رصيد مستحق قدره ${cad(customer.finalBalance)} CAD.`,
         `مدة التأخير: ${customer.overdueDays} يوم.`,
         `نرجو التكرم بالسداد في الوقت المناسب.`,
         `شكراً لتعاملكم مع شركة العبود للتجارة.`
       ],
       formal:[
         `السيد/السيدة ${customer.name} المحترم/ة،`,
-        `نفيدكم بوجود رصيد مستحق على حسابكم بقيمة ${money(customer.finalBalance)} CAD.`,
+        `نفيدكم بوجود رصيد مستحق على حسابكم بقيمة ${cad(customer.finalBalance)} CAD.`,
         `وقد تجاوزت مدة التأخير ${customer.overdueDays} يومًا.`,
         `يرجى تسوية الرصيد أو التواصل معنا لتحديد موعد الدفع.`,
         `شركة العبود للتجارة.`
@@ -462,9 +463,9 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
       statement:[
         `السلام عليكم ${customer.name}،`,
         `ملخص حسابكم الحالي:`,
-        `إجمالي الحساب: ${money(customer.totalTransactions)} CAD`,
-        `إجمالي المدفوع: ${money(customer.totalPaid)} CAD`,
-        `الرصيد المتبقي: ${money(customer.finalBalance)} CAD`,
+        `إجمالي الحساب: ${cad(customer.totalTransactions)} CAD`,
+        `إجمالي المدفوع: ${cad(customer.totalPaid)} CAD`,
+        `الرصيد المتبقي: ${cad(customer.finalBalance)} CAD`,
         `يمكننا تزويدكم بكشف الحساب الكامل عند الطلب.`
       ]
     };
@@ -568,9 +569,9 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
           </div>
 
           <div className="overdue-customer-details expanded">
-            <div><span>الرصيد المتبقي</span><strong>{money(customer.finalBalance)} CAD</strong></div>
-            <div><span>إجمالي الحساب</span><strong>{money(customer.totalTransactions)} CAD</strong></div>
-            <div><span>إجمالي المدفوع</span><strong>{money(customer.totalPaid)} CAD</strong></div>
+            <div><span>الرصيد المتبقي</span><strong>{cad(customer.finalBalance)} CAD</strong></div>
+            <div><span>إجمالي الحساب</span><strong>{cad(customer.totalTransactions)} CAD</strong></div>
+            <div><span>إجمالي المدفوع</span><strong>{cad(customer.totalPaid)} CAD</strong></div>
             <div><span>أقدم حوالة غير مدفوعة</span><strong>{customer.oldestUnpaidDate||"-"}</strong></div>
             <div><span>آخر دفعة</span><strong>{customer.lastPaymentDate||"-"}</strong></div>
             <div><span>آخر متابعة</span><strong>{customer.latestAction?.action||"-"}</strong></div>
@@ -731,9 +732,9 @@ function Customer({id,back,onStatement}){
     {error&&<div className="card customer-error">{error}</div>}
 
     <div className="stats">
-      <div className="card"><span>إجمالي الحساب</span><strong>{money(customer.totalTransactions)}</strong></div>
-      <div className="card"><span>المدفوع</span><strong>{money(customer.totalPaid)}</strong></div>
-      <div className="card final"><span>الحساب النهائي</span><strong>{money(customer.finalBalance)}</strong></div>
+      <div className="card"><span>إجمالي الحساب</span><strong>{cad(customer.totalTransactions)}</strong></div>
+      <div className="card"><span>المدفوع</span><strong>{cad(customer.totalPaid)}</strong></div>
+      <div className="card final"><span>الحساب النهائي</span><strong>{cad(customer.finalBalance)}</strong></div>
     </div>
 
     {unpaidTransactions.length>0&&
@@ -1245,7 +1246,7 @@ function ExchangeRates(){
     }finally{setRefreshing(false)}
   }
   return <>
-    <h2>أسعار صرف العملات</h2>
+    <h2>العملات وأسعار الصرف</h2>
     <div className="card rate-legend">
       <span className="legend-up">↑ ارتفاع</span>
       <span className="legend-down">↓ انخفاض</span>
@@ -1264,10 +1265,10 @@ function ExchangeRates(){
     {message&&<div className="card rate-message">{message}</div>}
     <form className="card form" onSubmit={add}>
       <select value={f.baseCurrency} onChange={e=>setF({...f,baseCurrency:e.target.value})}>
-        {["CAD","USD","AED","EUR","GBP"].map(x=><option key={x}>{x}</option>)}
+        {["CAD","USD","EUR","SYP","AED","GBP"].map(x=><option key={x}>{x}</option>)}
       </select>
       <select value={f.quoteCurrency} onChange={e=>setF({...f,quoteCurrency:e.target.value})}>
-        {["USD","CAD","AED","EUR","GBP"].map(x=><option key={x}>{x}</option>)}
+        {["USD","CAD","EUR","SYP","AED","GBP"].map(x=><option key={x}>{x}</option>)}
       </select>
       <input type="number" step=".0001" value={f.buyRate} onChange={e=>setF({...f,buyRate:e.target.value})} placeholder="سعر الشراء" required/>
       <input type="number" step=".0001" value={f.sellRate} onChange={e=>setF({...f,sellRate:e.target.value})} placeholder="سعر البيع" required/>
@@ -1435,7 +1436,7 @@ function GeneralDebts(){
       />
 
       <select value={form.currency} onChange={e=>setForm({...form,currency:e.target.value})}>
-        {["CAD","USD","AED","EUR","GBP"].map(currency=>
+        {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=>
           <option key={currency}>{currency}</option>
         )}
       </select>
@@ -1615,7 +1616,7 @@ function PartnerProfile({id,back}){
       </select>
       <input type="number" min=".01" step=".01" value={transaction.amount} onChange={e=>setTransaction({...transaction,amount:e.target.value})} placeholder="المبلغ" required/>
       <select value={transaction.currency} onChange={e=>setTransaction({...transaction,currency:e.target.value})}>
-        {["CAD","USD","AED","EUR","GBP"].map(currency=><option key={currency}>{currency}</option>)}
+        {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=><option key={currency}>{currency}</option>)}
       </select>
       <input type="date" value={transaction.date} onChange={e=>setTransaction({...transaction,date:e.target.value})}/>
       <input type="date" value={transaction.dueDate} onChange={e=>setTransaction({...transaction,dueDate:e.target.value})}/>
@@ -1631,7 +1632,7 @@ function PartnerProfile({id,back}){
       </select>
       <input type="number" min=".01" step=".01" value={payment.amount} onChange={e=>setPayment({...payment,amount:e.target.value})} placeholder="مبلغ الدفعة" required/>
       <select value={payment.currency} onChange={e=>setPayment({...payment,currency:e.target.value})}>
-        {["CAD","USD","AED","EUR","GBP"].map(currency=><option key={currency}>{currency}</option>)}
+        {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=><option key={currency}>{currency}</option>)}
       </select>
       <input type="date" value={payment.date} onChange={e=>setPayment({...payment,date:e.target.value})}/>
       <input value={payment.reference} onChange={e=>setPayment({...payment,reference:e.target.value})} placeholder="المرجع"/>
@@ -1987,6 +1988,7 @@ export default function App(){
   const [statementCustomerId,setStatementCustomerId]=useState(null);
   const [partnerId,setPartnerId]=useState(null);
   const [overdueCount,setOverdueCount]=useState(0);
+  const [logoutConfirm,setLogoutConfirm]=useState(false);
   const [mobileMenuOpen,setMobileMenuOpen]=useState(
     typeof window!=="undefined" ? window.matchMedia("(max-width: 800px)").matches : false
   );
@@ -1998,6 +2000,19 @@ export default function App(){
         .catch(()=>setOverdueCount(0));
     }
   },[token,page,customerId]);
+
+  useEffect(()=>{
+    if(typeof window==="undefined")return;
+    const onBack=()=>{
+      if(mobileMenuOpen){
+        setMobileMenuOpen(false);
+        history.pushState(null,"",location.href);
+      }
+    };
+    history.pushState(null,"",location.href);
+    window.addEventListener("popstate",onBack);
+    return()=>window.removeEventListener("popstate",onBack);
+  },[mobileMenuOpen]);
 
   if(!token){
     return <Login onLogin={()=>setToken(localStorage.getItem("afs_token"))}/>;
@@ -2066,7 +2081,7 @@ export default function App(){
     ["partners","🏢 الموردون والشركات"],
     ["transactions","⇄ الحوالات"],
     ["profits","📈 الأرباح"],
-    ["rates","💱 أسعار الصرف"],
+    ["rates","💱 العملات وأسعار الصرف"],
     ["debts","📒 الدَّين العام"],
     ["capital-overview","💰 رأس المال الكلي"],
     ["monthly-report","📊 التقارير الشهرية"],
@@ -2080,7 +2095,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v13 Alpha 1</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v13.1 Professional</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2091,15 +2106,32 @@ export default function App(){
         <button onClick={()=>setMobileMenuOpen(false)}>✕</button>
       </div>
       <div className="sidebar-logo-wrap"><img className="alaboud-sidebar-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية" /></div>
+      <div className="sidebar-account-box no-print">
+        <div>
+          <strong>شركة العبود التجارية</strong>
+          <small>v13.1 Enterprise Professional</small>
+        </div>
+        <button className="logout-top" onClick={()=>setLogoutConfirm(true)}>🚪 تسجيل الخروج</button>
+      </div>
       {menu.map(([key,label])=><button
         key={key}
         className={page===key&&!customerId&&!invoiceId&&!statementCustomerId&&!partnerId?"active":""}
         onClick={()=>navigate(key)}
       >{label}</button>)}
-      <button className="logout" onClick={()=>{
-        localStorage.clear();
-        setToken(null);
-      }}>خروج</button>
+      {logoutConfirm&&<div className="logout-confirm-overlay no-print" onClick={()=>setLogoutConfirm(false)}>
+        <div className="logout-confirm-card" onClick={e=>e.stopPropagation()}>
+          <h3>تسجيل الخروج</h3>
+          <p>هل تريد تسجيل الخروج من البرنامج؟</p>
+          <div>
+            <button className="danger-button" onClick={()=>{
+              localStorage.clear();
+              setToken(null);
+              setLogoutConfirm(false);
+            }}>نعم، تسجيل الخروج</button>
+            <button onClick={()=>setLogoutConfirm(false)}>إلغاء</button>
+          </div>
+        </div>
+      </div>}
     </aside>
     <main className="app-main-content">
       {showHomeButton&&<div className="home-return-bar no-print">
