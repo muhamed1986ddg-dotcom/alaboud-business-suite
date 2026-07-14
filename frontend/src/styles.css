@@ -3379,4 +3379,32 @@ tbody td:last-child{border-radius:12px 0 0 12px}
     margin: 0 !important;
     line-height: 1 !important;
   }
+}/* v15.3.7 FINAL MOBILE CUSTOMER STATS */
+@media screen and (max-width: 600px) {
+  .customers-v153 .stats {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+  .customers-v153 .stats > .card {
+    min-height: 80px !important;
+    height: 80px !important;
+    max-height: 80px !important;
+    padding: 8px 16px !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  .customers-v153 .stats > .card span {
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.1 !important;
+  }
+
+  .customers-v153 .stats > .card strong {
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+  }
 }
