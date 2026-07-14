@@ -1,6 +1,14 @@
 import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
+const currencyFlag=code=>({
+  USD:"🇺🇸",
+  EUR:"🇪🇺",
+  SYP:"🇸🇾",
+  AED:"🇦🇪",
+  GBP:"🇬🇧",
+  CAD:"🇨🇦"
+}[String(code||"").toUpperCase()]||"💱");
 
 class AppErrorBoundary extends React.Component{
   constructor(props){
@@ -29,62 +37,137 @@ function Login({onLogin}){const[email,setEmail]=useState("admin@alaboud.local"),
 function Dashboard({navigate}){
   const [data,setData]=useState(null);
   const [noticeData,setNoticeData]=useState({count:0,overdueCount:0,overdueTotal:0,notifications:[]});
+  const [recent,setRecent]=useState([]);
+  const [rates,setRates]=useState([]);
+  const [ratesBusy,setRatesBusy]=useState(false);
   const [open,setOpen]=useState(false);
 
+  const loadRates=()=>api.get("/exchange-rates").then(response=>{
+    const rows=Array.isArray(response.data)?response.data:[];
+    setRates(rows.filter(item=>String(item.quoteCurrency||"").toUpperCase()==="CAD"));
+  });
+
   useEffect(()=>{
-    Promise.all([api.get("/dashboard"),api.get("/notifications")])
-      .then(([dashboardResponse,notificationResponse])=>{
-        setData(dashboardResponse.data);
-        setNoticeData(notificationResponse.data);
-      });
+    Promise.all([
+      api.get("/dashboard"),
+      api.get("/notifications"),
+      api.get("/transactions"),
+      loadRates()
+    ]).then(([dashboardResponse,notificationResponse,transactionsResponse])=>{
+      setData(dashboardResponse.data);
+      setNoticeData(notificationResponse.data);
+      const rows=Array.isArray(transactionsResponse.data)?transactionsResponse.data:[];
+      setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
+    });
+
+    const timer=setInterval(()=>loadRates().catch(()=>{}),60000);
+    return()=>clearInterval(timer);
   },[]);
 
-  if(!data)return <p>جاري التحميل...</p>;
+  const refreshRates=async()=>{
+    setRatesBusy(true);
+    try{
+      await api.post("/exchange-rates/refresh");
+      await loadRates();
+    }finally{
+      setRatesBusy(false);
+    }
+  };
 
-  return <>
-    <div className="dashboard-title">
-      <h2>القائمة الرئيسية</h2>
-      <button className="notification-button" onClick={()=>setOpen(!open)}>
-        🔔 التنبيهات <span>{noticeData.count}</span>
-      </button>
-    </div>
+  if(!data)return <div className="premium-loading">جاري تحميل لوحة التحكم…</div>;
 
-    {open&&<div className="card notification-center">
-      <h3>مركز التنبيهات</h3>
+  const kpis=[
+    {label:"إجمالي الحوالات",value:data.todayTransactions||0,icon:"💱",tone:"green",note:"حوالات اليوم"},
+    {label:"إجمالي الأرباح",value:cad(data.todayProfit),icon:"📈",tone:"blue",note:"الربح اليومي"},
+    {label:"المصروفات",value:cad(data.todayExpenses||0),icon:"👛",tone:"orange",note:"مصروفات اليوم"},
+    {label:"العملاء",value:data.customers||0,icon:"👥",tone:"purple",note:`${noticeData.overdueCount||0} متأخر`}
+  ];
+
+  return <div className="premium-dashboard">
+    <section className="premium-hero">
+      <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+      <div>
+        <h2>شركة العبود التجارية</h2>
+        <p>v14.0 Final Mobile</p>
+      </div>
+      <span className="online-chip">● متصل</span>
+    </section>
+
+    <section className="premium-kpis">
+      {kpis.map(item=><button key={item.label} className={`premium-kpi ${item.tone}`} onClick={()=>{
+        if(item.label==="إجمالي الحوالات")navigate("transactions");
+        else if(item.label==="إجمالي الأرباح")navigate("profits");
+        else if(item.label==="المصروفات")navigate("expenses");
+        else navigate("customers");
+      }}>
+        <div className="premium-kpi-icon">{item.icon}</div>
+        <div><span>{item.label}</span><strong>{item.value}</strong><small>{item.note}</small></div>
+      </button>)}
+    </section>
+
+    <section className="premium-grid">
+      <div className="premium-recent panel-dark">
+        <div className="section-heading">
+          <h3>أحدث الحوالات</h3>
+          <button onClick={()=>navigate("transactions")}>عرض الكل</button>
+        </div>
+        {recent.length?recent.map(item=><button className="recent-row" key={item.id} onClick={()=>navigate("transactions")}>
+          <div className="recent-currency"><span className="currency-flag">{currencyFlag(item.currency)}</span><div><span>{item.currency||"USD"}</span><small>{item.number||"حوالة"}</small></div></div>
+          <div className="recent-date">{item.transferDate||String(item.createdAt||"").slice(0,10)}</div>
+          <strong>{cad(item.totalCustomerDue||0)}</strong>
+          <b>‹</b>
+        </button>):<p className="empty-state">لا توجد حوالات حديثة.</p>}
+      </div>
+
+      <div className="live-rates-panel panel-dark">
+        <div className="section-heading">
+          <h3>💱 أسعار الصرف المباشرة</h3>
+          <button disabled={ratesBusy} onClick={refreshRates}>{ratesBusy?"جاري التحديث…":"↻ تحديث"}</button>
+        </div>
+        <div className="live-rates-list">
+          {rates.length?rates.slice(0,6).map(item=>{
+            const code=String(item.baseCurrency||"").toUpperCase();
+            const buy=Number(item.buyRate||item.rate||0);
+            const sell=Number(item.sellRate||item.rate||0);
+            return <button key={item.id||`${code}-CAD`} className="live-rate-row" onClick={()=>navigate("rates")}>
+              <div className="rate-code"><span>{currencyFlag(code)}</span><strong>{code}</strong><small>مقابل CAD</small></div>
+              <div><small>شراء</small><strong>{buy.toFixed(code==="SYP"?7:4)}</strong></div>
+              <div><small>بيع</small><strong>{sell.toFixed(code==="SYP"?7:4)}</strong></div>
+              <span className="rate-status">●</span>
+            </button>
+          }):<div className="empty-state">لا توجد أسعار محفوظة بعد. افتح صفحة أسعار الصرف وأضف الأسعار.</div>}
+        </div>
+        <div className="rates-footer">
+          <span>تحديث تلقائي كل دقيقة</span>
+          <strong>{rates[0]?.createdAt?new Date(rates[0].createdAt).toLocaleString("ar-CA"):"—"}</strong>
+        </div>
+      </div>
+    </section>
+
+    <section className="premium-quick">
+      <button onClick={()=>navigate("transactions")}><span>💱</span><strong>إضافة حوالة</strong></button>
+      <button onClick={()=>navigate("expenses")}><span>👛</span><strong>إضافة مصروف</strong></button>
+      <button onClick={()=>navigate("customers")}><span>👤＋</span><strong>عميل جديد</strong></button>
+      <button onClick={()=>navigate("monthly-report")}><span>📄</span><strong>تقرير سريع</strong></button>
+      <button onClick={()=>navigate("rates")}><span>☁</span><strong>أسعار الصرف</strong></button>
+    </section>
+
+    <button className="premium-alert-strip" onClick={()=>setOpen(!open)}>
+      <span>🔔</span>
+      <strong>{noticeData.count?`${noticeData.count} تنبيهات تحتاج المراجعة`:"لا توجد تنبيهات جديدة"}</strong>
+      <b>‹</b>
+    </button>
+
+    {open&&<div className="panel-dark premium-notifications">
+      <div className="section-heading"><h3>مركز التنبيهات</h3><button onClick={()=>setOpen(false)}>إغلاق</button></div>
       {noticeData.notifications.length?noticeData.notifications.map(item=>
         <div className={`notification-item severity-${item.severity}`} key={item.id}>
           <div><strong>{item.title}</strong><p>{item.message}</p></div>
-          {item.customerId&&<button onClick={()=>navigate("customers")}>فتح العملاء</button>}
+          {item.customerId&&<button onClick={()=>navigate("customers")}>فتح</button>}
         </div>
       ):<p>لا توجد تنبيهات حالياً.</p>}
     </div>}
-
-    <div className="quick-actions card">
-      <h3>إجراءات سريعة</h3>
-      <div>
-        <button onClick={()=>navigate("customers")}>➕ عميل / حوالة / دفعة</button>
-        <button onClick={()=>navigate("rates")}>💱 آخر الأسعار</button>
-        <button onClick={()=>navigate("capital-overview")}>💰 رأس المال</button>
-        <button onClick={()=>navigate("monthly-report")}>📊 التقرير الشهري</button>
-      </div>
-    </div>
-
-    <div className="stats">
-      {[
-        ["العملاء",data.customers],
-        ["حوالات اليوم",data.todayTransactions],
-        ["ربح اليوم",money(data.todayProfit)],
-        ["ذمم العملاء",money(data.receivables)],
-        ["رأس المال",money(data.capital)],
-        ["عملاء متأخرون",noticeData.overdueCount],
-        ["إجمالي المتأخر",money(noticeData.overdueTotal)]
-      ].map(([label,value])=>
-        <div className={`card ${label==="عملاء متأخرون"||label==="إجمالي المتأخر"?"overdue-card":""}`} key={label}>
-          <span>{label}</span><strong>{value}</strong>
-        </div>
-      )}
-    </div>
-  </>;
+  </div>;
 }
 
 function Customers({open}){
@@ -2135,6 +2218,140 @@ function NotificationSettings(){
   </>;
 }
 
+
+
+function DataSafety(){
+  const [status,setStatus]=useState(null);
+  const [backups,setBackups]=useState([]);
+  const [message,setMessage]=useState("");
+  const [busy,setBusy]=useState(false);
+
+  const load=()=>{
+    Promise.all([api.get("/storage-status"),api.get("/backups")])
+      .then(([statusResponse,backupResponse])=>{
+        setStatus(statusResponse.data);
+        setBackups(backupResponse.data||[]);
+      })
+      .catch(error=>setMessage(error.response?.data?.message||"تعذر تحميل حالة الحفظ"));
+  };
+
+  useEffect(load,[]);
+
+  const create=async()=>{
+    setBusy(true);setMessage("");
+    try{
+      await api.post("/backups");
+      setMessage("تم إنشاء نسخة احتياطية جديدة.");
+      load();
+    }catch(error){
+      setMessage(error.response?.data?.message||"تعذر إنشاء النسخة الاحتياطية");
+    }finally{setBusy(false);}
+  };
+
+  const restore=async(filename)=>{
+    if(!window.confirm("سيتم حفظ نسخة من الوضع الحالي ثم استعادة النسخة المحددة. هل تريد المتابعة؟"))return;
+    setBusy(true);setMessage("");
+    try{
+      await api.post(`/backups/${encodeURIComponent(filename)}/restore`);
+      setMessage("تمت استعادة البيانات بنجاح. أعد فتح الصفحة.");
+      load();
+    }catch(error){
+      setMessage(error.response?.data?.message||"تعذر استعادة النسخة");
+    }finally{setBusy(false);}
+  };
+
+  const downloadExport=async()=>{
+    setBusy(true);setMessage("");
+    try{
+      const response=await api.get("/data-export",{responseType:"blob"});
+      const url=URL.createObjectURL(response.data);
+      const anchor=document.createElement("a");
+      anchor.href=url;
+      anchor.download=`alaboud-data-${new Date().toISOString().slice(0,10)}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    }catch(error){
+      setMessage("تعذر تنزيل نسخة البيانات.");
+    }finally{setBusy(false);}
+  };
+
+  return <div className="data-safety-page">
+    <h2>🛡️ حماية البيانات والنسخ الاحتياطي</h2>
+
+    <section className={`storage-status ${status?.persistentConfigured?"safe":"warning"}`}>
+      <strong>{status?.persistentConfigured?"التخزين الدائم مفعّل":"تنبيه: التخزين الدائم غير مضبوط"}</strong>
+      <p>{status?.recommendation||"جاري التحقق…"}</p>
+      {status?.dataDir&&<small>مسار البيانات: {status.dataDir}</small>}
+    </section>
+
+    {message&&<p className="success-note">{message}</p>}
+
+    <section className="backup-actions">
+      <button disabled={busy} onClick={create}>💾 إنشاء نسخة الآن</button>
+      <button disabled={busy} onClick={downloadExport}>⬇️ تنزيل جميع البيانات</button>
+    </section>
+
+    <section className="backup-list panel">
+      <div className="section-heading"><h3>النسخ المحفوظة</h3><span>{backups.length}</span></div>
+      {backups.length?backups.map(item=><div className="backup-row" key={item.filename}>
+        <div>
+          <strong>{new Date(item.createdAt).toLocaleString("ar-CA")}</strong>
+          <small>{(item.size/1024).toFixed(1)} KB</small>
+        </div>
+        <div>
+          <a href={`${api.defaults.baseURL}/backups/${encodeURIComponent(item.filename)}/download`} target="_blank" rel="noreferrer">تنزيل</a>
+          <button disabled={busy} onClick={()=>restore(item.filename)}>استعادة</button>
+        </div>
+      </div>):<p>لا توجد نسخ احتياطية حتى الآن.</p>}
+    </section>
+
+    <section className="data-protection-note panel">
+      <h3>كيف تبقى البيانات بعد التحديث؟</h3>
+      <p>ملفات الواجهة والتطبيق منفصلة عن مجلد البيانات. تحديث GitHub أو Render لا يستبدل قاعدة البيانات عندما يكون DATA_DIR على قرص دائم.</p>
+      <p>تحديث APK لا يحذف البيانات لأنها محفوظة على الخادم، وليس داخل التطبيق.</p>
+    </section>
+  </div>;
+}
+
+
+function MorePage({navigate,onLogout}){
+  const items=[
+    ["rates","💱","العملات وأسعار الصرف","إدارة CAD وUSD وEUR وSYP والعملات الأخرى"],
+    ["capital-overview","💰","رأس المال الكلي","مراجعة رأس المال والحركة المالية"],
+    ["debts","📒","الدَّين العام","عرض الذمم والديون العامة"],
+    ["notification-settings","🔔","إعدادات التنبيهات","التحكم بالتنبيهات والإشعارات"],
+    ["data-safety","🛡️","حماية البيانات","النسخ الاحتياطي والاستعادة الآمنة"],
+    ["monthly-report","📊","التقارير الشهرية","ملخصات وتقارير العمل"],
+  ];
+
+  return <div className="enterprise-more-page">
+    <section className="compact-company-card">
+      <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+      <div><h2>شركة العبود التجارية</h2><p>v14.2 Live Dashboard</p></div>
+      <span>● متصل</span>
+    </section>
+
+    <section className="more-grid">
+      {items.map(([key,icon,title,description])=><button key={key} onClick={()=>navigate(key)}>
+        <span>{icon}</span>
+        <div><strong>{title}</strong><small>{description}</small></div>
+        <b>‹</b>
+      </button>)}
+    </section>
+
+    <section className="support-card" onClick={()=>window.open("mailto:support@alaboud.local","_self")}>
+      <span>🎧</span>
+      <div><strong>الدعم والمساعدة</strong><small>تواصل معنا عند الحاجة إلى مساعدة</small></div>
+      <b>‹</b>
+    </section>
+
+    <button className="final-logout-button" onClick={onLogout}>
+      <span>⇥</span>
+      <strong>تسجيل الخروج</strong>
+    </button>
+  </div>;
+}
+
 function Simple({type}){const[list,setList]=useState([]),[title,setTitle]=useState(""),[amount,setAmount]=useState(""),[move,setMove]=useState("IN");const endpoint=type==="expenses"?"/expenses":"/capital";const load=()=>api.get(endpoint).then(r=>setList(r.data));useEffect(()=>{load();},[type]);async function add(e){e.preventDefault();await api.post(endpoint,type==="expenses"?{title,amount}:{type:move,amount,description:title});setTitle("");setAmount("");load();}return <><h2>{type==="expenses"?"المصروفات":"رأس المال"}</h2><form className="card form" onSubmit={add}>{type==="capital"&&<select value={move} onChange={e=>setMove(e.target.value)}><option value="IN">زيادة</option><option value="OUT">سحب</option></select>}<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="الوصف" required/><input type="number" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="المبلغ" required/><button>حفظ</button></form><div className="card tablewrap"><table><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.title||x.description}</td><td>{x.type||x.category}</td><td>{money(x.amount)}</td></tr>)}</tbody></table></div></>}
 export default function App(){
   const [token,setToken]=useState(localStorage.getItem("afs_token"));
@@ -2219,6 +2436,10 @@ export default function App(){
     content=<NotificationSettings/>;
   }else if(page==="expenses"){
     content=<Simple type="expenses"/>;
+  }else if(page==="data-safety"){
+    content=<DataSafety/>;
+  }else if(page==="more"){
+    content=<MorePage navigate={navigate} onLogout={()=>setLogoutConfirm(true)}/>;
   }else{
     content=<Simple type="capital"/>;
   }
@@ -2243,7 +2464,8 @@ export default function App(){
     ["monthly-report","📊 التقارير الشهرية"],
     ["notification-settings","🔔 إعدادات التنبيهات"],
     ["expenses","🧾 المصروفات"],
-    ["capital","🏦 حركة رأس المال"]
+    ["capital","🏦 حركة رأس المال"],
+    ["more","••• المزيد"]
   ];
 
   return <div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
@@ -2251,7 +2473,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v13.1 Professional</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v14.0 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2263,11 +2485,12 @@ export default function App(){
       </div>
       <div className="sidebar-logo-wrap"><img className="alaboud-sidebar-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية" /></div>
       <div className="sidebar-account-box no-print">
+        <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v13.1 Enterprise Professional</small>
+          <small>v14.2 Live Dashboard</small>
         </div>
-        <button className="logout-top" onClick={()=>setLogoutConfirm(true)}>🚪 تسجيل الخروج</button>
+        <span className="sidebar-online">● متصل</span>
       </div>
       {menu.map(([key,label])=><button
         key={key}
@@ -2315,10 +2538,10 @@ export default function App(){
       <button className={page==="dashboard"?"active":""} onClick={()=>navigate("dashboard")}>
         <span>⌂</span><small>الرئيسية</small>
       </button>
-      <button className={page==="monthly-report"?"active":""} onClick={()=>navigate("monthly-report")}>
-        <span>▥</span><small>التقارير</small>
+      <button className={page==="expenses"?"active":""} onClick={()=>navigate("expenses")}>
+        <span>👛</span><small>المصروفات</small>
       </button>
-      <button onClick={()=>setMobileMenuOpen(true)}>
+      <button className={page==="more"?"active":""} onClick={()=>navigate("more")}>
         <span>•••</span><small>المزيد</small>
       </button>
     </nav>
