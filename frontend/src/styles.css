@@ -2934,3 +2934,250 @@ tbody td:last-child{border-radius:12px 0 0 12px}
   .more-grid button{min-height:60px}
   .mobile-bottom-nav small{font-size:9px!important}
 }
+
+
+/* v14.1 DATA SAFE */
+.data-safety-page{display:grid;gap:13px;max-width:900px;margin:auto}
+.storage-status{padding:16px;border-radius:17px;border:1px solid}
+.storage-status.safe{background:#061a0d;border-color:#19763a;color:#b8ffd0}
+.storage-status.warning{background:#231708;border-color:#a66a12;color:#ffe0a3}
+.storage-status p{margin:7px 0}.storage-status small{opacity:.78}
+.backup-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.backup-actions button{min-height:54px;margin:0!important;background:linear-gradient(145deg,#0c1014,#171c21)!important;border:1px solid var(--v14-line)!important;color:#f5da7b!important}
+.backup-list{display:grid;gap:8px}
+.backup-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px;border-radius:13px;background:#090c0f;border:1px solid #282d33}
+.backup-row>div{display:flex;flex-direction:column;gap:4px}
+.backup-row>div:last-child{flex-direction:row;align-items:center}
+.backup-row small{color:#9da2aa}.backup-row a{color:#f1cc63;text-decoration:none;padding:8px 12px;border:1px solid #66521b;border-radius:10px}
+.backup-row button{margin:0!important;padding:8px 12px!important;background:#12351f!important;color:#8dffae!important;border:1px solid #237846!important}
+.data-protection-note p{color:#c8cbd0;line-height:1.8}
+.success-note{padding:11px;border-radius:12px;background:#092515;color:#8effad;border:1px solid #246d3e}
+@media(max-width:800px){
+  .backup-actions{grid-template-columns:1fr}
+  .backup-row{align-items:flex-start;flex-direction:column}
+  .backup-row>div:last-child{width:100%}
+  .backup-row a,.backup-row button{flex:1;text-align:center}
+}
+
+
+/* v14.2 LIVE DASHBOARD */
+.live-rates-panel{display:flex;flex-direction:column}
+.live-rates-list{display:grid;gap:7px}
+.live-rate-row{
+  width:100%;display:grid;grid-template-columns:1.25fr .85fr .85fr auto;align-items:center;gap:8px;
+  min-height:58px;margin:0!important;padding:9px 11px!important;border-radius:13px!important;
+  background:#090c0f!important;border:1px solid #252b31!important;color:#fff!important;text-align:right;
+}
+.live-rate-row:hover{border-color:var(--v14-gold)!important}
+.rate-code{display:flex;align-items:center;gap:8px}
+.rate-code>span{font-size:24px}
+.rate-code strong{font-size:15px}
+.rate-code small{display:block;color:#8f969e;font-size:9px}
+.live-rate-row>div:not(.rate-code){display:flex;flex-direction:column;gap:3px}
+.live-rate-row>div:not(.rate-code) small{color:#9298a0;font-size:9px}
+.live-rate-row>div:not(.rate-code) strong{direction:ltr;color:#f7f2df;font-size:14px}
+.rate-status{color:#3ee67a;font-size:11px}
+.rates-footer{display:flex;justify-content:space-between;gap:10px;margin-top:10px;padding-top:9px;border-top:1px solid #262b30;color:#9aa0a8;font-size:10px}
+.rates-footer strong{color:#d8bf68;font-weight:600}
+.mobile-bottom-nav{
+  left:10px!important;
+  right:10px!important;
+  bottom:calc(12px + env(safe-area-inset-bottom,0px))!important;
+  width:auto!important;
+  border:1px solid rgba(230,184,63,.46)!important;
+  border-radius:22px!important;
+  overflow:hidden!important;
+  box-shadow:0 -5px 24px rgba(0,0,0,.5),0 8px 28px rgba(0,0,0,.45)!important;
+}
+.app.mobile-page-view .app-main-content{
+  padding-bottom:calc(112px + env(safe-area-inset-bottom,0px))!important;
+}
+@media(max-width:800px){
+  .live-rate-row{grid-template-columns:1.15fr .8fr .8fr auto;min-height:51px;padding:7px 8px!important}
+  .rate-code>span{font-size:20px}
+  .rate-code strong{font-size:12px}
+  .live-rate-row>div:not(.rate-code) strong{font-size:11px}
+  .rates-footer{flex-direction:column;gap:3px}
+  .mobile-bottom-nav{height:66px!important}
+}
+@media(max-width:390px){
+  .live-rate-row{grid-template-columns:1.1fr .75fr .75fr auto;gap:4px}
+  .rate-code small{display:none}
+}
+
+
+/* ==========================================================
+   v15.0 ENTERPRISE LIVE RATES
+   ========================================================== */
+.premium-grid-v15{
+  grid-template-columns:.85fr 1.45fr!important;
+  align-items:stretch;
+}
+.enterprise-rates-board{
+  display:flex;
+  flex-direction:column;
+  min-height:100%;
+}
+.enterprise-rates-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-bottom:12px;
+}
+.enterprise-rates-head h3{
+  margin:0;
+  color:var(--v14-gold-soft);
+  font-size:25px;
+}
+.enterprise-rates-head p{
+  margin:5px 0 0;
+  color:#c8ccd1;
+}
+.rates-head-actions{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.rates-head-actions>span{
+  color:#9ba0a7;
+  font-size:10px;
+  line-height:1.55;
+  text-align:left;
+}
+.rates-head-actions>span strong{
+  color:#d9bf68;
+  font-weight:600;
+}
+.rates-head-actions button{
+  margin:0!important;
+  width:auto!important;
+  min-height:44px!important;
+  padding:8px 16px!important;
+  background:linear-gradient(135deg,#5c4210,#a77814)!important;
+  border:1px solid #d4a933!important;
+  color:#fff2be!important;
+}
+.enterprise-rates-table{
+  overflow:hidden;
+  border:1px solid #283038;
+  border-radius:16px;
+  background:#07090c;
+}
+.rate-table-header,
+.enterprise-rate-row{
+  display:grid;
+  grid-template-columns:1.2fr .55fr 1fr 1fr 1fr 1.2fr;
+  align-items:center;
+  gap:8px;
+}
+.rate-table-header{
+  min-height:54px;
+  padding:9px 13px;
+  background:linear-gradient(180deg,#161a1f,#0f1216);
+  color:#eacb73;
+  font-size:11px;
+  font-weight:700;
+}
+.enterprise-rate-row{
+  width:100%;
+  min-height:68px;
+  margin:0!important;
+  padding:9px 13px!important;
+  border:0!important;
+  border-top:1px solid #242a30!important;
+  border-radius:0!important;
+  background:#080b0e!important;
+  color:#fff!important;
+  text-align:right;
+}
+.enterprise-rate-row:hover{
+  background:#0d1115!important;
+  box-shadow:inset 3px 0 0 var(--v14-gold)!important;
+}
+.enterprise-code{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.enterprise-code strong{font-size:17px}
+.enterprise-code small{font-size:10px;color:#9ba1a8}
+.enterprise-flag{font-size:30px}
+.rate-buy,.rate-sell{
+  direction:ltr;
+  font-weight:800;
+  font-size:16px;
+}
+.rate-buy{
+  color:#36db75;
+  padding:8px 10px;
+  border:1px solid rgba(54,219,117,.35);
+  border-radius:9px;
+  background:rgba(10,77,35,.16);
+}
+.rate-sell{color:#f6d265}
+.rate-up{color:#43de79;font-weight:700;direction:ltr}
+.rate-down{color:#ff5353;font-weight:700;direction:ltr}
+.mini-chart{
+  height:34px;
+  color:#3edc72;
+}
+.enterprise-rate-row:nth-child(3n) .mini-chart{color:#ff4949}
+.enterprise-rate-row:nth-child(4n) .mini-chart{color:#e4b72c}
+.mini-chart svg{width:100%;height:100%}
+.show-all-rates{
+  margin:10px 0 0!important;
+  width:100%!important;
+  min-height:40px!important;
+  background:transparent!important;
+  border:1px solid rgba(230,184,63,.28)!important;
+  color:#57aef7!important;
+}
+.show-all-rates:hover{
+  border-color:var(--v14-gold)!important;
+  color:#f4d476!important;
+}
+
+@media(max-width:1100px){
+  .premium-grid-v15{grid-template-columns:1fr!important}
+}
+@media(max-width:800px){
+  .enterprise-rates-head{
+    align-items:flex-start;
+    flex-direction:column;
+  }
+  .rates-head-actions{
+    width:100%;
+    justify-content:space-between;
+  }
+  .enterprise-rates-head h3{font-size:19px}
+  .rate-table-header{display:none}
+  .enterprise-rate-row{
+    grid-template-columns:1.15fr .5fr 1fr 1fr;
+    min-height:76px;
+    gap:6px;
+  }
+  .enterprise-rate-row .rate-up,
+  .enterprise-rate-row .rate-down{
+    grid-column:3;
+    font-size:10px;
+  }
+  .mini-chart{
+    grid-column:4;
+    grid-row:1 / span 2;
+    height:45px;
+  }
+  .enterprise-code{grid-row:1 / span 2}
+  .enterprise-flag{grid-row:1 / span 2}
+  .rate-buy,.rate-sell{font-size:12px;padding:6px}
+}
+@media(max-width:430px){
+  .enterprise-rate-row{
+    grid-template-columns:1.05fr .42fr .92fr .92fr;
+    padding:8px!important;
+  }
+  .enterprise-flag{font-size:24px}
+  .enterprise-code strong{font-size:14px}
+  .enterprise-code small{font-size:8px}
+  .rate-buy,.rate-sell{font-size:10px}
+}

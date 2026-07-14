@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const path = require("path");
 const fs = require("fs");
-const { readStore, mutate, id, now } = require("./store");
+const { readStore, mutate, id, now, dataFile, dataDir, createBackup, listBackups, restoreBackup, importStore } = require("./store");
 
 const PORT = Number(process.env.PORT || 5000);
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
@@ -102,7 +102,75 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"14.0.0",channel:"enterprise-alpha",cloud:true}));
+
+app.get("/api/storage-status", auth, (_req,res)=>{
+  const persistentConfigured=Boolean(process.env.DATA_DIR);
+  res.json({
+    persistentConfigured,
+    dataDir,
+    dataFile,
+    recommendation:persistentConfigured
+      ?"التخزين الدائم مفعّل."
+      :"يجب ضبط DATA_DIR على قرص دائم في Render، مثل /var/data."
+  });
+});
+
+app.get("/api/backups", auth, (_req,res)=>{
+  res.json(listBackups());
+});
+
+app.post("/api/backups", auth, (req,res)=>{
+  const backup=createBackup();
+  mutate((store)=>{
+    audit(store,req.user.id,"CREATE","BACKUP",backup.filename,{createdAt:backup.createdAt});
+  });
+  res.status(201).json(backup);
+});
+
+app.get("/api/backups/:filename/download", auth, (req,res)=>{
+  const backup=listBackups().find((item)=>item.filename===req.params.filename);
+  if(!backup)return res.status(404).json({message:"Backup not found"});
+  res.download(require("path").join(dataDir,"backups",backup.filename),backup.filename);
+});
+
+app.post("/api/backups/:filename/restore", auth, (req,res)=>{
+  const restored=restoreBackup(req.params.filename);
+  mutate((store)=>{
+    audit(store,req.user.id,"RESTORE","BACKUP",req.params.filename,{restoredAt:now()});
+  });
+  res.json({
+    message:"تمت استعادة النسخة الاحتياطية بنجاح",
+    counts:{
+      customers:restored.customers.length,
+      transactions:restored.transactions.length,
+      payments:restored.payments.length
+    }
+  });
+});
+
+app.get("/api/data-export", auth, (_req,res)=>{
+  const store=readStore();
+  res.setHeader("Content-Disposition",`attachment; filename="alaboud-data-${new Date().toISOString().slice(0,10)}.json"`);
+  res.type("application/json").send(JSON.stringify(store,null,2));
+});
+
+app.post("/api/data-import", auth, (req,res)=>{
+  const restored=importStore(req.body);
+  mutate((store)=>{
+    audit(store,req.user.id,"IMPORT","DATABASE","store",{importedAt:now()});
+  });
+  res.json({
+    message:"تم استيراد البيانات بنجاح",
+    counts:{
+      customers:restored.customers.length,
+      transactions:restored.transactions.length,
+      payments:restored.payments.length
+    }
+  });
+});
+
+
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.0.0",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login", (req,res)=>{
   const { email, password } = req.body || {};
   const store = readStore();
