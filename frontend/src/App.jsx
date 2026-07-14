@@ -689,41 +689,6 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
 
   useEffect(()=>{load();},[]);
 
-  useEffect(()=>{
-    if(!f.currency)return;
-
-    if(f.currency==="CAD"){
-      const timestamp=new Date().toISOString();
-      setRateMeta({baseCurrency:"CAD",quoteCurrency:"CAD",buyRate:1,createdAt:timestamp});
-      if(f.rateMode==="auto"){
-        setF(current=>({...current,costRate:"1",rateUpdatedAt:timestamp,rateSource:"base"}));
-      }
-      return;
-    }
-
-    api.get("/exchange-rates")
-      .then(response=>{
-        const rates=Array.isArray(response.data)?response.data:[];
-        const direct=rates.find(item=>
-          String(item.baseCurrency||"").toUpperCase()===f.currency &&
-          String(item.quoteCurrency||"").toUpperCase()==="CAD"
-        );
-        setRateMeta(direct||null);
-        const rate=Number(direct?.buyRate||direct?.sellRate||0);
-        if(rate>0&&f.rateMode==="auto"){
-          setF(current=>({...current,costRate:String(rate),rateUpdatedAt:direct.createdAt||null,rateSource:"exchange-rates"}));
-        }else if(!direct&&f.rateMode==="auto"){
-          setF(current=>({...current,costRate:"",rateUpdatedAt:null}));
-        }
-      })
-      .catch(()=>{
-        setRateMeta(null);
-        if(f.rateMode==="auto"){
-          setF(current=>({...current,costRate:"",rateUpdatedAt:null}));
-        }
-      });
-  },[f.currency,f.rateMode]);
-
   function updateDraft(customerId,patch){
     setDrafts(current=>({
       ...current,
