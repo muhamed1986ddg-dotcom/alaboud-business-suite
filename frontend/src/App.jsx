@@ -502,14 +502,81 @@ function Customers({open}){
   return <>
     <h2>قائمة العملاء</h2>
     {error&&<div className="card customer-error">{error}</div>}
+<div className="stats customer-stats-final">
 
-    <div className="stats">
-      <div className="card"><span>عدد العملاء</span><strong>{list.length}</strong></div>
-      <div className="card"><span>مجموع الحسابات الكلي</span><strong>{cad(list.reduce((sum,item)=>sum+Number(item.totalTransactions||0),0))}</strong></div>
-      <div className="card"><span>مجموع المدفوع</span><strong>{cad(list.reduce((sum,item)=>sum+Number(item.totalPaid||0),0))}</strong></div>
-      <div className="card final"><span>المجموع النهائي (CAD) المتبقي</span><strong>{cad(list.reduce((sum,item)=>sum+Number(item.finalBalance||0),0))}</strong></div>
-      <div className="card overdue-card"><span>المتأخرون أكثر من أسبوع</span><strong>{alerts.count}</strong></div>
-    </div>
+  <div className="card customer-stat-row">
+    <div className="customer-stat-icon">👥</div>
+
+    <span className="customer-stat-label">
+      عدد العملاء
+    </span>
+
+    <strong className="customer-stat-value">
+      {list.length}
+    </strong>
+  </div>
+
+  <div className="card customer-stat-row">
+    <div className="customer-stat-icon">👛</div>
+
+    <span className="customer-stat-label">
+      مجموع الحسابات الكلي
+    </span>
+
+    <strong className="customer-stat-value">
+      CAD {cad(list.reduce((sum, item) => sum + Number(item.total || 0), 0))}
+    </strong>
+  </div>
+
+  <div className="card customer-stat-row">
+    <div className="customer-stat-icon">🫴</div>
+
+    <span className="customer-stat-label">
+      مجموع المدفوع
+    </span>
+
+    <strong className="customer-stat-value">
+      CAD {cad(list.reduce((sum, item) => sum + Number(item.paid || 0), 0))}
+    </strong>
+  </div>
+
+  <div className="card final customer-stat-row">
+    <div className="customer-stat-icon">🧮</div>
+
+    <span className="customer-stat-label">
+      المجموع النهائي (CAD) المتبقي
+    </span>
+
+    <strong className="customer-stat-value">
+      CAD {cad(
+        list.reduce(
+          (sum, item) =>
+            sum + Number(item.total || 0) - Number(item.paid || 0),
+          0
+        )
+      )}
+    </strong>
+  </div>
+
+  <div className="card overdue-card customer-stat-row">
+    <div className="customer-stat-icon">🕘</div>
+
+    <span className="customer-stat-label">
+      المتأخرون أكثر من أسبوع
+    </span>
+
+    <strong className="customer-stat-value">
+      {
+        list.filter(
+          (item) =>
+            item.overdue === true ||
+            item.isOverdue === true
+        ).length
+      }
+    </strong>
+  </div>
+
+</div>
 
     <div className="customer-toolbar card">
       <button onClick={()=>{setActivePanel("newCustomer");setEditingCustomer(null)}}>إضافة عميل</button>

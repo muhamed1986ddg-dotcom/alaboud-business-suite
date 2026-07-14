@@ -3407,4 +3407,177 @@ tbody td:last-child{border-radius:12px 0 0 12px}
     padding: 0 !important;
     line-height: 1 !important;
   }
+}/* =========================================================
+   v15.3.8 FINAL MOBILE CUSTOMER STATS
+   Alaboud Business Suite
+   ========================================================= */
+
+@media screen and (max-width: 600px) {
+
+  .customers-v153 .customer-stats-final {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    gap: 12px !important;
+    padding: 0 18px !important;
+    margin: 28px auto 20px !important;
+    box-sizing: border-box !important;
+  }
+
+  .customers-v153 .customer-stats-final > .customer-stat-row {
+    width: 100% !important;
+    height: 112px !important;
+    min-height: 112px !important;
+    max-height: 112px !important;
+
+    display: grid !important;
+    grid-template-columns: 58px minmax(0, 1fr) auto !important;
+    align-items: center !important;
+
+    gap: 12px !important;
+
+    padding: 14px 22px !important;
+    margin: 0 !important;
+
+    box-sizing: border-box !important;
+
+    background:
+      linear-gradient(
+        145deg,
+        rgba(18, 20, 23, 0.99),
+        rgba(7, 9, 11, 0.99)
+      ) !important;
+
+    border: 1px solid rgba(214, 168, 62, 0.72) !important;
+    border-radius: 22px !important;
+
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.025),
+      0 8px 24px rgba(0, 0, 0, 0.20) !important;
+
+    overflow: hidden !important;
+  }
+
+  .customers-v153 .customer-stat-icon {
+    width: 52px !important;
+    height: 52px !important;
+
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+
+    font-size: 36px !important;
+    line-height: 1 !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    filter:
+      sepia(1)
+      saturate(1.6)
+      brightness(1.12) !important;
+  }
+
+  .customers-v153 .customer-stat-label {
+    display: block !important;
+
+    color: #f4efe4 !important;
+
+    font-size: 18px !important;
+    font-weight: 600 !important;
+    line-height: 1.45 !important;
+
+    text-align: right !important;
+    direction: rtl !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    white-space: normal !important;
+  }
+
+  .customers-v153 .customer-stat-value {
+    display: block !important;
+
+    color: #ffffff !important;
+
+    font-size: 25px !important;
+    font-weight: 800 !important;
+    line-height: 1 !important;
+
+    text-align: left !important;
+    direction: ltr !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    white-space: nowrap !important;
+
+    text-shadow: none !important;
+  }
+
+  .customers-v153
+  .customer-stat-row:first-child
+  .customer-stat-value,
+
+  .customers-v153
+  .customer-stat-row:last-child
+  .customer-stat-value {
+    font-size: 27px !important;
+  }
+
+  .customers-v153 .customer-stat-row.final,
+  .customers-v153 .customer-stat-row.overdue-card {
+    background:
+      linear-gradient(
+        145deg,
+        rgba(17, 19, 22, 0.99),
+        rgba(8, 10, 12, 0.99)
+      ) !important;
+  }
+
+}
+
+
+/* =========================================================
+   EXTRA SMALL MOBILE
+   ========================================================= */
+
+@media screen and (max-width: 390px) {
+
+  .customers-v153 .customer-stats-final {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+    gap: 10px !important;
+  }
+
+  .customers-v153 .customer-stats-final > .customer-stat-row {
+    height: 104px !important;
+    min-height: 104px !important;
+    max-height: 104px !important;
+
+    grid-template-columns: 48px minmax(0, 1fr) auto !important;
+
+    gap: 8px !important;
+
+    padding: 12px 16px !important;
+
+    border-radius: 19px !important;
+  }
+
+  .customers-v153 .customer-stat-icon {
+    width: 44px !important;
+    height: 44px !important;
+
+    font-size: 31px !important;
+  }
+
+  .customers-v153 .customer-stat-label {
+    font-size: 16px !important;
+  }
+
+  .customers-v153 .customer-stat-value {
+    font-size: 21px !important;
+  }
+
 }
