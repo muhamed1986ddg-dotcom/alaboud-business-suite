@@ -102,7 +102,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"9.0.0",cloud:true,theme:"black-gold"}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"13.0.0-alpha.1",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login", (req,res)=>{
   const { email, password } = req.body || {};
   const store = readStore();
