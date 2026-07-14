@@ -2908,3 +2908,26 @@ aside button.active{
   .customer-stat-label { font-size: 15px !important; }
   .customer-stat-value { font-size: 18px !important; }
 }
+/* Customer cards dark style */
+
+.customer-account-card .customer-totals > div {
+  background: linear-gradient(145deg, #171a1f, #0d1014) !important;
+  border: 1px solid rgba(214, 168, 62, 0.30) !important;
+  color: #d9dde3 !important;
+}
+
+.customer-account-card .customer-totals strong,
+.customer-account-card .customer-totals b,
+.customer-account-card .customer-totals .amount {
+  color: #ff3030 !important;
+  font-weight: 800 !important;
+}
+
+.customer-account-card .customer-totals span,
+.customer-account-card .customer-totals small {
+  color: #aeb5bf !important;
+}
+
+.customer-account-card .customer-totals > div:last-child {
+  background: linear-gradient(145deg, #151918, #0b100e) !important;
+}
