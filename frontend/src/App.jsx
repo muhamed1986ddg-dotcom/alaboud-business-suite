@@ -524,7 +524,7 @@ function Customers({open}){
     </span>
 
     <strong className="customer-stat-value">
-      CAD {cad(list.reduce((sum, item) => sum + Number(item.total || 0), 0))}
+      {cad(list.reduce((sum, item) => sum + Number(item.total || 0), 0))}
     </strong>
   </div>
 
