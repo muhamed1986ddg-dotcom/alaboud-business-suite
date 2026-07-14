@@ -1,4 +1,4 @@
-﻿import React,{useEffect,useState}from"react";import api from"./api";
+import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 const rateTrendPoints=(rate,index=0)=>{
@@ -17,13 +17,13 @@ const rateTrendPoints=(rate,index=0)=>{
 };
 
 const currencyFlag=code=>({
-  USD:"ًں‡؛ًں‡¸",
-  EUR:"ًں‡ھًں‡؛",
-  SYP:"ًں‡¸ًں‡¾",
-  AED:"ًں‡¦ًں‡ھ",
-  GBP:"ًں‡¬ًں‡§",
-  CAD:"ًں‡¨ًں‡¦"
-}[String(code||"").toUpperCase()]||"ًں’±");
+  USD:"🇺🇸",
+  EUR:"🇪🇺",
+  SYP:"🇸🇾",
+  AED:"🇦🇪",
+  GBP:"🇬🇧",
+  CAD:"🇨🇦"
+}[String(code||"").toUpperCase()]||"💱");
 
 class AppErrorBoundary extends React.Component{
   constructor(props){
@@ -39,16 +39,16 @@ class AppErrorBoundary extends React.Component{
   render(){
     if(this.state.error){
       return <div className="card customer-error">
-        <h2>ط­ط¯ط« ط®ط·ط£ ظپظٹ ط§ظ„طµظپط­ط©</h2>
+        <h2>حدث خطأ في الصفحة</h2>
         <p>{String(this.state.error.message||this.state.error)}</p>
-        <button onClick={()=>window.location.reload()}>ط¥ط¹ط§ط¯ط© طھط­ظ…ظٹظ„ ط§ظ„ط¨ط±ظ†ط§ظ…ط¬</button>
+        <button onClick={()=>window.location.reload()}>إعادة تحميل البرنامج</button>
       </div>;
     }
     return this.props.children;
   }
 }
 
-function Login({onLogin}){const[email,setEmail]=useState("admin@alaboud.local"),[password,setPassword]=useState("Admin123!"),[error,setError]=useState("");async function submit(e){e.preventDefault();try{const{data}=await api.post("/auth/login",{email,password});localStorage.setItem("afs_token",data.token);localStorage.setItem("afs_user",JSON.stringify(data.user));onLogin();}catch{setError("ظپط´ظ„ طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„");}}return <div className="login"><form className="panel" onSubmit={submit}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ط§ظ„طھط¬ط§ط±ظٹط©"/><h1>ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ط§ظ„طھط¬ط§ط±ظٹط©</h1><p className="login-company-en">ALABOUD TRADING COMPANY</p><p>ط¥ط¯ط§ط±ط© ط§ظ„ط­ظˆط§ظ„ط§طھ ظˆط§ظ„ط­ط³ط§ط¨ط§طھ</p><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="ط§ظ„ط¨ط±ظٹط¯"/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="ظƒظ„ظ…ط© ط§ظ„ظ…ط±ظˆط±"/>{error&&<div className="error">{error}</div>}<button>طھط³ط¬ظٹظ„ ط§ظ„ط¯ط®ظˆظ„</button><small>admin@alaboud.local / Admin123!</small></form></div>}
+function Login({onLogin}){const[email,setEmail]=useState("admin@alaboud.local"),[password,setPassword]=useState("Admin123!"),[error,setError]=useState("");async function submit(e){e.preventDefault();try{const{data}=await api.post("/auth/login",{email,password});localStorage.setItem("afs_token",data.token);localStorage.setItem("afs_user",JSON.stringify(data.user));onLogin();}catch{setError("فشل تسجيل الدخول");}}return <div className="login"><form className="panel" onSubmit={submit}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><h1>شركة العبود التجارية</h1><p className="login-company-en">ALABOUD TRADING COMPANY</p><p>إدارة الحوالات والحسابات</p><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد"/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور"/>{error&&<div className="error">{error}</div>}<button>تسجيل الدخول</button><small>admin@alaboud.local / Admin123!</small></form></div>}
 function Dashboard({navigate}){
   const [data,setData]=useState(null);
   const [noticeData,setNoticeData]=useState({count:0,overdueCount:0,overdueTotal:0,notifications:[]});
@@ -89,30 +89,30 @@ function Dashboard({navigate}){
     }
   };
 
-  if(!data)return <div className="premium-loading">ط¬ط§ط±ظٹ طھط­ظ…ظٹظ„ ظ„ظˆط­ط© ط§ظ„طھط­ظƒظ…â€¦</div>;
+  if(!data)return <div className="premium-loading">جاري تحميل لوحة التحكم…</div>;
 
   const kpis=[
-    {label:"ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط­ظˆط§ظ„ط§طھ",value:data.todayTransactions||0,icon:"ًں’±",tone:"green",note:"ط­ظˆط§ظ„ط§طھ ط§ظ„ظٹظˆظ…"},
-    {label:"ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط£ط±ط¨ط§ط­",value:cad(data.todayProfit),icon:"ًں“ˆ",tone:"blue",note:"ط§ظ„ط±ط¨ط­ ط§ظ„ظٹظˆظ…ظٹ"},
-    {label:"ط§ظ„ظ…طµط±ظˆظپط§طھ",value:cad(data.todayExpenses||0),icon:"ًں‘›",tone:"orange",note:"ظ…طµط±ظˆظپط§طھ ط§ظ„ظٹظˆظ…"},
-    {label:"ط§ظ„ط¹ظ…ظ„ط§ط،",value:data.customers||0,icon:"ًں‘¥",tone:"purple",note:`${noticeData.overdueCount||0} ظ…طھط£ط®ط±`}
+    {label:"إجمالي الحوالات",value:data.todayTransactions||0,icon:"💱",tone:"green",note:"حوالات اليوم"},
+    {label:"إجمالي الأرباح",value:cad(data.todayProfit),icon:"📈",tone:"blue",note:"الربح اليومي"},
+    {label:"المصروفات",value:cad(data.todayExpenses||0),icon:"👛",tone:"orange",note:"مصروفات اليوم"},
+    {label:"العملاء",value:data.customers||0,icon:"👥",tone:"purple",note:`${noticeData.overdueCount||0} متأخر`}
   ];
 
   return <div className="premium-dashboard">
     <section className="premium-hero">
-      <img src="/alaboud-company-logo.webp" alt="ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ط§ظ„طھط¬ط§ط±ظٹط©"/>
+      <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
-        <h2>ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ط§ظ„طھط¬ط§ط±ظٹط©</h2>
-        <p>v15.3.5 Final</p>
+        <h2>شركة العبود التجارية</h2>
+        <p>v14.0 Final Mobile</p>
       </div>
-      <span className="online-chip">â—ڈ ظ…طھطµظ„</span>
+      <span className="online-chip">● متصل</span>
     </section>
 
     <section className="premium-kpis">
       {kpis.map(item=><button key={item.label} className={`premium-kpi ${item.tone}`} onClick={()=>{
-        if(item.label==="ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط­ظˆط§ظ„ط§طھ")navigate("transactions");
-        else if(item.label==="ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط£ط±ط¨ط§ط­")navigate("profits");
-        else if(item.label==="ط§ظ„ظ…طµط±ظˆظپط§طھ")navigate("expenses");
+        if(item.label==="إجمالي الحوالات")navigate("transactions");
+        else if(item.label==="إجمالي الأرباح")navigate("profits");
+        else if(item.label==="المصروفات")navigate("expenses");
         else navigate("customers");
       }}>
         <div className="premium-kpi-icon">{item.icon}</div>
@@ -123,37 +123,37 @@ function Dashboard({navigate}){
     <section className="premium-grid premium-grid-v15">
       <div className="premium-recent panel-dark">
         <div className="section-heading">
-          <h3>ط£ط­ط¯ط« ط§ظ„ط­ظˆط§ظ„ط§طھ</h3>
-          <button onClick={()=>navigate("transactions")}>ط¹ط±ط¶ ط§ظ„ظƒظ„</button>
+          <h3>أحدث الحوالات</h3>
+          <button onClick={()=>navigate("transactions")}>عرض الكل</button>
         </div>
         {recent.length?recent.map(item=><button className="recent-row" key={item.id} onClick={()=>navigate("transactions")}>
-          <div className="recent-currency"><span className="currency-flag">{currencyFlag(item.currency)}</span><div><span>{item.currency||"USD"}</span><small>{item.number||"ط­ظˆط§ظ„ط©"}</small></div></div>
+          <div className="recent-currency"><span className="currency-flag">{currencyFlag(item.currency)}</span><div><span>{item.currency||"USD"}</span><small>{item.number||"حوالة"}</small></div></div>
           <div className="recent-date">{item.transferDate||String(item.createdAt||"").slice(0,10)}</div>
           <strong>{cad(item.totalCustomerDue||0)}</strong>
-          <b>â€¹</b>
-        </button>):<p className="empty-state">ظ„ط§ طھظˆط¬ط¯ ط­ظˆط§ظ„ط§طھ ط­ط¯ظٹط«ط©.</p>}
+          <b>‹</b>
+        </button>):<p className="empty-state">لا توجد حوالات حديثة.</p>}
       </div>
 
       <div className="enterprise-rates-board panel-dark">
         <div className="enterprise-rates-head">
           <div>
-            <h3>ًں“ˆ ط£ط³ط¹ط§ط± ط§ظ„طµط±ظپ ط§ظ„ظ„ط­ط¸ظٹط©</h3>
-            <p>ظ…ظ‚ط§ط¨ظ„ ط§ظ„ط¯ظˆظ„ط§ط± ط§ظ„ظƒظ†ط¯ظٹ <strong>CAD</strong></p>
+            <h3>📈 أسعار الصرف اللحظية</h3>
+            <p>مقابل الدولار الكندي <strong>CAD</strong></p>
           </div>
           <div className="rates-head-actions">
-            <span>ط¢ط®ط± طھط­ط¯ظٹط«<br/><strong>{rates[0]?.createdAt?new Date(rates[0].createdAt).toLocaleString("ar-CA"):"â€”"}</strong></span>
-            <button disabled={ratesBusy} onClick={refreshRates}>{ratesBusy?"ط¬ط§ط±ظٹ ط§ظ„طھط­ط¯ظٹط«â€¦":"â†» طھط­ط¯ظٹط« ط§ظ„ط£ط³ط¹ط§ط±"}</button>
+            <span>آخر تحديث<br/><strong>{rates[0]?.createdAt?new Date(rates[0].createdAt).toLocaleString("ar-CA"):"—"}</strong></span>
+            <button disabled={ratesBusy} onClick={refreshRates}>{ratesBusy?"جاري التحديث…":"↻ تحديث الأسعار"}</button>
           </div>
         </div>
 
         <div className="enterprise-rates-table">
           <div className="rate-table-header">
-            <span>ط§ظ„ط¹ظ…ظ„ط©</span>
-            <span>ط§ظ„ط¹ظ„ظ…</span>
-            <span>ط³ط¹ط± ط§ظ„ط´ط±ط§ط،</span>
-            <span>ط³ط¹ط± ط§ظ„ط¨ظٹط¹</span>
-            <span>ط§ظ„طھط؛ظٹط± 24 ط³ط§ط¹ط©</span>
-            <span>ط§ظ„ط±ط³ظ… ط§ظ„ط¨ظٹط§ظ†ظٹ</span>
+            <span>العملة</span>
+            <span>العلم</span>
+            <span>سعر الشراء</span>
+            <span>سعر البيع</span>
+            <span>التغير 24 ساعة</span>
+            <span>الرسم البياني</span>
           </div>
 
           {rates.length?rates.slice(0,6).map((item,index)=>{
@@ -163,46 +163,46 @@ function Dashboard({navigate}){
             const delta=((sell-buy)/(buy||1))*100;
             const up=delta>=0;
             return <button key={item.id||`${code}-CAD`} className="enterprise-rate-row" onClick={()=>navigate("rates")}>
-              <span className="enterprise-code"><strong>{code}</strong><small>{code==="USD"?"ط¯ظˆظ„ط§ط± ط£ظ…ط±ظٹظƒظٹ":code==="EUR"?"ظٹظˆط±ظˆ ط£ظˆط±ظˆط¨ظٹ":code==="SYP"?"ظ„ظٹط±ط© ط³ظˆط±ظٹط©":code==="AED"?"ط¯ط±ظ‡ظ… ط¥ظ…ط§ط±ط§طھظٹ":code==="GBP"?"ط¬ظ†ظٹظ‡ ط¥ط³طھط±ظ„ظٹظ†ظٹ":code==="CAD"?"ط¯ظˆظ„ط§ط± ظƒظ†ط¯ظٹ":"ط¹ظ…ظ„ط©"}</small></span>
+              <span className="enterprise-code"><strong>{code}</strong><small>{code==="USD"?"دولار أمريكي":code==="EUR"?"يورو أوروبي":code==="SYP"?"ليرة سورية":code==="AED"?"درهم إماراتي":code==="GBP"?"جنيه إسترليني":code==="CAD"?"دولار كندي":"عملة"}</small></span>
               <span className="enterprise-flag">{currencyFlag(code)}</span>
               <span className="rate-buy">{buy.toFixed(code==="SYP"?7:4)}</span>
               <span className="rate-sell">{sell.toFixed(code==="SYP"?7:4)}</span>
-              <span className={up?"rate-up":"rate-down"}>{up?"â–²":"â–¼"} {Math.abs(delta).toFixed(2)}%</span>
+              <span className={up?"rate-up":"rate-down"}>{up?"▲":"▼"} {Math.abs(delta).toFixed(2)}%</span>
               <span className="mini-chart">
                 <svg viewBox="0 0 100 30" preserveAspectRatio="none">
                   <polyline points={rateTrendPoints(sell,index)} fill="none" stroke="currentColor" strokeWidth="2.2"/>
                 </svg>
               </span>
             </button>
-          }):<div className="empty-state">ظ„ط§ طھظˆط¬ط¯ ط£ط³ط¹ط§ط± ظ…ط­ظپظˆط¸ط© ط¨ط¹ط¯. ط§ظپطھط­ طµظپط­ط© ط£ط³ط¹ط§ط± ط§ظ„طµط±ظپ ظˆط£ط¶ظپ ط§ظ„ط£ط³ط¹ط§ط±.</div>}
+          }):<div className="empty-state">لا توجد أسعار محفوظة بعد. افتح صفحة أسعار الصرف وأضف الأسعار.</div>}
         </div>
 
-        <button className="show-all-rates" onClick={()=>navigate("rates")}>ط¹ط±ط¶ ط¬ظ…ظٹط¹ ط§ظ„ط¹ظ…ظ„ط§طھ â€¹</button>
+        <button className="show-all-rates" onClick={()=>navigate("rates")}>عرض جميع العملات ‹</button>
       </div>
     </section>
 
     <section className="premium-quick">
-      <button onClick={()=>navigate("transactions")}><span>ًں’±</span><strong>ط¥ط¶ط§ظپط© ط­ظˆط§ظ„ط©</strong></button>
-      <button onClick={()=>navigate("expenses")}><span>ًں‘›</span><strong>ط¥ط¶ط§ظپط© ظ…طµط±ظˆظپ</strong></button>
-      <button onClick={()=>navigate("customers")}><span>ًں‘¤ï¼‹</span><strong>ط¹ظ…ظٹظ„ ط¬ط¯ظٹط¯</strong></button>
-      <button onClick={()=>navigate("monthly-report")}><span>ًں“„</span><strong>طھظ‚ط±ظٹط± ط³ط±ظٹط¹</strong></button>
-      <button onClick={()=>navigate("rates")}><span>âکپ</span><strong>ط£ط³ط¹ط§ط± ط§ظ„طµط±ظپ</strong></button>
+      <button onClick={()=>navigate("transactions")}><span>💱</span><strong>إضافة حوالة</strong></button>
+      <button onClick={()=>navigate("expenses")}><span>👛</span><strong>إضافة مصروف</strong></button>
+      <button onClick={()=>navigate("customers")}><span>👤＋</span><strong>عميل جديد</strong></button>
+      <button onClick={()=>navigate("monthly-report")}><span>📄</span><strong>تقرير سريع</strong></button>
+      <button onClick={()=>navigate("rates")}><span>☁</span><strong>أسعار الصرف</strong></button>
     </section>
 
     <button className="premium-alert-strip" onClick={()=>setOpen(!open)}>
-      <span>ًں””</span>
-      <strong>{noticeData.count?`${noticeData.count} طھظ†ط¨ظٹظ‡ط§طھ طھط­طھط§ط¬ ط§ظ„ظ…ط±ط§ط¬ط¹ط©`:"ظ„ط§ طھظˆط¬ط¯ طھظ†ط¨ظٹظ‡ط§طھ ط¬ط¯ظٹط¯ط©"}</strong>
-      <b>â€¹</b>
+      <span>🔔</span>
+      <strong>{noticeData.count?`${noticeData.count} تنبيهات تحتاج المراجعة`:"لا توجد تنبيهات جديدة"}</strong>
+      <b>‹</b>
     </button>
 
     {open&&<div className="panel-dark premium-notifications">
-      <div className="section-heading"><h3>ظ…ط±ظƒط² ط§ظ„طھظ†ط¨ظٹظ‡ط§طھ</h3><button onClick={()=>setOpen(false)}>ط¥ط؛ظ„ط§ظ‚</button></div>
+      <div className="section-heading"><h3>مركز التنبيهات</h3><button onClick={()=>setOpen(false)}>إغلاق</button></div>
       {noticeData.notifications.length?noticeData.notifications.map(item=>
         <div className={`notification-item severity-${item.severity}`} key={item.id}>
           <div><strong>{item.title}</strong><p>{item.message}</p></div>
-          {item.customerId&&<button onClick={()=>navigate("customers")}>ظپطھط­</button>}
+          {item.customerId&&<button onClick={()=>navigate("customers")}>فتح</button>}
         </div>
-      ):<p>ظ„ط§ طھظˆط¬ط¯ طھظ†ط¨ظٹظ‡ط§طھ ط­ط§ظ„ظٹط§ظ‹.</p>}
+      ):<p>لا توجد تنبيهات حالياً.</p>}
     </div>}
   </div>;
 }
@@ -253,7 +253,7 @@ function Customers({open}){
       setList(Array.isArray(customersResponse.data)?customersResponse.data:[]);
       setAlerts(alertsResponse.data||{count:0,totalOverdue:0,rows:[]});
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ط§ظ„ط¹ظ…ظ„ط§ط،");
+      setError(requestError.response?.data?.message||"تعذر تحميل العملاء");
     }
   }
 
@@ -315,44 +315,44 @@ function Customers({open}){
 
 
   const archiveCustomer=async(customer)=>{
-    if(!window.confirm(`ظ‡ظ„ طھط±ظٹط¯ ط£ط±ط´ظپط© ط§ظ„ط¹ظ…ظٹظ„ ${customer.name}طں`))return;
+    if(!window.confirm(`هل تريد أرشفة العميل ${customer.name}؟`))return;
     setMsg("");
     try{
       await api.post(`/customers/${customer.id}/archive`);
-      setMsg("طھظ…طھ ط£ط±ط´ظپط© ط§ظ„ط¹ظ…ظٹظ„ ط¨ظ†ط¬ط§ط­.");
+      setMsg("تمت أرشفة العميل بنجاح.");
       load();
     }catch(error){
-      setMsg(error.response?.data?.message||"طھط¹ط°ط± ط£ط±ط´ظپط© ط§ظ„ط¹ظ…ظٹظ„");
+      setMsg(error.response?.data?.message||"تعذر أرشفة العميل");
     }
   };
 
   const deleteCustomer=async(customer)=>{
     const firstConfirm=window.confirm(
-      `ظ‡ظ„ ط£ظ†طھ ظ…طھط£ظƒط¯ ظ…ظ† ط­ط°ظپ ط§ظ„ط¹ظ…ظٹظ„ ${customer.name}طں\n\nظ„ظ† ظٹط³ظ…ط­ ط§ظ„ظ†ط¸ط§ظ… ط¨ط§ظ„ط­ط°ظپ ط¥ط°ط§ ظƒط§ظ† ظ„ظ„ط¹ظ…ظٹظ„ ط­ظˆط§ظ„ط§طھ ط£ظˆ ط¯ظپط¹ط§طھ ط£ظˆ ط¯ظٹظˆظ†.`
+      `هل أنت متأكد من حذف العميل ${customer.name}؟\n\nلن يسمح النظام بالحذف إذا كان للعميل حوالات أو دفعات أو ديون.`
     );
     if(!firstConfirm)return;
 
-    const typed=window.prompt(`ظ„ظ„طھط£ظƒظٹط¯ ط§ظ„ظ†ظ‡ط§ط¦ظٹطŒ ط§ظƒطھط¨ ط§ط³ظ… ط§ظ„ط¹ظ…ظٹظ„ ظƒظ…ط§ ظ‡ظˆ:\n${customer.name}`);
+    const typed=window.prompt(`للتأكيد النهائي، اكتب اسم العميل كما هو:\n${customer.name}`);
     if(typed!==customer.name){
-      setMsg("طھظ… ط¥ظ„ط؛ط§ط، ط§ظ„ط­ط°ظپ ظ„ط£ظ† ط§ط³ظ… ط§ظ„ط¹ظ…ظٹظ„ ط؛ظٹط± ظ…ط·ط§ط¨ظ‚.");
+      setMsg("تم إلغاء الحذف لأن اسم العميل غير مطابق.");
       return;
     }
 
     setMsg("");
     try{
       await api.delete(`/customers/${customer.id}`);
-      setMsg("طھظ… ط­ط°ظپ ط§ظ„ط¹ظ…ظٹظ„ ظ†ظ‡ط§ط¦ظٹظ‹ط§.");
+      setMsg("تم حذف العميل نهائيًا.");
       load();
     }catch(error){
       const response=error.response?.data;
       if(error.response?.status===409){
         const counts=response?.counts||{};
         setMsg(
-          `${response?.message||"ظ„ط§ ظٹظ…ظƒظ† ط­ط°ظپ ط§ظ„ط¹ظ…ظٹظ„."} `+
-          `(ط­ظˆط§ظ„ط§طھ: ${counts.transactions||0}طŒ ط¯ظپط¹ط§طھ: ${counts.payments||0}طŒ ط¯ظٹظˆظ†: ${counts.debts||0})`
+          `${response?.message||"لا يمكن حذف العميل."} `+
+          `(حوالات: ${counts.transactions||0}، دفعات: ${counts.payments||0}، ديون: ${counts.debts||0})`
         );
       }else{
-        setMsg(response?.message||"طھط¹ط°ط± ط­ط°ظپ ط§ظ„ط¹ظ…ظٹظ„");
+        setMsg(response?.message||"تعذر حذف العميل");
       }
     }
   };
@@ -365,7 +365,7 @@ function Customers({open}){
       setActivePanel("");
       await load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± ط¥ط¶ط§ظپط© ط§ظ„ط¹ظ…ظٹظ„");
+      setError(requestError.response?.data?.message||"تعذر إضافة العميل");
     }
   }
 
@@ -377,7 +377,7 @@ function Customers({open}){
       setActivePanel("");
       await load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط¹ط¯ظٹظ„ ط§ظ„ط¹ظ…ظٹظ„");
+      setError(requestError.response?.data?.message||"تعذر تعديل العميل");
     }
   }
 
@@ -428,7 +428,7 @@ function Customers({open}){
       setActivePanel("");
       await load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± ط¥ط¶ط§ظپط© ط§ظ„ط­ظˆط§ظ„ط©");
+      setError(requestError.response?.data?.message||"تعذر إضافة الحوالة");
     }
   }
 
@@ -449,7 +449,7 @@ function Customers({open}){
       setActivePanel("payment");
       window.scrollTo({top:0,behavior:"smooth"});
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ط­ظˆط§ظ„ط§طھ ط§ظ„ط¹ظ…ظٹظ„");
+      setError(requestError.response?.data?.message||"تعذر تحميل حوالات العميل");
     }
   }
 
@@ -469,28 +469,28 @@ function Customers({open}){
       setActivePanel("");
       await load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± ط¥ط¶ط§ظپط© ط§ظ„ط¯ظپط¹ط©");
+      setError(requestError.response?.data?.message||"تعذر إضافة الدفعة");
     }
   }
 
   function whatsappFinalBalance(customer, urgent=false){
     const phone=String(customer.phone||"").replace(/\D/g,"");
     if(!phone){
-      setError("ظ„ط§ ظٹظˆط¬ط¯ ط±ظ‚ظ… ظˆط§طھط³ط§ط¨ ظ…ط­ظپظˆط¸ ظ„ظ‡ط°ط§ ط§ظ„ط¹ظ…ظٹظ„");
+      setError("لا يوجد رقم واتساب محفوظ لهذا العميل");
       return;
     }
 
     const message=urgent
-      ? `ط§ظ„ط³ظ„ط§ظ… ط¹ظ„ظٹظƒظ… ${customer.name}طŒ
-ظ†ط°ظƒظ‘ط±ظƒظ… ط¨ط¶ط±ظˆط±ط© طھط³ط¯ظٹط¯ ط§ظ„ط±طµظٹط¯ ط§ظ„ظ…ط³طھط­ظ‚ ظˆظ‚ط¯ط±ظ‡ ${cad(customer.finalBalance)}.
-ط¹ط¯ط¯ ط£ظٹط§ظ… ط§ظ„طھط£ط®ظٹط±: ${customer.overdueDays} ظٹظˆظ….
-ظٹط±ط¬ظ‰ ط§ظ„طھظˆط§طµظ„ ظ…ط¹ظ†ط§ ظ„طھط³ظˆظٹط© ط§ظ„ط­ط³ط§ط¨.
-ط´ظƒط±ط§ظ‹ ظ„طھط¹ط§ظ…ظ„ظƒظ… ظ…ط¹ ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ظ„ظ„طھط¬ط§ط±ط©.`
-      : `ط§ظ„ط³ظ„ط§ظ… ط¹ظ„ظٹظƒظ… ${customer.name}طŒ
-ظ…ط¬ظ…ظˆط¹ ط­ط³ط§ط¨ظƒظ… ط§ظ„ظƒظ„ظٹ: ${cad(customer.totalTransactions)}
-ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط¯ظپظˆط¹: ${cad(customer.totalPaid)}
-ط§ظ„ط±طµظٹط¯ ط§ظ„ظ†ظ‡ط§ط¦ظٹ ط§ظ„ظ…طھط¨ظ‚ظٹ: ${cad(customer.finalBalance)}
-ط´ظƒط±ط§ظ‹ ظ„طھط¹ط§ظ…ظ„ظƒظ… ظ…ط¹ ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ظ„ظ„طھط¬ط§ط±ط©.`;
+      ? `السلام عليكم ${customer.name}،
+نذكّركم بضرورة تسديد الرصيد المستحق وقدره ${cad(customer.finalBalance)}.
+عدد أيام التأخير: ${customer.overdueDays} يوم.
+يرجى التواصل معنا لتسوية الحساب.
+شكراً لتعاملكم مع شركة العبود للتجارة.`
+      : `السلام عليكم ${customer.name}،
+مجموع حسابكم الكلي: ${cad(customer.totalTransactions)}
+إجمالي المدفوع: ${cad(customer.totalPaid)}
+الرصيد النهائي المتبقي: ${cad(customer.finalBalance)}
+شكراً لتعاملكم مع شركة العبود للتجارة.`;
 
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank");
   }
@@ -500,168 +500,168 @@ function Customers({open}){
   );
 
   return <>
-    <h2>ظ‚ط§ط¦ظ…ط© ط§ظ„ط¹ظ…ظ„ط§ط،</h2>
+    <h2>قائمة العملاء</h2>
     {error&&<div className="card customer-error">{error}</div>}
 
     <div className="stats">
-      <div className="card"><span>ط¹ط¯ط¯ ط§ظ„ط¹ظ…ظ„ط§ط،</span><strong>{list.length}</strong></div>
-      <div className="card"><span>ظ…ط¬ظ…ظˆط¹ ط§ظ„ط­ط³ط§ط¨ط§طھ ط§ظ„ظƒظ„ظٹ</span><strong>{cad(list.reduce((sum,item)=>sum+Number(item.totalTransactions||0),0))}</strong></div>
-      <div className="card"><span>ظ…ط¬ظ…ظˆط¹ ط§ظ„ظ…ط¯ظپظˆط¹</span><strong>{cad(list.reduce((sum,item)=>sum+Number(item.totalPaid||0),0))}</strong></div>
-      <div className="card final"><span>ط§ظ„ظ…ط¬ظ…ظˆط¹ ط§ظ„ظ†ظ‡ط§ط¦ظٹ (CAD) ط§ظ„ظ…طھط¨ظ‚ظٹ</span><strong>{cad(list.reduce((sum,item)=>sum+Number(item.finalBalance||0),0))}</strong></div>
-      <div className="card overdue-card"><span>ط§ظ„ظ…طھط£ط®ط±ظˆظ† ط£ظƒط«ط± ظ…ظ† ط£ط³ط¨ظˆط¹</span><strong>{alerts.count}</strong></div>
+      <div className="card"><span>عدد العملاء</span><strong>{list.length}</strong></div>
+      <div className="card"><span>مجموع الحسابات الكلي</span><strong>{cad(list.reduce((sum,item)=>sum+Number(item.totalTransactions||0),0))}</strong></div>
+      <div className="card"><span>مجموع المدفوع</span><strong>{cad(list.reduce((sum,item)=>sum+Number(item.totalPaid||0),0))}</strong></div>
+      <div className="card final"><span>المجموع النهائي (CAD) المتبقي</span><strong>{cad(list.reduce((sum,item)=>sum+Number(item.finalBalance||0),0))}</strong></div>
+      <div className="card overdue-card"><span>المتأخرون أكثر من أسبوع</span><strong>{alerts.count}</strong></div>
     </div>
 
     <div className="customer-toolbar card">
-      <button onClick={()=>{setActivePanel("newCustomer");setEditingCustomer(null)}}>ط¥ط¶ط§ظپط© ط¹ظ…ظٹظ„</button>
-      <button onClick={()=>setActivePanel(activePanel==="transfer"?"":"transfer")}>ط¥ط¶ط§ظپط© ط­ظˆط§ظ„ط©</button>
-      <button onClick={()=>setActivePanel(activePanel==="payment"?"":"payment")}>ط¥ط¶ط§ظپط© ط¯ظپط¹ط©</button>
+      <button onClick={()=>{setActivePanel("newCustomer");setEditingCustomer(null)}}>إضافة عميل</button>
+      <button onClick={()=>setActivePanel(activePanel==="transfer"?"":"transfer")}>إضافة حوالة</button>
+      <button onClick={()=>setActivePanel(activePanel==="payment"?"":"payment")}>إضافة دفعة</button>
     </div>
 
     {activePanel==="newCustomer"&&
       <form className="card form edit-panel" onSubmit={addCustomer}>
-        <h3>ط¥ط¶ط§ظپط© ط¹ظ…ظٹظ„ ط¬ط¯ظٹط¯</h3>
-        <input value={customerForm.name} onChange={e=>setCustomerForm({...customerForm,name:e.target.value})} placeholder="ط§ط³ظ… ط§ظ„ط¹ظ…ظٹظ„" required/>
-        <input value={customerForm.phone} onChange={e=>setCustomerForm({...customerForm,phone:e.target.value})} placeholder="ط±ظ‚ظ… ط§ظ„ظ‡ط§طھظپ / ظˆط§طھط³ط§ط¨"/>
-        <input type="email" value={customerForm.email} onChange={e=>setCustomerForm({...customerForm,email:e.target.value})} placeholder="ط§ظ„ط¨ط±ظٹط¯ ط§ظ„ط¥ظ„ظƒطھط±ظˆظ†ظٹ"/>
-        <button>ط­ظپط¸ ط§ظ„ط¹ظ…ظٹظ„</button>
-        <button type="button" onClick={()=>setActivePanel("")}>ط¥ظ„ط؛ط§ط،</button>
+        <h3>إضافة عميل جديد</h3>
+        <input value={customerForm.name} onChange={e=>setCustomerForm({...customerForm,name:e.target.value})} placeholder="اسم العميل" required/>
+        <input value={customerForm.phone} onChange={e=>setCustomerForm({...customerForm,phone:e.target.value})} placeholder="رقم الهاتف / واتساب"/>
+        <input type="email" value={customerForm.email} onChange={e=>setCustomerForm({...customerForm,email:e.target.value})} placeholder="البريد الإلكتروني"/>
+        <button>حفظ العميل</button>
+        <button type="button" onClick={()=>setActivePanel("")}>إلغاء</button>
       </form>
     }
 
     {editingCustomer&&
       <form className="card form edit-panel" onSubmit={saveCustomer}>
-        <h3>طھط¹ط¯ظٹظ„ ط¨ظٹط§ظ†ط§طھ ط§ظ„ط¹ظ…ظٹظ„</h3>
-        <input value={editingCustomer.name||""} onChange={e=>setEditingCustomer({...editingCustomer,name:e.target.value})} placeholder="ط§ط³ظ… ط§ظ„ط¹ظ…ظٹظ„" required/>
-        <input value={editingCustomer.phone||""} onChange={e=>setEditingCustomer({...editingCustomer,phone:e.target.value})} placeholder="ط±ظ‚ظ… ط§ظ„ظ‡ط§طھظپ / ظˆط§طھط³ط§ط¨"/>
-        <input type="email" value={editingCustomer.email||""} onChange={e=>setEditingCustomer({...editingCustomer,email:e.target.value})} placeholder="ط§ظ„ط¨ط±ظٹط¯ ط§ظ„ط¥ظ„ظƒطھط±ظˆظ†ظٹ"/>
-        <button>ط­ظپط¸ ط§ظ„طھط¹ط¯ظٹظ„</button>
-        <button type="button" onClick={()=>setEditingCustomer(null)}>ط¥ظ„ط؛ط§ط،</button>
+        <h3>تعديل بيانات العميل</h3>
+        <input value={editingCustomer.name||""} onChange={e=>setEditingCustomer({...editingCustomer,name:e.target.value})} placeholder="اسم العميل" required/>
+        <input value={editingCustomer.phone||""} onChange={e=>setEditingCustomer({...editingCustomer,phone:e.target.value})} placeholder="رقم الهاتف / واتساب"/>
+        <input type="email" value={editingCustomer.email||""} onChange={e=>setEditingCustomer({...editingCustomer,email:e.target.value})} placeholder="البريد الإلكتروني"/>
+        <button>حفظ التعديل</button>
+        <button type="button" onClick={()=>setEditingCustomer(null)}>إلغاء</button>
       </form>
     }
 
     {activePanel==="transfer"&&
       <form className="card form edit-panel" onSubmit={addTransfer}>
-        <h3>ط¥ط¶ط§ظپط© ط­ظˆط§ظ„ط©</h3>
+        <h3>إضافة حوالة</h3>
         <select value={transferForm.customerId} onChange={e=>setTransferForm({...transferForm,customerId:e.target.value})} required>
-          <option value="">ط§ط®طھط± ط§ظ„ط¹ظ…ظٹظ„</option>
+          <option value="">اختر العميل</option>
           {list.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
         <input type="date" value={transferForm.transferDate} onChange={e=>setTransferForm({...transferForm,transferDate:e.target.value})}/>
         <label className="currency-field">
-          <span className="currency-field-title">ط¹ظ…ظ„ط© ط§ظ„ط­ظˆط§ظ„ط©</span>
+          <span className="currency-field-title">عملة الحوالة</span>
           <span className="currency-badge">{transferForm.currency}</span>
           <select value={transferForm.currency} onChange={e=>setTransferForm({...transferForm,currency:e.target.value,costRate:"",finalRate:""})}>
             {["USD","EUR","SYP","AED","GBP","CAD"].map(code=><option key={code} value={code}>{code}</option>)}
           </select>
-          <small>ط§ط®طھط± ط§ظ„ط¹ظ…ظ„ط© ط§ظ„ظ…ط±ط³ظ„ط©طŒ ظˆط³ظٹطھظ… ط¬ظ„ط¨ ط³ط¹ط± ط§ظ„طھظƒظ„ظپط© ظ…ظ‚ط§ط¨ظ„ CAD طھظ„ظ‚ط§ط¦ظٹظ‹ط§</small>
+          <small>اختر العملة المرسلة، وسيتم جلب سعر التكلفة مقابل CAD تلقائيًا</small>
         </label>
         <label className="currency-field">
-          <span className="currency-field-title">ظ…ط¨ظ„ط؛ ط§ظ„ط­ظˆط§ظ„ط©</span>
+          <span className="currency-field-title">مبلغ الحوالة</span>
           <span className="currency-badge">{transferForm.currency}</span>
           <input type="number" inputMode="decimal" min=".01" step=".01" value={transferForm.amount} onChange={e=>setTransferForm({...transferForm,amount:e.target.value})} placeholder="0.00" required/>
-          <small>ط§ظ„ظ…ط¨ظ„ط؛ ط¨ط¹ظ…ظ„ط© {transferForm.currency}</small>
+          <small>المبلغ بعملة {transferForm.currency}</small>
         </label>
         <label className="currency-field">
-          <span className="currency-field-title">ط³ط¹ط± ط§ظ„طھظƒظ„ظپط© ظ…ظ‚ط§ط¨ظ„ CAD</span>
+          <span className="currency-field-title">سعر التكلفة مقابل CAD</span>
           <span className="currency-badge cad">CAD</span>
           <div className="rate-mode-switch">
-            <button type="button" className={transferForm.rateMode==="auto"?"active":""} onClick={()=>setTransferForm({...transferForm,rateMode:"auto"})}>ط§ظ„ط³ط¹ط± ط§ظ„ط¢ظ„ظٹ</button>
-            <button type="button" className={transferForm.rateMode==="manual"?"active":""} onClick={()=>setTransferForm({...transferForm,rateMode:"manual"})}>ط³ط¹ط± ظٹط¯ظˆظٹ</button>
+            <button type="button" className={transferForm.rateMode==="auto"?"active":""} onClick={()=>setTransferForm({...transferForm,rateMode:"auto"})}>السعر الآلي</button>
+            <button type="button" className={transferForm.rateMode==="manual"?"active":""} onClick={()=>setTransferForm({...transferForm,rateMode:"manual"})}>سعر يدوي</button>
           </div>
           <input type="number" inputMode="decimal" min=".0000001" step=".0000001" value={transferForm.costRate} onChange={e=>setTransferForm({...transferForm,costRate:e.target.value,rateMode:"manual"})} placeholder="0.0000" required readOnly={transferForm.rateMode==="auto"}/>
-          <small>{(selectedRateMeta?.createdAt||selectedRateMeta?.updatedAt)?`ط¢ط®ط± طھط­ط¯ظٹط«: ${new Date(selectedRateMeta.createdAt||selectedRateMeta.updatedAt).toLocaleString("ar-CA")}`:transferForm.rateMode==="manual"?"ظٹظڈط³طھط®ط¯ظ… ظ‡ط°ط§ ط§ظ„ط³ط¹ط± ظ„ظ‡ط°ظ‡ ط§ظ„ط­ظˆط§ظ„ط© ظپظ‚ط·":"ظ„ط§ ظٹظˆط¬ط¯ ط³ط¹ط± ط¢ظ„ظٹ ظ„ظ‡ط°ظ‡ ط§ظ„ط¹ظ…ظ„ط©ط› ط§ط®طھط± ط³ط¹ط± ظٹط¯ظˆظٹ"}</small>
+          <small>{(selectedRateMeta?.createdAt||selectedRateMeta?.updatedAt)?`آخر تحديث: ${new Date(selectedRateMeta.createdAt||selectedRateMeta.updatedAt).toLocaleString("ar-CA")}`:transferForm.rateMode==="manual"?"يُستخدم هذا السعر لهذه الحوالة فقط":"لا يوجد سعر آلي لهذه العملة؛ اختر سعر يدوي"}</small>
         </label>
         <label className="currency-field">
-          <span className="currency-field-title">ط³ط¹ط± ط§ظ„طھط­ظˆظٹظ„ ظ„ظ„ط¹ظ…ظٹظ„</span>
+          <span className="currency-field-title">سعر التحويل للعميل</span>
           <span className="currency-badge cad">CAD</span>
           <input type="number" inputMode="decimal" min=".0001" step=".0001" value={transferForm.finalRate} onChange={e=>setTransferForm({...transferForm,finalRate:e.target.value})} placeholder="0.0000" required/>
-          <small>ط§ظ„ط³ط¹ط± ط§ظ„ط°ظٹ ظٹظڈط­ط§ط³ط¨ ط¹ظ„ظٹظ‡ ط§ظ„ط¹ظ…ظٹظ„ ظ…ظ‚ط§ط¨ظ„ ظƒظ„ ظˆط­ط¯ط© ظ…ظ† ط¹ظ…ظ„ط© ط§ظ„ط­ظˆط§ظ„ط©</small>
+          <small>السعر الذي يُحاسب عليه العميل مقابل كل وحدة من عملة الحوالة</small>
         </label>
         <div className="transfer-calculation-grid">
           <div className="transfer-total-preview">
-            <span>ط§ظ„ظ…ط¬ظ…ظˆط¹ ط§ظ„ظ†ظ‡ط§ط¦ظٹ (CAD) ظ„ظ„ط¹ظ…ظٹظ„</span>
+            <span>المجموع النهائي (CAD) للعميل</span>
             <strong>{((Number(transferForm.amount)||0)*(Number(transferForm.finalRate)||0)+(Number(transferForm.transferFee)||0)).toFixed(2)} CAD</strong>
           </div>
           <div className="transfer-profit-preview">
-            <span>ط±ط¨ط­ ط§ظ„ط­ظˆط§ظ„ط©</span>
+            <span>ربح الحوالة</span>
             <strong>{((Number(transferForm.amount)||0)*((Number(transferForm.finalRate)||0)-(Number(transferForm.costRate)||0))+(Number(transferForm.transferFee)||0)).toFixed(2)} CAD</strong>
           </div>
         </div>
         <label className="currency-field">
-          <span className="currency-field-title">ط£ط¬ظˆط± ط§ظ„ط­ظˆط§ظ„ط©</span>
+          <span className="currency-field-title">أجور الحوالة</span>
           <span className="currency-badge cad">CAD</span>
           <input type="number" inputMode="decimal" min="0" step=".01" value={transferForm.transferFee} onChange={e=>setTransferForm({...transferForm,transferFee:e.target.value})} placeholder="0.00"/>
         </label>
-        <button>ط­ظپط¸ ط§ظ„ط­ظˆط§ظ„ط©</button>
-        <button type="button" onClick={()=>setActivePanel("")}>ط¥ظ„ط؛ط§ط،</button>
+        <button>حفظ الحوالة</button>
+        <button type="button" onClick={()=>setActivePanel("")}>إلغاء</button>
       </form>
     }
 
     {activePanel==="payment"&&
       <form className="card form edit-panel" onSubmit={addPayment}>
-        <h3>ط¥ط¶ط§ظپط© ط¯ظپط¹ط©</h3>
+        <h3>إضافة دفعة</h3>
         <select value={paymentForm.customerId} onChange={async e=>{
           const customer=list.find(item=>item.id===e.target.value);
           if(customer)await preparePayment(customer);
         }} required>
-          <option value="">ط§ط®طھط± ط§ظ„ط¹ظ…ظٹظ„</option>
+          <option value="">اختر العميل</option>
           {list.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
-        <input type="number" min=".01" step=".01" value={paymentForm.amount} onChange={e=>setPaymentForm({...paymentForm,amount:e.target.value})} placeholder="ظ…ط¨ظ„ط؛ ط§ظ„ط¯ظپط¹ط©" required/>
+        <input type="number" min=".01" step=".01" value={paymentForm.amount} onChange={e=>setPaymentForm({...paymentForm,amount:e.target.value})} placeholder="مبلغ الدفعة" required/>
         <input type="date" value={paymentForm.paymentDate} onChange={e=>setPaymentForm({...paymentForm,paymentDate:e.target.value})}/>
         <select value={paymentForm.method} onChange={e=>setPaymentForm({...paymentForm,method:e.target.value})}>
-          <option value="CASH">ظ†ظ‚ط¯ظٹ</option>
-          <option value="BANK">ط¨ظ†ظƒ</option>
-          <option value="TRANSFER">طھط­ظˆظٹظ„</option>
-          <option value="CARD">ط¨ط·ط§ظ‚ط©</option>
+          <option value="CASH">نقدي</option>
+          <option value="BANK">بنك</option>
+          <option value="TRANSFER">تحويل</option>
+          <option value="CARD">بطاقة</option>
         </select>
-        <input value={paymentForm.reference} onChange={e=>setPaymentForm({...paymentForm,reference:e.target.value})} placeholder="ط±ظ‚ظ… ط§ظ„ظ…ط±ط¬ط¹"/>
-        <button>ط­ظپط¸ ط§ظ„ط¯ظپط¹ط©</button>
-        <button type="button" onClick={()=>setActivePanel("")}>ط¥ظ„ط؛ط§ط،</button>
+        <input value={paymentForm.reference} onChange={e=>setPaymentForm({...paymentForm,reference:e.target.value})} placeholder="رقم المرجع"/>
+        <button>حفظ الدفعة</button>
+        <button type="button" onClick={()=>setActivePanel("")}>إلغاء</button>
       </form>
     }
 
     {alerts.count>0&&
       <div className="card overdue-panel">
-        <h3>طھظ†ط¨ظٹظ‡ط§طھ ط§ظ„ط¹ظ…ظ„ط§ط، ط§ظ„ظ…طھط£ط®ط±ظٹظ†</h3>
+        <h3>تنبيهات العملاء المتأخرين</h3>
         {alerts.rows.slice(0,8).map(customer=><div className="overdue-row" key={customer.id}>
-          <span><strong>{customer.name}</strong> â€” ظ…طھط£ط®ط± {customer.overdueDays} ظٹظˆظ… â€” ط§ظ„ط±طµظٹط¯ {cad(customer.finalBalance)}</span>
-          <button className="danger-button" onClick={()=>whatsappFinalBalance(customer,true)}>طھظ†ط¨ظٹظ‡ ظˆط§طھط³ط§ط¨</button>
+          <span><strong>{customer.name}</strong> — متأخر {customer.overdueDays} يوم — الرصيد {cad(customer.finalBalance)}</span>
+          <button className="danger-button" onClick={()=>whatsappFinalBalance(customer,true)}>تنبيه واتساب</button>
         </div>)}
       </div>
     }
 
-    <input className="card customer-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="ط¨ط­ط« ط¨ط§ط³ظ… ط§ظ„ط¹ظ…ظٹظ„ ط£ظˆ ط±ظ‚ظ… ط§ظ„ظ‡ط§طھظپ"/>
+    <input className="card customer-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
 
     <div className="customer-cards">
       {filtered.length?filtered.map(customer=><article className={`customer-account-card ${customer.overdue?"is-overdue":customer.finalBalance>0?"has-balance":"is-paid"}`} key={customer.id}>
         <div className="customer-card-header">
           <div>
             <h3>{customer.name}</h3>
-            <p>{customer.phone||"ظ„ط§ ظٹظˆط¬ط¯ ط±ظ‚ظ… ظ‡ط§طھظپ"}</p>
+            <p>{customer.phone||"لا يوجد رقم هاتف"}</p>
           </div>
           <span className="customer-status">
-            {customer.overdue?"ظ…طھط£ط®ط±":customer.finalBalance>0?"ظ…ط³طھط­ظ‚":"ظ…ط³ط¯ط¯"}
+            {customer.overdue?"متأخر":customer.finalBalance>0?"مستحق":"مسدد"}
           </span>
         </div>
 
         <div className="customer-totals">
-          <div><span>ظ…ط¬ظ…ظˆط¹ ط§ظ„ط­ط³ط§ط¨</span><strong>{cad(customer.totalTransactions)}</strong></div>
-          <div><span>ط§ظ„ظ…ط¯ظپظˆط¹</span><strong>{cad(customer.totalPaid)}</strong></div>
-          <div className="final-balance"><span>ط§ظ„ظ…ط¬ظ…ظˆط¹ ط§ظ„ظ†ظ‡ط§ط¦ظٹ (CAD)</span><strong>{cad(customer.finalBalance)}</strong></div>
+          <div><span>مجموع الحساب</span><strong>{cad(customer.totalTransactions)}</strong></div>
+          <div><span>المدفوع</span><strong>{cad(customer.totalPaid)}</strong></div>
+          <div className="final-balance"><span>المجموع النهائي (CAD)</span><strong>{cad(customer.finalBalance)}</strong></div>
         </div>
 
-        {customer.overdue&&<p className="overdue-text">ظ…طھط£ط®ط± {customer.overdueDays} ظٹظˆظ… ظ…ظ† ط£ظ‚ط¯ظ… ط­ظˆط§ظ„ط© ط؛ظٹط± ظ…ط¯ظپظˆط¹ط©.</p>}
+        {customer.overdue&&<p className="overdue-text">متأخر {customer.overdueDays} يوم من أقدم حوالة غير مدفوعة.</p>}
 
         <div className="customer-card-actions">
-          <button onClick={()=>open(customer.id)}>ظپطھط­ ط§ظ„ط­ط³ط§ط¨</button>
-          <button onClick={()=>prepareTransfer(customer)}>ط¥ط¶ط§ظپط© ط­ظˆط§ظ„ط©</button>
-          <button onClick={()=>preparePayment(customer)}>ط¥ط¶ط§ظپط© ط¯ظپط¹ط©</button>
-          <button onClick={()=>{setEditingCustomer({...customer});setActivePanel("")}}>طھط¹ط¯ظٹظ„</button>
-          <button className="whatsapp-button" onClick={()=>whatsappFinalBalance(customer,false)}>ظˆط§طھط³ط§ط¨ ط¨ط§ظ„ظ…ط¬ظ…ظˆط¹ ط§ظ„ظ†ظ‡ط§ط¦ظٹ (CAD)</button>
-          {customer.overdue&&<button className="danger-button" onClick={()=>whatsappFinalBalance(customer,true)}>طھظ†ط¨ظٹظ‡ ط§ظ„ط¯ظپط¹</button>}
+          <button onClick={()=>open(customer.id)}>فتح الحساب</button>
+          <button onClick={()=>prepareTransfer(customer)}>إضافة حوالة</button>
+          <button onClick={()=>preparePayment(customer)}>إضافة دفعة</button>
+          <button onClick={()=>{setEditingCustomer({...customer});setActivePanel("")}}>تعديل</button>
+          <button className="whatsapp-button" onClick={()=>whatsappFinalBalance(customer,false)}>واتساب بالمجموع النهائي (CAD)</button>
+          {customer.overdue&&<button className="danger-button" onClick={()=>whatsappFinalBalance(customer,true)}>تنبيه الدفع</button>}
         </div>
-      </article>):<div className="card">ظ„ط§ طھظˆط¬ط¯ ظ†طھط§ط¦ط¬.</div>}
+      </article>):<div className="card">لا توجد نتائج.</div>}
     </div>
   </>;
 }
@@ -683,7 +683,7 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
       const response=await api.get("/customer-alerts");
       setData(response.data||{rows:[]});
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ط§ظ„ط¹ظ…ظ„ط§ط، ط§ظ„ظ…طھط£ط®ط±ظٹظ†");
+      setError(requestError.response?.data?.message||"تعذر تحميل العملاء المتأخرين");
     }
   }
 
@@ -699,26 +699,26 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
   function whatsappText(customer,type){
     const templates={
       gentle:[
-        `ط§ظ„ط³ظ„ط§ظ… ط¹ظ„ظٹظƒظ… ${customer.name}طŒ`,
-        `ظ†ط°ظƒظ‘ط±ظƒظ… ط¨ظ„ط·ظپ ط¨ظˆط¬ظˆط¯ ط±طµظٹط¯ ظ…ط³طھط­ظ‚ ظ‚ط¯ط±ظ‡ ${cad(customer.finalBalance)} CAD.`,
-        `ظ…ط¯ط© ط§ظ„طھط£ط®ظٹط±: ${customer.overdueDays} ظٹظˆظ….`,
-        `ظ†ط±ط¬ظˆ ط§ظ„طھظƒط±ظ… ط¨ط§ظ„ط³ط¯ط§ط¯ ظپظٹ ط§ظ„ظˆظ‚طھ ط§ظ„ظ…ظ†ط§ط³ط¨.`,
-        `ط´ظƒط±ط§ظ‹ ظ„طھط¹ط§ظ…ظ„ظƒظ… ظ…ط¹ ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ظ„ظ„طھط¬ط§ط±ط©.`
+        `السلام عليكم ${customer.name}،`,
+        `نذكّركم بلطف بوجود رصيد مستحق قدره ${cad(customer.finalBalance)} CAD.`,
+        `مدة التأخير: ${customer.overdueDays} يوم.`,
+        `نرجو التكرم بالسداد في الوقت المناسب.`,
+        `شكراً لتعاملكم مع شركة العبود للتجارة.`
       ],
       formal:[
-        `ط§ظ„ط³ظٹط¯/ط§ظ„ط³ظٹط¯ط© ${customer.name} ط§ظ„ظ…ط­طھط±ظ…/ط©طŒ`,
-        `ظ†ظپظٹط¯ظƒظ… ط¨ظˆط¬ظˆط¯ ط±طµظٹط¯ ظ…ط³طھط­ظ‚ ط¹ظ„ظ‰ ط­ط³ط§ط¨ظƒظ… ط¨ظ‚ظٹظ…ط© ${cad(customer.finalBalance)} CAD.`,
-        `ظˆظ‚ط¯ طھط¬ط§ظˆط²طھ ظ…ط¯ط© ط§ظ„طھط£ط®ظٹط± ${customer.overdueDays} ظٹظˆظ…ظ‹ط§.`,
-        `ظٹط±ط¬ظ‰ طھط³ظˆظٹط© ط§ظ„ط±طµظٹط¯ ط£ظˆ ط§ظ„طھظˆط§طµظ„ ظ…ط¹ظ†ط§ ظ„طھط­ط¯ظٹط¯ ظ…ظˆط¹ط¯ ط§ظ„ط¯ظپط¹.`,
-        `ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ظ„ظ„طھط¬ط§ط±ط©.`
+        `السيد/السيدة ${customer.name} المحترم/ة،`,
+        `نفيدكم بوجود رصيد مستحق على حسابكم بقيمة ${cad(customer.finalBalance)} CAD.`,
+        `وقد تجاوزت مدة التأخير ${customer.overdueDays} يومًا.`,
+        `يرجى تسوية الرصيد أو التواصل معنا لتحديد موعد الدفع.`,
+        `شركة العبود للتجارة.`
       ],
       statement:[
-        `ط§ظ„ط³ظ„ط§ظ… ط¹ظ„ظٹظƒظ… ${customer.name}طŒ`,
-        `ظ…ظ„ط®طµ ط­ط³ط§ط¨ظƒظ… ط§ظ„ط­ط§ظ„ظٹ:`,
-        `ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط­ط³ط§ط¨: ${cad(customer.totalTransactions)} CAD`,
-        `ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط¯ظپظˆط¹: ${cad(customer.totalPaid)} CAD`,
-        `ط§ظ„ط±طµظٹط¯ ط§ظ„ظ…طھط¨ظ‚ظٹ: ${cad(customer.finalBalance)} CAD`,
-        `ظٹظ…ظƒظ†ظ†ط§ طھط²ظˆظٹط¯ظƒظ… ط¨ظƒط´ظپ ط§ظ„ط­ط³ط§ط¨ ط§ظ„ظƒط§ظ…ظ„ ط¹ظ†ط¯ ط§ظ„ط·ظ„ط¨.`
+        `السلام عليكم ${customer.name}،`,
+        `ملخص حسابكم الحالي:`,
+        `إجمالي الحساب: ${cad(customer.totalTransactions)} CAD`,
+        `إجمالي المدفوع: ${cad(customer.totalPaid)} CAD`,
+        `الرصيد المتبقي: ${cad(customer.finalBalance)} CAD`,
+        `يمكننا تزويدكم بكشف الحساب الكامل عند الطلب.`
       ]
     };
     return (templates[type]||templates.gentle).join("\n");
@@ -727,7 +727,7 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
   async function sendWhatsapp(customer){
     const phone=String(customer.phone||"").replace(/\D/g,"");
     if(!phone){
-      setError(`ظ„ط§ ظٹظˆط¬ط¯ ط±ظ‚ظ… ظˆط§طھط³ط§ط¨ ظ…ط­ظپظˆط¸ ظ„ظ„ط¹ظ…ظٹظ„ ${customer.name}`);
+      setError(`لا يوجد رقم واتساب محفوظ للعميل ${customer.name}`);
       return;
     }
     const type=drafts[customer.id]?.messageType||"gentle";
@@ -736,7 +736,7 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
       await api.post("/notification-actions",{
         customerId:customer.id,
         action:"WHATSAPP_OPENED",
-        notes:`طھظ… ظپطھط­ ط±ط³ط§ظ„ط© ظˆط§طھط³ط§ط¨ ظ…ظ† ط§ظ„ظ†ظˆط¹ ${type}`
+        notes:`تم فتح رسالة واتساب من النوع ${type}`
       });
       load();
     }catch{}
@@ -754,11 +754,11 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
         promiseDate:draft.promiseDate||null,
         expectedAmount:draft.expectedAmount||null
       });
-      setSuccess(action==="PROMISE_TO_PAY"?"طھظ… ط­ظپط¸ ظˆط¹ط¯ ط§ظ„ط¯ظپط¹":"طھظ… طھط³ط¬ظٹظ„ ط§ظ„طھظˆط§طµظ„ ظˆط§ظ„ظ…ظ„ط§ط­ط¸ط©");
+      setSuccess(action==="PROMISE_TO_PAY"?"تم حفظ وعد الدفع":"تم تسجيل التواصل والملاحظة");
       updateDraft(customer.id,{notes:""});
       load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± ط­ظپط¸ ط§ظ„ظ…طھط§ط¨ط¹ط©");
+      setError(requestError.response?.data?.message||"تعذر حفظ المتابعة");
     }
   }
 
@@ -783,28 +783,28 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
 
   return <>
     <div className="dashboard-title">
-      <h2>âڈ° ظ…ط±ظƒط² طھط­طµظٹظ„ ط§ظ„ط¹ظ…ظ„ط§ط، ط§ظ„ظ…طھط£ط®ط±ظٹظ†</h2>
-      <button onClick={load}>طھط­ط¯ظٹط« ط§ظ„ظ‚ط§ط¦ظ…ط©</button>
+      <h2>⏰ مركز تحصيل العملاء المتأخرين</h2>
+      <button onClick={load}>تحديث القائمة</button>
     </div>
 
     {error&&<div className="card customer-error">{error}</div>}
     {success&&<div className="card rate-message">{success}</div>}
 
     <div className="stats overdue-top-stats">
-      <div className="card overdue-card"><span>ط¹ط¯ط¯ ط§ظ„ط¹ظ…ظ„ط§ط، ط§ظ„ظ…طھط£ط®ط±ظٹظ†</span><strong>{rows.length}</strong></div>
-      <div className="card overdue-card"><span>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط¨ط§ظ„ط؛ ط§ظ„ظ…طھط£ط®ط±ط©</span><strong>{money(filteredTotal)} CAD</strong></div>
-      <div className="card"><span>ط£ظƒط¨ط± ط±طµظٹط¯ ظ…طھط£ط®ط±</span><strong>{money(largest?.finalBalance||0)} CAD</strong><small>{largest?.name||"-"}</small></div>
-      <div className="card"><span>ط£ظƒط«ط± ط¹ظ…ظٹظ„ طھط£ط®ط±ظ‹ط§</span><strong>{oldest?.name||"-"}</strong><small>{oldest?`${oldest.overdueDays} ظٹظˆظ…`:"0 ظٹظˆظ…"}</small></div>
-      <div className="card expected-today-card"><span>ط§ظ„ظ…طھظˆظ‚ط¹ طھط­طµظٹظ„ظ‡ ط§ظ„ظٹظˆظ…</span><strong>{money(data.expectedToday||0)} CAD</strong></div>
+      <div className="card overdue-card"><span>عدد العملاء المتأخرين</span><strong>{rows.length}</strong></div>
+      <div className="card overdue-card"><span>إجمالي المبالغ المتأخرة</span><strong>{money(filteredTotal)} CAD</strong></div>
+      <div className="card"><span>أكبر رصيد متأخر</span><strong>{money(largest?.finalBalance||0)} CAD</strong><small>{largest?.name||"-"}</small></div>
+      <div className="card"><span>أكثر عميل تأخرًا</span><strong>{oldest?.name||"-"}</strong><small>{oldest?`${oldest.overdueDays} يوم`:"0 يوم"}</small></div>
+      <div className="card expected-today-card"><span>المتوقع تحصيله اليوم</span><strong>{money(data.expectedToday||0)} CAD</strong></div>
     </div>
 
     <div className="card overdue-filters">
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ط¨ط­ط« ط¨ط§ط³ظ… ط§ظ„ط¹ظ…ظٹظ„ ط£ظˆ ط±ظ‚ظ… ط§ظ„ظ‡ط§طھظپ"/>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
       <select value={days} onChange={e=>setDays(e.target.value)}>
-        <option value="7">ط£ظƒط«ط± ظ…ظ† 7 ط£ظٹط§ظ…</option>
-        <option value="15">ط£ظƒط«ط± ظ…ظ† 15 ظٹظˆظ…ظ‹ط§</option>
-        <option value="30">ط£ظƒط«ط± ظ…ظ† 30 ظٹظˆظ…ظ‹ط§</option>
-        <option value="60">ط£ظƒط«ط± ظ…ظ† 60 ظٹظˆظ…ظ‹ط§</option>
+        <option value="7">أكثر من 7 أيام</option>
+        <option value="15">أكثر من 15 يومًا</option>
+        <option value="30">أكثر من 30 يومًا</option>
+        <option value="60">أكثر من 60 يومًا</option>
       </select>
     </div>
 
@@ -815,51 +815,51 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
           <div className="overdue-customer-head">
             <div>
               <h3>{customer.name}</h3>
-              <p>{customer.phone||"ظ„ط§ ظٹظˆط¬ط¯ ط±ظ‚ظ… ظ‡ط§طھظپ"}</p>
+              <p>{customer.phone||"لا يوجد رقم هاتف"}</p>
             </div>
-            <span>{customer.overdueDays} ظٹظˆظ…</span>
+            <span>{customer.overdueDays} يوم</span>
           </div>
 
           <div className="overdue-customer-details expanded">
-            <div><span>ط§ظ„ط±طµظٹط¯ ط§ظ„ظ…طھط¨ظ‚ظٹ</span><strong>{cad(customer.finalBalance)} CAD</strong></div>
-            <div><span>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط­ط³ط§ط¨</span><strong>{cad(customer.totalTransactions)} CAD</strong></div>
-            <div><span>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط¯ظپظˆط¹</span><strong>{cad(customer.totalPaid)} CAD</strong></div>
-            <div><span>ط£ظ‚ط¯ظ… ط­ظˆط§ظ„ط© ط؛ظٹط± ظ…ط¯ظپظˆط¹ط©</span><strong>{customer.oldestUnpaidDate||"-"}</strong></div>
-            <div><span>ط¢ط®ط± ط¯ظپط¹ط©</span><strong>{customer.lastPaymentDate||"-"}</strong></div>
-            <div><span>ط¢ط®ط± ظ…طھط§ط¨ط¹ط©</span><strong>{customer.latestAction?.action||"-"}</strong></div>
+            <div><span>الرصيد المتبقي</span><strong>{cad(customer.finalBalance)} CAD</strong></div>
+            <div><span>إجمالي الحساب</span><strong>{cad(customer.totalTransactions)} CAD</strong></div>
+            <div><span>إجمالي المدفوع</span><strong>{cad(customer.totalPaid)} CAD</strong></div>
+            <div><span>أقدم حوالة غير مدفوعة</span><strong>{customer.oldestUnpaidDate||"-"}</strong></div>
+            <div><span>آخر دفعة</span><strong>{customer.lastPaymentDate||"-"}</strong></div>
+            <div><span>آخر متابعة</span><strong>{customer.latestAction?.action||"-"}</strong></div>
           </div>
 
           {customer.promiseDate&&<div className="promise-banner">
-            ظˆط¹ط¯ ط¨ط§ظ„ط¯ظپط¹: <strong>{customer.promiseDate}</strong>
-            {customer.expectedAmount!=null&&<> â€” {money(customer.expectedAmount)} CAD</>}
+            وعد بالدفع: <strong>{customer.promiseDate}</strong>
+            {customer.expectedAmount!=null&&<> — {money(customer.expectedAmount)} CAD</>}
           </div>}
 
           <div className="whatsapp-options">
-            <label>ظ†ظˆط¹ ط±ط³ط§ظ„ط© ظˆط§طھط³ط§ط¨</label>
+            <label>نوع رسالة واتساب</label>
             <select value={draft.messageType} onChange={e=>updateDraft(customer.id,{messageType:e.target.value})}>
-              <option value="gentle">طھط°ظƒظٹط± ظ„ط·ظٹظپ</option>
-              <option value="formal">طھط°ظƒظٹط± ط±ط³ظ…ظٹ</option>
-              <option value="statement">ظ…ظ„ط®طµ ظƒط´ظپ ط§ظ„ط­ط³ط§ط¨</option>
+              <option value="gentle">تذكير لطيف</option>
+              <option value="formal">تذكير رسمي</option>
+              <option value="statement">ملخص كشف الحساب</option>
             </select>
           </div>
 
           <div className="followup-form">
             <input type="date" value={draft.promiseDate} onChange={e=>updateDraft(customer.id,{promiseDate:e.target.value})}/>
-            <input type="number" step=".01" value={draft.expectedAmount} onChange={e=>updateDraft(customer.id,{expectedAmount:e.target.value})} placeholder="ط§ظ„ظ…ط¨ظ„ط؛ ط§ظ„ظ…طھظˆظ‚ط¹"/>
-            <input value={draft.notes} onChange={e=>updateDraft(customer.id,{notes:e.target.value})} placeholder="ظ…ظ„ط§ط­ط¸ط© ظ…ط«ظ„: ظˆط¹ط¯ ط¨ط§ظ„ط¯ظپط¹ ظٹظˆظ… ط§ظ„ط¬ظ…ط¹ط©"/>
+            <input type="number" step=".01" value={draft.expectedAmount} onChange={e=>updateDraft(customer.id,{expectedAmount:e.target.value})} placeholder="المبلغ المتوقع"/>
+            <input value={draft.notes} onChange={e=>updateDraft(customer.id,{notes:e.target.value})} placeholder="ملاحظة مثل: وعد بالدفع يوم الجمعة"/>
           </div>
 
           <div className="customer-card-actions overdue-actions">
-            <button onClick={()=>openCustomer(customer.id)}>ظپطھط­ ط§ظ„ط­ط³ط§ط¨</button>
-            <button onClick={()=>openCustomer(customer.id)}>ط¥ط¶ط§ظپط© ط¯ظپط¹ط©</button>
-            <button onClick={()=>onStatement(customer.id)}>ط·ط¨ط§ط¹ط© / PDF</button>
-            <button className="whatsapp-button" onClick={()=>sendWhatsapp(customer)}>ط¥ط±ط³ط§ظ„ ظˆط§طھط³ط§ط¨</button>
-            <button onClick={()=>saveAction(customer,"CONTACTED")}>طھظ… ط§ظ„طھظˆط§طµظ„</button>
-            <button onClick={()=>saveAction(customer,"PROMISE_TO_PAY")}>ط­ظپط¸ ظˆط¹ط¯ ط§ظ„ط¯ظپط¹</button>
-            <button onClick={navigateCustomers}>طھط¹ط¯ظٹظ„ ط§ظ„ط¹ظ…ظٹظ„</button>
+            <button onClick={()=>openCustomer(customer.id)}>فتح الحساب</button>
+            <button onClick={()=>openCustomer(customer.id)}>إضافة دفعة</button>
+            <button onClick={()=>onStatement(customer.id)}>طباعة / PDF</button>
+            <button className="whatsapp-button" onClick={()=>sendWhatsapp(customer)}>إرسال واتساب</button>
+            <button onClick={()=>saveAction(customer,"CONTACTED")}>تم التواصل</button>
+            <button onClick={()=>saveAction(customer,"PROMISE_TO_PAY")}>حفظ وعد الدفع</button>
+            <button onClick={navigateCustomers}>تعديل العميل</button>
           </div>
         </article>
-      }):<div className="card">ظ„ط§ ظٹظˆط¬ط¯ ط¹ظ…ظ„ط§ط، ظ…طھط£ط®ط±ظˆظ† ط¶ظ…ظ† ط§ظ„ظپظ„طھط± ط§ظ„ظ…ط­ط¯ط¯.</div>}
+      }):<div className="card">لا يوجد عملاء متأخرون ضمن الفلتر المحدد.</div>}
     </div>
   </>;
 }
@@ -886,12 +886,12 @@ function Customer({id,back,onStatement}){
       const response=await api.get(`/customers/${id}`);
       const result=response?.data||{};
       setData({
-        customer:result.customer||{name:"ط¹ظ…ظٹظ„"},
+        customer:result.customer||{name:"عميل"},
         transactions:Array.isArray(result.transactions)?result.transactions:[],
         payments:Array.isArray(result.payments)?result.payments:[],
       });
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ظ…ظ„ظپ ط§ظ„ط¹ظ…ظٹظ„");
+      setError(requestError.response?.data?.message||"تعذر تحميل ملف العميل");
       setData(null);
     }finally{
       setLoading(false);
@@ -920,7 +920,7 @@ function Customer({id,back,onStatement}){
       });
       await load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± ط­ظپط¸ ط§ظ„ط¯ظپط¹ط©");
+      setError(requestError.response?.data?.message||"تعذر حفظ الدفعة");
     }
   }
 
@@ -931,17 +931,17 @@ function Customer({id,back,onStatement}){
       setEditingTransaction(null);
       await load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط¹ط¯ظٹظ„ ط§ظ„ط­ظˆط§ظ„ط©");
+      setError(requestError.response?.data?.message||"تعذر تعديل الحوالة");
     }
   }
 
   async function deleteTransaction(transactionId){
-    if(!window.confirm("ظ‡ظ„ ط£ظ†طھ ظ…طھط£ظƒط¯ ظ…ظ† ط­ط°ظپ ط§ظ„ط­ظˆط§ظ„ط©طں ط³ظٹطھظ… ط­ط°ظپ ط¯ظپط¹ط§طھظ‡ط§ ظ…ظ†ط·ظ‚ظٹظ‹ط§."))return;
+    if(!window.confirm("هل أنت متأكد من حذف الحوالة؟ سيتم حذف دفعاتها منطقيًا."))return;
     try{
       await api.delete(`/transactions/${transactionId}`);
       await load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± ط­ط°ظپ ط§ظ„ط­ظˆط§ظ„ط©");
+      setError(requestError.response?.data?.message||"تعذر حذف الحوالة");
     }
   }
 
@@ -952,22 +952,22 @@ function Customer({id,back,onStatement}){
       setEditingPayment(null);
       await load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط¹ط¯ظٹظ„ ط§ظ„ط¯ظپط¹ط©");
+      setError(requestError.response?.data?.message||"تعذر تعديل الدفعة");
     }
   }
 
   async function deletePayment(paymentId){
-    if(!window.confirm("ظ‡ظ„ طھط±ظٹط¯ ط­ط°ظپ ظ‡ط°ظ‡ ط§ظ„ط¯ظپط¹ط©طں"))return;
+    if(!window.confirm("هل تريد حذف هذه الدفعة؟"))return;
     try{
       await api.delete(`/payments/${paymentId}`);
       await load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± ط­ط°ظپ ط§ظ„ط¯ظپط¹ط©");
+      setError(requestError.response?.data?.message||"تعذر حذف الدفعة");
     }
   }
 
-  if(loading)return <><button onClick={back}>ط±ط¬ظˆط¹</button><p>ط¬ط§ط±ظٹ طھط­ظ…ظٹظ„ ظ…ظ„ظپ ط§ظ„ط¹ظ…ظٹظ„...</p></>;
-  if(error&&!data)return <div className="card customer-error"><button onClick={back}>ط±ط¬ظˆط¹</button><h3>طھط¹ط°ط± ظپطھط­ ظ…ظ„ظپ ط§ظ„ط¹ظ…ظٹظ„</h3><p>{error}</p><button onClick={load}>ط¥ط¹ط§ط¯ط© ط§ظ„ظ…ط­ط§ظˆظ„ط©</button></div>;
+  if(loading)return <><button onClick={back}>رجوع</button><p>جاري تحميل ملف العميل...</p></>;
+  if(error&&!data)return <div className="card customer-error"><button onClick={back}>رجوع</button><h3>تعذر فتح ملف العميل</h3><p>{error}</p><button onClick={load}>إعادة المحاولة</button></div>;
 
   const customer=data?.customer||{};
   const transactions=Array.isArray(data?.transactions)?data.transactions:[];
@@ -976,81 +976,81 @@ function Customer({id,back,onStatement}){
 
   return <>
     <div className="card no-print form">
-      <button onClick={back}>ط±ط¬ظˆط¹</button>
-      <button onClick={()=>onStatement(id)}>ظƒط´ظپ ط­ط³ط§ط¨ ط§ظ„ط¹ظ…ظٹظ„</button>
+      <button onClick={back}>رجوع</button>
+      <button onClick={()=>onStatement(id)}>كشف حساب العميل</button>
     </div>
 
-    <h2>{customer.name||"ط§ظ„ط¹ظ…ظٹظ„"}</h2>
+    <h2>{customer.name||"العميل"}</h2>
     {error&&<div className="card customer-error">{error}</div>}
 
     <div className="stats">
-      <div className="card"><span>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط­ط³ط§ط¨</span><strong>{cad(customer.totalTransactions)}</strong></div>
-      <div className="card"><span>ط§ظ„ظ…ط¯ظپظˆط¹</span><strong>{cad(customer.totalPaid)}</strong></div>
-      <div className="card final"><span>ط§ظ„ط­ط³ط§ط¨ ط§ظ„ظ†ظ‡ط§ط¦ظٹ</span><strong>{cad(customer.finalBalance)}</strong></div>
+      <div className="card"><span>إجمالي الحساب</span><strong>{cad(customer.totalTransactions)}</strong></div>
+      <div className="card"><span>المدفوع</span><strong>{cad(customer.totalPaid)}</strong></div>
+      <div className="card final"><span>الحساب النهائي</span><strong>{cad(customer.finalBalance)}</strong></div>
     </div>
 
     {unpaidTransactions.length>0&&
       <form className="card form" onSubmit={addPayment}>
-        <h3>ط¥ط¶ط§ظپط© ط¯ظپط¹ط©</h3>
+        <h3>إضافة دفعة</h3>
         <select value={paymentForm.transactionId} onChange={e=>setPaymentForm({...paymentForm,transactionId:e.target.value})} required>
-          <option value="">ط§ط®طھط± ط§ظ„ط­ظˆط§ظ„ط©</option>
+          <option value="">اختر الحوالة</option>
           {unpaidTransactions.map(transaction=><option key={transaction.id} value={transaction.id}>
-            {transaction.number} â€” ظ…طھط¨ظ‚ظٹ {money(transaction.remaining)}
+            {transaction.number} — متبقي {money(transaction.remaining)}
           </option>)}
         </select>
-        <input type="number" min=".01" step=".01" value={paymentForm.amount} onChange={e=>setPaymentForm({...paymentForm,amount:e.target.value})} placeholder="ط§ظ„ظ…ط¨ظ„ط؛" required/>
+        <input type="number" min=".01" step=".01" value={paymentForm.amount} onChange={e=>setPaymentForm({...paymentForm,amount:e.target.value})} placeholder="المبلغ" required/>
         <input type="date" value={paymentForm.paymentDate} onChange={e=>setPaymentForm({...paymentForm,paymentDate:e.target.value})}/>
         <select value={paymentForm.method} onChange={e=>setPaymentForm({...paymentForm,method:e.target.value})}>
-          <option value="CASH">ظ†ظ‚ط¯ظٹ</option>
-          <option value="BANK">ط¨ظ†ظƒ</option>
-          <option value="TRANSFER">طھط­ظˆظٹظ„</option>
-          <option value="CARD">ط¨ط·ط§ظ‚ط©</option>
+          <option value="CASH">نقدي</option>
+          <option value="BANK">بنك</option>
+          <option value="TRANSFER">تحويل</option>
+          <option value="CARD">بطاقة</option>
         </select>
-        <input value={paymentForm.reference} onChange={e=>setPaymentForm({...paymentForm,reference:e.target.value})} placeholder="ط±ظ‚ظ… ط§ظ„ظ…ط±ط¬ط¹"/>
-        <input value={paymentForm.notes} onChange={e=>setPaymentForm({...paymentForm,notes:e.target.value})} placeholder="ظ…ظ„ط§ط­ط¸ط§طھ"/>
-        <button>ط­ظپط¸ ط§ظ„ط¯ظپط¹ط©</button>
+        <input value={paymentForm.reference} onChange={e=>setPaymentForm({...paymentForm,reference:e.target.value})} placeholder="رقم المرجع"/>
+        <input value={paymentForm.notes} onChange={e=>setPaymentForm({...paymentForm,notes:e.target.value})} placeholder="ملاحظات"/>
+        <button>حفظ الدفعة</button>
       </form>
     }
 
     {editingTransaction&&
       <form className="card form edit-panel" onSubmit={saveTransaction}>
-        <h3>طھط¹ط¯ظٹظ„ ط§ظ„ط­ظˆط§ظ„ط© {editingTransaction.number}</h3>
+        <h3>تعديل الحوالة {editingTransaction.number}</h3>
         <input type="date" value={editingTransaction.transferDate||""} onChange={e=>setEditingTransaction({...editingTransaction,transferDate:e.target.value})}/>
-        <input type="number" step=".01" value={editingTransaction.amount} onChange={e=>setEditingTransaction({...editingTransaction,amount:e.target.value})} placeholder="ط§ظ„ظ…ط¨ظ„ط؛"/>
-        <input type="number" step=".0001" value={editingTransaction.costRate} onChange={e=>setEditingTransaction({...editingTransaction,costRate:e.target.value})} placeholder="ط³ط¹ط± ط§ظ„طھظƒظ„ظپط© (CAD)"/>
-        <input type="number" step=".0001" value={editingTransaction.finalRate} onChange={e=>setEditingTransaction({...editingTransaction,finalRate:e.target.value})} placeholder="ط³ط¹ط± ط§ظ„ط­ظˆط§ظ„ط© (CAD)"/>
-        <input type="number" step=".01" value={editingTransaction.transferFee} onChange={e=>setEditingTransaction({...editingTransaction,transferFee:e.target.value})} placeholder="ط§ظ„ط£ط¬ظˆط±"/>
+        <input type="number" step=".01" value={editingTransaction.amount} onChange={e=>setEditingTransaction({...editingTransaction,amount:e.target.value})} placeholder="المبلغ"/>
+        <input type="number" step=".0001" value={editingTransaction.costRate} onChange={e=>setEditingTransaction({...editingTransaction,costRate:e.target.value})} placeholder="سعر التكلفة (CAD)"/>
+        <input type="number" step=".0001" value={editingTransaction.finalRate} onChange={e=>setEditingTransaction({...editingTransaction,finalRate:e.target.value})} placeholder="سعر الحوالة (CAD)"/>
+        <input type="number" step=".01" value={editingTransaction.transferFee} onChange={e=>setEditingTransaction({...editingTransaction,transferFee:e.target.value})} placeholder="الأجور"/>
         <select value={editingTransaction.feeMethod} onChange={e=>setEditingTransaction({...editingTransaction,feeMethod:e.target.value})}>
-          <option value="ADD">ط¥ط¶ط§ظپط© ط§ظ„ط£ط¬ظˆط±</option>
-          <option value="DEDUCT">ط®طµظ… ط§ظ„ط£ط¬ظˆط±</option>
+          <option value="ADD">إضافة الأجور</option>
+          <option value="DEDUCT">خصم الأجور</option>
         </select>
-        <button>ط­ظپط¸ ط§ظ„طھط¹ط¯ظٹظ„</button>
-        <button type="button" onClick={()=>setEditingTransaction(null)}>ط¥ظ„ط؛ط§ط،</button>
+        <button>حفظ التعديل</button>
+        <button type="button" onClick={()=>setEditingTransaction(null)}>إلغاء</button>
       </form>
     }
 
     {editingPayment&&
       <form className="card form edit-panel" onSubmit={savePayment}>
-        <h3>طھط¹ط¯ظٹظ„ ط§ظ„ط¯ظپط¹ط©</h3>
+        <h3>تعديل الدفعة</h3>
         <input type="number" min=".01" step=".01" value={editingPayment.amount} onChange={e=>setEditingPayment({...editingPayment,amount:e.target.value})}/>
         <input type="date" value={editingPayment.paymentDate||String(editingPayment.date||"").slice(0,10)} onChange={e=>setEditingPayment({...editingPayment,paymentDate:e.target.value})}/>
         <select value={editingPayment.method||"CASH"} onChange={e=>setEditingPayment({...editingPayment,method:e.target.value})}>
-          <option value="CASH">ظ†ظ‚ط¯ظٹ</option>
-          <option value="BANK">ط¨ظ†ظƒ</option>
-          <option value="TRANSFER">طھط­ظˆظٹظ„</option>
-          <option value="CARD">ط¨ط·ط§ظ‚ط©</option>
+          <option value="CASH">نقدي</option>
+          <option value="BANK">بنك</option>
+          <option value="TRANSFER">تحويل</option>
+          <option value="CARD">بطاقة</option>
         </select>
-        <input value={editingPayment.reference||""} onChange={e=>setEditingPayment({...editingPayment,reference:e.target.value})} placeholder="ط§ظ„ظ…ط±ط¬ط¹"/>
-        <input value={editingPayment.notes||""} onChange={e=>setEditingPayment({...editingPayment,notes:e.target.value})} placeholder="ظ…ظ„ط§ط­ط¸ط§طھ"/>
-        <button>ط­ظپط¸ ط§ظ„طھط¹ط¯ظٹظ„</button>
-        <button type="button" onClick={()=>setEditingPayment(null)}>ط¥ظ„ط؛ط§ط،</button>
+        <input value={editingPayment.reference||""} onChange={e=>setEditingPayment({...editingPayment,reference:e.target.value})} placeholder="المرجع"/>
+        <input value={editingPayment.notes||""} onChange={e=>setEditingPayment({...editingPayment,notes:e.target.value})} placeholder="ملاحظات"/>
+        <button>حفظ التعديل</button>
+        <button type="button" onClick={()=>setEditingPayment(null)}>إلغاء</button>
       </form>
     }
 
     <div className="card tablewrap">
-      <h3>ط§ظ„ط­ظˆط§ظ„ط§طھ</h3>
+      <h3>الحوالات</h3>
       <table>
-        <thead><tr><th>ط§ظ„ط±ظ‚ظ…</th><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ</th><th>ط§ظ„ظ…ط¯ظپظˆط¹</th><th>ط§ظ„ظ…طھط¨ظ‚ظٹ</th><th>ط§ظ„ط¥ط¬ط±ط§ط،ط§طھ</th></tr></thead>
+        <thead><tr><th>الرقم</th><th>التاريخ</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th><th>الإجراءات</th></tr></thead>
         <tbody>{transactions.length?transactions.map(transaction=><tr key={transaction.id}>
           <td>{transaction.number}</td>
           <td>{transaction.transferDate||String(transaction.createdAt||"").slice(0,10)}</td>
@@ -1058,18 +1058,18 @@ function Customer({id,back,onStatement}){
           <td>{money(transaction.paid)}</td>
           <td>{money(transaction.remaining)}</td>
           <td className="actions">
-            <button onClick={()=>setPaymentForm({...paymentForm,transactionId:transaction.id})}>ط¥ط¶ط§ظپط© ط¯ظپط¹ط©</button>
-            <button onClick={()=>setEditingTransaction({...transaction})}>طھط¹ط¯ظٹظ„</button>
-            <button className="danger-button" onClick={()=>deleteTransaction(transaction.id)}>ط­ط°ظپ</button>
+            <button onClick={()=>setPaymentForm({...paymentForm,transactionId:transaction.id})}>إضافة دفعة</button>
+            <button onClick={()=>setEditingTransaction({...transaction})}>تعديل</button>
+            <button className="danger-button" onClick={()=>deleteTransaction(transaction.id)}>حذف</button>
           </td>
-        </tr>):<tr><td colSpan="6">ظ„ط§ طھظˆط¬ط¯ ط­ظˆط§ظ„ط§طھ.</td></tr>}</tbody>
+        </tr>):<tr><td colSpan="6">لا توجد حوالات.</td></tr>}</tbody>
       </table>
     </div>
 
     <div className="card tablewrap">
-      <h3>ط³ط¬ظ„ ط§ظ„ط¯ظپط¹ط§طھ</h3>
+      <h3>سجل الدفعات</h3>
       <table>
-        <thead><tr><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط§ظ„ط­ظˆط§ظ„ط©</th><th>ط§ظ„ظ…ط¨ظ„ط؛</th><th>ط§ظ„ط·ط±ظٹظ‚ط©</th><th>ط§ظ„ظ…ط±ط¬ط¹</th><th>ط§ظ„ط¥ط¬ط±ط§ط،ط§طھ</th></tr></thead>
+        <thead><tr><th>التاريخ</th><th>الحوالة</th><th>المبلغ</th><th>الطريقة</th><th>المرجع</th><th>الإجراءات</th></tr></thead>
         <tbody>{payments.length?payments.map(payment=>{
           const transaction=transactions.find(item=>item.id===payment.transactionId);
           return <tr key={payment.id}>
@@ -1079,11 +1079,11 @@ function Customer({id,back,onStatement}){
             <td>{payment.method||"-"}</td>
             <td>{payment.reference||"-"}</td>
             <td className="actions">
-              <button onClick={()=>setEditingPayment({...payment})}>طھط¹ط¯ظٹظ„</button>
-              <button className="danger-button" onClick={()=>deletePayment(payment.id)}>ط­ط°ظپ</button>
+              <button onClick={()=>setEditingPayment({...payment})}>تعديل</button>
+              <button className="danger-button" onClick={()=>deletePayment(payment.id)}>حذف</button>
             </td>
           </tr>
-        }):<tr><td colSpan="6">ظ„ط§ طھظˆط¬ط¯ ط¯ظپط¹ط§طھ.</td></tr>}</tbody>
+        }):<tr><td colSpan="6">لا توجد دفعات.</td></tr>}</tbody>
       </table>
     </div>
   </>;
@@ -1096,38 +1096,38 @@ function Invoice({transactionId,back}){
   useEffect(()=>{
     api.get(`/transactions/${transactionId}/invoice`)
       .then(response=>setData(response.data))
-      .catch(requestError=>setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ط§ظ„ظپط§طھظˆط±ط©"));
+      .catch(requestError=>setError(requestError.response?.data?.message||"تعذر تحميل الفاتورة"));
   },[transactionId]);
 
   function sendWhatsApp(){
     if(!data)return;
     const phone=String(data.customer.phone||"").replace(/\D/g,"");
     if(!phone){
-      setError("ظ„ط§ ظٹظˆط¬ط¯ ط±ظ‚ظ… ظ‡ط§طھظپ ظ…ط­ظپظˆط¸ ظ„ظ„ط¹ظ…ظٹظ„");
+      setError("لا يوجد رقم هاتف محفوظ للعميل");
       return;
     }
     const message=[
-      `ط§ظ„ط³ظ„ط§ظ… ط¹ظ„ظٹظƒظ… ${data.customer.name}طŒ`,
-      `ظپط§طھظˆط±طھظƒظ… ظ…ظ† ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ظ„ظ„طھط¬ط§ط±ط©`,
-      `ط±ظ‚ظ… ط§ظ„ظپط§طھظˆط±ط©: ${data.invoiceNumber}`,
-      `ط§ظ„طھط§ط±ظٹط®: ${data.invoiceDate}`,
-      `ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ: ${money(data.transaction.totalCustomerDue)}`,
-      `ط§ظ„ظ…ط¯ظپظˆط¹: ${money(data.transaction.paid)}`,
-      `ط§ظ„ظ…طھط¨ظ‚ظٹ: ${money(data.transaction.remaining)}`
+      `السلام عليكم ${data.customer.name}،`,
+      `فاتورتكم من شركة العبود للتجارة`,
+      `رقم الفاتورة: ${data.invoiceNumber}`,
+      `التاريخ: ${data.invoiceDate}`,
+      `الإجمالي: ${money(data.transaction.totalCustomerDue)}`,
+      `المدفوع: ${money(data.transaction.paid)}`,
+      `المتبقي: ${money(data.transaction.remaining)}`
     ].join("\n");
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank");
   }
 
-  if(error&&!data)return <div className="card customer-error"><button onClick={back}>ط±ط¬ظˆط¹</button><p>{error}</p></div>;
-  if(!data)return <p>ط¬ط§ط±ظٹ طھط­ظ…ظٹظ„ ط§ظ„ظپط§طھظˆط±ط©...</p>;
+  if(error&&!data)return <div className="card customer-error"><button onClick={back}>رجوع</button><p>{error}</p></div>;
+  if(!data)return <p>جاري تحميل الفاتورة...</p>;
 
   const t=data.transaction;
 
   return <>
     <div className="card no-print form">
-      <button onClick={back}>ط±ط¬ظˆط¹</button>
-      <button onClick={()=>window.print()}>ط·ط¨ط§ط¹ط© / ط­ظپط¸ PDF</button>
-      <button onClick={sendWhatsApp}>ط¥ط±ط³ط§ظ„ ط¹ط¨ط± ظˆط§طھط³ط§ط¨</button>
+      <button onClick={back}>رجوع</button>
+      <button onClick={()=>window.print()}>طباعة / حفظ PDF</button>
+      <button onClick={sendWhatsApp}>إرسال عبر واتساب</button>
     </div>
 
     {error&&<div className="card customer-error">{error}</div>}
@@ -1137,32 +1137,32 @@ function Invoice({transactionId,back}){
         <div>
           <h1>{data.company.name}</h1>
           <p>{data.company.nameEn}</p>
-          <h3>ظپط§طھظˆط±ط© ط­ظˆط§ظ„ط© ظ…ط§ظ„ظٹط©</h3>
+          <h3>فاتورة حوالة مالية</h3>
         </div>
         <div>
-          <p><strong>ط±ظ‚ظ… ط§ظ„ظپط§طھظˆط±ط©:</strong> {data.invoiceNumber}</p>
-          <p><strong>طھط§ط±ظٹط® ط§ظ„ط­ظˆط§ظ„ط©:</strong> {data.invoiceDate}</p>
+          <p><strong>رقم الفاتورة:</strong> {data.invoiceNumber}</p>
+          <p><strong>تاريخ الحوالة:</strong> {data.invoiceDate}</p>
         </div>
       </div>
 
       <div className="invoice-customer">
-        <p><strong>ط§ط³ظ… ط§ظ„ط¹ظ…ظٹظ„:</strong> {data.customer.name}</p>
-        <p><strong>ط§ظ„ظ‡ط§طھظپ:</strong> {data.customer.phone||"-"}</p>
-        <p><strong>ط§ظ„ط¨ط±ظٹط¯:</strong> {data.customer.email||"-"}</p>
+        <p><strong>اسم العميل:</strong> {data.customer.name}</p>
+        <p><strong>الهاتف:</strong> {data.customer.phone||"-"}</p>
+        <p><strong>البريد:</strong> {data.customer.email||"-"}</p>
       </div>
 
       <table>
         <tbody>
-          <tr><th>ظ…ط¨ظ„ط؛ ط§ظ„ط­ظˆط§ظ„ط©</th><td>{money(t.amount)}</td></tr>
-          <tr><th>ط³ط¹ط± ط§ظ„ط­ظˆط§ظ„ط©</th><td>{Number(t.finalRate||0).toFixed(4)}</td></tr>
-          <tr><th>ط£ط¬ظˆط± ط§ظ„ط­ظˆط§ظ„ط©</th><td>{money(t.transferFee)}</td></tr>
-          <tr><th>ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط·ظ„ظˆط¨</th><td>{money(t.totalCustomerDue)}</td></tr>
-          <tr><th>ط§ظ„ظ…ط¯ظپظˆط¹</th><td>{money(t.paid)}</td></tr>
-          <tr><th>ط§ظ„ظ…طھط¨ظ‚ظٹ</th><td><strong>{money(t.remaining)}</strong></td></tr>
+          <tr><th>مبلغ الحوالة</th><td>{money(t.amount)}</td></tr>
+          <tr><th>سعر الحوالة</th><td>{Number(t.finalRate||0).toFixed(4)}</td></tr>
+          <tr><th>أجور الحوالة</th><td>{money(t.transferFee)}</td></tr>
+          <tr><th>الإجمالي المطلوب</th><td>{money(t.totalCustomerDue)}</td></tr>
+          <tr><th>المدفوع</th><td>{money(t.paid)}</td></tr>
+          <tr><th>المتبقي</th><td><strong>{money(t.remaining)}</strong></td></tr>
         </tbody>
       </table>
 
-      <p className="invoice-note">ط´ظƒط±ط§ظ‹ ظ„طھط¹ط§ظ…ظ„ظƒظ… ظ…ط¹ ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ظ„ظ„طھط¬ط§ط±ط©.</p>
+      <p className="invoice-note">شكراً لتعاملكم مع شركة العبود للتجارة.</p>
     </section>
   </>;
 }
@@ -1178,7 +1178,7 @@ function Statement({customerId,back}){
       const response=await api.get(`/customers/${customerId}/statement`,{params:filters});
       setData(response.data);
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± ط¥ظ†ط´ط§ط، ظƒط´ظپ ط§ظ„ط­ط³ط§ط¨");
+      setError(requestError.response?.data?.message||"تعذر إنشاء كشف الحساب");
     }
   }
 
@@ -1188,38 +1188,38 @@ function Statement({customerId,back}){
     if(!data)return;
     const phone=String(data.customer.phone||"").replace(/\D/g,"");
     if(!phone){
-      setError("ظ„ط§ ظٹظˆط¬ط¯ ط±ظ‚ظ… ظˆط§طھط³ط§ط¨ ظ…ط­ظپظˆط¸ ظ„ظ„ط¹ظ…ظٹظ„");
+      setError("لا يوجد رقم واتساب محفوظ للعميل");
       return;
     }
 
     const message=[
-      `ط§ظ„ط³ظ„ط§ظ… ط¹ظ„ظٹظƒظ… ${data.customer.name}طŒ`,
-      `ظƒط´ظپ ط­ط³ط§ط¨ظƒظ… ظ„ط¯ظ‰ ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ظ„ظ„طھط¬ط§ط±ط©:`,
-      `ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط­ظˆط§ظ„ط§طھ: ${Number(data.totals.usdAmount).toFixed(2)} USD`,
-      `ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط¨ظ„ط؛ ط§ظ„ظ†ظ‡ط§ط¦ظٹ: ${money(data.totals.totalCad)} CAD`,
-      `ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط¯ظپط¹ط§طھ: ${money(data.totals.paid)} CAD`,
-      `ط§ظ„ط±طµظٹط¯ ط§ظ„ظ…طھط¨ظ‚ظٹ: ${money(data.totals.remaining)} CAD`,
-      `ط´ظƒط±ط§ظ‹ ظ„طھط¹ط§ظ…ظ„ظƒظ… ظ…ط¹ظ†ط§.`
+      `السلام عليكم ${data.customer.name}،`,
+      `كشف حسابكم لدى شركة العبود للتجارة:`,
+      `إجمالي الحوالات: ${Number(data.totals.usdAmount).toFixed(2)} USD`,
+      `إجمالي المبلغ النهائي: ${money(data.totals.totalCad)} CAD`,
+      `إجمالي الدفعات: ${money(data.totals.paid)} CAD`,
+      `الرصيد المتبقي: ${money(data.totals.remaining)} CAD`,
+      `شكراً لتعاملكم معنا.`
     ].join("\n");
 
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank");
   }
 
   const statusLabel={
-    PAID:"ظ…ط³ط¯ط¯ط©",
-    PARTIAL:"ظ…ط³ط¯ط¯ ط¬ط²ط¦ظٹط§ظ‹",
-    UNPAID:"ط؛ظٹط± ظ…ط³ط¯ط¯ط©",
-    OVERDUE:"ظ…طھط£ط®ط±ط©"
+    PAID:"مسددة",
+    PARTIAL:"مسدد جزئياً",
+    UNPAID:"غير مسددة",
+    OVERDUE:"متأخرة"
   };
 
   return <>
     <div className="card no-print statement-toolbar">
-      <button onClick={back}>ط±ط¬ظˆط¹</button>
+      <button onClick={back}>رجوع</button>
       <input type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/>
       <input type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/>
-      <button onClick={load}>ط¹ط±ط¶ ظƒط´ظپ ط§ظ„ط­ط³ط§ط¨</button>
-      <button onClick={()=>window.print()} disabled={!data}>ط·ط¨ط§ط¹ط© / ط­ظپط¸ PDF</button>
-      <button className="whatsapp-button" onClick={whatsappStatement} disabled={!data}>ط¥ط±ط³ط§ظ„ ظˆط§طھط³ط§ط¨</button>
+      <button onClick={load}>عرض كشف الحساب</button>
+      <button onClick={()=>window.print()} disabled={!data}>طباعة / حفظ PDF</button>
+      <button className="whatsapp-button" onClick={whatsappStatement} disabled={!data}>إرسال واتساب</button>
     </div>
 
     {error&&<div className="card customer-error">{error}</div>}
@@ -1229,46 +1229,46 @@ function Statement({customerId,back}){
         <div>
           <h1>{data.company.name}</h1>
           <p>{data.company.nameEn}</p>
-          <h3>ظƒط´ظپ ط­ط³ط§ط¨ ط§ظ„ط¹ظ…ظٹظ„</h3>
+          <h3>كشف حساب العميل</h3>
         </div>
         <div>
-          <p><strong>طھط§ط±ظٹط® ط§ظ„ط¥طµط¯ط§ط±:</strong> {String(data.generatedAt).slice(0,10)}</p>
-          <p><strong>ط§ظ„ظپطھط±ط©:</strong> {data.from||"ط§ظ„ط¨ط¯ط§ظٹط©"} ط¥ظ„ظ‰ {data.to||"ط§ظ„ظٹظˆظ…"}</p>
+          <p><strong>تاريخ الإصدار:</strong> {String(data.generatedAt).slice(0,10)}</p>
+          <p><strong>الفترة:</strong> {data.from||"البداية"} إلى {data.to||"اليوم"}</p>
         </div>
       </div>
 
       <div className="statement-customer-header">
         <div>
           <h2>{data.customer.name}</h2>
-          <p><strong>ط§ظ„ظ‡ط§طھظپ / ظˆط§طھط³ط§ط¨:</strong> {data.customer.phone||"-"}</p>
-          <p><strong>ط§ظ„ط¨ط±ظٹط¯:</strong> {data.customer.email||"-"}</p>
-          <p><strong>ط¢ط®ط± ط­ط±ظƒط©:</strong> {data.lastActivity||"-"}</p>
+          <p><strong>الهاتف / واتساب:</strong> {data.customer.phone||"-"}</p>
+          <p><strong>البريد:</strong> {data.customer.email||"-"}</p>
+          <p><strong>آخر حركة:</strong> {data.lastActivity||"-"}</p>
         </div>
         <div className="statement-balance">
-          <span>ط§ظ„ط±طµظٹط¯ ط§ظ„ط­ط§ظ„ظٹ</span>
+          <span>الرصيد الحالي</span>
           <strong>{money(data.totals.remaining)} CAD</strong>
         </div>
       </div>
 
       <div className="statement-summary">
-        <div><span>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط­ظˆط§ظ„ط§طھ</span><strong>{Number(data.totals.usdAmount).toFixed(2)} USD</strong></div>
-        <div><span>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ظ…ط¨ظ„ط؛ ط§ظ„ظ†ظ‡ط§ط¦ظٹ</span><strong>{money(data.totals.totalCad)} CAD</strong></div>
-        <div><span>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط¯ظپط¹ط§طھ</span><strong>{money(data.totals.paid)} CAD</strong></div>
-        <div className="remaining"><span>ط§ظ„ط±طµظٹط¯ ط§ظ„ظ…طھط¨ظ‚ظٹ</span><strong>{money(data.totals.remaining)} CAD</strong></div>
+        <div><span>إجمالي الحوالات</span><strong>{Number(data.totals.usdAmount).toFixed(2)} USD</strong></div>
+        <div><span>إجمالي المبلغ النهائي</span><strong>{money(data.totals.totalCad)} CAD</strong></div>
+        <div><span>إجمالي الدفعات</span><strong>{money(data.totals.paid)} CAD</strong></div>
+        <div className="remaining"><span>الرصيد المتبقي</span><strong>{money(data.totals.remaining)} CAD</strong></div>
       </div>
 
       <div className="tablewrap">
         <table className="statement-table">
           <thead>
             <tr>
-              <th>ط§ظ„طھط§ط±ظٹط®</th>
-              <th>ط±ظ‚ظ… ط§ظ„ط­ظˆط§ظ„ط©</th>
-              <th>ظ…ط¨ظ„ط؛ ط§ظ„ط­ظˆط§ظ„ط© (USD)</th>
-              <th>طھظƒظ„ظپط© ط§ظ„ط­ظˆط§ظ„ط© (CAD)</th>
-              <th>ط§ظ„ظ…ط¬ظ…ظˆط¹ ط§ظ„ظ†ظ‡ط§ط¦ظٹ (CAD) (CAD)</th>
-              <th>ط§ظ„ط¯ظپط¹ط§طھ (CAD)</th>
-              <th>ط§ظ„ظ…طھط¨ظ‚ظٹ (CAD)</th>
-              <th>ط§ظ„ط­ط§ظ„ط©</th>
+              <th>التاريخ</th>
+              <th>رقم الحوالة</th>
+              <th>مبلغ الحوالة (USD)</th>
+              <th>تكلفة الحوالة (CAD)</th>
+              <th>المجموع النهائي (CAD) (CAD)</th>
+              <th>الدفعات (CAD)</th>
+              <th>المتبقي (CAD)</th>
+              <th>الحالة</th>
             </tr>
           </thead>
           <tbody>
@@ -1284,16 +1284,16 @@ function Statement({customerId,back}){
                   <span className={`statement-status ${item.status.toLowerCase()}`}>
                     {statusLabel[item.status]||item.status}
                   </span>
-                  {item.status==="OVERDUE"&&<small>{item.overdueDays} ظٹظˆظ…</small>}
+                  {item.status==="OVERDUE"&&<small>{item.overdueDays} يوم</small>}
                 </td>
               </tr>)
-              :<tr><td colSpan="7">ظ„ط§ طھظˆط¬ط¯ ط­ظˆط§ظ„ط§طھ ظپظٹ ظ‡ط°ظ‡ ط§ظ„ظپطھط±ط©.</td></tr>
+              :<tr><td colSpan="7">لا توجد حوالات في هذه الفترة.</td></tr>
             }
           </tbody>
         </table>
       </div>
 
-      <p className="invoice-note">ظ‡ط°ط§ ط§ظ„ظƒط´ظپ ظ„ط§ ظٹطھط¶ظ…ظ† ط£ظٹ ظ…ط¹ظ„ظˆظ…ط§طھ ط¯ط§ط®ظ„ظٹط© ط¹ظ† ط£ط±ط¨ط§ط­ ط§ظ„ط´ط±ظƒط©.</p>
+      <p className="invoice-note">هذا الكشف لا يتضمن أي معلومات داخلية عن أرباح الشركة.</p>
     </section>}
   </>;
 }
@@ -1330,7 +1330,7 @@ function Transactions({openInvoice}){
         setF(current=>({...current,customerId:customerList[0].id}));
       }
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ط§ظ„ط­ظˆط§ظ„ط§طھ");
+      setError(requestError.response?.data?.message||"تعذر تحميل الحوالات");
     }
   }
 
@@ -1358,77 +1358,77 @@ function Transactions({openInvoice}){
       }));
       await load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± ط­ظپط¸ ط§ظ„ط­ظˆط§ظ„ط©");
+      setError(requestError.response?.data?.message||"تعذر حفظ الحوالة");
     }
   }
 
   return <>
-    <h2>ط§ظ„ط­ظˆط§ظ„ط§طھ</h2>
+    <h2>الحوالات</h2>
     {error&&<div className="card customer-error">{error}</div>}
     <form className="card form" onSubmit={add}>
       <select value={f.customerId} onChange={e=>setF({...f,customerId:e.target.value})} required>
-        <option value="">ط§ظ„ط¹ظ…ظٹظ„</option>
+        <option value="">العميل</option>
         {customers.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
       </select>
       <input type="date" value={f.transferDate} onChange={e=>setF({...f,transferDate:e.target.value})} required/>
       <label className="currency-field">
-        <span className="currency-field-title">ط¹ظ…ظ„ط© ط§ظ„ط­ظˆط§ظ„ط©</span>
+        <span className="currency-field-title">عملة الحوالة</span>
         <span className="currency-badge">{f.currency}</span>
         <select value={f.currency} onChange={e=>setF({...f,currency:e.target.value,costRate:"",finalRate:"",rateUpdatedAt:null})}>
           {["USD","EUR","SYP","AED","GBP","CAD"].map(code=><option key={code} value={code}>{code}</option>)}
         </select>
-        <small>ط³ط¹ط± ط§ظ„طھظƒظ„ظپط© ظٹظڈط¬ظ„ط¨ ظ…ظ‚ط§ط¨ظ„ CAD</small>
+        <small>سعر التكلفة يُجلب مقابل CAD</small>
       </label>
       <label className="currency-field">
-        <span className="currency-field-title">ظ…ط¨ظ„ط؛ ط§ظ„ط­ظˆط§ظ„ط©</span>
+        <span className="currency-field-title">مبلغ الحوالة</span>
         <span className="currency-badge">{f.currency}</span>
         <input type="number" inputMode="decimal" step=".01" value={f.amount} onChange={e=>setF({...f,amount:e.target.value})} placeholder="0.00" required/>
-        <small>ط§ظ„ظ…ط¨ظ„ط؛ ط¨ط¹ظ…ظ„ط© {f.currency}</small>
+        <small>المبلغ بعملة {f.currency}</small>
       </label>
       <label className="currency-field">
-        <span className="currency-field-title">ط³ط¹ط± ط§ظ„طھظƒظ„ظپط© ظ…ظ‚ط§ط¨ظ„ CAD</span>
+        <span className="currency-field-title">سعر التكلفة مقابل CAD</span>
         <span className="currency-badge cad">CAD</span>
         <div className="rate-mode-switch">
-          <button type="button" className={f.rateMode==="auto"?"active":""} onClick={()=>setF({...f,rateMode:"auto"})}>ط§ظ„ط³ط¹ط± ط§ظ„ط¢ظ„ظٹ</button>
-          <button type="button" className={f.rateMode==="manual"?"active":""} onClick={()=>setF({...f,rateMode:"manual"})}>ط³ط¹ط± ظٹط¯ظˆظٹ</button>
+          <button type="button" className={f.rateMode==="auto"?"active":""} onClick={()=>setF({...f,rateMode:"auto"})}>السعر الآلي</button>
+          <button type="button" className={f.rateMode==="manual"?"active":""} onClick={()=>setF({...f,rateMode:"manual"})}>سعر يدوي</button>
         </div>
         <input type="number" inputMode="decimal" step=".0000001" value={f.costRate} onChange={e=>setF({...f,costRate:e.target.value,rateMode:"manual"})} placeholder="0.0000" required readOnly={f.rateMode==="auto"}/>
-        <small>{(rateMeta?.createdAt||rateMeta?.updatedAt)?`ط¢ط®ط± طھط­ط¯ظٹط«: ${new Date(rateMeta.createdAt||rateMeta.updatedAt).toLocaleString("ar-CA")}`:(f.rateMode==="manual"?"ظٹظڈط³طھط®ط¯ظ… ظ‡ط°ط§ ط§ظ„ط³ط¹ط± ظ„ظ‡ط°ظ‡ ط§ظ„ط­ظˆط§ظ„ط© ظپظ‚ط·":"ظ„ط§ ظٹظˆط¬ط¯ ط³ط¹ط± ط¢ظ„ظٹط› ط§ط®طھط± ط³ط¹ط± ظٹط¯ظˆظٹ")}</small>
+        <small>{(rateMeta?.createdAt||rateMeta?.updatedAt)?`آخر تحديث: ${new Date(rateMeta.createdAt||rateMeta.updatedAt).toLocaleString("ar-CA")}`:(f.rateMode==="manual"?"يُستخدم هذا السعر لهذه الحوالة فقط":"لا يوجد سعر آلي؛ اختر سعر يدوي")}</small>
       </label>
       <label className="currency-field">
-        <span className="currency-field-title">ط³ط¹ط± ط§ظ„طھط­ظˆظٹظ„ ظ„ظ„ط¹ظ…ظٹظ„</span>
+        <span className="currency-field-title">سعر التحويل للعميل</span>
         <span className="currency-badge cad">CAD</span>
         <input type="number" inputMode="decimal" step=".0000001" value={f.finalRate} onChange={e=>setF({...f,finalRate:e.target.value})} placeholder="0.0000" required/>
-        <small>ط§ظ„ط³ط¹ط± ط§ظ„ظ…ط­ط³ظˆط¨ ظ„ظ„ط¹ظ…ظٹظ„ ظ…ظ‚ط§ط¨ظ„ ظƒظ„ ظˆط­ط¯ط© ظ…ظ† {f.currency}</small>
+        <small>السعر المحسوب للعميل مقابل كل وحدة من {f.currency}</small>
       </label>
       <div className="transfer-calculation-grid">
         <div className="transfer-total-preview">
-          <span>ط§ظ„ظ…ط¬ظ…ظˆط¹ ط§ظ„ظ†ظ‡ط§ط¦ظٹ ظ„ظ„ط¹ظ…ظٹظ„</span>
+          <span>المجموع النهائي للعميل</span>
           <strong>{((Number(f.amount)||0)*(Number(f.finalRate)||0)+(Number(f.transferFee)||0)).toFixed(2)} CAD</strong>
         </div>
         <div className="transfer-profit-preview">
-          <span>ط±ط¨ط­ ط§ظ„ط­ظˆط§ظ„ط©</span>
+          <span>ربح الحوالة</span>
           <strong>{((Number(f.amount)||0)*((Number(f.finalRate)||0)-(Number(f.costRate)||0))+(Number(f.transferFee)||0)).toFixed(2)} CAD</strong>
         </div>
       </div>
       <label className="currency-field">
-        <span className="currency-field-title">ط£ط¬ظˆط± ط§ظ„ط­ظˆط§ظ„ط©</span>
+        <span className="currency-field-title">أجور الحوالة</span>
         <span className="currency-badge cad">CAD</span>
         <input type="number" inputMode="decimal" step=".01" value={f.transferFee} onChange={e=>setF({...f,transferFee:e.target.value})} placeholder="0.00"/>
       </label>
       <select value={f.feeMethod} onChange={e=>setF({...f,feeMethod:e.target.value})}>
-        <option value="ADD">ط¥ط¶ط§ظپط© ط§ظ„ط£ط¬ظˆط±</option>
-        <option value="DEDUCT">ط®طµظ… ط§ظ„ط£ط¬ظˆط±</option>
+        <option value="ADD">إضافة الأجور</option>
+        <option value="DEDUCT">خصم الأجور</option>
       </select>
-      <button>ط­ظپط¸</button>
+      <button>حفظ</button>
     </form>
 
     <div className="card tablewrap">
       <table>
         <thead>
           <tr>
-            <th>ط§ظ„ط±ظ‚ظ…</th><th>طھط§ط±ظٹط® ط§ظ„ط­ظˆط§ظ„ط©</th><th>ط§ظ„ط¹ظ…ظٹظ„</th><th>ط§ظ„ظ…ط¨ظ„ط؛</th>
-            <th>ط§ظ„ط£ط¬ظˆط±</th><th>ط§ظ„ط¥ط¬ظ…ط§ظ„ظٹ</th><th>ط§ظ„ط±ط¨ط­</th><th>ط§ظ„ظپط§طھظˆط±ط©</th>
+            <th>الرقم</th><th>تاريخ الحوالة</th><th>العميل</th><th>المبلغ</th>
+            <th>الأجور</th><th>الإجمالي</th><th>الربح</th><th>الفاتورة</th>
           </tr>
         </thead>
         <tbody>
@@ -1440,8 +1440,8 @@ function Transactions({openInvoice}){
             <td>{money(transaction.transferFee)}</td>
             <td>{money(transaction.totalCustomerDue)}</td>
             <td>{money(transaction.totalProfit)}</td>
-            <td><button onClick={()=>openInvoice(transaction.id)}>ظپطھط­</button></td>
-          </tr>):<tr><td colSpan="7">ظ„ط§ طھظˆط¬ط¯ ط­ظˆط§ظ„ط§طھ.</td></tr>}
+            <td><button onClick={()=>openInvoice(transaction.id)}>فتح</button></td>
+          </tr>):<tr><td colSpan="7">لا توجد حوالات.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -1453,26 +1453,26 @@ function Profits(){
   const [filters,setFilters]=useState({from:"",to:""});
   const load=()=>api.get("/profits",{params:filters}).then(r=>setData(r.data));
   useEffect(()=>{load();},[]);
-  if(!data)return <p>ط¬ط§ط±ظٹ طھط­ظ…ظٹظ„ ط§ظ„ط£ط±ط¨ط§ط­...</p>;
+  if(!data)return <p>جاري تحميل الأرباح...</p>;
   return <>
-    <h2>ط§ظ„ط£ط±ط¨ط§ط­</h2>
+    <h2>الأرباح</h2>
     <div className="card form">
       <input type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/>
       <input type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/>
-      <button type="button" onClick={load}>ط¹ط±ط¶ ط§ظ„طھظ‚ط±ظٹط±</button>
+      <button type="button" onClick={load}>عرض التقرير</button>
     </div>
     <div className="stats">
-      <div className="card"><span>ط¹ط¯ط¯ ط§ظ„ط­ظˆط§ظ„ط§طھ</span><strong>{data.transactionCount}</strong></div>
-      <div className="card"><span>ط±ط¨ط­ ظپط±ظ‚ ط§ظ„ط³ط¹ط±</span><strong>{money(data.exchangeProfit)}</strong></div>
-      <div className="card"><span>ط£ط¬ظˆط± ط§ظ„ط­ظˆط§ظ„ط§طھ</span><strong>{money(data.transferFees)}</strong></div>
-      <div className="card"><span>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط±ط¨ط­</span><strong>{money(data.grossProfit)}</strong></div>
-      <div className="card"><span>ط§ظ„ظ…طµط±ظˆظپط§طھ</span><strong>{money(data.expenses)}</strong></div>
-      <div className="card final"><span>طµط§ظپظٹ ط§ظ„ط±ط¨ط­</span><strong>{money(data.netProfit)}</strong></div>
+      <div className="card"><span>عدد الحوالات</span><strong>{data.transactionCount}</strong></div>
+      <div className="card"><span>ربح فرق السعر</span><strong>{money(data.exchangeProfit)}</strong></div>
+      <div className="card"><span>أجور الحوالات</span><strong>{money(data.transferFees)}</strong></div>
+      <div className="card"><span>إجمالي الربح</span><strong>{money(data.grossProfit)}</strong></div>
+      <div className="card"><span>المصروفات</span><strong>{money(data.expenses)}</strong></div>
+      <div className="card final"><span>صافي الربح</span><strong>{money(data.netProfit)}</strong></div>
     </div>
     <div className="card tablewrap">
-      <h3>ط§ظ„ط£ط±ط¨ط§ط­ ط§ظ„ط´ظ‡ط±ظٹط©</h3>
+      <h3>الأرباح الشهرية</h3>
       <table>
-        <thead><tr><th>ط§ظ„ط´ظ‡ط±</th><th>ظپط±ظ‚ ط§ظ„ط³ط¹ط±</th><th>ط£ط¬ظˆط± ط§ظ„ط­ظˆط§ظ„ط§طھ</th><th>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط±ط¨ط­</th><th>ط§ظ„ظ…طµط±ظˆظپط§طھ</th><th>طµط§ظپظٹ ط§ظ„ط±ط¨ط­</th></tr></thead>
+        <thead><tr><th>الشهر</th><th>فرق السعر</th><th>أجور الحوالات</th><th>إجمالي الربح</th><th>المصروفات</th><th>صافي الربح</th></tr></thead>
         <tbody>{data.monthly.map(x=><tr key={x.month}>
           <td>{x.month}</td>
           <td>{money(x.exchangeProfit)}</td>
@@ -1498,13 +1498,13 @@ function ExchangeRates(){
       .filter(item=>item.baseCurrency===rate.baseCurrency&&item.quoteCurrency===rate.quoteCurrency)
       .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
     const previous=pairHistory.find(item=>item.id!==rate.id);
-    if(!previous)return {type:"new",symbol:"â—ڈ",label:"ط¬ط¯ظٹط¯",change:0};
+    if(!previous)return {type:"new",symbol:"●",label:"جديد",change:0};
     const currentValue=Number(rate.sellRate||rate.buyRate||0);
     const previousValue=Number(previous.sellRate||previous.buyRate||0);
     const change=currentValue-previousValue;
-    if(change>0)return {type:"up",symbol:"â†‘",label:"ظ…ط±طھظپط¹",change};
-    if(change<0)return {type:"down",symbol:"â†“",label:"ظ…ظ†ط®ظپط¶",change};
-    return {type:"same",symbol:"â†’",label:"ط«ط§ط¨طھ",change:0};
+    if(change>0)return {type:"up",symbol:"↑",label:"مرتفع",change};
+    if(change<0)return {type:"down",symbol:"↓",label:"منخفض",change};
+    return {type:"same",symbol:"→",label:"ثابت",change:0};
   }
   const load=()=>Promise.all([api.get("/exchange-rates"),api.get("/exchange-rates/history")]).then(([a,b])=>{setList(a.data);setHistory(b.data)});
   useEffect(()=>{load();},[]);
@@ -1521,24 +1521,24 @@ function ExchangeRates(){
       setMessage(data.message);
       await load();
     }catch(e){
-      setMessage(e.response?.data?.message||"طھط¹ط°ط± ط§ظ„طھط­ط¯ظٹط« ط§ظ„طھظ„ظ‚ط§ط¦ظٹ");
+      setMessage(e.response?.data?.message||"تعذر التحديث التلقائي");
     }finally{setRefreshing(false)}
   }
   return <>
-    <h2>ط§ظ„ط¹ظ…ظ„ط§طھ ظˆط£ط³ط¹ط§ط± ط§ظ„طµط±ظپ</h2>
+    <h2>العملات وأسعار الصرف</h2>
     <div className="card rate-legend">
-      <span className="legend-up">â†‘ ط§ط±طھظپط§ط¹</span>
-      <span className="legend-down">â†“ ط§ظ†ط®ظپط§ط¶</span>
-      <span className="legend-same">â†’ ط«ط§ط¨طھ</span>
-      <span className="legend-new">â—ڈ ط³ط¹ط± ط¬ط¯ظٹط¯</span>
+      <span className="legend-up">↑ ارتفاع</span>
+      <span className="legend-down">↓ انخفاض</span>
+      <span className="legend-same">→ ثابت</span>
+      <span className="legend-new">● سعر جديد</span>
     </div>
     <div className="card auto-rate-bar">
       <div>
-        <strong>ط§ظ„طھط­ط¯ظٹط« ط§ظ„طھظ„ظ‚ط§ط¦ظٹ</strong>
-        <p>ظٹطھظ… طھط­ط¯ظٹط« ط§ظ„ط£ط³ط¹ط§ط± ط¢ظ„ظٹظ‹ط§ ظƒظ„ 6 ط³ط§ط¹ط§طھ ظ…ظ† ظ…طµط¯ط± ط£ط³ط¹ط§ط± ط¨ظ†ظˆظƒ ظ…ط±ظƒط²ظٹط©.</p>
+        <strong>التحديث التلقائي</strong>
+        <p>يتم تحديث الأسعار آليًا كل 6 ساعات من مصدر أسعار بنوك مركزية.</p>
       </div>
       <button type="button" onClick={refresh} disabled={refreshing}>
-        {refreshing?"ط¬ط§ط±ظٹ ط§ظ„طھط­ط¯ظٹط«...":"طھط­ط¯ظٹط« ط§ظ„ط£ط³ط¹ط§ط± ط§ظ„ط¢ظ†"}
+        {refreshing?"جاري التحديث...":"تحديث الأسعار الآن"}
       </button>
     </div>
     {message&&<div className="card rate-message">{message}</div>}
@@ -1549,15 +1549,15 @@ function ExchangeRates(){
       <select value={f.quoteCurrency} onChange={e=>setF({...f,quoteCurrency:e.target.value})}>
         {["USD","CAD","EUR","SYP","AED","GBP"].map(x=><option key={x}>{x}</option>)}
       </select>
-      <input type="number" step=".0001" value={f.buyRate} onChange={e=>setF({...f,buyRate:e.target.value})} placeholder="ط³ط¹ط± ط§ظ„ط´ط±ط§ط،" required/>
-      <input type="number" step=".0001" value={f.sellRate} onChange={e=>setF({...f,sellRate:e.target.value})} placeholder="ط³ط¹ط± ط§ظ„ط¨ظٹط¹" required/>
-      <input value={f.notes} onChange={e=>setF({...f,notes:e.target.value})} placeholder="ظ…ظ„ط§ط­ط¸ط§طھ"/>
-      <button>ط­ظپط¸ ط§ظ„ط³ط¹ط±</button>
+      <input type="number" step=".0001" value={f.buyRate} onChange={e=>setF({...f,buyRate:e.target.value})} placeholder="سعر الشراء" required/>
+      <input type="number" step=".0001" value={f.sellRate} onChange={e=>setF({...f,sellRate:e.target.value})} placeholder="سعر البيع" required/>
+      <input value={f.notes} onChange={e=>setF({...f,notes:e.target.value})} placeholder="ملاحظات"/>
+      <button>حفظ السعر</button>
     </form>
     <div className="card tablewrap">
-      <h3>ط¢ط®ط± ط§ظ„ط£ط³ط¹ط§ط±</h3>
+      <h3>آخر الأسعار</h3>
       <table>
-        <thead><tr><th>ظ…ظ†</th><th>ط¥ظ„ظ‰</th><th>ط´ط±ط§ط،</th><th>ط¨ظٹط¹</th><th>ط§ظ„ظ…طµط¯ط±</th><th>ط¢ط®ط± طھط­ط¯ظٹط«</th></tr></thead>
+        <thead><tr><th>من</th><th>إلى</th><th>شراء</th><th>بيع</th><th>المصدر</th><th>آخر تحديث</th></tr></thead>
         <tbody>{list.map(r=>{
           const trend=trendFor(r);
           return <tr key={r.id} className={`rate-row rate-${trend.type}`}>
@@ -1568,22 +1568,22 @@ function ExchangeRates(){
               <strong>{Number(r.sellRate).toFixed(4)}</strong>
               <span className={`trend trend-${trend.type}`}>{trend.symbol} {trend.label}</span>
             </td>
-            <td><span className={`source-badge ${r.source==="FRANKFURTER"?"auto":"manual"}`}>{r.source==="FRANKFURTER"?"طھظ„ظ‚ط§ط¦ظٹ":"ظٹط¯ظˆظٹ"}</span></td>
+            <td><span className={`source-badge ${r.source==="FRANKFURTER"?"auto":"manual"}`}>{r.source==="FRANKFURTER"?"تلقائي":"يدوي"}</span></td>
             <td>{new Date(r.createdAt).toLocaleString("ar-CA")}</td>
           </tr>
         })}</tbody>
       </table>
     </div>
     <div className="card tablewrap">
-      <h3>ط³ط¬ظ„ طھط؛ظٹظٹط±ط§طھ ط§ظ„ط£ط³ط¹ط§ط±</h3>
+      <h3>سجل تغييرات الأسعار</h3>
       <table>
-        <thead><tr><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط§ظ„ط²ظˆط¬</th><th>ط´ط±ط§ط،</th><th>ط¨ظٹط¹</th><th>ط§ظ„ظ…طµط¯ط±</th><th>ظ…ظ„ط§ط­ط¸ط§طھ</th></tr></thead>
+        <thead><tr><th>التاريخ</th><th>الزوج</th><th>شراء</th><th>بيع</th><th>المصدر</th><th>ملاحظات</th></tr></thead>
         <tbody>{history.map(r=><tr key={r.id}>
           <td>{new Date(r.createdAt).toLocaleString("ar-CA")}</td>
           <td>{r.baseCurrency}/{r.quoteCurrency}</td>
           <td>{Number(r.buyRate).toFixed(4)}</td>
           <td>{Number(r.sellRate).toFixed(4)}</td>
-          <td>{r.source==="FRANKFURTER"?"طھظ„ظ‚ط§ط¦ظٹ":"ظٹط¯ظˆظٹ"}</td>
+          <td>{r.source==="FRANKFURTER"?"تلقائي":"يدوي"}</td>
           <td>{r.notes||"-"}</td>
         </tr>)}</tbody>
       </table>
@@ -1615,7 +1615,7 @@ function GeneralDebts(){
         totals:data?.totals||{receivable:0,payable:0,net:0}
       });
     }catch(error){
-      setMessage(error.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ط§ظ„ط¯ظٹظˆظ†");
+      setMessage(error.response?.data?.message||"تعذر تحميل الديون");
     }
   }
 
@@ -1635,10 +1635,10 @@ function GeneralDebts(){
         description:"",
         reference:""
       });
-      setMessage("طھظ… ط­ظپط¸ ط§ظ„ط¯ظٹظ† ط¨ظ†ط¬ط§ط­");
+      setMessage("تم حفظ الدين بنجاح");
       await load();
     }catch(error){
-      setMessage(error.response?.data?.message||"طھط¹ط°ط± ط­ظپط¸ ط§ظ„ط¯ظٹظ†");
+      setMessage(error.response?.data?.message||"تعذر حفظ الدين");
     }
   }
 
@@ -1649,58 +1649,58 @@ function GeneralDebts(){
     try{
       await api.post(`/general-debts/${payment.debtId}/payments`,payment);
       setPayment({debtId:"",amount:"",paymentDate:"",notes:""});
-      setMessage("طھظ… طھط³ط¬ظٹظ„ ط§ظ„ط¯ظپط¹ط©");
+      setMessage("تم تسجيل الدفعة");
       await load();
     }catch(error){
-      setMessage(error.response?.data?.message||"طھط¹ط°ط± طھط³ط¬ظٹظ„ ط§ظ„ط¯ظپط¹ط©");
+      setMessage(error.response?.data?.message||"تعذر تسجيل الدفعة");
     }
   }
 
   const openDebts=data.rows.filter(item=>Number(item.remaining||0)>0);
 
   const statusLabel={
-    OPEN:"ظ…ظپطھظˆط­",
-    PARTIAL:"ظ…ط¯ظپظˆط¹ ط¬ط²ط¦ظٹظ‹ط§",
-    PAID:"ظ…ط¯ظپظˆط¹",
-    OVERDUE:"ظ…طھط£ط®ط±"
+    OPEN:"مفتوح",
+    PARTIAL:"مدفوع جزئيًا",
+    PAID:"مدفوع",
+    OVERDUE:"متأخر"
   };
 
   return <>
-    <h2>ط§ظ„ط¯ظ‘ظژظٹظ† ط§ظ„ط¹ط§ظ…</h2>
+    <h2>الدَّين العام</h2>
 
     <div className="stats">
       <div className="card receivable-card">
-        <span>ط¯ظٹظ† ظ„ظ†ط§</span>
+        <span>دين لنا</span>
         <strong>{money(data.totals.receivable)}</strong>
       </div>
       <div className="card payable-card">
-        <span>ط¯ظٹظ† ط¹ظ„ظٹظ†ط§</span>
+        <span>دين علينا</span>
         <strong>{money(data.totals.payable)}</strong>
       </div>
       <div className="card final">
-        <span>طµط§ظپظٹ ط§ظ„ط¯ظٹظˆظ†</span>
+        <span>صافي الديون</span>
         <strong>{money(data.totals.net)}</strong>
       </div>
     </div>
 
     <div className="card debt-tabs">
-      <button type="button" onClick={()=>setFilter("")}>ط§ظ„ظƒظ„</button>
-      <button type="button" onClick={()=>setFilter("RECEIVABLE")}>ط¯ظٹظ† ظ„ظ†ط§</button>
-      <button type="button" onClick={()=>setFilter("PAYABLE")}>ط¯ظٹظ† ط¹ظ„ظٹظ†ط§</button>
+      <button type="button" onClick={()=>setFilter("")}>الكل</button>
+      <button type="button" onClick={()=>setFilter("RECEIVABLE")}>دين لنا</button>
+      <button type="button" onClick={()=>setFilter("PAYABLE")}>دين علينا</button>
     </div>
 
     {message&&<div className="card debt-message">{message}</div>}
 
     <form className="card form" onSubmit={addDebt}>
       <select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}>
-        <option value="RECEIVABLE">ط¯ظٹظ† ظ„ظ†ط§</option>
-        <option value="PAYABLE">ط¯ظٹظ† ط¹ظ„ظٹظ†ط§</option>
+        <option value="RECEIVABLE">دين لنا</option>
+        <option value="PAYABLE">دين علينا</option>
       </select>
 
       <input
         value={form.partyName}
         onChange={e=>setForm({...form,partyName:e.target.value})}
-        placeholder="ط§ط³ظ… ط§ظ„ط´ط®طµ ط£ظˆ ط§ظ„ط¬ظ‡ط©"
+        placeholder="اسم الشخص أو الجهة"
         required
       />
 
@@ -1710,7 +1710,7 @@ function GeneralDebts(){
         step="0.01"
         value={form.amount}
         onChange={e=>setForm({...form,amount:e.target.value})}
-        placeholder="ظ…ط¨ظ„ط؛ ط§ظ„ط¯ظٹظ†"
+        placeholder="مبلغ الدين"
         required
       />
 
@@ -1729,16 +1729,16 @@ function GeneralDebts(){
       <input
         value={form.reference}
         onChange={e=>setForm({...form,reference:e.target.value})}
-        placeholder="ط±ظ‚ظ… ظ…ط±ط¬ط¹ ط£ظˆ ظپط§طھظˆط±ط©"
+        placeholder="رقم مرجع أو فاتورة"
       />
 
       <input
         value={form.description}
         onChange={e=>setForm({...form,description:e.target.value})}
-        placeholder="ظ…ظ„ط§ط­ط¸ط§طھ"
+        placeholder="ملاحظات"
       />
 
-      <button>ط­ظپط¸ ط§ظ„ط¯ظٹظ†</button>
+      <button>حفظ الدين</button>
     </form>
 
     {openDebts.length>0&&
@@ -1748,10 +1748,10 @@ function GeneralDebts(){
           onChange={e=>setPayment({...payment,debtId:e.target.value})}
           required
         >
-          <option value="">ط§ط®طھط± ط§ظ„ط¯ظٹظ† ظ„طھط³ط¬ظٹظ„ ط¯ظپط¹ط©</option>
+          <option value="">اختر الدين لتسجيل دفعة</option>
           {openDebts.map(item=>
             <option key={item.id} value={item.id}>
-              {item.type==="RECEIVABLE"?"ظ„ظ†ط§":"ط¹ظ„ظٹظ†ط§"} â€” {item.partyName} â€” ظ…طھط¨ظ‚ظٹ {money(item.remaining)} {item.currency}
+              {item.type==="RECEIVABLE"?"لنا":"علينا"} — {item.partyName} — متبقي {money(item.remaining)} {item.currency}
             </option>
           )}
         </select>
@@ -1762,7 +1762,7 @@ function GeneralDebts(){
           step="0.01"
           value={payment.amount}
           onChange={e=>setPayment({...payment,amount:e.target.value})}
-          placeholder="ظ…ط¨ظ„ط؛ ط§ظ„ط¯ظپط¹ط©"
+          placeholder="مبلغ الدفعة"
           required
         />
 
@@ -1775,10 +1775,10 @@ function GeneralDebts(){
         <input
           value={payment.notes}
           onChange={e=>setPayment({...payment,notes:e.target.value})}
-          placeholder="ظ…ظ„ط§ط­ط¸ط§طھ ط§ظ„ط¯ظپط¹ط©"
+          placeholder="ملاحظات الدفعة"
         />
 
-        <button>طھط³ط¬ظٹظ„ ط§ظ„ط¯ظپط¹ط©</button>
+        <button>تسجيل الدفعة</button>
       </form>
     }
 
@@ -1786,15 +1786,15 @@ function GeneralDebts(){
       <table>
         <thead>
           <tr>
-            <th>ط§ظ„ظ†ظˆط¹</th>
-            <th>ط§ظ„ط´ط®طµ/ط§ظ„ط¬ظ‡ط©</th>
-            <th>ط§ظ„ظ…ط¨ظ„ط؛</th>
-            <th>ط§ظ„ظ…ط¯ظپظˆط¹</th>
-            <th>ط§ظ„ظ…طھط¨ظ‚ظٹ</th>
-            <th>ط§ظ„ط¹ظ…ظ„ط©</th>
-            <th>ط§ظ„ط§ط³طھط­ظ‚ط§ظ‚</th>
-            <th>ط§ظ„ط­ط§ظ„ط©</th>
-            <th>ط§ظ„ظ…ط±ط¬ط¹</th>
+            <th>النوع</th>
+            <th>الشخص/الجهة</th>
+            <th>المبلغ</th>
+            <th>المدفوع</th>
+            <th>المتبقي</th>
+            <th>العملة</th>
+            <th>الاستحقاق</th>
+            <th>الحالة</th>
+            <th>المرجع</th>
           </tr>
         </thead>
         <tbody>
@@ -1803,7 +1803,7 @@ function GeneralDebts(){
               <tr key={item.id}>
                 <td>
                   <span className={`debt-type ${item.type==="RECEIVABLE"?"receivable":"payable"}`}>
-                    {item.type==="RECEIVABLE"?"ط¯ظٹظ† ظ„ظ†ط§":"ط¯ظٹظ† ط¹ظ„ظٹظ†ط§"}
+                    {item.type==="RECEIVABLE"?"دين لنا":"دين علينا"}
                   </span>
                 </td>
                 <td>{item.partyName}</td>
@@ -1816,7 +1816,7 @@ function GeneralDebts(){
                 <td>{item.reference||"-"}</td>
               </tr>
             )
-            :<tr><td colSpan="9">ظ„ط§ طھظˆط¬ط¯ ط¯ظٹظˆظ† ظ…ط³ط¬ظ„ط©.</td></tr>
+            :<tr><td colSpan="9">لا توجد ديون مسجلة.</td></tr>
           }
         </tbody>
       </table>
@@ -1843,7 +1843,7 @@ function PartnerProfile({id,back}){
       const response=await api.get(`/partners/${id}`);
       setData(response.data);
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ط§ظ„ظ…ظˆط±ط¯ ط£ظˆ ط§ظ„ط´ط±ظƒط©");
+      setError(requestError.response?.data?.message||"تعذر تحميل المورد أو الشركة");
     }
   }
 
@@ -1864,59 +1864,59 @@ function PartnerProfile({id,back}){
   }
 
   if(showStatement)return <PartnerStatement partnerId={id} back={()=>setShowStatement(false)}/>;
-  if(error&&!data)return <div className="card customer-error"><button onClick={back}>ط±ط¬ظˆط¹</button><p>{error}</p></div>;
-  if(!data)return <p>ط¬ط§ط±ظٹ ط§ظ„طھط­ظ…ظٹظ„...</p>;
+  if(error&&!data)return <div className="card customer-error"><button onClick={back}>رجوع</button><p>{error}</p></div>;
+  if(!data)return <p>جاري التحميل...</p>;
 
   return <>
     <div className="card form no-print">
-      <button onClick={back}>ط±ط¬ظˆط¹</button>
-      <button onClick={()=>setShowStatement(true)}>ظƒط´ظپ ط­ط³ط§ط¨</button>
+      <button onClick={back}>رجوع</button>
+      <button onClick={()=>setShowStatement(true)}>كشف حساب</button>
     </div>
 
     <h2>{data.partner.name}</h2>
     <div className="stats">
-      <div className="card receivable-card"><span>ط¯ظٹظ† ظ„ظ†ط§</span><strong>{money(data.totals.receivable)}</strong></div>
-      <div className="card payable-card"><span>ط¯ظٹظ† ط¹ظ„ظٹظ†ط§</span><strong>{money(data.totals.payable)}</strong></div>
-      <div className="card final"><span>طµط§ظپظٹ ط§ظ„ط­ط³ط§ط¨</span><strong>{money(data.totals.net)}</strong></div>
+      <div className="card receivable-card"><span>دين لنا</span><strong>{money(data.totals.receivable)}</strong></div>
+      <div className="card payable-card"><span>دين علينا</span><strong>{money(data.totals.payable)}</strong></div>
+      <div className="card final"><span>صافي الحساب</span><strong>{money(data.totals.net)}</strong></div>
     </div>
 
     <div className="card">
-      <p><strong>ط§ظ„ظ…ط³ط¤ظˆظ„:</strong> {data.partner.contactName||"-"}</p>
-      <p><strong>ط§ظ„ظ‡ط§طھظپ:</strong> {data.partner.phone||"-"}</p>
-      <p><strong>ظˆط§طھط³ط§ط¨:</strong> {data.partner.whatsapp||"-"}</p>
-      <p><strong>ط§ظ„ط¨ط±ظٹط¯:</strong> {data.partner.email||"-"}</p>
-      <p><strong>ط§ظ„ظ…ظˆظ‚ط¹:</strong> {[data.partner.city,data.partner.country].filter(Boolean).join("طŒ ")||"-"}</p>
+      <p><strong>المسؤول:</strong> {data.partner.contactName||"-"}</p>
+      <p><strong>الهاتف:</strong> {data.partner.phone||"-"}</p>
+      <p><strong>واتساب:</strong> {data.partner.whatsapp||"-"}</p>
+      <p><strong>البريد:</strong> {data.partner.email||"-"}</p>
+      <p><strong>الموقع:</strong> {[data.partner.city,data.partner.country].filter(Boolean).join("، ")||"-"}</p>
     </div>
 
     <form className="card form" onSubmit={addTransaction}>
       <select value={transaction.type} onChange={e=>setTransaction({...transaction,type:e.target.value})}>
-        <option value="RECEIVABLE">ط¯ظٹظ† ظ„ظ†ط§</option>
-        <option value="PAYABLE">ط¯ظٹظ† ط¹ظ„ظٹظ†ط§</option>
+        <option value="RECEIVABLE">دين لنا</option>
+        <option value="PAYABLE">دين علينا</option>
       </select>
-      <input type="number" min=".01" step=".01" value={transaction.amount} onChange={e=>setTransaction({...transaction,amount:e.target.value})} placeholder="ط§ظ„ظ…ط¨ظ„ط؛" required/>
+      <input type="number" min=".01" step=".01" value={transaction.amount} onChange={e=>setTransaction({...transaction,amount:e.target.value})} placeholder="المبلغ" required/>
       <select value={transaction.currency} onChange={e=>setTransaction({...transaction,currency:e.target.value})}>
         {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=><option key={currency}>{currency}</option>)}
       </select>
       <input type="date" value={transaction.date} onChange={e=>setTransaction({...transaction,date:e.target.value})}/>
       <input type="date" value={transaction.dueDate} onChange={e=>setTransaction({...transaction,dueDate:e.target.value})}/>
-      <input value={transaction.reference} onChange={e=>setTransaction({...transaction,reference:e.target.value})} placeholder="ط§ظ„ظ…ط±ط¬ط¹"/>
-      <input value={transaction.description} onChange={e=>setTransaction({...transaction,description:e.target.value})} placeholder="ط§ظ„ط¨ظٹط§ظ†"/>
-      <button>ط­ظپط¸ ط§ظ„ط¹ظ…ظ„ظٹط©</button>
+      <input value={transaction.reference} onChange={e=>setTransaction({...transaction,reference:e.target.value})} placeholder="المرجع"/>
+      <input value={transaction.description} onChange={e=>setTransaction({...transaction,description:e.target.value})} placeholder="البيان"/>
+      <button>حفظ العملية</button>
     </form>
 
     <form className="card form" onSubmit={addPayment}>
       <select value={payment.direction} onChange={e=>setPayment({...payment,direction:e.target.value})}>
-        <option value="RECEIVED">ط§ط³طھظ„ظ…ظ†ط§ ط¯ظپط¹ط©</option>
-        <option value="PAID">ط¯ظپط¹ظ†ط§ ظ…ط¨ظ„ط؛ظ‹ط§</option>
+        <option value="RECEIVED">استلمنا دفعة</option>
+        <option value="PAID">دفعنا مبلغًا</option>
       </select>
-      <input type="number" min=".01" step=".01" value={payment.amount} onChange={e=>setPayment({...payment,amount:e.target.value})} placeholder="ظ…ط¨ظ„ط؛ ط§ظ„ط¯ظپط¹ط©" required/>
+      <input type="number" min=".01" step=".01" value={payment.amount} onChange={e=>setPayment({...payment,amount:e.target.value})} placeholder="مبلغ الدفعة" required/>
       <select value={payment.currency} onChange={e=>setPayment({...payment,currency:e.target.value})}>
         {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=><option key={currency}>{currency}</option>)}
       </select>
       <input type="date" value={payment.date} onChange={e=>setPayment({...payment,date:e.target.value})}/>
-      <input value={payment.reference} onChange={e=>setPayment({...payment,reference:e.target.value})} placeholder="ط§ظ„ظ…ط±ط¬ط¹"/>
-      <input value={payment.notes} onChange={e=>setPayment({...payment,notes:e.target.value})} placeholder="ظ…ظ„ط§ط­ط¸ط§طھ"/>
-      <button>ط­ظپط¸ ط§ظ„ط¯ظپط¹ط©</button>
+      <input value={payment.reference} onChange={e=>setPayment({...payment,reference:e.target.value})} placeholder="المرجع"/>
+      <input value={payment.notes} onChange={e=>setPayment({...payment,notes:e.target.value})} placeholder="ملاحظات"/>
+      <button>حفظ الدفعة</button>
     </form>
   </>;
 }
@@ -1931,7 +1931,7 @@ function PartnerStatement({partnerId,back}){
       const response=await api.get(`/partners/${partnerId}/statement`,{params:filters});
       setData(response.data);
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± ط¥ظ†ط´ط§ط، ظƒط´ظپ ط§ظ„ط­ط³ط§ط¨");
+      setError(requestError.response?.data?.message||"تعذر إنشاء كشف الحساب");
     }
   }
 
@@ -1941,25 +1941,25 @@ function PartnerStatement({partnerId,back}){
     if(!data)return;
     const phone=String(data.partner.whatsapp||data.partner.phone||"").replace(/\D/g,"");
     if(!phone){
-      setError("ظ„ط§ ظٹظˆط¬ط¯ ط±ظ‚ظ… ظˆط§طھط³ط§ط¨ ظ…ط­ظپظˆط¸");
+      setError("لا يوجد رقم واتساب محفوظ");
       return;
     }
     const message=[
-      `ط§ظ„ط³ظ„ط§ظ… ط¹ظ„ظٹظƒظ… ${data.partner.name}طŒ`,
-      `طھظ… طھط¬ظ‡ظٹط² ظƒط´ظپ ط§ظ„ط­ط³ط§ط¨ ظ…ظ† ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ظ„ظ„طھط¬ط§ط±ط©.`,
-      `ط§ظ„ط±طµظٹط¯ ط§ظ„ظ†ظ‡ط§ط¦ظٹ: ${money(data.finalBalance)}`
+      `السلام عليكم ${data.partner.name}،`,
+      `تم تجهيز كشف الحساب من شركة العبود للتجارة.`,
+      `الرصيد النهائي: ${money(data.finalBalance)}`
     ].join("\n");
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank");
   }
 
   return <>
     <div className="card form no-print">
-      <button onClick={back}>ط±ط¬ظˆط¹</button>
+      <button onClick={back}>رجوع</button>
       <input type="date" value={filters.from} onChange={e=>setFilters({...filters,from:e.target.value})}/>
       <input type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/>
-      <button onClick={load}>طھط­ط¯ظٹط«</button>
-      <button onClick={()=>window.print()}>ط·ط¨ط§ط¹ط© / PDF</button>
-      <button onClick={sendWhatsApp}>ظˆط§طھط³ط§ط¨</button>
+      <button onClick={load}>تحديث</button>
+      <button onClick={()=>window.print()}>طباعة / PDF</button>
+      <button onClick={sendWhatsApp}>واتساب</button>
     </div>
     {error&&<div className="card customer-error">{error}</div>}
     {data&&<section className="invoice-sheet">
@@ -1967,20 +1967,20 @@ function PartnerStatement({partnerId,back}){
         <div>
           <h1>{data.company.name}</h1>
           <p>{data.company.nameEn}</p>
-          <h3>ظƒط´ظپ ط­ط³ط§ط¨ ظ…ظˆط±ط¯ / ط´ط±ظƒط©</h3>
+          <h3>كشف حساب مورد / شركة</h3>
         </div>
         <div>
-          <p><strong>ط§ظ„ط¬ظ‡ط©:</strong> {data.partner.name}</p>
-          <p><strong>ط§ظ„ظپطھط±ط©:</strong> {data.from||"ط§ظ„ط¨ط¯ط§ظٹط©"} ط¥ظ„ظ‰ {data.to||"ط§ظ„ظٹظˆظ…"}</p>
+          <p><strong>الجهة:</strong> {data.partner.name}</p>
+          <p><strong>الفترة:</strong> {data.from||"البداية"} إلى {data.to||"اليوم"}</p>
         </div>
       </div>
       <table>
-        <thead><tr><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط§ظ„ظ†ظˆط¹</th><th>ظ…ط¯ظٹظ†</th><th>ط¯ط§ط¦ظ†</th><th>ط§ظ„ط±طµظٹط¯</th><th>ط§ظ„ظ…ط±ط¬ط¹</th></tr></thead>
+        <thead><tr><th>التاريخ</th><th>النوع</th><th>مدين</th><th>دائن</th><th>الرصيد</th><th>المرجع</th></tr></thead>
         <tbody>{data.rows.length?data.rows.map(row=><tr key={row.id}>
           <td>{row.date}</td><td>{row.kind}</td><td>{money(row.debit)}</td><td>{money(row.credit)}</td><td>{money(row.balance)}</td><td>{row.reference||"-"}</td>
-        </tr>):<tr><td colSpan="6">ظ„ط§ طھظˆط¬ط¯ ط¹ظ…ظ„ظٹط§طھ.</td></tr>}</tbody>
+        </tr>):<tr><td colSpan="6">لا توجد عمليات.</td></tr>}</tbody>
       </table>
-      <div className="card final"><span>ط§ظ„ط±طµظٹط¯ ط§ظ„ظ†ظ‡ط§ط¦ظٹ</span><strong>{money(data.finalBalance)}</strong></div>
+      <div className="card final"><span>الرصيد النهائي</span><strong>{money(data.finalBalance)}</strong></div>
     </section>}
   </>;
 }
@@ -1998,7 +1998,7 @@ function Partners({open}){
       const response=await api.get("/partners");
       setData(response.data);
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ط§ظ„ظ…ظˆط±ط¯ظٹظ† ظˆط§ظ„ط´ط±ظƒط§طھ");
+      setError(requestError.response?.data?.message||"تعذر تحميل الموردين والشركات");
     }
   }
 
@@ -2012,34 +2012,34 @@ function Partners({open}){
   }
 
   return <>
-    <h2>ط§ظ„ظ…ظˆط±ط¯ظˆظ† ظˆط§ظ„ط´ط±ظƒط§طھ</h2>
+    <h2>الموردون والشركات</h2>
     {error&&<div className="card customer-error">{error}</div>}
     <div className="stats">
-      <div className="card receivable-card"><span>ط¥ط¬ظ…ط§ظ„ظٹ ط¯ظٹظ† ظ„ظ†ط§</span><strong>{money(data.totals.receivable)}</strong></div>
-      <div className="card payable-card"><span>ط¥ط¬ظ…ط§ظ„ظٹ ط¯ظٹظ† ط¹ظ„ظٹظ†ط§</span><strong>{money(data.totals.payable)}</strong></div>
-      <div className="card final"><span>ط§ظ„طµط§ظپظٹ</span><strong>{money(data.totals.net)}</strong></div>
+      <div className="card receivable-card"><span>إجمالي دين لنا</span><strong>{money(data.totals.receivable)}</strong></div>
+      <div className="card payable-card"><span>إجمالي دين علينا</span><strong>{money(data.totals.payable)}</strong></div>
+      <div className="card final"><span>الصافي</span><strong>{money(data.totals.net)}</strong></div>
     </div>
 
     <form className="card form" onSubmit={add}>
-      <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="ط§ط³ظ… ط§ظ„ظ…ظˆط±ط¯ ط£ظˆ ط§ظ„ط´ط±ظƒط©" required/>
-      <input value={form.contactName} onChange={e=>setForm({...form,contactName:e.target.value})} placeholder="ط§ط³ظ… ط§ظ„ظ…ط³ط¤ظˆظ„"/>
-      <input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="ط§ظ„ظ‡ط§طھظپ"/>
-      <input value={form.whatsapp} onChange={e=>setForm({...form,whatsapp:e.target.value})} placeholder="ظˆط§طھط³ط§ط¨"/>
-      <input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="ط§ظ„ط¨ط±ظٹط¯"/>
-      <input value={form.country} onChange={e=>setForm({...form,country:e.target.value})} placeholder="ط§ظ„ط¯ظˆظ„ط©"/>
-      <input value={form.city} onChange={e=>setForm({...form,city:e.target.value})} placeholder="ط§ظ„ظ…ط¯ظٹظ†ط©"/>
-      <input value={form.address} onChange={e=>setForm({...form,address:e.target.value})} placeholder="ط§ظ„ط¹ظ†ظˆط§ظ†"/>
-      <button>ط¥ط¶ط§ظپط©</button>
+      <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="اسم المورد أو الشركة" required/>
+      <input value={form.contactName} onChange={e=>setForm({...form,contactName:e.target.value})} placeholder="اسم المسؤول"/>
+      <input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="الهاتف"/>
+      <input value={form.whatsapp} onChange={e=>setForm({...form,whatsapp:e.target.value})} placeholder="واتساب"/>
+      <input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="البريد"/>
+      <input value={form.country} onChange={e=>setForm({...form,country:e.target.value})} placeholder="الدولة"/>
+      <input value={form.city} onChange={e=>setForm({...form,city:e.target.value})} placeholder="المدينة"/>
+      <input value={form.address} onChange={e=>setForm({...form,address:e.target.value})} placeholder="العنوان"/>
+      <button>إضافة</button>
     </form>
 
     <div className="card tablewrap">
       <table>
-        <thead><tr><th>ط§ظ„ط§ط³ظ…</th><th>ط§ظ„ظ…ط³ط¤ظˆظ„</th><th>ط§ظ„ظ‡ط§طھظپ</th><th>ط¯ظٹظ† ظ„ظ†ط§</th><th>ط¯ظٹظ† ط¹ظ„ظٹظ†ط§</th><th>ط§ظ„طµط§ظپظٹ</th><th>ط§ظ„ظ…ظ„ظپ</th></tr></thead>
+        <thead><tr><th>الاسم</th><th>المسؤول</th><th>الهاتف</th><th>دين لنا</th><th>دين علينا</th><th>الصافي</th><th>الملف</th></tr></thead>
         <tbody>{data.rows.length?data.rows.map(partner=><tr key={partner.id}>
           <td>{partner.name}</td><td>{partner.contactName||"-"}</td><td>{partner.phone||"-"}</td>
           <td>{money(partner.receivable)}</td><td>{money(partner.payable)}</td><td><strong>{money(partner.net)}</strong></td>
-          <td><button onClick={()=>open(partner.id)}>ظپطھط­</button></td>
-        </tr>):<tr><td colSpan="7">ظ„ط§ طھظˆط¬ط¯ ط´ط±ظƒط§طھ ط£ظˆ ظ…ظˆط±ط¯ظˆظ†.</td></tr>}</tbody>
+          <td><button onClick={()=>open(partner.id)}>فتح</button></td>
+        </tr>):<tr><td colSpan="7">لا توجد شركات أو موردون.</td></tr>}</tbody>
       </table>
     </div>
   </>;
@@ -2056,64 +2056,64 @@ function CapitalOverview(){
       const response=await api.get("/capital-overview",{params:{month}});
       setData(response.data);
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ط±ط£ط³ ط§ظ„ظ…ط§ظ„");
+      setError(requestError.response?.data?.message||"تعذر تحميل رأس المال");
     }
   }
 
   useEffect(()=>{load();},[month]);
 
-  if(!data)return <><h2>ط±ط£ط³ ط§ظ„ظ…ط§ظ„ ط§ظ„ظƒظ„ظٹ</h2>{error?<div className="card customer-error">{error}</div>:<p>ط¬ط§ط±ظٹ ط§ظ„طھط­ظ…ظٹظ„...</p>}</>;
+  if(!data)return <><h2>رأس المال الكلي</h2>{error?<div className="card customer-error">{error}</div>:<p>جاري التحميل...</p>}</>;
 
-  const efficiency=data.turnoverRate>=3?"ظ…ظ…طھط§ط²":data.turnoverRate>=2?"ط¬ظٹط¯ ط¬ط¯ط§ظ‹":data.turnoverRate>=1?"ط¬ظٹط¯":"ظ…ظ†ط®ظپط¶";
+  const efficiency=data.turnoverRate>=3?"ممتاز":data.turnoverRate>=2?"جيد جداً":data.turnoverRate>=1?"جيد":"منخفض";
 
   return <>
     <div className="page-title-row">
-      <h2>ط±ط£ط³ ط§ظ„ظ…ط§ظ„ ط§ظ„ظƒظ„ظٹ ظˆط­ط±ظƒط© ط¯ظˆط±ط§ظ†ظ‡</h2>
-      <button className="no-print" onClick={()=>window.print()}>ط·ط¨ط§ط¹ط© ط§ظ„طھظ‚ط±ظٹط±</button>
+      <h2>رأس المال الكلي وحركة دورانه</h2>
+      <button className="no-print" onClick={()=>window.print()}>طباعة التقرير</button>
     </div>
 
     <div className="card form no-print">
-      <label>ط§ط®طھظٹط§ط± ط§ظ„ط´ظ‡ط±</label>
+      <label>اختيار الشهر</label>
       <input type="month" value={month} onChange={e=>setMonth(e.target.value)}/>
-      <button onClick={load}>طھط­ط¯ظٹط«</button>
+      <button onClick={load}>تحديث</button>
     </div>
 
     {error&&<div className="card customer-error">{error}</div>}
 
     <div className="stats">
       <div className="card final">
-        <span>ط±ط£ط³ ط§ظ„ظ…ط§ظ„ ط§ظ„ظƒظ„ظٹ ط§ظ„طھظ‚ط¯ظٹط±ظٹ</span>
+        <span>رأس المال الكلي التقديري</span>
         <strong>{money(data.totalCapital)}</strong>
       </div>
       <div className="card">
-        <span>طµط§ظپظٹ ط­ط±ظƒط© ط±ط£ط³ ط§ظ„ظ…ط§ظ„</span>
+        <span>صافي حركة رأس المال</span>
         <strong>{money(data.capitalBalance)}</strong>
       </div>
       <div className="card transfer-total-card">
-        <span>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط­ظˆط§ظ„ط§طھ ظپظٹ ط§ظ„ط´ظ‡ط±</span>
+        <span>إجمالي الحوالات في الشهر</span>
         <strong>{money(data.monthlyTransferValue)}</strong>
       </div>
       <div className="card turnover-card">
-        <span>ظ…ط¹ط¯ظ„ ط¯ظˆط±ط§ظ† ط±ط£ط³ ط§ظ„ظ…ط§ظ„</span>
-        <strong>{Number(data.turnoverRate).toFixed(2)} ظ…ط±ط©</strong>
+        <span>معدل دوران رأس المال</span>
+        <strong>{Number(data.turnoverRate).toFixed(2)} مرة</strong>
         <small>{efficiency}</small>
       </div>
     </div>
 
     <div className="stats">
-      <div className="card"><span>ط¹ط¯ط¯ ط§ظ„ط­ظˆط§ظ„ط§طھ ط§ظ„ط´ظ‡ط±ظٹط©</span><strong>{data.monthlyTransferCount}</strong></div>
-      <div className="card"><span>ظ…طھظˆط³ط· ظ‚ظٹظ…ط© ط§ظ„ط­ظˆط§ظ„ط©</span><strong>{money(data.averageTransfer)}</strong></div>
-      <div className="card"><span>ط£ط±ط¨ط§ط­ ط§ظ„ط´ظ‡ط±</span><strong>{money(data.monthlyProfit)}</strong></div>
-      <div className="card"><span>ظ…طµط±ظˆظپط§طھ ط§ظ„ط´ظ‡ط±</span><strong>{money(data.monthlyExpenses)}</strong></div>
-      <div className="card receivable-card"><span>ط°ظ…ظ… ط§ظ„ط¹ظ…ظ„ط§ط،</span><strong>{money(data.receivables)}</strong></div>
-      <div className="card receivable-card"><span>ط¯ظٹظ† ظ„ظ†ط§</span><strong>{money(data.generalReceivable)}</strong></div>
-      <div className="card payable-card"><span>ط¯ظٹظ† ط¹ظ„ظٹظ†ط§</span><strong>{money(data.generalPayable)}</strong></div>
+      <div className="card"><span>عدد الحوالات الشهرية</span><strong>{data.monthlyTransferCount}</strong></div>
+      <div className="card"><span>متوسط قيمة الحوالة</span><strong>{money(data.averageTransfer)}</strong></div>
+      <div className="card"><span>أرباح الشهر</span><strong>{money(data.monthlyProfit)}</strong></div>
+      <div className="card"><span>مصروفات الشهر</span><strong>{money(data.monthlyExpenses)}</strong></div>
+      <div className="card receivable-card"><span>ذمم العملاء</span><strong>{money(data.receivables)}</strong></div>
+      <div className="card receivable-card"><span>دين لنا</span><strong>{money(data.generalReceivable)}</strong></div>
+      <div className="card payable-card"><span>دين علينا</span><strong>{money(data.generalPayable)}</strong></div>
     </div>
 
     <div className="card capital-formula">
-      <h3>ط­ط±ظƒط© ط¯ظˆط±ط§ظ† ط±ط£ط³ ط§ظ„ظ…ط§ظ„</h3>
-      <p><strong>ط¥ط¬ظ…ط§ظ„ظٹ ظ‚ظٹظ…ط© ط§ظ„ط­ظˆط§ظ„ط§طھ ط§ظ„ط´ظ‡ط±ظٹط© أ· ط±ط£ط³ ط§ظ„ظ…ط§ظ„ ط§ظ„ظ…ط³طھط®ط¯ظ…</strong></p>
-      <p>ط§ظ„ظ†طھظٹط¬ط© ط§ظ„ط­ط§ظ„ظٹط©: <strong>{Number(data.turnoverRate).toFixed(2)} ظ…ط±ط©</strong> ط®ظ„ط§ظ„ ط´ظ‡ط± {data.month}.</p>
+      <h3>حركة دوران رأس المال</h3>
+      <p><strong>إجمالي قيمة الحوالات الشهرية ÷ رأس المال المستخدم</strong></p>
+      <p>النتيجة الحالية: <strong>{Number(data.turnoverRate).toFixed(2)} مرة</strong> خلال شهر {data.month}.</p>
     </div>
   </>;
 }
@@ -2129,88 +2129,88 @@ function MonthlyReport(){
       const response=await api.get("/monthly-report",{params:{month}});
       setData(response.data);
     }catch(requestError){
-      setError(requestError.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ط§ظ„طھظ‚ط±ظٹط± ط§ظ„ط´ظ‡ط±ظٹ");
+      setError(requestError.response?.data?.message||"تعذر تحميل التقرير الشهري");
     }
   }
 
   useEffect(()=>{load();},[month]);
 
-  if(!data)return <><h2>ط§ظ„طھظ‚ط±ظٹط± ط§ظ„ط´ظ‡ط±ظٹ</h2>{error?<div className="card customer-error">{error}</div>:<p>ط¬ط§ط±ظٹ ط§ظ„طھط­ظ…ظٹظ„...</p>}</>;
+  if(!data)return <><h2>التقرير الشهري</h2>{error?<div className="card customer-error">{error}</div>:<p>جاري التحميل...</p>}</>;
 
   const s=data.summary;
 
   return <>
     <div className="page-title-row">
-      <h2>ط§ظ„طھظ‚ط±ظٹط± ط§ظ„ط´ظ‡ط±ظٹ â€” {data.month}</h2>
-      <button className="no-print" onClick={()=>window.print()}>ط·ط¨ط§ط¹ط© / ط­ظپط¸ PDF</button>
+      <h2>التقرير الشهري — {data.month}</h2>
+      <button className="no-print" onClick={()=>window.print()}>طباعة / حفظ PDF</button>
     </div>
 
     <div className="card form no-print">
-      <label>ط§ظ„ط´ظ‡ط±</label>
+      <label>الشهر</label>
       <input type="month" value={month} onChange={e=>setMonth(e.target.value)}/>
-      <button onClick={load}>ط¹ط±ط¶ ط§ظ„طھظ‚ط±ظٹط±</button>
+      <button onClick={load}>عرض التقرير</button>
     </div>
 
     {error&&<div className="card customer-error">{error}</div>}
 
     <div className="stats">
-      <div className="card transfer-total-card"><span>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط­ظˆط§ظ„ط§طھ</span><strong>{money(s.transferTotal)}</strong></div>
-      <div className="card"><span>ط¹ط¯ط¯ ط§ظ„ط­ظˆط§ظ„ط§طھ</span><strong>{s.transferCount}</strong></div>
-      <div className="card"><span>ظ…طھظˆط³ط· ط§ظ„ط­ظˆط§ظ„ط©</span><strong>{money(s.averageTransfer)}</strong></div>
-      <div className="card"><span>ط£ظƒط¨ط± ط­ظˆط§ظ„ط©</span><strong>{money(s.largestTransfer)}</strong></div>
-      <div className="card"><span>ط£طµط؛ط± ط­ظˆط§ظ„ط©</span><strong>{money(s.smallestTransfer)}</strong></div>
+      <div className="card transfer-total-card"><span>إجمالي الحوالات</span><strong>{money(s.transferTotal)}</strong></div>
+      <div className="card"><span>عدد الحوالات</span><strong>{s.transferCount}</strong></div>
+      <div className="card"><span>متوسط الحوالة</span><strong>{money(s.averageTransfer)}</strong></div>
+      <div className="card"><span>أكبر حوالة</span><strong>{money(s.largestTransfer)}</strong></div>
+      <div className="card"><span>أصغر حوالة</span><strong>{money(s.smallestTransfer)}</strong></div>
     </div>
 
     <div className="stats">
-      <div className="card"><span>ط£ط¬ظˆط± ط§ظ„ط­ظˆط§ظ„ط§طھ</span><strong>{money(s.feesTotal)}</strong></div>
-      <div className="card"><span>ط±ط¨ط­ ظپط±ظ‚ ط§ظ„ط³ط¹ط±</span><strong>{money(s.exchangeProfit)}</strong></div>
-      <div className="card"><span>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط±ط¨ط­</span><strong>{money(s.grossProfit)}</strong></div>
-      <div className="card payable-card"><span>ط§ظ„ظ…طµط±ظˆظپط§طھ</span><strong>{money(s.expenses)}</strong></div>
-      <div className="card final"><span>طµط§ظپظٹ ط§ظ„ط±ط¨ط­</span><strong>{money(s.netProfit)}</strong></div>
+      <div className="card"><span>أجور الحوالات</span><strong>{money(s.feesTotal)}</strong></div>
+      <div className="card"><span>ربح فرق السعر</span><strong>{money(s.exchangeProfit)}</strong></div>
+      <div className="card"><span>إجمالي الربح</span><strong>{money(s.grossProfit)}</strong></div>
+      <div className="card payable-card"><span>المصروفات</span><strong>{money(s.expenses)}</strong></div>
+      <div className="card final"><span>صافي الربح</span><strong>{money(s.netProfit)}</strong></div>
     </div>
 
     <div className="stats">
-      <div className="card"><span>ط§ظ„ط¯ظپط¹ط§طھ ط§ظ„ظ…ط³طھظ„ظ…ط©</span><strong>{money(s.paymentsReceived)}</strong></div>
-      <div className="card receivable-card"><span>ط¥ط¶ط§ظپط§طھ ط±ط£ط³ ط§ظ„ظ…ط§ظ„</span><strong>{money(s.capitalIn)}</strong></div>
-      <div className="card payable-card"><span>ط³ط­ظˆط¨ط§طھ ط±ط£ط³ ط§ظ„ظ…ط§ظ„</span><strong>{money(s.capitalOut)}</strong></div>
-      <div className="card"><span>طµط§ظپظٹ ط­ط±ظƒط© ط±ط£ط³ ط§ظ„ظ…ط§ظ„</span><strong>{money(s.netCapitalMovement)}</strong></div>
+      <div className="card"><span>الدفعات المستلمة</span><strong>{money(s.paymentsReceived)}</strong></div>
+      <div className="card receivable-card"><span>إضافات رأس المال</span><strong>{money(s.capitalIn)}</strong></div>
+      <div className="card payable-card"><span>سحوبات رأس المال</span><strong>{money(s.capitalOut)}</strong></div>
+      <div className="card"><span>صافي حركة رأس المال</span><strong>{money(s.netCapitalMovement)}</strong></div>
     </div>
 
     <div className="card tablewrap">
-      <h3>ط§ظ„ط­ط±ظƒط© ط§ظ„ظٹظˆظ…ظٹط© ط®ظ„ط§ظ„ ط§ظ„ط´ظ‡ط±</h3>
+      <h3>الحركة اليومية خلال الشهر</h3>
       <table>
-        <thead><tr><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط¹ط¯ط¯ ط§ظ„ط­ظˆط§ظ„ط§طھ</th><th>ظ‚ظٹظ…ط© ط§ظ„ط­ظˆط§ظ„ط§طھ</th><th>ط§ظ„ط±ط¨ط­</th></tr></thead>
+        <thead><tr><th>التاريخ</th><th>عدد الحوالات</th><th>قيمة الحوالات</th><th>الربح</th></tr></thead>
         <tbody>{data.daily.length?data.daily.map(row=><tr key={row.date}>
           <td>{row.date}</td>
           <td>{row.count}</td>
           <td>{money(row.total)}</td>
           <td>{money(row.profit)}</td>
-        </tr>):<tr><td colSpan="4">ظ„ط§ طھظˆط¬ط¯ ط­ظˆط§ظ„ط§طھ ظپظٹ ظ‡ط°ط§ ط§ظ„ط´ظ‡ط±.</td></tr>}</tbody>
+        </tr>):<tr><td colSpan="4">لا توجد حوالات في هذا الشهر.</td></tr>}</tbody>
       </table>
     </div>
 
     <div className="card tablewrap">
-      <h3>ط£ظƒط«ط± ط§ظ„ط¹ظ…ظ„ط§ط، طھط¹ط§ظ…ظ„ظ‹ط§ ط®ظ„ط§ظ„ ط§ظ„ط´ظ‡ط±</h3>
+      <h3>أكثر العملاء تعاملًا خلال الشهر</h3>
       <table>
-        <thead><tr><th>ط§ظ„ط¹ظ…ظٹظ„</th><th>ط¥ط¬ظ…ط§ظ„ظٹ ط§ظ„ط­ظˆط§ظ„ط§طھ</th></tr></thead>
+        <thead><tr><th>العميل</th><th>إجمالي الحوالات</th></tr></thead>
         <tbody>{data.topCustomers.length?data.topCustomers.map(row=><tr key={row.customerId}>
           <td>{row.customerName}</td>
           <td>{money(row.total)}</td>
-        </tr>):<tr><td colSpan="2">ظ„ط§ طھظˆط¬ط¯ ط¨ظٹط§ظ†ط§طھ.</td></tr>}</tbody>
+        </tr>):<tr><td colSpan="2">لا توجد بيانات.</td></tr>}</tbody>
       </table>
     </div>
 
     <div className="card tablewrap">
-      <h3>طھظپط§طµظٹظ„ ط­ظˆط§ظ„ط§طھ ط§ظ„ط´ظ‡ط±</h3>
+      <h3>تفاصيل حوالات الشهر</h3>
       <table>
-        <thead><tr><th>ط§ظ„ط±ظ‚ظ…</th><th>ط§ظ„طھط§ط±ظٹط®</th><th>ط§ظ„ظ…ط¨ظ„ط؛</th><th>ط§ظ„ط£ط¬ظˆط±</th><th>ط§ظ„ط±ط¨ط­</th></tr></thead>
+        <thead><tr><th>الرقم</th><th>التاريخ</th><th>المبلغ</th><th>الأجور</th><th>الربح</th></tr></thead>
         <tbody>{data.transactions.length?data.transactions.map(item=><tr key={item.id}>
           <td>{item.number||item.id}</td>
           <td>{item.transferDate||String(item.createdAt||"").slice(0,10)}</td>
           <td>{money(item.amount)}</td>
           <td>{money(item.transferFee)}</td>
           <td>{money(item.totalProfit)}</td>
-        </tr>):<tr><td colSpan="5">ظ„ط§ طھظˆط¬ط¯ ط­ظˆط§ظ„ط§طھ.</td></tr>}</tbody>
+        </tr>):<tr><td colSpan="5">لا توجد حوالات.</td></tr>}</tbody>
       </table>
     </div>
   </>;
@@ -2229,31 +2229,31 @@ function NotificationSettings(){
     try{
       const response=await api.patch("/notification-settings",settings);
       setSettings(response.data);
-      setMessage("طھظ… ط­ظپط¸ ط¥ط¹ط¯ط§ط¯ط§طھ ط§ظ„طھظ†ط¨ظٹظ‡ط§طھ");
+      setMessage("تم حفظ إعدادات التنبيهات");
     }catch(error){
-      setMessage(error.response?.data?.message||"طھط¹ط°ط± ط­ظپط¸ ط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ");
+      setMessage(error.response?.data?.message||"تعذر حفظ الإعدادات");
     }
   }
 
   return <>
-    <h2>ط¥ط¹ط¯ط§ط¯ط§طھ ط§ظ„طھظ†ط¨ظٹظ‡ط§طھ ظˆظˆط§طھط³ط§ط¨</h2>
+    <h2>إعدادات التنبيهات وواتساب</h2>
     {message&&<div className="card rate-message">{message}</div>}
     <form className="card form settings-form" onSubmit={save}>
-      <label>ط¨ط¯ط، طھظ†ط¨ظٹظ‡ ط§ظ„طھط£ط®ظٹط± ط¨ط¹ط¯ ط¹ط¯ط¯ ط§ظ„ط£ظٹط§ظ…</label>
+      <label>بدء تنبيه التأخير بعد عدد الأيام</label>
       <input type="number" min="1" max="365" value={settings.overdueDays}
         onChange={e=>setSettings({...settings,overdueDays:e.target.value})}/>
-      <label>ط­ط¯ ط§ظ†ط®ظپط§ط¶ ط§ظ„ط³ظٹظˆظ„ط© (CAD)</label>
+      <label>حد انخفاض السيولة (CAD)</label>
       <input type="number" min="0" step=".01" value={settings.lowCashLimit}
         onChange={e=>setSettings({...settings,lowCashLimit:e.target.value})}/>
-      <label>ظ‚ط§ظ„ط¨ ط±ط³ط§ظ„ط© ظˆط§طھط³ط§ط¨ (ط§ط®طھظٹط§ط±ظٹ)</label>
+      <label>قالب رسالة واتساب (اختياري)</label>
       <textarea rows="6" value={settings.whatsappTemplate}
         onChange={e=>setSettings({...settings,whatsappTemplate:e.target.value})}
-        placeholder="ظٹظ…ظƒظ† ط§ط³طھط®ط¯ط§ظ…: {name} {balance} {days}"/>
-      <button>ط­ظپط¸ ط§ظ„ط¥ط¹ط¯ط§ط¯ط§طھ</button>
+        placeholder="يمكن استخدام: {name} {balance} {days}"/>
+      <button>حفظ الإعدادات</button>
     </form>
     <div className="card">
-      <strong>ظ…ظ„ط§ط­ط¸ط©:</strong>
-      <p>ط²ط± ظˆط§طھط³ط§ط¨ ظٹظپطھط­ ط§ظ„ط±ط³ط§ظ„ط© ط¬ط§ظ‡ط²ط© ظ„ظ„ط¥ط±ط³ط§ظ„. ط§ظ„ط¥ط±ط³ط§ظ„ ط§ظ„طھظ„ظ‚ط§ط¦ظٹ ط¯ظˆظ† ط¶ط؛ط· ظٹط­طھط§ط¬ ط±ط¨ط· WhatsApp Business API ط±ط³ظ…ظٹ.</p>
+      <strong>ملاحظة:</strong>
+      <p>زر واتساب يفتح الرسالة جاهزة للإرسال. الإرسال التلقائي دون ضغط يحتاج ربط WhatsApp Business API رسمي.</p>
     </div>
   </>;
 }
@@ -2268,20 +2268,20 @@ function ArchivedCustomers({navigate}){
 
   const load=()=>api.get("/customers-archived")
     .then(response=>setRows(response.data||[]))
-    .catch(error=>setMessage(error.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ط§ظ„ط¹ظ…ظ„ط§ط، ط§ظ„ظ…ط¤ط±ط´ظپظٹظ†"));
+    .catch(error=>setMessage(error.response?.data?.message||"تعذر تحميل العملاء المؤرشفين"));
 
   useEffect(load,[]);
 
   const restore=async(customer)=>{
-    if(!window.confirm(`ظ‡ظ„ طھط±ظٹط¯ ط§ط³طھط¹ط§ط¯ط© ط§ظ„ط¹ظ…ظٹظ„ ${customer.name}طں`))return;
+    if(!window.confirm(`هل تريد استعادة العميل ${customer.name}؟`))return;
     setBusyId(customer.id);
     setMessage("");
     try{
       await api.post(`/customers/${customer.id}/restore`);
-      setMessage("طھظ…طھ ط§ط³طھط¹ط§ط¯ط© ط§ظ„ط¹ظ…ظٹظ„ ط¨ظ†ط¬ط§ط­.");
+      setMessage("تمت استعادة العميل بنجاح.");
       load();
     }catch(error){
-      setMessage(error.response?.data?.message||"طھط¹ط°ط± ط§ط³طھط¹ط§ط¯ط© ط§ظ„ط¹ظ…ظٹظ„");
+      setMessage(error.response?.data?.message||"تعذر استعادة العميل");
     }finally{
       setBusyId("");
     }
@@ -2289,8 +2289,8 @@ function ArchivedCustomers({navigate}){
 
   return <div className="archived-customers-page">
     <div className="page-title-row">
-      <div><h2>ًں“¦ ط§ظ„ط¹ظ…ظ„ط§ط، ط§ظ„ظ…ط¤ط±ط´ظپظˆظ†</h2><p>ظٹظ…ظƒظ† ط§ط³طھط¹ط§ط¯ط© ط£ظٹ ط¹ظ…ظٹظ„ ط¥ظ„ظ‰ ط§ظ„ظ‚ط§ط¦ظ…ط© ط§ظ„ط±ط¦ظٹط³ظٹط©.</p></div>
-      <button onClick={()=>navigate("customers")}>ط§ظ„ط¹ظˆط¯ط© ط¥ظ„ظ‰ ط§ظ„ط¹ظ…ظ„ط§ط،</button>
+      <div><h2>📦 العملاء المؤرشفون</h2><p>يمكن استعادة أي عميل إلى القائمة الرئيسية.</p></div>
+      <button onClick={()=>navigate("customers")}>العودة إلى العملاء</button>
     </div>
 
     {message&&<p className="success-note">{message}</p>}
@@ -2301,17 +2301,17 @@ function ArchivedCustomers({navigate}){
           <div className="customer-avatar">{String(customer.name||"?").slice(0,1)}</div>
           <div>
             <strong>{customer.name}</strong>
-            <small>{customer.phone||"ط¨ط¯ظˆظ† ط±ظ‚ظ… ظ‡ط§طھظپ"}</small>
+            <small>{customer.phone||"بدون رقم هاتف"}</small>
           </div>
         </div>
         <div className="archived-meta">
-          <span>طھط§ط±ظٹط® ط§ظ„ط£ط±ط´ظپط©</span>
-          <strong>{customer.archivedAt?new Date(customer.archivedAt).toLocaleString("ar-CA"):"â€”"}</strong>
+          <span>تاريخ الأرشفة</span>
+          <strong>{customer.archivedAt?new Date(customer.archivedAt).toLocaleString("ar-CA"):"—"}</strong>
         </div>
         <button disabled={busyId===customer.id} onClick={()=>restore(customer)}>
-          {busyId===customer.id?"ط¬ط§ط±ظٹ ط§ظ„ط§ط³طھط¹ط§ط¯ط©â€¦":"â†© ط§ط³طھط¹ط§ط¯ط© ط§ظ„ط¹ظ…ظٹظ„"}
+          {busyId===customer.id?"جاري الاستعادة…":"↩ استعادة العميل"}
         </button>
-      </article>):<div className="empty-state">ظ„ط§ ظٹظˆط¬ط¯ ط¹ظ…ظ„ط§ط، ظ…ط¤ط±ط´ظپظˆظ†.</div>}
+      </article>):<div className="empty-state">لا يوجد عملاء مؤرشفون.</div>}
     </div>
   </div>;
 }
@@ -2329,7 +2329,7 @@ function DataSafety(){
         setStatus(statusResponse.data);
         setBackups(backupResponse.data||[]);
       })
-      .catch(error=>setMessage(error.response?.data?.message||"طھط¹ط°ط± طھط­ظ…ظٹظ„ ط­ط§ظ„ط© ط§ظ„ط­ظپط¸"));
+      .catch(error=>setMessage(error.response?.data?.message||"تعذر تحميل حالة الحفظ"));
   };
 
   useEffect(load,[]);
@@ -2338,22 +2338,22 @@ function DataSafety(){
     setBusy(true);setMessage("");
     try{
       await api.post("/backups");
-      setMessage("طھظ… ط¥ظ†ط´ط§ط، ظ†ط³ط®ط© ط§ط­طھظٹط§ط·ظٹط© ط¬ط¯ظٹط¯ط©.");
+      setMessage("تم إنشاء نسخة احتياطية جديدة.");
       load();
     }catch(error){
-      setMessage(error.response?.data?.message||"طھط¹ط°ط± ط¥ظ†ط´ط§ط، ط§ظ„ظ†ط³ط®ط© ط§ظ„ط§ط­طھظٹط§ط·ظٹط©");
+      setMessage(error.response?.data?.message||"تعذر إنشاء النسخة الاحتياطية");
     }finally{setBusy(false);}
   };
 
   const restore=async(filename)=>{
-    if(!window.confirm("ط³ظٹطھظ… ط­ظپط¸ ظ†ط³ط®ط© ظ…ظ† ط§ظ„ظˆط¶ط¹ ط§ظ„ط­ط§ظ„ظٹ ط«ظ… ط§ط³طھط¹ط§ط¯ط© ط§ظ„ظ†ط³ط®ط© ط§ظ„ظ…ط­ط¯ط¯ط©. ظ‡ظ„ طھط±ظٹط¯ ط§ظ„ظ…طھط§ط¨ط¹ط©طں"))return;
+    if(!window.confirm("سيتم حفظ نسخة من الوضع الحالي ثم استعادة النسخة المحددة. هل تريد المتابعة؟"))return;
     setBusy(true);setMessage("");
     try{
       await api.post(`/backups/${encodeURIComponent(filename)}/restore`);
-      setMessage("طھظ…طھ ط§ط³طھط¹ط§ط¯ط© ط§ظ„ط¨ظٹط§ظ†ط§طھ ط¨ظ†ط¬ط§ط­. ط£ط¹ط¯ ظپطھط­ ط§ظ„طµظپط­ط©.");
+      setMessage("تمت استعادة البيانات بنجاح. أعد فتح الصفحة.");
       load();
     }catch(error){
-      setMessage(error.response?.data?.message||"طھط¹ط°ط± ط§ط³طھط¹ط§ط¯ط© ط§ظ„ظ†ط³ط®ط©");
+      setMessage(error.response?.data?.message||"تعذر استعادة النسخة");
     }finally{setBusy(false);}
   };
 
@@ -2368,44 +2368,44 @@ function DataSafety(){
       anchor.click();
       URL.revokeObjectURL(url);
     }catch(error){
-      setMessage("طھط¹ط°ط± طھظ†ط²ظٹظ„ ظ†ط³ط®ط© ط§ظ„ط¨ظٹط§ظ†ط§طھ.");
+      setMessage("تعذر تنزيل نسخة البيانات.");
     }finally{setBusy(false);}
   };
 
   return <div className="data-safety-page">
-    <h2>ًں›،ï¸ڈ ط­ظ…ط§ظٹط© ط§ظ„ط¨ظٹط§ظ†ط§طھ ظˆط§ظ„ظ†ط³ط® ط§ظ„ط§ط­طھظٹط§ط·ظٹ</h2>
+    <h2>🛡️ حماية البيانات والنسخ الاحتياطي</h2>
 
     <section className={`storage-status ${status?.persistentConfigured?"safe":"warning"}`}>
-      <strong>{status?.persistentConfigured?"ط§ظ„طھط®ط²ظٹظ† ط§ظ„ط¯ط§ط¦ظ… ظ…ظپط¹ظ‘ظ„":"طھظ†ط¨ظٹظ‡: ط§ظ„طھط®ط²ظٹظ† ط§ظ„ط¯ط§ط¦ظ… ط؛ظٹط± ظ…ط¶ط¨ظˆط·"}</strong>
-      <p>{status?.recommendation||"ط¬ط§ط±ظٹ ط§ظ„طھط­ظ‚ظ‚â€¦"}</p>
-      {status?.dataDir&&<small>ظ…ط³ط§ط± ط§ظ„ط¨ظٹط§ظ†ط§طھ: {status.dataDir}</small>}
+      <strong>{status?.persistentConfigured?"التخزين الدائم مفعّل":"تنبيه: التخزين الدائم غير مضبوط"}</strong>
+      <p>{status?.recommendation||"جاري التحقق…"}</p>
+      {status?.dataDir&&<small>مسار البيانات: {status.dataDir}</small>}
     </section>
 
     {message&&<p className="success-note">{message}</p>}
 
     <section className="backup-actions">
-      <button disabled={busy} onClick={create}>ًں’¾ ط¥ظ†ط´ط§ط، ظ†ط³ط®ط© ط§ظ„ط¢ظ†</button>
-      <button disabled={busy} onClick={downloadExport}>â¬‡ï¸ڈ طھظ†ط²ظٹظ„ ط¬ظ…ظٹط¹ ط§ظ„ط¨ظٹط§ظ†ط§طھ</button>
+      <button disabled={busy} onClick={create}>💾 إنشاء نسخة الآن</button>
+      <button disabled={busy} onClick={downloadExport}>⬇️ تنزيل جميع البيانات</button>
     </section>
 
     <section className="backup-list panel">
-      <div className="section-heading"><h3>ط§ظ„ظ†ط³ط® ط§ظ„ظ…ط­ظپظˆط¸ط©</h3><span>{backups.length}</span></div>
+      <div className="section-heading"><h3>النسخ المحفوظة</h3><span>{backups.length}</span></div>
       {backups.length?backups.map(item=><div className="backup-row" key={item.filename}>
         <div>
           <strong>{new Date(item.createdAt).toLocaleString("ar-CA")}</strong>
           <small>{(item.size/1024).toFixed(1)} KB</small>
         </div>
         <div>
-          <a href={`${api.defaults.baseURL}/backups/${encodeURIComponent(item.filename)}/download`} target="_blank" rel="noreferrer">طھظ†ط²ظٹظ„</a>
-          <button disabled={busy} onClick={()=>restore(item.filename)}>ط§ط³طھط¹ط§ط¯ط©</button>
+          <a href={`${api.defaults.baseURL}/backups/${encodeURIComponent(item.filename)}/download`} target="_blank" rel="noreferrer">تنزيل</a>
+          <button disabled={busy} onClick={()=>restore(item.filename)}>استعادة</button>
         </div>
-      </div>):<p>ظ„ط§ طھظˆط¬ط¯ ظ†ط³ط® ط§ط­طھظٹط§ط·ظٹط© ط­طھظ‰ ط§ظ„ط¢ظ†.</p>}
+      </div>):<p>لا توجد نسخ احتياطية حتى الآن.</p>}
     </section>
 
     <section className="data-protection-note panel">
-      <h3>ظƒظٹظپ طھط¨ظ‚ظ‰ ط§ظ„ط¨ظٹط§ظ†ط§طھ ط¨ط¹ط¯ ط§ظ„طھط­ط¯ظٹط«طں</h3>
-      <p>ظ…ظ„ظپط§طھ ط§ظ„ظˆط§ط¬ظ‡ط© ظˆط§ظ„طھط·ط¨ظٹظ‚ ظ…ظ†ظپطµظ„ط© ط¹ظ† ظ…ط¬ظ„ط¯ ط§ظ„ط¨ظٹط§ظ†ط§طھ. طھط­ط¯ظٹط« GitHub ط£ظˆ Render ظ„ط§ ظٹط³طھط¨ط¯ظ„ ظ‚ط§ط¹ط¯ط© ط§ظ„ط¨ظٹط§ظ†ط§طھ ط¹ظ†ط¯ظ…ط§ ظٹظƒظˆظ† DATA_DIR ط¹ظ„ظ‰ ظ‚ط±طµ ط¯ط§ط¦ظ….</p>
-      <p>طھط­ط¯ظٹط« APK ظ„ط§ ظٹط­ط°ظپ ط§ظ„ط¨ظٹط§ظ†ط§طھ ظ„ط£ظ†ظ‡ط§ ظ…ط­ظپظˆط¸ط© ط¹ظ„ظ‰ ط§ظ„ط®ط§ط¯ظ…طŒ ظˆظ„ظٹط³ ط¯ط§ط®ظ„ ط§ظ„طھط·ط¨ظٹظ‚.</p>
+      <h3>كيف تبقى البيانات بعد التحديث؟</h3>
+      <p>ملفات الواجهة والتطبيق منفصلة عن مجلد البيانات. تحديث GitHub أو Render لا يستبدل قاعدة البيانات عندما يكون DATA_DIR على قرص دائم.</p>
+      <p>تحديث APK لا يحذف البيانات لأنها محفوظة على الخادم، وليس داخل التطبيق.</p>
     </section>
   </div>;
 }
@@ -2413,44 +2413,44 @@ function DataSafety(){
 
 function MorePage({navigate,onLogout}){
   const items=[
-    ["rates","ًں’±","ط§ظ„ط¹ظ…ظ„ط§طھ ظˆط£ط³ط¹ط§ط± ط§ظ„طµط±ظپ","ط¥ط¯ط§ط±ط© CAD ظˆUSD ظˆEUR ظˆSYP ظˆط§ظ„ط¹ظ…ظ„ط§طھ ط§ظ„ط£ط®ط±ظ‰"],
-    ["capital-overview","ًں’°","ط±ط£ط³ ط§ظ„ظ…ط§ظ„ ط§ظ„ظƒظ„ظٹ","ظ…ط±ط§ط¬ط¹ط© ط±ط£ط³ ط§ظ„ظ…ط§ظ„ ظˆط§ظ„ط­ط±ظƒط© ط§ظ„ظ…ط§ظ„ظٹط©"],
-    ["debts","ًں“’","ط§ظ„ط¯ظ‘ظژظٹظ† ط§ظ„ط¹ط§ظ…","ط¹ط±ط¶ ط§ظ„ط°ظ…ظ… ظˆط§ظ„ط¯ظٹظˆظ† ط§ظ„ط¹ط§ظ…ط©"],
-    ["notification-settings","ًں””","ط¥ط¹ط¯ط§ط¯ط§طھ ط§ظ„طھظ†ط¨ظٹظ‡ط§طھ","ط§ظ„طھط­ظƒظ… ط¨ط§ظ„طھظ†ط¨ظٹظ‡ط§طھ ظˆط§ظ„ط¥ط´ط¹ط§ط±ط§طھ"],
-    ["data-safety","ًں›،ï¸ڈ","ط­ظ…ط§ظٹط© ط§ظ„ط¨ظٹط§ظ†ط§طھ","ط§ظ„ظ†ط³ط® ط§ظ„ط§ط­طھظٹط§ط·ظٹ ظˆط§ظ„ط§ط³طھط¹ط§ط¯ط© ط§ظ„ط¢ظ…ظ†ط©"],
-    ["archived-customers","ًں“¦","ط§ظ„ط¹ظ…ظ„ط§ط، ط§ظ„ظ…ط¤ط±ط´ظپظˆظ†","ط§ط³طھط¹ط§ط¯ط© ط§ظ„ط¹ظ…ظ„ط§ط، ط§ظ„ظ…ط¤ط±ط´ظپظٹظ†"],
-    ["monthly-report","ًں“ٹ","ط§ظ„طھظ‚ط§ط±ظٹط± ط§ظ„ط´ظ‡ط±ظٹط©","ظ…ظ„ط®طµط§طھ ظˆطھظ‚ط§ط±ظٹط± ط§ظ„ط¹ظ…ظ„"],
+    ["rates","💱","العملات وأسعار الصرف","إدارة CAD وUSD وEUR وSYP والعملات الأخرى"],
+    ["capital-overview","💰","رأس المال الكلي","مراجعة رأس المال والحركة المالية"],
+    ["debts","📒","الدَّين العام","عرض الذمم والديون العامة"],
+    ["notification-settings","🔔","إعدادات التنبيهات","التحكم بالتنبيهات والإشعارات"],
+    ["data-safety","🛡️","حماية البيانات","النسخ الاحتياطي والاستعادة الآمنة"],
+    ["archived-customers","📦","العملاء المؤرشفون","استعادة العملاء المؤرشفين"],
+    ["monthly-report","📊","التقارير الشهرية","ملخصات وتقارير العمل"],
   ];
 
   return <div className="enterprise-more-page">
     <section className="compact-company-card">
-      <img src="/alaboud-company-logo.webp" alt="ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ط§ظ„طھط¬ط§ط±ظٹط©"/>
-      <div><h2>ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ط§ظ„طھط¬ط§ط±ظٹط©</h2><p>v15.1 Customer Management</p></div>
-      <span>â—ڈ ظ…طھطµظ„</span>
+      <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+      <div><h2>شركة العبود التجارية</h2><p>v15.1 Customer Management</p></div>
+      <span>● متصل</span>
     </section>
 
     <section className="more-grid">
       {items.map(([key,icon,title,description])=><button key={key} onClick={()=>navigate(key)}>
         <span>{icon}</span>
         <div><strong>{title}</strong><small>{description}</small></div>
-        <b>â€¹</b>
+        <b>‹</b>
       </button>)}
     </section>
 
     <section className="support-card" onClick={()=>window.open("mailto:support@alaboud.local","_self")}>
-      <span>ًںژ§</span>
-      <div><strong>ط§ظ„ط¯ط¹ظ… ظˆط§ظ„ظ…ط³ط§ط¹ط¯ط©</strong><small>طھظˆط§طµظ„ ظ…ط¹ظ†ط§ ط¹ظ†ط¯ ط§ظ„ط­ط§ط¬ط© ط¥ظ„ظ‰ ظ…ط³ط§ط¹ط¯ط©</small></div>
-      <b>â€¹</b>
+      <span>🎧</span>
+      <div><strong>الدعم والمساعدة</strong><small>تواصل معنا عند الحاجة إلى مساعدة</small></div>
+      <b>‹</b>
     </section>
 
     <button className="final-logout-button" onClick={onLogout}>
-      <span>â‡¥</span>
-      <strong>طھط³ط¬ظٹظ„ ط§ظ„ط®ط±ظˆط¬</strong>
+      <span>⇥</span>
+      <strong>تسجيل الخروج</strong>
     </button>
   </div>;
 }
 
-function Simple({type}){const[list,setList]=useState([]),[title,setTitle]=useState(""),[amount,setAmount]=useState(""),[move,setMove]=useState("IN");const endpoint=type==="expenses"?"/expenses":"/capital";const load=()=>api.get(endpoint).then(r=>setList(r.data));useEffect(()=>{load();},[type]);async function add(e){e.preventDefault();await api.post(endpoint,type==="expenses"?{title,amount}:{type:move,amount,description:title});setTitle("");setAmount("");load();}return <><h2>{type==="expenses"?"ط§ظ„ظ…طµط±ظˆظپط§طھ":"ط±ط£ط³ ط§ظ„ظ…ط§ظ„"}</h2><form className="card form" onSubmit={add}>{type==="capital"&&<select value={move} onChange={e=>setMove(e.target.value)}><option value="IN">ط²ظٹط§ط¯ط©</option><option value="OUT">ط³ط­ط¨</option></select>}<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="ط§ظ„ظˆطµظپ" required/><input type="number" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="ط§ظ„ظ…ط¨ظ„ط؛" required/><button>ط­ظپط¸</button></form><div className="card tablewrap"><table><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.title||x.description}</td><td>{x.type||x.category}</td><td>{money(x.amount)}</td></tr>)}</tbody></table></div></>}
+function Simple({type}){const[list,setList]=useState([]),[title,setTitle]=useState(""),[amount,setAmount]=useState(""),[move,setMove]=useState("IN");const endpoint=type==="expenses"?"/expenses":"/capital";const load=()=>api.get(endpoint).then(r=>setList(r.data));useEffect(()=>{load();},[type]);async function add(e){e.preventDefault();await api.post(endpoint,type==="expenses"?{title,amount}:{type:move,amount,description:title});setTitle("");setAmount("");load();}return <><h2>{type==="expenses"?"المصروفات":"رأس المال"}</h2><form className="card form" onSubmit={add}>{type==="capital"&&<select value={move} onChange={e=>setMove(e.target.value)}><option value="IN">زيادة</option><option value="OUT">سحب</option></select>}<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="الوصف" required/><input type="number" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="المبلغ" required/><button>حفظ</button></form><div className="card tablewrap"><table><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.title||x.description}</td><td>{x.type||x.category}</td><td>{money(x.amount)}</td></tr>)}</tbody></table></div></>}
 export default function App(){
   const [token,setToken]=useState(localStorage.getItem("afs_token"));
   const [page,setPage]=useState("dashboard");
@@ -2552,45 +2552,45 @@ export default function App(){
     Boolean(partnerId);
 
   const menu=[
-    ["dashboard","âŒ‚ ط§ظ„ظ‚ط§ط¦ظ…ط© ط§ظ„ط±ط¦ظٹط³ظٹط©"],
-    ["customers","ًں‘¥ ط§ظ„ط¹ظ…ظ„ط§ط،"],
-    ["overdue-customers",`âڈ° ط§ظ„ط¹ظ…ظ„ط§ط، ط§ظ„ظ…طھط£ط®ط±ظˆظ†${overdueCount?` (${overdueCount})`:""}`],
-    ["partners","ًںڈ¢ ط§ظ„ظ…ظˆط±ط¯ظˆظ† ظˆط§ظ„ط´ط±ظƒط§طھ"],
-    ["transactions","â‡„ ط§ظ„ط­ظˆط§ظ„ط§طھ"],
-    ["profits","ًں“ˆ ط§ظ„ط£ط±ط¨ط§ط­"],
-    ["rates","ًں’± ط§ظ„ط¹ظ…ظ„ط§طھ ظˆط£ط³ط¹ط§ط± ط§ظ„طµط±ظپ"],
-    ["debts","ًں“’ ط§ظ„ط¯ظ‘ظژظٹظ† ط§ظ„ط¹ط§ظ…"],
-    ["capital-overview","ًں’° ط±ط£ط³ ط§ظ„ظ…ط§ظ„ ط§ظ„ظƒظ„ظٹ"],
-    ["monthly-report","ًں“ٹ ط§ظ„طھظ‚ط§ط±ظٹط± ط§ظ„ط´ظ‡ط±ظٹط©"],
-    ["notification-settings","ًں”” ط¥ط¹ط¯ط§ط¯ط§طھ ط§ظ„طھظ†ط¨ظٹظ‡ط§طھ"],
-    ["expenses","ًں§¾ ط§ظ„ظ…طµط±ظˆظپط§طھ"],
-    ["capital","ًںڈ¦ ط­ط±ظƒط© ط±ط£ط³ ط§ظ„ظ…ط§ظ„"],
-    ["more","â€¢â€¢â€¢ ط§ظ„ظ…ط²ظٹط¯"]
+    ["dashboard","⌂ القائمة الرئيسية"],
+    ["customers","👥 العملاء"],
+    ["overdue-customers",`⏰ العملاء المتأخرون${overdueCount?` (${overdueCount})`:""}`],
+    ["partners","🏢 الموردون والشركات"],
+    ["transactions","⇄ الحوالات"],
+    ["profits","📈 الأرباح"],
+    ["rates","💱 العملات وأسعار الصرف"],
+    ["debts","📒 الدَّين العام"],
+    ["capital-overview","💰 رأس المال الكلي"],
+    ["monthly-report","📊 التقارير الشهرية"],
+    ["notification-settings","🔔 إعدادات التنبيهات"],
+    ["expenses","🧾 المصروفات"],
+    ["capital","🏦 حركة رأس المال"],
+    ["more","••• المزيد"]
   ];
 
   return <div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
     <div className="mobile-page-header no-print">
-      <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="ظپطھط­ ط§ظ„ظ‚ط§ط¦ظ…ط©">
-        <span className="mobile-header-icon">âک°</span><span>ط§ظ„ظ‚ط§ط¦ظ…ط©</span>
+      <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
+        <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ط§ظ„طھط¬ط§ط±ظٹط©"/><small>v15.3.5 Final</small></div>
-      <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="ط§ظ„ظ‚ط§ط¦ظ…ط© ط§ظ„ط±ط¦ظٹط³ظٹط©">
-        <span className="mobile-header-icon">âŒ‚</span><span>ط§ظ„ط±ط¦ظٹط³ظٹط©</span>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v14.0 Final</small></div>
+      <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
+        <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
     </div>
     <aside>
       <div className="mobile-menu-heading no-print">
-        <img className="alaboud-sidebar-logo mobile-logo" src="/alaboud-company-logo.webp" alt="ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ط§ظ„طھط¬ط§ط±ظٹط©" />
-        <button onClick={()=>setMobileMenuOpen(false)}>âœ•</button>
+        <img className="alaboud-sidebar-logo mobile-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية" />
+        <button onClick={()=>setMobileMenuOpen(false)}>✕</button>
       </div>
-      <div className="sidebar-logo-wrap"><img className="alaboud-sidebar-logo" src="/alaboud-company-logo.webp" alt="ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ط§ظ„طھط¬ط§ط±ظٹط©" /></div>
+      <div className="sidebar-logo-wrap"><img className="alaboud-sidebar-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية" /></div>
       <div className="sidebar-account-box no-print">
-        <img src="/alaboud-company-logo.webp" alt="ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ط§ظ„طھط¬ط§ط±ظٹط©"/>
+        <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
         <div>
-          <strong>ط´ط±ظƒط© ط§ظ„ط¹ط¨ظˆط¯ ط§ظ„طھط¬ط§ط±ظٹط©</strong>
+          <strong>شركة العبود التجارية</strong>
           <small>v15.1 Customer Management</small>
         </div>
-        <span className="sidebar-online">â—ڈ ظ…طھطµظ„</span>
+        <span className="sidebar-online">● متصل</span>
       </div>
       {menu.map(([key,label])=><button
         key={key}
@@ -2599,15 +2599,15 @@ export default function App(){
       >{label}</button>)}
       {logoutConfirm&&<div className="logout-confirm-overlay no-print" onClick={()=>setLogoutConfirm(false)}>
         <div className="logout-confirm-card" onClick={e=>e.stopPropagation()}>
-          <h3>طھط³ط¬ظٹظ„ ط§ظ„ط®ط±ظˆط¬</h3>
-          <p>ظ‡ظ„ طھط±ظٹط¯ طھط³ط¬ظٹظ„ ط§ظ„ط®ط±ظˆط¬ ظ…ظ† ط§ظ„ط¨ط±ظ†ط§ظ…ط¬طں</p>
+          <h3>تسجيل الخروج</h3>
+          <p>هل تريد تسجيل الخروج من البرنامج؟</p>
           <div>
             <button className="danger-button" onClick={()=>{
               localStorage.clear();
               setToken(null);
               setLogoutConfirm(false);
-            }}>ظ†ط¹ظ…طŒ طھط³ط¬ظٹظ„ ط§ظ„ط®ط±ظˆط¬</button>
-            <button onClick={()=>setLogoutConfirm(false)}>ط¥ظ„ط؛ط§ط،</button>
+            }}>نعم، تسجيل الخروج</button>
+            <button onClick={()=>setLogoutConfirm(false)}>إلغاء</button>
           </div>
         </div>
       </div>}
@@ -2621,31 +2621,29 @@ export default function App(){
             navigate("dashboard");
           }
         }}>
-          â¬… ط§ظ„ط¹ظˆط¯ط© ط¥ظ„ظ‰ ط§ظ„ظ‚ط§ط¦ظ…ط© ط§ظ„ط±ط¦ظٹط³ظٹط©
+          ⬅ العودة إلى القائمة الرئيسية
         </button>
       </div>}
       <AppErrorBoundary key={`${page}-${customerId}-${invoiceId}-${statementCustomerId}-${partnerId}`}>
         {content}
       </AppErrorBoundary>
     </main>
-    <nav className="mobile-bottom-nav no-print" aria-label="ط§ظ„طھظ†ظ‚ظ„ ط§ظ„ط³ط±ظٹط¹">
+    <nav className="mobile-bottom-nav no-print" aria-label="التنقل السريع">
       <button className={page==="customers"?"active":""} onClick={()=>navigate("customers")}>
-        <span>ًں‘¥</span><small>ط§ظ„ط¹ظ…ظ„ط§ط،</small>
+        <span>👥</span><small>العملاء</small>
       </button>
       <button className={page==="transactions"?"active":""} onClick={()=>navigate("transactions")}>
-        <span>â‡„</span><small>ط§ظ„ط­ظˆط§ظ„ط§طھ</small>
+        <span>⇄</span><small>الحوالات</small>
       </button>
       <button className={page==="dashboard"?"active":""} onClick={()=>navigate("dashboard")}>
-        <span>âŒ‚</span><small>ط§ظ„ط±ط¦ظٹط³ظٹط©</small>
+        <span>⌂</span><small>الرئيسية</small>
       </button>
       <button className={page==="expenses"?"active":""} onClick={()=>navigate("expenses")}>
-        <span>ًں‘›</span><small>ط§ظ„ظ…طµط±ظˆظپط§طھ</small>
+        <span>👛</span><small>المصروفات</small>
       </button>
       <button className={page==="more"?"active":""} onClick={()=>navigate("more")}>
-        <span>â€¢â€¢â€¢</span><small>ط§ظ„ظ…ط²ظٹط¯</small>
+        <span>•••</span><small>المزيد</small>
       </button>
     </nav>
   </div>;
 }
-
-
