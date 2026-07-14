@@ -29,62 +29,106 @@ function Login({onLogin}){const[email,setEmail]=useState("admin@alaboud.local"),
 function Dashboard({navigate}){
   const [data,setData]=useState(null);
   const [noticeData,setNoticeData]=useState({count:0,overdueCount:0,overdueTotal:0,notifications:[]});
+  const [recent,setRecent]=useState([]);
   const [open,setOpen]=useState(false);
 
   useEffect(()=>{
-    Promise.all([api.get("/dashboard"),api.get("/notifications")])
-      .then(([dashboardResponse,notificationResponse])=>{
-        setData(dashboardResponse.data);
-        setNoticeData(notificationResponse.data);
-      });
+    Promise.all([
+      api.get("/dashboard"),
+      api.get("/notifications"),
+      api.get("/transactions")
+    ]).then(([dashboardResponse,notificationResponse,transactionsResponse])=>{
+      setData(dashboardResponse.data);
+      setNoticeData(notificationResponse.data);
+      const rows=Array.isArray(transactionsResponse.data)?transactionsResponse.data:[];
+      setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
+    });
   },[]);
 
-  if(!data)return <p>جاري التحميل...</p>;
+  if(!data)return <div className="premium-loading">جاري تحميل لوحة التحكم…</div>;
 
-  return <>
-    <div className="dashboard-title">
-      <h2>القائمة الرئيسية</h2>
-      <button className="notification-button" onClick={()=>setOpen(!open)}>
-        🔔 التنبيهات <span>{noticeData.count}</span>
-      </button>
-    </div>
+  const kpis=[
+    {label:"إجمالي الحوالات",value:data.todayTransactions||0,icon:"💱",tone:"green",note:"حوالات اليوم"},
+    {label:"إجمالي الأرباح",value:cad(data.todayProfit),icon:"📈",tone:"blue",note:"الربح اليومي"},
+    {label:"المصروفات",value:cad(data.todayExpenses||0),icon:"👛",tone:"orange",note:"مصروفات اليوم"},
+    {label:"العملاء",value:data.customers||0,icon:"👥",tone:"purple",note:`${noticeData.overdueCount||0} متأخر`}
+  ];
 
-    {open&&<div className="card notification-center">
-      <h3>مركز التنبيهات</h3>
+  return <div className="premium-dashboard">
+    <section className="premium-hero">
+      <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+      <div>
+        <h2>شركة العبود التجارية</h2>
+        <p>v13.3 Final Mobile</p>
+      </div>
+      <span className="online-chip">● متصل</span>
+    </section>
+
+    <section className="premium-kpis">
+      {kpis.map(item=><button key={item.label} className={`premium-kpi ${item.tone}`} onClick={()=>{
+        if(item.label==="إجمالي الحوالات")navigate("transactions");
+        else if(item.label==="إجمالي الأرباح")navigate("profits");
+        else if(item.label==="المصروفات")navigate("expenses");
+        else navigate("customers");
+      }}>
+        <div className="premium-kpi-icon">{item.icon}</div>
+        <div><span>{item.label}</span><strong>{item.value}</strong><small>{item.note}</small></div>
+      </button>)}
+    </section>
+
+    <section className="premium-grid">
+      <div className="premium-recent panel-dark">
+        <div className="section-heading">
+          <h3>أحدث الحوالات</h3>
+          <button onClick={()=>navigate("transactions")}>عرض الكل</button>
+        </div>
+        {recent.length?recent.map(item=><button className="recent-row" key={item.id} onClick={()=>navigate("transactions")}>
+          <div className="recent-currency"><span>{item.currency||"USD"}</span><small>{item.number||"حوالة"}</small></div>
+          <div className="recent-date">{item.transferDate||String(item.createdAt||"").slice(0,10)}</div>
+          <strong>{cad(item.totalCustomerDue||0)}</strong>
+          <b>‹</b>
+        </button>):<p className="empty-state">لا توجد حوالات حديثة.</p>}
+      </div>
+
+      <div className="premium-summary panel-dark">
+        <div className="section-heading">
+          <h3>ملخص الأداء</h3>
+          <span>اليوم</span>
+        </div>
+        <div className="performance-ring" style={{"--progress":`${Math.min(92,Math.max(18,Number(data.todayProfit||0)/100))}%`}}>
+          <div><strong>{cad(data.capital)}</strong><small>رأس المال</small></div>
+        </div>
+        <div className="summary-lines">
+          <div><span>ذمم العملاء</span><strong>{cad(data.receivables)}</strong></div>
+          <div><span>إجمالي المتأخر</span><strong>{cad(noticeData.overdueTotal)}</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <section className="premium-quick">
+      <button onClick={()=>navigate("transactions")}><span>💱</span><strong>إضافة حوالة</strong></button>
+      <button onClick={()=>navigate("expenses")}><span>👛</span><strong>إضافة مصروف</strong></button>
+      <button onClick={()=>navigate("customers")}><span>👤＋</span><strong>عميل جديد</strong></button>
+      <button onClick={()=>navigate("monthly-report")}><span>📄</span><strong>تقرير سريع</strong></button>
+      <button onClick={()=>navigate("rates")}><span>☁</span><strong>أسعار الصرف</strong></button>
+    </section>
+
+    <button className="premium-alert-strip" onClick={()=>setOpen(!open)}>
+      <span>🔔</span>
+      <strong>{noticeData.count?`${noticeData.count} تنبيهات تحتاج المراجعة`:"لا توجد تنبيهات جديدة"}</strong>
+      <b>‹</b>
+    </button>
+
+    {open&&<div className="panel-dark premium-notifications">
+      <div className="section-heading"><h3>مركز التنبيهات</h3><button onClick={()=>setOpen(false)}>إغلاق</button></div>
       {noticeData.notifications.length?noticeData.notifications.map(item=>
         <div className={`notification-item severity-${item.severity}`} key={item.id}>
           <div><strong>{item.title}</strong><p>{item.message}</p></div>
-          {item.customerId&&<button onClick={()=>navigate("customers")}>فتح العملاء</button>}
+          {item.customerId&&<button onClick={()=>navigate("customers")}>فتح</button>}
         </div>
       ):<p>لا توجد تنبيهات حالياً.</p>}
     </div>}
-
-    <div className="quick-actions card">
-      <h3>إجراءات سريعة</h3>
-      <div>
-        <button onClick={()=>navigate("customers")}>➕ عميل / حوالة / دفعة</button>
-        <button onClick={()=>navigate("rates")}>💱 آخر الأسعار</button>
-        <button onClick={()=>navigate("capital-overview")}>💰 رأس المال</button>
-        <button onClick={()=>navigate("monthly-report")}>📊 التقرير الشهري</button>
-      </div>
-    </div>
-
-    <div className="stats">
-      {[
-        ["العملاء",data.customers],
-        ["حوالات اليوم",data.todayTransactions],
-        ["ربح اليوم",money(data.todayProfit)],
-        ["ذمم العملاء",money(data.receivables)],
-        ["رأس المال",money(data.capital)],
-        ["عملاء متأخرون",noticeData.overdueCount],
-        ["إجمالي المتأخر",money(noticeData.overdueTotal)]
-      ].map(([label,value])=>
-        <div className={`card ${label==="عملاء متأخرون"||label==="إجمالي المتأخر"?"overdue-card":""}`} key={label}>
-          <span>{label}</span><strong>{value}</strong>
-        </div>
-      )}
-    </div>
-  </>;
+  </div>;
 }
 
 function Customers({open}){
@@ -2251,7 +2295,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v13.1 Professional</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v13.3 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2265,7 +2309,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v13.1 Enterprise Professional</small>
+          <small>v13.3 Final Mobile</small>
         </div>
         <button className="logout-top" onClick={()=>setLogoutConfirm(true)}>🚪 تسجيل الخروج</button>
       </div>
