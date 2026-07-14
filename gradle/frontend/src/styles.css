@@ -3287,3 +3287,67 @@ tbody td:last-child{border-radius:12px 0 0 12px}
     grid-column:1 / -1!important;
   }
 }
+
+/* v15.3 customer account visual refresh */
+.customers-v153 .customer-card .customer-balance-grid > div,
+.customers-v153 .customer-card .customer-summary > div,
+.customers-v153 .customer-card .balance-summary > div,
+.customers-v153 .customer-card [class*="metric"],
+.customers-v153 .customer-card [class*="summary-box"] {
+  background: linear-gradient(145deg, rgba(21,24,29,.98), rgba(10,12,15,.98)) !important;
+  border-color: rgba(214,168,62,.28) !important;
+  color: #eee7d8 !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.025), 0 10px 24px rgba(0,0,0,.22) !important;
+}
+.customers-v153 .customer-card .customer-balance-grid strong,
+.customers-v153 .customer-card .customer-summary strong,
+.customers-v153 .customer-card .balance-summary strong,
+.customers-v153 .customer-card [class*="metric"] strong,
+.customers-v153 .customer-card [class*="summary-box"] strong {
+  color: #ff3b3b !important;
+  font-weight: 800 !important;
+  text-shadow: 0 0 12px rgba(255,59,59,.14);
+}
+
+
+/* ==========================================================
+   v15.3.1 CUSTOMER CARD FIX — exact real selectors
+   ========================================================== */
+.customer-account-card .customer-totals > div,
+.customer-account-card .customer-totals .customer-total-box,
+.customer-account-card .customer-totals .customer-paid-box,
+.customer-account-card .customer-totals .customer-final-box {
+  background: linear-gradient(145deg, #171a1f, #0d1014) !important;
+  border: 1px solid rgba(214, 168, 62, .28) !important;
+  color: #d5d9df !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.025),
+    0 10px 24px rgba(0,0,0,.22) !important;
+}
+
+.customer-account-card .customer-totals > div:last-child,
+.customer-account-card .customer-totals .customer-final-box {
+  background: linear-gradient(145deg, #151a18, #0b100e) !important;
+  border-color: rgba(214, 168, 62, .34) !important;
+}
+
+.customer-account-card .customer-totals span,
+.customer-account-card .customer-totals small,
+.customer-account-card .customer-totals label {
+  color: #aeb5bf !important;
+}
+
+.customer-account-card .customer-totals strong,
+.customer-account-card .customer-totals b,
+.customer-account-card .customer-totals .amount,
+.customer-account-card .customer-totals [class*="amount"],
+.customer-account-card .customer-totals [class*="value"] {
+  color: #ff3b3b !important;
+  font-weight: 800 !important;
+  text-shadow: 0 0 12px rgba(255,59,59,.14) !important;
+}
+
+/* Defensive override against any inherited light card styling */
+.customer-account-card .customer-totals > div * {
+  background-color: transparent !important;
+}
