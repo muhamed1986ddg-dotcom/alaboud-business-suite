@@ -170,7 +170,7 @@ app.post("/api/data-import", auth, (req,res)=>{
 });
 
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.0.0",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.1.0",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login", (req,res)=>{
   const { email, password } = req.body || {};
   const store = readStore();
@@ -569,6 +569,94 @@ app.patch("/api/customers/:id", auth, (req,res)=>{
   }
 });
 
+
+app.get("/api/customers-archived", auth, (_req,res)=>{
+  const store=readStore();
+  res.json((store.archivedCustomers||[]).slice().sort((a,b)=>new Date(b.archivedAt||0)-new Date(a.archivedAt||0)));
+});
+
+app.post("/api/customers/:id/archive", auth, (req,res)=>{
+  const archived=mutate((store)=>{
+    store.archivedCustomers=store.archivedCustomers||[];
+    const index=store.customers.findIndex(customer=>customer.id===req.params.id);
+    if(index<0)throw new Error("Customer not found");
+
+    const customer=store.customers[index];
+    const archivedCustomer={
+      ...customer,
+      archivedAt:now(),
+      archivedBy:req.user.id
+    };
+
+    store.customers.splice(index,1);
+    store.archivedCustomers.push(archivedCustomer);
+    audit(store,req.user.id,"ARCHIVE","CUSTOMER",customer.id,{name:customer.name});
+    return archivedCustomer;
+  });
+
+  res.json({message:"تمت أرشفة العميل",customer:archived});
+});
+
+app.post("/api/customers/:id/restore", auth, (req,res)=>{
+  const restored=mutate((store)=>{
+    store.archivedCustomers=store.archivedCustomers||[];
+    const index=store.archivedCustomers.findIndex(customer=>customer.id===req.params.id);
+    if(index<0)throw new Error("Archived customer not found");
+
+    const customer={...store.archivedCustomers[index]};
+    delete customer.archivedAt;
+    delete customer.archivedBy;
+
+    store.archivedCustomers.splice(index,1);
+    store.customers.push(customer);
+    audit(store,req.user.id,"RESTORE","CUSTOMER",customer.id,{name:customer.name});
+    return customer;
+  });
+
+  res.json({message:"تمت استعادة العميل",customer:restored});
+});
+
+app.delete("/api/customers/:id", auth, (req,res)=>{
+  try{
+    const result=mutate((store)=>{
+      const customerIndex=store.customers.findIndex(customer=>customer.id===req.params.id);
+      if(customerIndex<0)throw new Error("Customer not found");
+
+      const customer=store.customers[customerIndex];
+      const transactionCount=store.transactions.filter(item=>item.customerId===customer.id).length;
+      const paymentCount=store.payments.filter(item=>item.customerId===customer.id).length;
+      const debtCount=(store.generalDebts||[]).filter(item=>item.customerId===customer.id).length;
+      const totalReferences=transactionCount+paymentCount+debtCount;
+
+      if(totalReferences>0){
+        return {
+          blocked:true,
+          counts:{transactions:transactionCount,payments:paymentCount,debts:debtCount}
+        };
+      }
+
+      store.customers.splice(customerIndex,1);
+      audit(store,req.user.id,"DELETE","CUSTOMER",customer.id,{name:customer.name});
+      return {blocked:false,customer};
+    });
+
+    if(result.blocked){
+      return res.status(409).json({
+        message:"لا يمكن حذف العميل لأنه يحتوي على معاملات مالية. يمكنك أرشفته بدلاً من ذلك.",
+        counts:result.counts
+      });
+    }
+
+    res.json({message:"تم حذف العميل نهائيًا"});
+  }catch(error){
+    if(error.message==="Customer not found"){
+      return res.status(404).json({message:"العميل غير موجود"});
+    }
+    throw error;
+  }
+});
+
+
 app.get("/api/customers/:id", auth, (req,res)=>{
   try {
     const store = readStore();
@@ -693,6 +781,64 @@ app.post("/api/transactions", auth, (req,res)=>{
 
   res.status(201).json(tx);
 });
+app.post("/api/customers/:id/payments", auth, (req,res)=>{
+  try{
+    const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{};
+    const n=Number(amount);
+    if(!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid amount"});
+
+    const result=mutate((s)=>{
+      const customer=s.customers.find(c=>c.id===req.params.id);
+      if(!customer)throw new Error("Customer not found");
+
+      const activeTransactions=s.transactions
+        .filter(t=>t.customerId===customer.id&&!t.isDeleted&&t.status!=="CANCELLED")
+        .map(t=>{
+          const paid=s.payments
+            .filter(p=>p.transactionId===t.id&&!p.isDeleted)
+            .reduce((sum,p)=>sum+Number(p.amount||0),0);
+          const due=Number(t.totalCustomerDue||t.amount||0);
+          return {transaction:t,remaining:Math.max(due-paid,0)};
+        })
+        .filter(item=>item.remaining>0.001)
+        .sort((a,b)=>String(a.transaction.transferDate||a.transaction.createdAt||"")
+          .localeCompare(String(b.transaction.transferDate||b.transaction.createdAt||"")));
+
+      const totalRemaining=activeTransactions.reduce((sum,item)=>sum+item.remaining,0);
+      if(n>totalRemaining+0.001)throw new Error("Payment exceeds customer remaining balance");
+
+      let amountLeft=n;
+      const created=[];
+      for(const item of activeTransactions){
+        if(amountLeft<=0.001)break;
+        const allocated=Math.min(amountLeft,item.remaining);
+        const p={
+          id:id(),
+          transactionId:item.transaction.id,
+          amount:+allocated.toFixed(2),
+          method,
+          notes,
+          reference,
+          paymentDate:paymentDate||new Date().toISOString().slice(0,10),
+          date:now(),
+          receivedBy:req.user.id,
+          isDeleted:false
+        };
+        s.payments.push(p);
+        created.push(p);
+        amountLeft=+(amountLeft-allocated).toFixed(2);
+      }
+
+      audit(s,req.user.id,"PAYMENT","CUSTOMER",customer.id,{amount:n,payments:created.length});
+      return {success:true,amount:+n.toFixed(2),payments:created};
+    });
+
+    res.status(201).json(result);
+  }catch(error){
+    res.status(400).json({message:error.message||"Unable to add customer payment"});
+  }
+});
+
 app.post("/api/transactions/:id/payments", auth, (req,res)=>{
   const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{}; const n=Number(amount); if(!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid amount"});
   const payment=mutate((s)=>{const t=s.transactions.find(x=>x.id===req.params.id);if(!t)throw new Error("Transaction not found");const already=s.payments.filter(p=>p.transactionId===t.id).reduce((a,p)=>a+Number(p.amount),0);if(already+n>Number(t.totalCustomerDue)+0.001)throw new Error("Payment exceeds remaining balance");const p={

@@ -3181,3 +3181,109 @@ tbody td:last-child{border-radius:12px 0 0 12px}
   .enterprise-code small{font-size:8px}
   .rate-buy,.rate-sell{font-size:10px}
 }
+
+
+/* ==========================================================
+   v15.1 CUSTOMER MANAGEMENT
+   ========================================================== */
+.archive-customer-button{
+  color:#7dd3fc!important;
+  border-color:rgba(56,189,248,.45)!important;
+  background:linear-gradient(145deg,#07141d,#0b2230)!important;
+}
+.delete-customer-button{
+  color:#ff7b70!important;
+  border-color:rgba(255,91,79,.55)!important;
+  background:linear-gradient(145deg,#190909,#2b0d0d)!important;
+}
+.delete-customer-button:hover{
+  box-shadow:0 0 18px rgba(255,91,79,.18)!important;
+}
+.archived-customers-page{
+  display:grid;
+  gap:14px;
+}
+.page-title-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:14px;
+}
+.page-title-row h2{margin:0}
+.page-title-row p{margin:5px 0 0;color:#aab0b7}
+.page-title-row button{
+  width:auto!important;
+  margin:0!important;
+  background:#11161c!important;
+  color:#f0cf70!important;
+  border:1px solid rgba(230,184,63,.4)!important;
+}
+.archived-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:12px;
+}
+.archived-customer-card{
+  padding:15px;
+  border-radius:18px;
+  border:1px solid rgba(230,184,63,.35);
+  background:linear-gradient(145deg,#0a0d10,#15191e);
+  box-shadow:0 12px 30px rgba(0,0,0,.34);
+}
+.archived-customer-head{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.customer-avatar{
+  width:46px;
+  height:46px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  background:#19130a;
+  color:#f4d16d;
+  border:1px solid rgba(230,184,63,.5);
+  font-size:20px;
+  font-weight:800;
+}
+.archived-customer-head>div:last-child{
+  display:flex;
+  flex-direction:column;
+  gap:3px;
+}
+.archived-customer-head strong{color:#fff2c5}
+.archived-customer-head small{color:#9da4ac}
+.archived-meta{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  margin:13px 0;
+  padding:10px;
+  border-radius:12px;
+  background:#080b0e;
+  border:1px solid #242a30;
+}
+.archived-meta span{color:#9fa6ad}
+.archived-meta strong{font-size:11px;color:#d8c16f}
+.archived-customer-card button{
+  width:100%!important;
+  margin:0!important;
+  background:linear-gradient(145deg,#082113,#0e321b)!important;
+  color:#7ff39d!important;
+  border:1px solid rgba(78,224,116,.45)!important;
+}
+@media(max-width:900px){
+  .archived-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:600px){
+  .page-title-row{align-items:stretch;flex-direction:column}
+  .page-title-row button{width:100%!important}
+  .archived-grid{grid-template-columns:1fr}
+  .customer-card-actions{
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  }
+  .delete-customer-button{
+    grid-column:1 / -1!important;
+  }
+}
