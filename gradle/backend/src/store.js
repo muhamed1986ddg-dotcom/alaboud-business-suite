@@ -14,6 +14,7 @@ const emptyStore = () => ({
   schemaVersion: 2,
   users: [],
   customers: [],
+  archivedCustomers: [],
   transactions: [],
   payments: [],
   expenses: [],

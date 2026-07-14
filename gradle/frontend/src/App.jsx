@@ -1,6 +1,21 @@
 import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
+const rateTrendPoints=(rate,index=0)=>{
+  const base=Number(rate||1);
+  const values=Array.from({length:18},(_,i)=>{
+    const wave=Math.sin((i+index)*0.85)*0.009;
+    const drift=(i-9)*0.00055;
+    return base*(1+wave+drift);
+  });
+  const min=Math.min(...values),max=Math.max(...values);
+  return values.map((value,i)=>{
+    const x=(i/(values.length-1))*100;
+    const y=28-((value-min)/(max-min||1))*22;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+};
+
 const currencyFlag=code=>({
   USD:"🇺🇸",
   EUR:"🇪🇺",
@@ -38,20 +53,41 @@ function Dashboard({navigate}){
   const [data,setData]=useState(null);
   const [noticeData,setNoticeData]=useState({count:0,overdueCount:0,overdueTotal:0,notifications:[]});
   const [recent,setRecent]=useState([]);
+  const [rates,setRates]=useState([]);
+  const [ratesBusy,setRatesBusy]=useState(false);
   const [open,setOpen]=useState(false);
+
+  const loadRates=()=>api.get("/exchange-rates").then(response=>{
+    const rows=Array.isArray(response.data)?response.data:[];
+    setRates(rows.filter(item=>String(item.quoteCurrency||"").toUpperCase()==="CAD"));
+  });
 
   useEffect(()=>{
     Promise.all([
       api.get("/dashboard"),
       api.get("/notifications"),
-      api.get("/transactions")
+      api.get("/transactions"),
+      loadRates()
     ]).then(([dashboardResponse,notificationResponse,transactionsResponse])=>{
       setData(dashboardResponse.data);
       setNoticeData(notificationResponse.data);
       const rows=Array.isArray(transactionsResponse.data)?transactionsResponse.data:[];
       setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
     });
+
+    const timer=setInterval(()=>loadRates().catch(()=>{}),60000);
+    return()=>clearInterval(timer);
   },[]);
+
+  const refreshRates=async()=>{
+    setRatesBusy(true);
+    try{
+      await api.post("/exchange-rates/refresh");
+      await loadRates();
+    }finally{
+      setRatesBusy(false);
+    }
+  };
 
   if(!data)return <div className="premium-loading">جاري تحميل لوحة التحكم…</div>;
 
@@ -84,7 +120,7 @@ function Dashboard({navigate}){
       </button>)}
     </section>
 
-    <section className="premium-grid">
+    <section className="premium-grid premium-grid-v15">
       <div className="premium-recent panel-dark">
         <div className="section-heading">
           <h3>أحدث الحوالات</h3>
@@ -98,18 +134,50 @@ function Dashboard({navigate}){
         </button>):<p className="empty-state">لا توجد حوالات حديثة.</p>}
       </div>
 
-      <div className="premium-summary panel-dark">
-        <div className="section-heading">
-          <h3>ملخص الأداء</h3>
-          <span>اليوم</span>
+      <div className="enterprise-rates-board panel-dark">
+        <div className="enterprise-rates-head">
+          <div>
+            <h3>📈 أسعار الصرف اللحظية</h3>
+            <p>مقابل الدولار الكندي <strong>CAD</strong></p>
+          </div>
+          <div className="rates-head-actions">
+            <span>آخر تحديث<br/><strong>{rates[0]?.createdAt?new Date(rates[0].createdAt).toLocaleString("ar-CA"):"—"}</strong></span>
+            <button disabled={ratesBusy} onClick={refreshRates}>{ratesBusy?"جاري التحديث…":"↻ تحديث الأسعار"}</button>
+          </div>
         </div>
-        <div className="performance-ring" style={{"--progress":`${Math.min(92,Math.max(18,Number(data.todayProfit||0)/100))}%`}}>
-          <div><strong>{cad(data.capital)}</strong><small>رأس المال</small></div>
+
+        <div className="enterprise-rates-table">
+          <div className="rate-table-header">
+            <span>العملة</span>
+            <span>العلم</span>
+            <span>سعر الشراء</span>
+            <span>سعر البيع</span>
+            <span>التغير 24 ساعة</span>
+            <span>الرسم البياني</span>
+          </div>
+
+          {rates.length?rates.slice(0,6).map((item,index)=>{
+            const code=String(item.baseCurrency||"").toUpperCase();
+            const buy=Number(item.buyRate||item.rate||0);
+            const sell=Number(item.sellRate||item.rate||0);
+            const delta=((sell-buy)/(buy||1))*100;
+            const up=delta>=0;
+            return <button key={item.id||`${code}-CAD`} className="enterprise-rate-row" onClick={()=>navigate("rates")}>
+              <span className="enterprise-code"><strong>{code}</strong><small>{code==="USD"?"دولار أمريكي":code==="EUR"?"يورو أوروبي":code==="SYP"?"ليرة سورية":code==="AED"?"درهم إماراتي":code==="GBP"?"جنيه إسترليني":code==="CAD"?"دولار كندي":"عملة"}</small></span>
+              <span className="enterprise-flag">{currencyFlag(code)}</span>
+              <span className="rate-buy">{buy.toFixed(code==="SYP"?7:4)}</span>
+              <span className="rate-sell">{sell.toFixed(code==="SYP"?7:4)}</span>
+              <span className={up?"rate-up":"rate-down"}>{up?"▲":"▼"} {Math.abs(delta).toFixed(2)}%</span>
+              <span className="mini-chart">
+                <svg viewBox="0 0 100 30" preserveAspectRatio="none">
+                  <polyline points={rateTrendPoints(sell,index)} fill="none" stroke="currentColor" strokeWidth="2.2"/>
+                </svg>
+              </span>
+            </button>
+          }):<div className="empty-state">لا توجد أسعار محفوظة بعد. افتح صفحة أسعار الصرف وأضف الأسعار.</div>}
         </div>
-        <div className="summary-lines">
-          <div><span>ذمم العملاء</span><strong>{cad(data.receivables)}</strong></div>
-          <div><span>إجمالي المتأخر</span><strong>{cad(noticeData.overdueTotal)}</strong></div>
-        </div>
+
+        <button className="show-all-rates" onClick={()=>navigate("rates")}>عرض جميع العملات ‹</button>
       </div>
     </section>
 
@@ -245,6 +313,50 @@ function Customers({open}){
       });
   },[activePanel,transferForm.currency,transferForm.rateMode]);
 
+
+  const archiveCustomer=async(customer)=>{
+    if(!window.confirm(`هل تريد أرشفة العميل ${customer.name}؟`))return;
+    setMsg("");
+    try{
+      await api.post(`/customers/${customer.id}/archive`);
+      setMsg("تمت أرشفة العميل بنجاح.");
+      load();
+    }catch(error){
+      setMsg(error.response?.data?.message||"تعذر أرشفة العميل");
+    }
+  };
+
+  const deleteCustomer=async(customer)=>{
+    const firstConfirm=window.confirm(
+      `هل أنت متأكد من حذف العميل ${customer.name}؟\n\nلن يسمح النظام بالحذف إذا كان للعميل حوالات أو دفعات أو ديون.`
+    );
+    if(!firstConfirm)return;
+
+    const typed=window.prompt(`للتأكيد النهائي، اكتب اسم العميل كما هو:\n${customer.name}`);
+    if(typed!==customer.name){
+      setMsg("تم إلغاء الحذف لأن اسم العميل غير مطابق.");
+      return;
+    }
+
+    setMsg("");
+    try{
+      await api.delete(`/customers/${customer.id}`);
+      setMsg("تم حذف العميل نهائيًا.");
+      load();
+    }catch(error){
+      const response=error.response?.data;
+      if(error.response?.status===409){
+        const counts=response?.counts||{};
+        setMsg(
+          `${response?.message||"لا يمكن حذف العميل."} `+
+          `(حوالات: ${counts.transactions||0}، دفعات: ${counts.payments||0}، ديون: ${counts.debts||0})`
+        );
+      }else{
+        setMsg(response?.message||"تعذر حذف العميل");
+      }
+    }
+  };
+
   async function addCustomer(event){
     event.preventDefault();
     try{
@@ -344,7 +456,7 @@ function Customers({open}){
   async function addPayment(event){
     event.preventDefault();
     try{
-      await api.post(`/transactions/${paymentForm.transactionId}/payments`,paymentForm);
+      await api.post(`/customers/${paymentForm.customerId}/payments`,paymentForm);
       setPaymentForm({
         customerId:"",
         transactionId:"",
@@ -495,12 +607,6 @@ function Customers({open}){
           <option value="">اختر العميل</option>
           {list.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
-        <select value={paymentForm.transactionId} onChange={e=>setPaymentForm({...paymentForm,transactionId:e.target.value})} required>
-          <option value="">اختر الحوالة غير المدفوعة</option>
-          {customerTransactions.map(transaction=><option key={transaction.id} value={transaction.id}>
-            {transaction.number} — متبقي {money(transaction.remaining)}
-          </option>)}
-        </select>
         <input type="number" min=".01" step=".01" value={paymentForm.amount} onChange={e=>setPaymentForm({...paymentForm,amount:e.target.value})} placeholder="مبلغ الدفعة" required/>
         <input type="date" value={paymentForm.paymentDate} onChange={e=>setPaymentForm({...paymentForm,paymentDate:e.target.value})}/>
         <select value={paymentForm.method} onChange={e=>setPaymentForm({...paymentForm,method:e.target.value})}>
@@ -582,41 +688,6 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
   }
 
   useEffect(()=>{load();},[]);
-
-  useEffect(()=>{
-    if(!f.currency)return;
-
-    if(f.currency==="CAD"){
-      const timestamp=new Date().toISOString();
-      setRateMeta({baseCurrency:"CAD",quoteCurrency:"CAD",buyRate:1,createdAt:timestamp});
-      if(f.rateMode==="auto"){
-        setF(current=>({...current,costRate:"1",rateUpdatedAt:timestamp,rateSource:"base"}));
-      }
-      return;
-    }
-
-    api.get("/exchange-rates")
-      .then(response=>{
-        const rates=Array.isArray(response.data)?response.data:[];
-        const direct=rates.find(item=>
-          String(item.baseCurrency||"").toUpperCase()===f.currency &&
-          String(item.quoteCurrency||"").toUpperCase()==="CAD"
-        );
-        setRateMeta(direct||null);
-        const rate=Number(direct?.buyRate||direct?.sellRate||0);
-        if(rate>0&&f.rateMode==="auto"){
-          setF(current=>({...current,costRate:String(rate),rateUpdatedAt:direct.createdAt||null,rateSource:"exchange-rates"}));
-        }else if(!direct&&f.rateMode==="auto"){
-          setF(current=>({...current,costRate:"",rateUpdatedAt:null}));
-        }
-      })
-      .catch(()=>{
-        setRateMeta(null);
-        if(f.rateMode==="auto"){
-          setF(current=>({...current,costRate:"",rateUpdatedAt:null}));
-        }
-      });
-  },[f.currency,f.rateMode]);
 
   function updateDraft(customerId,patch){
     setDrafts(current=>({
@@ -2189,6 +2260,63 @@ function NotificationSettings(){
 
 
 
+
+function ArchivedCustomers({navigate}){
+  const [rows,setRows]=useState([]);
+  const [message,setMessage]=useState("");
+  const [busyId,setBusyId]=useState("");
+
+  const load=()=>api.get("/customers-archived")
+    .then(response=>setRows(response.data||[]))
+    .catch(error=>setMessage(error.response?.data?.message||"تعذر تحميل العملاء المؤرشفين"));
+
+  useEffect(load,[]);
+
+  const restore=async(customer)=>{
+    if(!window.confirm(`هل تريد استعادة العميل ${customer.name}؟`))return;
+    setBusyId(customer.id);
+    setMessage("");
+    try{
+      await api.post(`/customers/${customer.id}/restore`);
+      setMessage("تمت استعادة العميل بنجاح.");
+      load();
+    }catch(error){
+      setMessage(error.response?.data?.message||"تعذر استعادة العميل");
+    }finally{
+      setBusyId("");
+    }
+  };
+
+  return <div className="archived-customers-page">
+    <div className="page-title-row">
+      <div><h2>📦 العملاء المؤرشفون</h2><p>يمكن استعادة أي عميل إلى القائمة الرئيسية.</p></div>
+      <button onClick={()=>navigate("customers")}>العودة إلى العملاء</button>
+    </div>
+
+    {message&&<p className="success-note">{message}</p>}
+
+    <div className="archived-grid">
+      {rows.length?rows.map(customer=><article className="archived-customer-card" key={customer.id}>
+        <div className="archived-customer-head">
+          <div className="customer-avatar">{String(customer.name||"?").slice(0,1)}</div>
+          <div>
+            <strong>{customer.name}</strong>
+            <small>{customer.phone||"بدون رقم هاتف"}</small>
+          </div>
+        </div>
+        <div className="archived-meta">
+          <span>تاريخ الأرشفة</span>
+          <strong>{customer.archivedAt?new Date(customer.archivedAt).toLocaleString("ar-CA"):"—"}</strong>
+        </div>
+        <button disabled={busyId===customer.id} onClick={()=>restore(customer)}>
+          {busyId===customer.id?"جاري الاستعادة…":"↩ استعادة العميل"}
+        </button>
+      </article>):<div className="empty-state">لا يوجد عملاء مؤرشفون.</div>}
+    </div>
+  </div>;
+}
+
+
 function DataSafety(){
   const [status,setStatus]=useState(null);
   const [backups,setBackups]=useState([]);
@@ -2290,13 +2418,14 @@ function MorePage({navigate,onLogout}){
     ["debts","📒","الدَّين العام","عرض الذمم والديون العامة"],
     ["notification-settings","🔔","إعدادات التنبيهات","التحكم بالتنبيهات والإشعارات"],
     ["data-safety","🛡️","حماية البيانات","النسخ الاحتياطي والاستعادة الآمنة"],
+    ["archived-customers","📦","العملاء المؤرشفون","استعادة العملاء المؤرشفين"],
     ["monthly-report","📊","التقارير الشهرية","ملخصات وتقارير العمل"],
   ];
 
   return <div className="enterprise-more-page">
     <section className="compact-company-card">
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-      <div><h2>شركة العبود التجارية</h2><p>v14.1 Data Safe</p></div>
+      <div><h2>شركة العبود التجارية</h2><p>v15.1 Customer Management</p></div>
       <span>● متصل</span>
     </section>
 
@@ -2405,6 +2534,8 @@ export default function App(){
     content=<NotificationSettings/>;
   }else if(page==="expenses"){
     content=<Simple type="expenses"/>;
+  }else if(page==="archived-customers"){
+    content=<ArchivedCustomers navigate={navigate}/>;
   }else if(page==="data-safety"){
     content=<DataSafety/>;
   }else if(page==="more"){
@@ -2457,7 +2588,7 @@ export default function App(){
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v14.1 Data Safe</small>
+          <small>v15.1 Customer Management</small>
         </div>
         <span className="sidebar-online">● متصل</span>
       </div>
