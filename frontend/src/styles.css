@@ -2808,3 +2808,129 @@ aside button.active{
   .premium-hero h2{font-size:16px}
   .online-chip{display:none}
 }
+
+
+/* ==========================================================
+   v14.0 ENTERPRISE FINAL — unified full-system design
+   ========================================================== */
+:root{
+  --v14-bg:#050608;
+  --v14-panel:#0d1014;
+  --v14-panel-2:#14181d;
+  --v14-gold:#e6b83f;
+  --v14-gold-soft:#ffdc7a;
+  --v14-line:rgba(230,184,63,.42);
+  --v14-text:#f5f2e9;
+  --v14-muted:#a9acb3;
+}
+body,.app,.app-main-content{background:var(--v14-bg)!important;color:var(--v14-text)!important}
+.app-main-content{min-height:100vh}
+h1,h2,h3{color:var(--v14-gold-soft)}
+.card,.panel,.tablewrap,.form,.filters,.partner-card,.customer-account-card,.statement-summary,.statement-section{
+  background:linear-gradient(145deg,var(--v14-panel),var(--v14-panel-2))!important;
+  border:1px solid var(--v14-line)!important;
+  border-radius:18px!important;
+  box-shadow:0 14px 32px rgba(0,0,0,.38)!important;
+}
+input,select,textarea{
+  background:#090b0e!important;
+  color:#fff!important;
+  border:1px solid rgba(230,184,63,.28)!important;
+  border-radius:13px!important;
+}
+input:focus,select:focus,textarea:focus{
+  border-color:var(--v14-gold)!important;
+  box-shadow:0 0 0 3px rgba(230,184,63,.11)!important;
+}
+button{
+  border-radius:13px!important;
+  transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease!important;
+}
+button:hover{transform:translateY(-1px)}
+table{border-collapse:separate!important;border-spacing:0 7px!important}
+thead th{color:var(--v14-gold-soft)!important;background:#111419!important;border:none!important}
+tbody tr{background:#0a0d10!important}
+td{border-top:1px solid #23272d!important;border-bottom:1px solid #23272d!important}
+tbody td:first-child{border-radius:0 12px 12px 0}
+tbody td:last-child{border-radius:12px 0 0 12px}
+.currency-flag{font-size:26px;line-height:1}
+.recent-currency{display:flex!important;align-items:center;gap:8px}
+.recent-currency>div>span{display:block}
+
+/* Compact company card */
+.compact-company-card{
+  display:flex;align-items:center;gap:12px;max-width:720px;margin:0 auto 14px;
+  padding:11px 15px;border-radius:18px;border:1px solid var(--v14-line);
+  background:linear-gradient(145deg,#090b0e,#14171b);
+}
+.compact-company-card img{width:54px;height:54px;border-radius:50%;object-fit:cover;border:1px solid var(--v14-gold)}
+.compact-company-card h2{margin:0;font-size:18px}.compact-company-card p{margin:3px 0 0;color:#c7b98e;direction:ltr}
+.compact-company-card>span{margin-inline-start:auto;color:#37d66b;font-size:12px}
+
+/* More page */
+.enterprise-more-page{display:grid;gap:12px;max-width:900px;margin:auto}
+.more-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.more-grid button,.support-card{
+  min-height:78px;margin:0!important;padding:13px 15px!important;display:flex;align-items:center;gap:13px;
+  border:1px solid var(--v14-line)!important;border-radius:17px!important;
+  background:linear-gradient(145deg,#0a0c0f,#15191d)!important;color:#fff!important;text-align:right;
+}
+.more-grid button>span,.support-card>span{font-size:27px}
+.more-grid button div,.support-card div{display:flex;flex-direction:column;gap:4px}
+.more-grid button strong,.support-card strong{color:#f3e3aa}
+.more-grid button small,.support-card small{color:var(--v14-muted)}
+.more-grid button b,.support-card b{margin-inline-start:auto;color:var(--v14-gold);font-size:28px}
+.support-card{cursor:pointer}
+.final-logout-button{
+  width:100%;min-height:62px;margin:0!important;display:flex;align-items:center;justify-content:center;gap:10px;
+  background:linear-gradient(145deg,#170a0a,#230d0d)!important;color:#ff5d4f!important;
+  border:1px solid rgba(255,93,79,.58)!important;font-size:17px!important;
+}
+.final-logout-button span{font-size:26px}
+
+/* Sidebar account card compact */
+.sidebar-account-box{flex-direction:row!important;align-items:center!important;text-align:right!important}
+.sidebar-account-box img{width:40px;height:40px;border-radius:50%;object-fit:cover;border:1px solid var(--v14-gold)}
+.sidebar-online{margin-inline-start:auto;color:#35d66d;font-size:10px;white-space:nowrap}
+
+/* Common action cards */
+.actions,.customer-card-actions,.partner-actions{gap:8px!important}
+.actions button,.customer-card-actions button,.partner-actions button{
+  background:linear-gradient(145deg,#0a0d10,#171a1f)!important;
+  border:1px solid rgba(230,184,63,.32)!important;color:#f5e7b7!important;
+}
+.actions button:hover,.customer-card-actions button:hover,.partner-actions button:hover{
+  border-color:var(--v14-gold)!important;box-shadow:0 0 18px rgba(230,184,63,.13)!important;
+}
+
+/* Mobile */
+@media(max-width:800px){
+  .app-main-content{padding:9px 9px calc(92px + env(safe-area-inset-bottom))!important}
+  .compact-company-card{padding:8px 10px;margin-bottom:9px;border-radius:14px}
+  .compact-company-card img{width:42px;height:42px}
+  .compact-company-card h2{font-size:14px}.compact-company-card p{font-size:9px}
+  .compact-company-card>span{font-size:9px}
+  .more-grid{grid-template-columns:1fr}
+  .more-grid button,.support-card{min-height:64px;padding:10px 12px!important}
+  .more-grid button>span,.support-card>span{font-size:22px}
+  .more-grid button strong,.support-card strong{font-size:13px}
+  .more-grid button small,.support-card small{font-size:10px}
+  .final-logout-button{min-height:56px;font-size:15px!important}
+  .sidebar-account-box{padding:7px 9px!important}
+  .sidebar-account-box img{width:34px;height:34px}
+  .sidebar-account-box strong{font-size:12px!important}.sidebar-account-box small{font-size:8px!important}
+  .sidebar-online{font-size:8px}
+  .tablewrap{overflow-x:auto!important}
+  table{min-width:680px}
+  .card,.panel,.form,.tablewrap{padding:11px!important}
+  h2{font-size:22px!important;margin:8px 0 13px!important}
+  .form{gap:9px!important}
+  input,select,textarea{min-height:45px!important;font-size:14px!important}
+}
+
+/* Very small devices */
+@media(max-width:390px){
+  .compact-company-card>span{display:none}
+  .more-grid button{min-height:60px}
+  .mobile-bottom-nav small{font-size:9px!important}
+}

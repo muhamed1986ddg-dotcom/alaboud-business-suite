@@ -1,6 +1,14 @@
 import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
+const currencyFlag=code=>({
+  USD:"🇺🇸",
+  EUR:"🇪🇺",
+  SYP:"🇸🇾",
+  AED:"🇦🇪",
+  GBP:"🇬🇧",
+  CAD:"🇨🇦"
+}[String(code||"").toUpperCase()]||"💱");
 
 class AppErrorBoundary extends React.Component{
   constructor(props){
@@ -59,7 +67,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v13.3 Final Mobile</p>
+        <p>v14.0 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -83,7 +91,7 @@ function Dashboard({navigate}){
           <button onClick={()=>navigate("transactions")}>عرض الكل</button>
         </div>
         {recent.length?recent.map(item=><button className="recent-row" key={item.id} onClick={()=>navigate("transactions")}>
-          <div className="recent-currency"><span>{item.currency||"USD"}</span><small>{item.number||"حوالة"}</small></div>
+          <div className="recent-currency"><span className="currency-flag">{currencyFlag(item.currency)}</span><div><span>{item.currency||"USD"}</span><small>{item.number||"حوالة"}</small></div></div>
           <div className="recent-date">{item.transferDate||String(item.createdAt||"").slice(0,10)}</div>
           <strong>{cad(item.totalCustomerDue||0)}</strong>
           <b>‹</b>
@@ -2179,6 +2187,44 @@ function NotificationSettings(){
   </>;
 }
 
+
+function MorePage({navigate,onLogout}){
+  const items=[
+    ["rates","💱","العملات وأسعار الصرف","إدارة CAD وUSD وEUR وSYP والعملات الأخرى"],
+    ["capital-overview","💰","رأس المال الكلي","مراجعة رأس المال والحركة المالية"],
+    ["debts","📒","الدَّين العام","عرض الذمم والديون العامة"],
+    ["notification-settings","🔔","إعدادات التنبيهات","التحكم بالتنبيهات والإشعارات"],
+    ["monthly-report","📊","التقارير الشهرية","ملخصات وتقارير العمل"],
+  ];
+
+  return <div className="enterprise-more-page">
+    <section className="compact-company-card">
+      <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+      <div><h2>شركة العبود التجارية</h2><p>v14.0 Enterprise Final</p></div>
+      <span>● متصل</span>
+    </section>
+
+    <section className="more-grid">
+      {items.map(([key,icon,title,description])=><button key={key} onClick={()=>navigate(key)}>
+        <span>{icon}</span>
+        <div><strong>{title}</strong><small>{description}</small></div>
+        <b>‹</b>
+      </button>)}
+    </section>
+
+    <section className="support-card" onClick={()=>window.open("mailto:support@alaboud.local","_self")}>
+      <span>🎧</span>
+      <div><strong>الدعم والمساعدة</strong><small>تواصل معنا عند الحاجة إلى مساعدة</small></div>
+      <b>‹</b>
+    </section>
+
+    <button className="final-logout-button" onClick={onLogout}>
+      <span>⇥</span>
+      <strong>تسجيل الخروج</strong>
+    </button>
+  </div>;
+}
+
 function Simple({type}){const[list,setList]=useState([]),[title,setTitle]=useState(""),[amount,setAmount]=useState(""),[move,setMove]=useState("IN");const endpoint=type==="expenses"?"/expenses":"/capital";const load=()=>api.get(endpoint).then(r=>setList(r.data));useEffect(()=>{load();},[type]);async function add(e){e.preventDefault();await api.post(endpoint,type==="expenses"?{title,amount}:{type:move,amount,description:title});setTitle("");setAmount("");load();}return <><h2>{type==="expenses"?"المصروفات":"رأس المال"}</h2><form className="card form" onSubmit={add}>{type==="capital"&&<select value={move} onChange={e=>setMove(e.target.value)}><option value="IN">زيادة</option><option value="OUT">سحب</option></select>}<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="الوصف" required/><input type="number" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="المبلغ" required/><button>حفظ</button></form><div className="card tablewrap"><table><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.title||x.description}</td><td>{x.type||x.category}</td><td>{money(x.amount)}</td></tr>)}</tbody></table></div></>}
 export default function App(){
   const [token,setToken]=useState(localStorage.getItem("afs_token"));
@@ -2263,6 +2309,8 @@ export default function App(){
     content=<NotificationSettings/>;
   }else if(page==="expenses"){
     content=<Simple type="expenses"/>;
+  }else if(page==="more"){
+    content=<MorePage navigate={navigate} onLogout={()=>setLogoutConfirm(true)}/>;
   }else{
     content=<Simple type="capital"/>;
   }
@@ -2287,7 +2335,8 @@ export default function App(){
     ["monthly-report","📊 التقارير الشهرية"],
     ["notification-settings","🔔 إعدادات التنبيهات"],
     ["expenses","🧾 المصروفات"],
-    ["capital","🏦 حركة رأس المال"]
+    ["capital","🏦 حركة رأس المال"],
+    ["more","••• المزيد"]
   ];
 
   return <div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
@@ -2295,7 +2344,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v13.3 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v14.0 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2307,11 +2356,12 @@ export default function App(){
       </div>
       <div className="sidebar-logo-wrap"><img className="alaboud-sidebar-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية" /></div>
       <div className="sidebar-account-box no-print">
+        <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v13.3 Final Mobile</small>
+          <small>v14.0 Enterprise Final</small>
         </div>
-        <button className="logout-top" onClick={()=>setLogoutConfirm(true)}>🚪 تسجيل الخروج</button>
+        <span className="sidebar-online">● متصل</span>
       </div>
       {menu.map(([key,label])=><button
         key={key}
@@ -2359,10 +2409,10 @@ export default function App(){
       <button className={page==="dashboard"?"active":""} onClick={()=>navigate("dashboard")}>
         <span>⌂</span><small>الرئيسية</small>
       </button>
-      <button className={page==="monthly-report"?"active":""} onClick={()=>navigate("monthly-report")}>
-        <span>▥</span><small>التقارير</small>
+      <button className={page==="expenses"?"active":""} onClick={()=>navigate("expenses")}>
+        <span>👛</span><small>المصروفات</small>
       </button>
-      <button onClick={()=>setMobileMenuOpen(true)}>
+      <button className={page==="more"?"active":""} onClick={()=>navigate("more")}>
         <span>•••</span><small>المزيد</small>
       </button>
     </nav>
