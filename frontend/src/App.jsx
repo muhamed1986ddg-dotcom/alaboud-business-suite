@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.47 Final Mobile</p>
+        <p>v15.3.49 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -942,35 +942,17 @@ function Customers({open}){
 
     <input className="card customer-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
 
-    <div className="customer-cards">
-      {filtered.length?filtered.map(customer=><article className={`customer-account-card ${customer.overdue?"is-overdue":customer.finalBalance>0?"has-balance":"is-paid"}`} key={customer.id}>
-        <div className="customer-card-header">
-          <div>
-            <h3>{customer.name}</h3>
-            <p>{customer.phone||"لا يوجد رقم هاتف"}</p>
-          </div>
-          <span className="customer-status">
-            {customer.overdue?"متأخر":customer.finalBalance>0?"مستحق":"مسدد"}
-          </span>
+    <div className="customer-cards customer-list-simple">
+      {filtered.length?filtered.map(customer=><button
+        type="button"
+        className={`customer-simple-row ${customer.overdue?"is-overdue":customer.finalBalance>0?"has-balance":"is-paid"}`}
+        key={customer.id}
+        onClick={()=>open(customer.id)}
+      >
+        <div className="customer-simple-main customer-name-only">
+          <strong>{customer.name}</strong>
         </div>
-
-        <div className="customer-totals">
-          <div><span>مجموع الحساب</span><strong>{cad(customer.totalTransactions)}</strong></div>
-          <div><span>المدفوع</span><strong>{cad(customer.totalPaid)}</strong></div>
-          <div className="final-balance"><span>المجموع النهائي (CAD)</span><strong>{cad(customer.finalBalance)}</strong></div>
-        </div>
-
-        {customer.overdue&&<p className="overdue-text">متأخر {customer.overdueDays} يوم من أقدم حوالة غير مدفوعة.</p>}
-
-        <div className="customer-card-actions">
-          <button onClick={()=>open(customer.id)}>فتح الحساب</button>
-          <button onClick={()=>prepareTransfer(customer)}>إضافة حوالة</button>
-          <button onClick={()=>preparePayment(customer)}>إضافة دفعة</button>
-          <button onClick={()=>{setEditingCustomer({...customer});setActivePanel("")}}>تعديل</button>
-          <button className="whatsapp-button" onClick={()=>shareStatementImage(customer)}>📷 إرسال صورة كشف الحساب</button>
-          {customer.overdue&&<button className="danger-button" onClick={()=>whatsappFinalBalance(customer,true)}>تنبيه الدفع</button>}
-        </div>
-      </article>):<div className="card">لا توجد نتائج.</div>}
+      </button>):<div className="card">لا توجد نتائج.</div>}
     </div>
     </>}
   </>;
@@ -2892,7 +2874,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.47 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.49 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -2985,7 +2967,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.47 Final"
+        version:"v15.3.49 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3027,7 +3009,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.47 Final</span>
+      <span className="settings-version">v15.3.49 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3103,7 +3085,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.47 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.49 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3256,7 +3238,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.47 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.49 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3270,7 +3252,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.47 Final Mobile</small>
+          <small>v15.3.49 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

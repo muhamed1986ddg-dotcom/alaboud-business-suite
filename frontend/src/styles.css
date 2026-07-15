@@ -3814,3 +3814,78 @@ body.app-language-en aside{
 /* v15.3.44 automatic SYP and gold rates */
 .source-badge.auto{font-weight:800}
 .gold-rates-table .source-badge{white-space:nowrap}
+
+
+/* v15.3.48 - simplified customer list */
+.customer-list-simple{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.customer-simple-row{
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  text-align:inherit;
+  background:linear-gradient(145deg,#121417,#0c0d0f);
+  border:1px solid rgba(214,168,62,.38);
+  border-right:5px solid rgba(214,168,62,.72);
+  border-radius:18px;
+  padding:16px 18px;
+  color:#f6f0df;
+  box-shadow:0 8px 24px rgba(0,0,0,.18);
+}
+.customer-simple-row:hover{
+  transform:translateY(-1px);
+  border-color:rgba(240,200,91,.72);
+}
+.customer-simple-row.is-overdue{border-right-color:#dc3939}
+.customer-simple-row.is-paid{border-right-color:#2fb66d}
+.customer-simple-main{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  align-items:flex-start;
+}
+.customer-simple-main strong{
+  color:#f0c85b;
+  font-size:1.08rem;
+}
+.customer-simple-main small{color:#9da3ab}
+.customer-simple-status{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.customer-simple-balance{
+  color:#f2f2f2;
+  font-weight:800;
+  white-space:nowrap;
+}
+.customer-simple-arrow{
+  color:#f0c85b;
+  font-size:2rem;
+  line-height:1;
+}
+@media(max-width:700px){
+  .customer-simple-row{
+    padding:15px 16px;
+    min-height:76px;
+  }
+  .customer-simple-main strong{font-size:1.15rem}
+  .customer-simple-balance{font-size:1rem}
+}
+
+/* v15.3.49 - customer list shows names only */
+.customer-name-only{
+  width:100%;
+  align-items:center;
+  text-align:center;
+}
+.customer-name-only strong{
+  width:100%;
+  text-align:center;
+  font-size:1.2rem;
+}
