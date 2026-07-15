@@ -2923,107 +2923,142 @@ aside button.active{
 .dashboard-rate-row span{color:#aeb6c3;font-size:10px;white-space:nowrap}
 .dashboard-rate-row b{color:#fff;font-size:12px;direction:ltr}
 @media screen and (max-width:600px){.dashboard-rate-list{gap:4px;margin-top:5px}.dashboard-rate-row{min-height:38px;grid-template-columns:minmax(72px,1fr) auto auto;gap:5px;padding:5px 7px;border-radius:9px}.dashboard-rate-pair{font-size:12px}.dashboard-rate-row span{font-size:9px}.dashboard-rate-row b{font-size:10px}}
-/* v15.3.14 - Fix white customer card/background on mobile */
-@media (max-width: 768px) {
-  .customers-v153,
-  .customers-v153 .customer-list,
-  .customers-v153 .customers-list,
-  .customers-v153 .customer-card,
-  .customers-v153 .customer-card > div,
-  .customers-v153 [class*="customer-card"],
-  .customers-v153 [class*="customer-details"],
-  .customers-v153 [class*="customer-summary"],
-  .customers-v153 [class*="balance-summary"] {
-    background: #111315 !important;
-    background-color: #111315 !important;
-    color: #eee7d8 !important;
+
+
+/* =========================================================
+   v15.3.14 FINAL FIX
+   Exact customer card selectors — remove white mobile cards
+   ========================================================= */
+@media screen and (max-width:768px){
+
+  .customer-cards{
+    background:#050607 !important;
   }
 
-  .customers-v153 .customer-card {
-    border: 1px solid rgba(214, 168, 62, 0.65) !important;
-    box-shadow: none !important;
-    overflow: hidden !important;
+  .customer-account-card,
+  .customer-account-card.is-paid,
+  .customer-account-card.has-balance,
+  .customer-account-card.is-overdue{
+    background:
+      linear-gradient(145deg,#181a1e 0%,#111316 56%,#090b0e 100%) !important;
+    background-color:#111316 !important;
+    color:#eee7d8 !important;
+    border:1px solid rgba(214,168,62,.58) !important;
+    border-top:5px solid #d6a83e !important;
+    box-shadow:0 10px 28px rgba(0,0,0,.38) !important;
   }
 
-  .customers-v153 .customer-card::before,
-  .customers-v153 .customer-card::after {
-    background: transparent !important;
+  .customer-account-card.is-paid{
+    border-top-color:#22c55e !important;
+  }
+
+  .customer-account-card.has-balance{
+    border-top-color:#d6a83e !important;
+  }
+
+  .customer-account-card.is-overdue{
+    border-top-color:#ff3b3b !important;
+  }
+
+  .customer-account-card .customer-card-header,
+  .customer-account-card .customer-card-header > div{
+    background:transparent !important;
+    background-color:transparent !important;
+    color:#eee7d8 !important;
+  }
+
+  .customer-account-card .customer-card-header h3{
+    color:#e7bd4e !important;
+  }
+
+  .customer-account-card .customer-card-header p{
+    color:#c8c2b7 !important;
+  }
+
+  .customer-account-card .customer-status{
+    background:#202328 !important;
+    background-color:#202328 !important;
+    color:#f4d675 !important;
+    border:1px solid rgba(214,168,62,.22) !important;
+  }
+
+  .customer-account-card .customer-totals{
+    background:transparent !important;
+    background-color:transparent !important;
+  }
+
+  .customer-account-card .customer-totals > div,
+  .customer-account-card .customer-totals > div.final-balance{
+    background:
+      linear-gradient(145deg,rgba(31,34,39,.98),rgba(16,18,22,.98)) !important;
+    background-color:#15181c !important;
+    border:1px solid rgba(214,168,62,.22) !important;
+    color:#eee7d8 !important;
+  }
+
+  .customer-account-card .customer-totals > div.final-balance{
+    background:
+      linear-gradient(145deg,rgba(43,19,22,.98),rgba(21,13,16,.98)) !important;
+    border-color:rgba(255,59,59,.42) !important;
+  }
+
+  .customer-account-card .customer-totals span{
+    color:#d9d2c5 !important;
+  }
+
+  .customer-account-card .customer-totals strong{
+    color:#ff4545 !important;
+    font-weight:900 !important;
+    text-shadow:0 0 10px rgba(255,69,69,.16) !important;
+  }
+
+  .customer-account-card .customer-card-actions{
+    background:transparent !important;
+    background-color:transparent !important;
+  }
+
+  .customer-account-card .customer-card-actions button{
+    background:linear-gradient(145deg,#1d2024,#0e1013) !important;
+    background-color:#15171a !important;
+    color:#f1cf72 !important;
+    border:1px solid rgba(214,168,62,.55) !important;
+    box-shadow:none !important;
+  }
+
+  .customer-account-card .customer-card-actions .whatsapp-button{
+    background:linear-gradient(145deg,#1fa85b,#138943) !important;
+    background-color:#169c50 !important;
+    color:#fff !important;
+    border-color:#22c55e !important;
+  }
+
+  .customer-account-card .customer-card-actions .danger-button{
+    background:linear-gradient(145deg,#9f1d24,#72131a) !important;
+    background-color:#8f1820 !important;
+    color:#fff !important;
+    border-color:#ff4545 !important;
+  }
+
+  /* Force the overdue summary card to match all other compact cards */
+  .stats.customer-stats-final > .card.customer-stat-row.overdue-card{
+    height:50px !important;
+    min-height:50px !important;
+    max-height:50px !important;
+    padding:0 9px !important;
+    margin:0 !important;
+    display:grid !important;
+    grid-template-columns:26px minmax(0,1fr) auto !important;
+    grid-template-rows:50px !important;
+    align-items:center !important;
+    gap:5px !important;
   }
 
   html,
   body,
-  #root {
-    background: #050607 !important;
-    background-color: #050607 !important;
-  }
-}/* v15.3.14 - Customer card dark premium + red amounts */
-@media (max-width: 768px) {
-
-  .customers-v153 .customer-card {
-    background: linear-gradient(
-      145deg,
-      #17191d 0%,
-      #101215 55%,
-      #0b0d10 100%
-    ) !important;
-
-    color: #eee7d8 !important;
-    border: 1px solid rgba(214, 168, 62, 0.72) !important;
-    border-top: 5px solid #d6a83e !important;
-    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35) !important;
-  }
-
-  .customers-v153 .customer-card > div,
-  .customers-v153 .customer-summary,
-  .customers-v153 .balance-summary,
-  .customers-v153 [class*="metric"],
-  .customers-v153 [class*="summary-box"] {
-    background: rgba(255, 255, 255, 0.025) !important;
-    color: #eee7d8 !important;
-  }
-
-  /* Customer name */
-  .customers-v153 .customer-card h3,
-  .customers-v153 .customer-card h2 {
-    color: #e3b94f !important;
-  }
-
-  /* Normal text */
-  .customers-v153 .customer-card span,
-  .customers-v153 .customer-card p,
-  .customers-v153 .customer-card label {
-    color: #ddd6c8 !important;
-  }
-
-  /* Amounts and important numbers RED */
-  .customers-v153 .customer-card strong,
-  .customers-v153 .customer-summary strong,
-  .customers-v153 .balance-summary strong,
-  .customers-v153 [class*="metric"] strong,
-  .customers-v153 [class*="summary-box"] strong {
-    color: #ff3b3b !important;
-    font-weight: 800 !important;
-    text-shadow: 0 0 10px rgba(255, 59, 59, 0.15) !important;
-  }
-
-  /* Final total box */
-  .customers-v153 .customer-card .final,
-  .customers-v153 [class*="final"] {
-    background: rgba(255, 59, 59, 0.07) !important;
-    border-color: rgba(255, 59, 59, 0.35) !important;
-  }
-
-  /* Buttons */
-  .customers-v153 .customer-card button {
-    background: linear-gradient(145deg, #1c1e22, #101215) !important;
-    color: #e7c96d !important;
-    border: 1px solid rgba(214, 168, 62, 0.65) !important;
-  }
-
-  /* WhatsApp stays green */
-  .customers-v153 .customer-card button[class*="whatsapp"],
-  .customers-v153 .customer-card .whatsapp-button {
-    background: #169c50 !important;
-    color: #ffffff !important;
+  #root,
+  .app,
+  .app > main{
+    background:#050607 !important;
+    background-color:#050607 !important;
   }
 }

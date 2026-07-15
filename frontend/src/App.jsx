@@ -63,7 +63,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.13 Final Mobile</p>
+        <p>v15.3.14 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -2323,7 +2323,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.13 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.14 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2337,7 +2337,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v15.3.13 Final Mobile</small>
+          <small>v15.3.14 Final Mobile</small>
         </div>
         <button className="logout-top" onClick={()=>setLogoutConfirm(true)}>🚪 تسجيل الخروج</button>
       </div>
