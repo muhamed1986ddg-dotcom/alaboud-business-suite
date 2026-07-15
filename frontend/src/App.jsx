@@ -2,6 +2,24 @@ import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
+function openRegularWhatsApp(phone,message){
+  const cleanPhone=String(phone||"").replace(/\D/g,"");
+  const encodedText=encodeURIComponent(String(message||""));
+
+  if(!cleanPhone)return false;
+
+  const isAndroid=/Android/i.test(navigator.userAgent||"");
+  if(isAndroid){
+    const intentUrl=`intent://send?phone=${cleanPhone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp;end`;
+    window.location.href=intentUrl;
+    return true;
+  }
+
+  window.open(`https://wa.me/${cleanPhone}?text=${encodedText}`,"_blank");
+  return true;
+}
+
+
 const currencyFlag=code=>String(code||"").toUpperCase();
 
 function CurrencyFlag({code,className=""}){
@@ -104,7 +122,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.22 Final Mobile</p>
+        <p>v15.3.23 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -444,7 +462,7 @@ function Customers({open}){
 الرصيد النهائي المتبقي: ${cad(customer.finalBalance)}
 شكراً لتعاملكم مع شركة العبود للتجارة.`;
 
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank");
+    openRegularWhatsApp(phone,message);
   }
 
   const filtered=list.filter(customer=>
@@ -732,7 +750,7 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
       return;
     }
     const type=drafts[customer.id]?.messageType||"gentle";
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(whatsappText(customer,type))}`,"_blank");
+    openRegularWhatsApp(phone,whatsappText(customer,type));
     try{
       await api.post("/notification-actions",{
         customerId:customer.id,
@@ -1116,7 +1134,7 @@ function Invoice({transactionId,back}){
       `المدفوع: ${money(data.transaction.paid)}`,
       `المتبقي: ${money(data.transaction.remaining)}`
     ].join("\n");
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank");
+    openRegularWhatsApp(phone,message);
   }
 
   if(error&&!data)return <div className="card customer-error"><button onClick={back}>رجوع</button><p>{error}</p></div>;
@@ -1203,7 +1221,7 @@ function Statement({customerId,back}){
       `شكراً لتعاملكم معنا.`
     ].join("\n");
 
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank");
+    openRegularWhatsApp(phone,message);
   }
 
   const statusLabel={
@@ -1981,7 +1999,7 @@ function PartnerStatement({partnerId,back}){
       `تم تجهيز كشف الحساب من شركة العبود للتجارة.`,
       `الرصيد النهائي: ${money(data.finalBalance)}`
     ].join("\n");
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`,"_blank");
+    openRegularWhatsApp(phone,message);
   }
 
   return <>
@@ -2406,7 +2424,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.22 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.23 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2420,7 +2438,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v15.3.22 Final Mobile</small>
+          <small>v15.3.23 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
