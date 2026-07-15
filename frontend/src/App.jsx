@@ -25,6 +25,10 @@ const currencyFlag=code=>String(code||"").toUpperCase();
 function CurrencyFlag({code,className=""}){
   const normalized=String(code||"").toUpperCase();
   const supported=["CAD","USD","EUR","GBP","AED","TRY","SYP"];
+  const goldCodes=["XAU24","XAU22","XAU21","XAU18"];
+  if(goldCodes.includes(normalized)){
+    return <span className={`gold-rate-icon ${className}`} aria-label="gold">🪙</span>;
+  }
   if(supported.includes(normalized)){
     return <img
       className={`currency-flag-image ${normalized==="SYP"?"syria-new-flag":""} ${className}`}
@@ -285,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.36 Final Mobile</p>
+        <p>v15.3.37 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -1689,11 +1693,25 @@ function ExchangeRates(){
   const [list,setList]=useState([]);
   const [history,setHistory]=useState([]);
   const [f,setF]=useState({baseCurrency:"CAD",quoteCurrency:"USD",buyRate:"",sellRate:"",notes:""});
+  const [goldForm,setGoldForm]=useState({baseCurrency:"XAU24",quoteCurrency:"CAD",buyRate:"",sellRate:"",notes:"سعر غرام الذهب"});
   const [refreshing,setRefreshing]=useState(false);
   const [message,setMessage]=useState("");
 
   const trendFor=(rate)=>rateTrend(rate,history);
-  const load=()=>Promise.all([api.get("/exchange-rates"),api.get("/exchange-rates/history")]).then(([a,b])=>{setList(a.data);setHistory(b.data)});
+  const isGoldRate=rate=>String(rate.baseCurrency||"").startsWith("XAU");
+  const goldLabel=code=>({
+    XAU24:"ذهب 24 قيراط",
+    XAU22:"ذهب 22 قيراط",
+    XAU21:"ذهب 21 قيراط",
+    XAU18:"ذهب 18 قيراط"
+  }[code]||code);
+
+  const load=()=>Promise.all([api.get("/exchange-rates"),api.get("/exchange-rates/history")])
+    .then(([ratesResponse,historyResponse])=>{
+      setList(Array.isArray(ratesResponse.data)?ratesResponse.data:[]);
+      setHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
+    });
+
   useEffect(()=>{
     load();
     const hourly=setInterval(async()=>{
@@ -1702,12 +1720,33 @@ function ExchangeRates(){
     },60*60*1000);
     return ()=>clearInterval(hourly);
   },[]);
+
   async function add(e){
     e.preventDefault();
-    await api.post("/exchange-rates",f);
-    setF(x=>({...x,buyRate:"",sellRate:"",notes:""}));
-    load();
+    setMessage("");
+    try{
+      await api.post("/exchange-rates",f);
+      setF(x=>({...x,buyRate:"",sellRate:"",notes:""}));
+      setMessage("تم حفظ سعر العملة");
+      await load();
+    }catch(error){
+      setMessage(error.response?.data?.message||"تعذر حفظ سعر العملة");
+    }
   }
+
+  async function addGold(e){
+    e.preventDefault();
+    setMessage("");
+    try{
+      await api.post("/exchange-rates",goldForm);
+      setGoldForm(x=>({...x,buyRate:"",sellRate:""}));
+      setMessage("تم حفظ سعر الذهب");
+      await load();
+    }catch(error){
+      setMessage(error.response?.data?.message||"تعذر حفظ سعر الذهب");
+    }
+  }
+
   async function refresh(){
     setRefreshing(true);setMessage("");
     try{
@@ -1718,65 +1757,113 @@ function ExchangeRates(){
       setMessage(e.response?.data?.message||"تعذر التحديث التلقائي");
     }finally{setRefreshing(false)}
   }
+
+  const currencyRates=list.filter(rate=>!isGoldRate(rate));
+  const goldRates=list.filter(isGoldRate);
+
   return <>
-    <h2>العملات وأسعار الصرف</h2>
+    <h2>العملات وأسعار الصرف والذهب</h2>
+
     <div className="card rate-legend">
       <span className="legend-up">↑ ارتفاع</span>
       <span className="legend-down">↓ انخفاض</span>
       <span className="legend-same">→ ثابت</span>
       <span className="legend-new">● سعر جديد</span>
     </div>
+
     <div className="card auto-rate-bar">
       <div>
-        <strong>التحديث التلقائي</strong>
-        <p>يتم تحديث الأسعار آليًا كل ساعة مع إظهار الصعود والنزول.</p>
+        <strong>التحديث التلقائي للعملات</strong>
+        <p>الأسعار الآلية تتحدث كل ساعة. الليرة السورية والذهب يمكن تسجيل سعرهما يدويًا لضمان اعتماد السعر الذي تستخدمه شركتك.</p>
       </div>
       <button type="button" onClick={refresh} disabled={refreshing}>
-        {refreshing?"جاري التحديث...":"تحديث الأسعار الآن"}
+        {refreshing?"جاري التحديث...":"تحديث أسعار العملات الآن"}
       </button>
     </div>
+
     {message&&<div className="card rate-message">{message}</div>}
-    <form className="card form" onSubmit={add}>
-      <select value={f.baseCurrency} onChange={e=>setF({...f,baseCurrency:e.target.value})}>
-        {["CAD","USD","EUR","SYP","AED","GBP"].map(x=><option key={x}>{x}</option>)}
-      </select>
-      <select value={f.quoteCurrency} onChange={e=>setF({...f,quoteCurrency:e.target.value})}>
-        {["USD","CAD","EUR","SYP","AED","GBP"].map(x=><option key={x}>{x}</option>)}
-      </select>
-      <input type="number" step=".0001" value={f.buyRate} onChange={e=>setF({...f,buyRate:e.target.value})} placeholder="سعر الشراء" required/>
-      <input type="number" step=".0001" value={f.sellRate} onChange={e=>setF({...f,sellRate:e.target.value})} placeholder="سعر البيع" required/>
-      <input value={f.notes} onChange={e=>setF({...f,notes:e.target.value})} placeholder="ملاحظات"/>
-      <button>حفظ السعر</button>
-    </form>
-    <div className="card tablewrap">
-      <h3>آخر الأسعار</h3>
+
+    <div className="rates-entry-grid">
+      <form className="card form" onSubmit={add}>
+        <h3>💱 إضافة سعر عملة</h3>
+        <select value={f.baseCurrency} onChange={e=>setF({...f,baseCurrency:e.target.value})}>
+          {["CAD","USD","EUR","SYP","AED","GBP","TRY"].map(x=><option key={x}>{x}</option>)}
+        </select>
+        <select value={f.quoteCurrency} onChange={e=>setF({...f,quoteCurrency:e.target.value})}>
+          {["USD","CAD","EUR","SYP","AED","GBP","TRY"].map(x=><option key={x}>{x}</option>)}
+        </select>
+        <input type="number" step=".000001" value={f.buyRate} onChange={e=>setF({...f,buyRate:e.target.value})} placeholder="سعر الشراء" required/>
+        <input type="number" step=".000001" value={f.sellRate} onChange={e=>setF({...f,sellRate:e.target.value})} placeholder="سعر البيع" required/>
+        <input value={f.notes} onChange={e=>setF({...f,notes:e.target.value})} placeholder="ملاحظات"/>
+        <button>حفظ سعر العملة</button>
+      </form>
+
+      <form className="card form gold-rate-form" onSubmit={addGold}>
+        <h3>🪙 إضافة سعر الذهب للغرام</h3>
+        <select value={goldForm.baseCurrency} onChange={e=>setGoldForm({...goldForm,baseCurrency:e.target.value})}>
+          <option value="XAU24">ذهب 24 قيراط</option>
+          <option value="XAU22">ذهب 22 قيراط</option>
+          <option value="XAU21">ذهب 21 قيراط</option>
+          <option value="XAU18">ذهب 18 قيراط</option>
+        </select>
+        <select value={goldForm.quoteCurrency} onChange={e=>setGoldForm({...goldForm,quoteCurrency:e.target.value})}>
+          <option value="CAD">CAD 🇨🇦</option>
+          <option value="USD">USD 🇺🇸</option>
+          <option value="SYP">SYP 🇸🇾</option>
+        </select>
+        <input type="number" step=".01" value={goldForm.buyRate} onChange={e=>setGoldForm({...goldForm,buyRate:e.target.value})} placeholder="سعر شراء الغرام" required/>
+        <input type="number" step=".01" value={goldForm.sellRate} onChange={e=>setGoldForm({...goldForm,sellRate:e.target.value})} placeholder="سعر بيع الغرام" required/>
+        <input value={goldForm.notes} onChange={e=>setGoldForm({...goldForm,notes:e.target.value})} placeholder="ملاحظات"/>
+        <button>حفظ سعر الذهب</button>
+      </form>
+    </div>
+
+    <div className="card tablewrap currency-rates-table">
+      <h3>💱 أسعار العملات</h3>
       <table>
-        <thead><tr><th>من</th><th>إلى</th><th>شراء</th><th>بيع</th><th>المصدر</th><th>آخر تحديث</th></tr></thead>
-        <tbody>{list.map(r=>{
+        <thead><tr><th>من</th><th>إلى</th><th>شراء</th><th>بيع</th><th>الحركة</th><th>المصدر</th><th>آخر تحديث</th></tr></thead>
+        <tbody>{currencyRates.length?currencyRates.map(r=>{
           const trend=trendFor(r);
-          return <tr key={r.id} className={`rate-row rate-${trend.type}`}>
+          return <tr key={r.id} className={`rate-row rate-${trend.type} ${r.baseCurrency==="SYP"||r.quoteCurrency==="SYP"?"syp-highlight":""}`}>
             <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.baseCurrency}/>{r.baseCurrency}</span></td>
             <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.quoteCurrency}/>{r.quoteCurrency}</span></td>
-            <td className="buy-rate">{Number(r.buyRate).toFixed(4)}</td>
-            <td className={`sell-rate ${trend.type}`}>
-              <strong>{Number(r.sellRate).toFixed(4)}</strong>
-              <span className={`trend trend-${trend.type}`}>{trend.symbol} {trend.label}</span>
-            </td>
+            <td className="buy-rate">{Number(r.buyRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</td>
+            <td className="sell-rate"><strong>{Number(r.sellRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</strong></td>
+            <td><span className={`trend trend-${trend.type}`}>{trend.symbol} {trend.label}</span></td>
             <td><span className={`source-badge ${r.source==="FRANKFURTER"?"auto":"manual"}`}>{r.source==="FRANKFURTER"?"تلقائي":"يدوي"}</span></td>
             <td>{new Date(r.createdAt).toLocaleString("ar-CA")}</td>
           </tr>
-        })}</tbody>
+        }):<tr><td colSpan="7">لا توجد أسعار عملات مسجلة.</td></tr>}</tbody>
       </table>
     </div>
+
+    <div className="card tablewrap gold-rates-table">
+      <h3>🪙 أسعار الذهب للغرام</h3>
+      <table>
+        <thead><tr><th>العيار</th><th>العملة</th><th>شراء الغرام</th><th>بيع الغرام</th><th>الحركة</th><th>آخر تحديث</th></tr></thead>
+        <tbody>{goldRates.length?goldRates.map(r=>{
+          const trend=trendFor(r);
+          return <tr key={r.id} className={`rate-row gold-rate-row rate-${trend.type}`}>
+            <td><span className="gold-karat-badge">🪙 {goldLabel(r.baseCurrency)}</span></td>
+            <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.quoteCurrency}/>{r.quoteCurrency}</span></td>
+            <td className="buy-rate">{money(r.buyRate)}</td>
+            <td className="sell-rate"><strong>{money(r.sellRate)}</strong></td>
+            <td><span className={`trend trend-${trend.type}`}>{trend.symbol} {trend.label}</span></td>
+            <td>{new Date(r.createdAt).toLocaleString("ar-CA")}</td>
+          </tr>
+        }):<tr><td colSpan="6">لا توجد أسعار ذهب مسجلة. أضف سعر الذهب من النموذج أعلاه.</td></tr>}</tbody>
+      </table>
+    </div>
+
     <div className="card tablewrap">
       <h3>سجل تغييرات الأسعار</h3>
       <table>
-        <thead><tr><th>التاريخ</th><th>الزوج</th><th>شراء</th><th>بيع</th><th>المصدر</th><th>ملاحظات</th></tr></thead>
+        <thead><tr><th>التاريخ</th><th>الزوج / العيار</th><th>شراء</th><th>بيع</th><th>المصدر</th><th>ملاحظات</th></tr></thead>
         <tbody>{history.map(r=><tr key={r.id}>
           <td>{new Date(r.createdAt).toLocaleString("ar-CA")}</td>
-          <td>{r.baseCurrency}/{r.quoteCurrency}</td>
-          <td>{Number(r.buyRate).toFixed(4)}</td>
-          <td>{Number(r.sellRate).toFixed(4)}</td>
+          <td>{isGoldRate(r)?goldLabel(r.baseCurrency):`${r.baseCurrency}/${r.quoteCurrency}`}</td>
+          <td>{Number(r.buyRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</td>
+          <td>{Number(r.sellRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</td>
           <td>{r.source==="FRANKFURTER"?"تلقائي":"يدوي"}</td>
           <td>{r.notes||"-"}</td>
         </tr>)}</tbody>
@@ -2462,7 +2549,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.36 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.37 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -2555,7 +2642,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.36 Final"
+        version:"v15.3.37 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -2597,7 +2684,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.36 Final</span>
+      <span className="settings-version">v15.3.37 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -2673,7 +2760,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.36 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.37 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -2827,7 +2914,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.36 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.37 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2841,7 +2928,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.36 Final Mobile</small>
+          <small>v15.3.37 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
