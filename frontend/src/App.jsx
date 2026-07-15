@@ -91,7 +91,7 @@ const APP_EN_TRANSLATIONS={
   "قائمة العملاء":"Customer List","بحث باسم العميل أو رقم الهاتف":"Search by customer name or phone",
   "مجموع الحسابات الكلي":"Total Accounts","مجموع المدفوع":"Total Paid","المجموع النهائي (CAD) المتبقي":"Final Remaining Total (CAD)",
   "المتأخرون أكثر من أسبوع":"Overdue More Than a Week","مجموع الحساب":"Account Total","المدفوع":"Paid",
-  "فتح الحساب":"Open Account","إضافة دفعة":"Add Payment","تعديل":"Edit","واتساب بالمجموع النهائي (CAD)":"WhatsApp Final Total (CAD)",
+  "فتح الحساب":"Open Account","إضافة دفعة":"Add Payment","تعديل":"Edit","واتساب كشف الحساب":"WhatsApp Final Total (CAD)",
   "مستحق":"Due","مسدد":"Paid","لا يوجد رقم هاتف":"No phone number",
   "حفظ الحوالة":"Save Transfer","مدفوع":"Paid","غير مدفوع":"Unpaid","أجور الحوالة":"Transfer Fee",
   "ربح الحوالة":"Transfer Profit","المجموع النهائي (CAD) للعميل":"Customer Final Total (CAD)",
@@ -285,7 +285,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.32 Final Mobile</p>
+        <p>v15.3.33 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -606,26 +606,47 @@ function Customers({open}){
     }
   }
 
-  function whatsappFinalBalance(customer, urgent=false){
+  async function whatsappFinalBalance(customer, urgent=false){
     const phone=String(customer.phone||"").replace(/\D/g,"");
     if(!phone){
       setError("لا يوجد رقم واتساب محفوظ لهذا العميل");
       return;
     }
 
-    const message=urgent
-      ? `السلام عليكم ${customer.name}،
+    if(urgent){
+      const urgentMessage=`السلام عليكم ${customer.name}،
 نذكّركم بضرورة تسديد الرصيد المستحق وقدره ${cad(customer.finalBalance)}.
 عدد أيام التأخير: ${customer.overdueDays} يوم.
-يرجى التواصل معنا لتسوية الحساب.
-شكراً لتعاملكم مع شركة العبود للتجارة.`
-      : `السلام عليكم ${customer.name}،
-مجموع حسابكم الكلي: ${cad(customer.totalTransactions)}
-إجمالي المدفوع: ${cad(customer.totalPaid)}
-الرصيد النهائي المتبقي: ${cad(customer.finalBalance)}
-شكراً لتعاملكم مع شركة العبود للتجارة.`;
+يرجى التواصل معنا لتسوية الحساب.`;
+      openRegularWhatsApp(phone,urgentMessage);
+      return;
+    }
 
-    openRegularWhatsApp(phone,message);
+    try{
+      const {data}=await api.get(`/customers/${customer.id}/statement`);
+      const lines=(Array.isArray(data.transactions)?data.transactions:[]).map((item,index)=>{
+        const amount=Number(item.usdAmount||0).toFixed(2).replace(/\.00$/,"");
+        const rate=Number(item.customerRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
+        return `${index+1}_ ${amount} USA 🇺🇸 × ${rate} = ${money(item.formulaResultCad)} CAD 🇨🇦`;
+      });
+
+      const message=[
+        data.company?.name||"شركة العبود التجارية",
+        "",
+        "كشف حساب العميل",
+        customer.name,
+        "",
+        ...lines,
+        "",
+        "--------------------",
+        `الدفعات: ${money(data.totals?.paid||0)} CAD 🇨🇦`,
+        `المجموع الكلي: ${money(data.totals?.formulaResultCad||0)} CAD 🇨🇦`
+      ].join("\n");
+
+      openRegularWhatsApp(phone,message);
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر تجهيز كشف الحساب للواتساب");
+    }
   }
 
   const filtered=list.filter(customer=>
@@ -856,7 +877,7 @@ function Customers({open}){
           <button onClick={()=>prepareTransfer(customer)}>إضافة حوالة</button>
           <button onClick={()=>preparePayment(customer)}>إضافة دفعة</button>
           <button onClick={()=>{setEditingCustomer({...customer});setActivePanel("")}}>تعديل</button>
-          <button className="whatsapp-button" onClick={()=>whatsappFinalBalance(customer,false)}>واتساب بالمجموع النهائي (CAD)</button>
+          <button className="whatsapp-button" onClick={()=>whatsappFinalBalance(customer,false)}>واتساب كشف الحساب</button>
           {customer.overdue&&<button className="danger-button" onClick={()=>whatsappFinalBalance(customer,true)}>تنبيه الدفع</button>}
         </div>
       </article>):<div className="card">لا توجد نتائج.</div>}
@@ -1428,6 +1449,10 @@ function Statement({customerId,back}){
         </table>
       </div>
 
+      <div className="simple-statement-payments">
+        <span>الدفعات:</span>
+        <strong>{money(data.totals.paid||0)} CAD 🇨🇦</strong>
+      </div>
       <div className="simple-statement-total">
         <span>المجموع الكلي:</span>
         <strong>{money(data.totals.formulaResultCad ?? data.transactions.reduce((sum,item)=>sum+Number(item.formulaResultCad||0),0))} CAD 🇨🇦</strong>
@@ -2437,7 +2462,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.32 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.33 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -2530,7 +2555,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.32 Final"
+        version:"v15.3.33 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -2572,7 +2597,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.32 Final</span>
+      <span className="settings-version">v15.3.33 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -2648,7 +2673,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.32 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.33 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -2802,7 +2827,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.32 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.33 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2816,7 +2841,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.32 Final Mobile</small>
+          <small>v15.3.33 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
