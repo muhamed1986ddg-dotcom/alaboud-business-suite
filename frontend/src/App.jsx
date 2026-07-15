@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.42 Final Mobile</p>
+        <p>v15.3.43 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -1486,6 +1486,8 @@ function Transactions({openInvoice}){
     rateUpdatedAt:null
   });
   const [rateMeta,setRateMeta]=useState(null);
+  const [editingTransaction,setEditingTransaction]=useState(null);
+  const [editSaving,setEditSaving]=useState(false);
 
   async function load(){
     try{
@@ -1568,6 +1570,46 @@ function Transactions({openInvoice}){
     }
   }
 
+  function startEditTransaction(transaction){
+    setError("");
+    setEditingTransaction({
+      ...transaction,
+      amount:String(transaction.amount??""),
+      costRate:String(transaction.costRate??""),
+      finalRate:String(transaction.finalRate??""),
+      transferFee:String(transaction.transferFee??0),
+      feeMethod:transaction.feeMethod||"ADD",
+      currency:transaction.currency||"USD",
+      transferDate:transaction.transferDate||String(transaction.createdAt||"").slice(0,10)
+    });
+  }
+
+  async function saveEditedTransaction(event){
+    event.preventDefault();
+    if(!editingTransaction)return;
+    setError("");
+    setEditSaving(true);
+    try{
+      await api.patch(`/transactions/${editingTransaction.id}`,{
+        currency:editingTransaction.currency,
+        amount:Number(editingTransaction.amount),
+        costRate:Number(editingTransaction.costRate),
+        finalRate:Number(editingTransaction.finalRate),
+        transferFee:Number(editingTransaction.transferFee||0),
+        feeMethod:editingTransaction.feeMethod,
+        transferDate:editingTransaction.transferDate,
+        status:editingTransaction.status||"COMPLETED",
+        rateSource:"manual"
+      });
+      setEditingTransaction(null);
+      await load();
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر تعديل الحوالة");
+    }finally{
+      setEditSaving(false);
+    }
+  }
+
   return <>
     <h2>الحوالات</h2>
     {error&&<div className="card customer-error">{error}</div>}
@@ -1629,12 +1671,68 @@ function Transactions({openInvoice}){
       <button>حفظ</button>
     </form>
 
+    {editingTransaction&&
+      <form className="card form edit-panel transaction-edit-panel no-print" onSubmit={saveEditedTransaction}>
+        <div className="transaction-edit-title">
+          <h3>✏️ تعديل الحوالة</h3>
+          <small>{editingTransaction.number}</small>
+        </div>
+
+        <label className="currency-field">
+          <span className="currency-field-title">عملة الحوالة</span>
+          <select value={editingTransaction.currency} onChange={e=>setEditingTransaction({...editingTransaction,currency:e.target.value})}>
+            {["USD","EUR","SYP","AED","GBP","CAD"].map(code=><option key={code} value={code}>{code}</option>)}
+          </select>
+        </label>
+
+        <label className="currency-field">
+          <span className="currency-field-title">مبلغ الحوالة</span>
+          <input type="number" inputMode="decimal" step=".01" value={editingTransaction.amount} onChange={e=>setEditingTransaction({...editingTransaction,amount:e.target.value})} required/>
+        </label>
+
+        <label className="currency-field">
+          <span className="currency-field-title">سعر التكلفة</span>
+          <input type="number" inputMode="decimal" step=".0000001" value={editingTransaction.costRate} onChange={e=>setEditingTransaction({...editingTransaction,costRate:e.target.value})} required/>
+        </label>
+
+        <label className="currency-field">
+          <span className="currency-field-title">سعر التحويل للعميل</span>
+          <input type="number" inputMode="decimal" step=".0000001" value={editingTransaction.finalRate} onChange={e=>setEditingTransaction({...editingTransaction,finalRate:e.target.value})} required/>
+        </label>
+
+        <label className="currency-field">
+          <span className="currency-field-title">أجور الحوالة</span>
+          <input type="number" inputMode="decimal" step=".01" value={editingTransaction.transferFee} onChange={e=>setEditingTransaction({...editingTransaction,transferFee:e.target.value})}/>
+        </label>
+
+        <select value={editingTransaction.feeMethod} onChange={e=>setEditingTransaction({...editingTransaction,feeMethod:e.target.value})}>
+          <option value="ADD">إضافة الأجور</option>
+          <option value="DEDUCT">خصم الأجور</option>
+        </select>
+
+        <input type="date" value={editingTransaction.transferDate||""} onChange={e=>setEditingTransaction({...editingTransaction,transferDate:e.target.value})}/>
+
+        <div className="transaction-edit-preview">
+          <span>المجموع بعد التعديل</span>
+          <strong>{(
+            (Number(editingTransaction.amount)||0)*(Number(editingTransaction.finalRate)||0)
+            +(editingTransaction.feeMethod==="ADD"?(Number(editingTransaction.transferFee)||0):0)
+          ).toFixed(2)} CAD</strong>
+        </div>
+
+        <div className="transaction-edit-actions">
+          <button disabled={editSaving}>{editSaving?"جاري الحفظ...":"حفظ تعديل الحوالة"}</button>
+          <button type="button" onClick={()=>setEditingTransaction(null)}>إلغاء</button>
+        </div>
+      </form>
+    }
+
     <div className="card tablewrap">
       <table>
         <thead>
           <tr>
             <th>الرقم</th><th>تاريخ الحوالة</th><th>العميل</th><th>المبلغ</th>
-            <th>الأجور</th><th>الإجمالي</th><th>الربح</th><th>الفاتورة</th>
+            <th>الأجور</th><th>الإجمالي</th><th>الربح</th><th>الفاتورة</th><th>تعديل</th>
           </tr>
         </thead>
         <tbody>
@@ -1647,7 +1745,8 @@ function Transactions({openInvoice}){
             <td>{money(transaction.totalCustomerDue)}</td>
             <td>{money(transaction.totalProfit)}</td>
             <td><button onClick={()=>openInvoice(transaction.id)}>فتح</button></td>
-          </tr>):<tr><td colSpan="7">لا توجد حوالات.</td></tr>}
+            <td><button className="transaction-edit-button" onClick={()=>startEditTransaction(transaction)}>✏️ تعديل</button></td>
+          </tr>):<tr><td colSpan="9">لا توجد حوالات.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -2706,7 +2805,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.42 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.43 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -2799,7 +2898,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.42 Final"
+        version:"v15.3.43 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -2841,7 +2940,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.42 Final</span>
+      <span className="settings-version">v15.3.43 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -2917,7 +3016,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.42 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.43 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3070,7 +3169,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.42 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.43 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3084,7 +3183,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.42 Final Mobile</small>
+          <small>v15.3.43 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

@@ -3777,3 +3777,35 @@ body.app-language-en aside{
   color:#f0c85b;
   font-weight:800;
 }
+
+
+/* v15.3.43 - transaction edit button */
+.transaction-edit-panel{
+  border:1px solid rgba(214,168,62,.65)!important;
+  background:linear-gradient(145deg,#121315,#0b0c0e)!important;
+}
+.transaction-edit-title{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.transaction-edit-title h3{margin:0;color:#f0c85b}
+.transaction-edit-title small{color:#aaa}
+.transaction-edit-preview{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  padding:14px 16px;
+  border:1px solid rgba(214,168,62,.38);
+  border-radius:14px;
+  background:#0d0f12;
+}
+.transaction-edit-preview strong{color:#f0c85b;font-size:1.2rem}
+.transaction-edit-actions{display:flex;gap:10px}
+.transaction-edit-actions button{flex:1}
+.transaction-edit-button{white-space:nowrap}
+@media(max-width:700px){
+  .transaction-edit-actions{flex-direction:column}
+}
