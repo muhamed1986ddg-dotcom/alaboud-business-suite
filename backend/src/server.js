@@ -127,7 +127,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.27",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.32",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -191,6 +191,32 @@ app.post("/api/auth/change-password", auth, (req,res)=>{
   }catch(error){
     res.status(400).json({message:error.message||"تعذر تغيير كلمة المرور"});
   }
+});
+
+app.get("/api/company-profile", auth, (req,res)=>{
+  const store=readStore();
+  const company=store.companies.find(item=>item.id===req.user.companyId);
+  if(!company)return res.status(404).json({message:"الشركة غير موجودة"});
+  res.json({id:company.id,name:company.name,phone:company.phone||"",logoDataUrl:company.logoDataUrl||""});
+});
+
+app.patch("/api/company-profile", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"تعديل هوية الشركة متاح للمسؤول الكامل فقط"});
+  const name=String(req.body?.name||"").trim();
+  const phone=String(req.body?.phone||"").trim();
+  const logoDataUrl=String(req.body?.logoDataUrl||"");
+  if(!name)return res.status(400).json({message:"اسم الشركة مطلوب"});
+  if(logoDataUrl && !/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(logoDataUrl)){
+    return res.status(400).json({message:"صيغة الشعار غير مدعومة"});
+  }
+  if(logoDataUrl.length>1500000)return res.status(400).json({message:"حجم الشعار كبير جدًا"});
+  const company=mutate(store=>{
+    const item=store.companies.find(company=>company.id===req.user.companyId);
+    if(!item)throw new Error("الشركة غير موجودة");
+    item.name=name; item.phone=phone; item.logoDataUrl=logoDataUrl; item.updatedAt=now();
+    return {id:item.id,name:item.name,phone:item.phone||"",logoDataUrl:item.logoDataUrl||""};
+  });
+  res.json(company);
 });
 
 app.post("/api/users", auth, (req,res)=>{
@@ -1302,6 +1328,8 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
           number:transaction.number||transaction.id,
           transferDate:date,
           usdAmount:+usdAmount.toFixed(2),
+          customerRate:+finalRate.toFixed(6),
+          formulaResultCad:+(usdAmount*finalRate).toFixed(2),
           costCad:+costCad.toFixed(2),
           totalCad:+totalCad.toFixed(2),
           paid:+paid.toFixed(2),
@@ -1317,20 +1345,21 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
       acc.usdAmount+=safeNumber(item.usdAmount);
       acc.costCad+=safeNumber(item.costCad);
       acc.totalCad+=safeNumber(item.totalCad);
+      acc.formulaResultCad+=safeNumber(item.formulaResultCad);
       acc.paid+=safeNumber(item.paid);
       acc.remaining+=safeNumber(item.remaining);
       return acc;
-    },{usdAmount:0,costCad:0,totalCad:0,paid:0,remaining:0});
+    },{usdAmount:0,costCad:0,totalCad:0,formulaResultCad:0,paid:0,remaining:0});
 
     const lastActivity=transactions.length
       ? transactions[transactions.length-1].transferDate
       : null;
 
     res.json({
-      company:{
-        name:"شركة العبود للتجارة",
-        nameEn:"AlAboud Trading Company"
-      },
+      company:(()=>{
+        const company=(Array.isArray(store.companies)?store.companies:[]).find(item=>item.id===req.user.companyId);
+        return {name:company?.name||"شركة العبود للتجارة",nameEn:"",logoDataUrl:company?.logoDataUrl||""};
+      })(),
       customer:{
         ...customer,
         totalTransactions:+totals.totalCad.toFixed(2),
@@ -1346,6 +1375,7 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
         usdAmount:+totals.usdAmount.toFixed(2),
         costCad:+totals.costCad.toFixed(2),
         totalCad:+totals.totalCad.toFixed(2),
+        formulaResultCad:+totals.formulaResultCad.toFixed(2),
         paid:+totals.paid.toFixed(2),
         remaining:+totals.remaining.toFixed(2)
       }

@@ -285,7 +285,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.27 Final Mobile</p>
+        <p>v15.3.32 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -1385,34 +1385,6 @@ function Statement({customerId,back}){
 
   useEffect(()=>{load();},[customerId]);
 
-  function whatsappStatement(){
-    if(!data)return;
-    const phone=String(data.customer.phone||"").replace(/\D/g,"");
-    if(!phone){
-      setError("لا يوجد رقم واتساب محفوظ للعميل");
-      return;
-    }
-
-    const message=[
-      `السلام عليكم ${data.customer.name}،`,
-      `كشف حسابكم لدى شركة العبود للتجارة:`,
-      `إجمالي الحوالات: ${Number(data.totals.usdAmount).toFixed(2)} USD`,
-      `إجمالي المبلغ النهائي: ${money(data.totals.totalCad)} CAD`,
-      `إجمالي الدفعات: ${money(data.totals.paid)} CAD`,
-      `الرصيد المتبقي: ${money(data.totals.remaining)} CAD`,
-      `شكراً لتعاملكم معنا.`
-    ].join("\n");
-
-    openRegularWhatsApp(phone,message);
-  }
-
-  const statusLabel={
-    PAID:"مسددة",
-    PARTIAL:"مسدد جزئياً",
-    UNPAID:"غير مسددة",
-    OVERDUE:"متأخرة"
-  };
-
   return <>
     <div className="card no-print statement-toolbar">
       <button onClick={back}>رجوع</button>
@@ -1420,81 +1392,46 @@ function Statement({customerId,back}){
       <input type="date" value={filters.to} onChange={e=>setFilters({...filters,to:e.target.value})}/>
       <button onClick={load}>عرض كشف الحساب</button>
       <button onClick={()=>window.print()} disabled={!data}>طباعة / حفظ PDF</button>
-      <button className="whatsapp-button" onClick={whatsappStatement} disabled={!data}>إرسال واتساب</button>
     </div>
 
     {error&&<div className="card customer-error">{error}</div>}
 
-    {data&&<section className="invoice-sheet statement-sheet">
-      <div className="invoice-header">
-        <div>
-          <h1>{data.company.name}</h1>
-          <p>{data.company.nameEn}</p>
-          <h3>كشف حساب العميل</h3>
-        </div>
-        <div>
-          <p><strong>تاريخ الإصدار:</strong> {String(data.generatedAt).slice(0,10)}</p>
-          <p><strong>الفترة:</strong> {data.from||"البداية"} إلى {data.to||"اليوم"}</p>
-        </div>
-      </div>
-
-      <div className="statement-customer-header">
-        <div>
-          <h2>{data.customer.name}</h2>
-          <p><strong>الهاتف / واتساب:</strong> {data.customer.phone||"-"}</p>
-          <p><strong>البريد:</strong> {data.customer.email||"-"}</p>
-          <p><strong>آخر حركة:</strong> {data.lastActivity||"-"}</p>
-        </div>
-        <div className="statement-balance">
-          <span>الرصيد الحالي</span>
-          <strong>{money(data.totals.remaining)} CAD</strong>
-        </div>
-      </div>
-
-      <div className="statement-summary">
-        <div><span>إجمالي الحوالات</span><strong>{Number(data.totals.usdAmount).toFixed(2)} USD</strong></div>
-        <div><span>إجمالي المبلغ النهائي</span><strong>{money(data.totals.totalCad)} CAD</strong></div>
-        <div><span>إجمالي الدفعات</span><strong>{money(data.totals.paid)} CAD</strong></div>
-        <div className="remaining"><span>الرصيد المتبقي</span><strong>{money(data.totals.remaining)} CAD</strong></div>
+    {data&&<section className="invoice-sheet simple-customer-statement" dir="rtl">
+      <div className="simple-statement-heading">
+        {data.company.logoDataUrl&&<img src={data.company.logoDataUrl} alt={data.company.name}/>}
+        <h1>{data.company.name}</h1>
+        <h2>كشف حساب العميل</h2>
+        <h3>{data.customer.name}</h3>
       </div>
 
       <div className="tablewrap">
-        <table className="statement-table">
+        <table className="simple-statement-table">
           <thead>
             <tr>
-              <th>التاريخ</th>
-              <th>رقم الحوالة</th>
-              <th>مبلغ الحوالة (USD)</th>
-              <th>تكلفة الحوالة (CAD)</th>
-              <th>المجموع النهائي (CAD) (CAD)</th>
-              <th>الدفعات (CAD)</th>
-              <th>المتبقي (CAD)</th>
-              <th>الحالة</th>
+              <th>#</th>
+              <th>مبلغ الحوالة</th>
+              <th>سعر التحويل</th>
+              <th>النتيجة</th>
             </tr>
           </thead>
           <tbody>
             {data.transactions.length?
-              data.transactions.map(item=><tr key={item.id} className={`statement-row status-${item.status.toLowerCase()}`}>
-                <td>{item.transferDate}</td>
-                <td>{item.number}</td>
-                <td>{Number(item.usdAmount).toFixed(2)}</td>
-                <td>{money(item.totalCad)}</td>
-                <td>{money(item.paid)}</td>
-                <td><strong>{money(item.remaining)}</strong></td>
-                <td>
-                  <span className={`statement-status ${item.status.toLowerCase()}`}>
-                    {statusLabel[item.status]||item.status}
-                  </span>
-                  {item.status==="OVERDUE"&&<small>{item.overdueDays} يوم</small>}
-                </td>
+              data.transactions.map((item,index)=><tr key={item.id}>
+                <td>{index+1}</td>
+                <td>{Number(item.usdAmount).toFixed(2)} USA 🇺🇸</td>
+                <td>× {Number(item.customerRate).toFixed(4).replace(/0+$/,"").replace(/\.$/,"")} =</td>
+                <td>{money(item.formulaResultCad)} CAD 🇨🇦</td>
               </tr>)
-              :<tr><td colSpan="7">لا توجد حوالات في هذه الفترة.</td></tr>
+              :<tr><td colSpan="4">لا توجد حوالات في هذه الفترة.</td></tr>
             }
           </tbody>
         </table>
       </div>
 
-      <p className="invoice-note">هذا الكشف لا يتضمن أي معلومات داخلية عن أرباح الشركة.</p>
+      <div className="simple-statement-total">
+        <span>المجموع الكلي:</span>
+        <strong>{money(data.totals.formulaResultCad ?? data.transactions.reduce((sum,item)=>sum+Number(item.formulaResultCad||0),0))} CAD 🇨🇦</strong>
+      </div>
     </section>}
   </>;
 }
@@ -2500,9 +2437,37 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.27 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.32 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
+  const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
+  const [companySaving,setCompanySaving]=useState(false);
+
+  useEffect(()=>{
+    api.get("/company-profile").then(({data})=>setCompanyProfile(data)).catch(()=>{});
+  },[]);
+
+  function chooseCompanyLogo(event){
+    const file=event.target.files?.[0];
+    if(!file)return;
+    if(file.size>1024*1024){setMessage("حجم الشعار يجب أن يكون أقل من 1 MB");return}
+    const reader=new FileReader();
+    reader.onload=()=>setCompanyProfile(current=>({...current,logoDataUrl:String(reader.result||"")}));
+    reader.readAsDataURL(file);
+  }
+
+  async function saveCompanyProfile(event){
+    event.preventDefault();setMessage("");setCompanySaving(true);
+    try{
+      const {data}=await api.patch("/company-profile",companyProfile);
+      setCompanyProfile(data);
+      const currentUser={...savedUser,companyName:data.name};
+      localStorage.setItem("afs_user",JSON.stringify(currentUser));
+      window.dispatchEvent(new CustomEvent("alaboud-company-updated",{detail:data}));
+      setMessage("تم حفظ اسم وشعار الشركة بنجاح");
+    }catch(error){setMessage(error.response?.data?.message||"تعذر حفظ هوية الشركة")}
+    finally{setCompanySaving(false)}
+  }
 
   useEffect(()=>{
     document.documentElement.lang=language;
@@ -2565,7 +2530,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.27 Final"
+        version:"v15.3.32 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -2607,7 +2572,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.27 Final</span>
+      <span className="settings-version">v15.3.32 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -2633,6 +2598,23 @@ function SettingsPanel(){
         </select>
 
         <button className="settings-primary-button" type="button" onClick={savePreferences}>{labels.save}</button>
+      </article>
+
+      <article className="settings-card company-branding-settings">
+        <div className="settings-card-title"><span>🏢</span><h3>معلومات وهوية الشركة</h3></div>
+        <p className="settings-help">اسم وشعار مستقلان لهذه الشركة ويظهران على جميع الأجهزة عند تسجيل الدخول بنفس الحساب.</p>
+        <form className="settings-form-modern" onSubmit={saveCompanyProfile}>
+          <div className="company-logo-preview">
+            <img src={companyProfile.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyProfile.name||"شعار الشركة"}/>
+          </div>
+          <input value={companyProfile.name||""} onChange={e=>setCompanyProfile({...companyProfile,name:e.target.value})} placeholder="اسم الشركة" required/>
+          <input value={companyProfile.phone||""} onChange={e=>setCompanyProfile({...companyProfile,phone:e.target.value})} placeholder="رقم هاتف الشركة"/>
+          <label className="company-logo-upload">🖼️ اختيار لوغو الشركة
+            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseCompanyLogo}/>
+          </label>
+          {companyProfile.logoDataUrl&&<button type="button" className="company-logo-remove" onClick={()=>setCompanyProfile({...companyProfile,logoDataUrl:""})}>حذف الشعار الحالي</button>}
+          <button disabled={companySaving}>{companySaving?"جاري الحفظ...":"حفظ اسم وشعار الشركة"}</button>
+        </form>
       </article>
 
       <article className="settings-card">
@@ -2666,7 +2648,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.27 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.32 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -2688,6 +2670,22 @@ function SettingsPanel(){
 function Simple({type}){const[list,setList]=useState([]),[title,setTitle]=useState(""),[amount,setAmount]=useState(""),[move,setMove]=useState("IN");const endpoint=type==="expenses"?"/expenses":"/capital";const load=()=>api.get(endpoint).then(r=>setList(r.data));useEffect(()=>{load();},[type]);async function add(e){e.preventDefault();await api.post(endpoint,type==="expenses"?{title,amount}:{type:move,amount,description:title});setTitle("");setAmount("");load();}return <><h2>{type==="expenses"?"المصروفات":"رأس المال"}</h2><form className="card form" onSubmit={add}>{type==="capital"&&<select value={move} onChange={e=>setMove(e.target.value)}><option value="IN">زيادة</option><option value="OUT">سحب</option></select>}<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="الوصف" required/><input type="number" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="المبلغ" required/><button>حفظ</button></form><div className="card tablewrap"><table><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.title||x.description}</td><td>{x.type||x.category}</td><td>{money(x.amount)}</td></tr>)}</tbody></table></div></>}
 export default function App(){
   const [token,setToken]=useState(localStorage.getItem("afs_token"));
+  const savedCompanyUser=(()=>{try{return JSON.parse(localStorage.getItem("afs_user")||"{}")}catch{return {}}})();
+  const [companyBrand,setCompanyBrand]=useState({name:savedCompanyUser.companyName||"شركة العبود التجارية",logoDataUrl:""});
+
+  useEffect(()=>{
+    if(!token)return;
+    api.get("/company-profile").then(({data})=>setCompanyBrand(data)).catch(()=>{});
+    const updateCompany=event=>setCompanyBrand(event.detail);
+    window.addEventListener("alaboud-company-updated",updateCompany);
+    return()=>window.removeEventListener("alaboud-company-updated",updateCompany);
+  },[token]);
+
+  useEffect(()=>{
+    const handleAuthExpired=()=>setToken(null);
+    window.addEventListener("alaboud-auth-expired",handleAuthExpired);
+    return()=>window.removeEventListener("alaboud-auth-expired",handleAuthExpired);
+  },[]);
   const [page,setPage]=useState("dashboard");
   const [customerId,setCustomerId]=useState(null);
   const [invoiceId,setInvoiceId]=useState(null);
@@ -2804,21 +2802,21 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.27 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.32 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
     </div>
     <aside>
       <div className="mobile-menu-heading no-print">
-        <img className="alaboud-sidebar-logo mobile-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية" />
+        <img className="alaboud-sidebar-logo mobile-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name} />
         <button onClick={()=>setMobileMenuOpen(false)}>✕</button>
       </div>
-      <div className="sidebar-logo-wrap"><img className="alaboud-sidebar-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية" /></div>
+      <div className="sidebar-logo-wrap"><img className="alaboud-sidebar-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name} /></div>
       <div className="sidebar-account-box no-print">
         <div>
-          <strong>شركة العبود التجارية</strong>
-          <small>v15.3.27 Final Mobile</small>
+          <strong>{companyBrand.name}</strong>
+          <small>v15.3.32 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

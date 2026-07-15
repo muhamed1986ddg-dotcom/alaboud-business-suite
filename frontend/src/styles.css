@@ -3662,3 +3662,34 @@ body.app-language-en aside{
   border:1px solid rgba(214,168,62,.48) !important
 }
 .public-account-panel small{display:block;margin-top:12px;color:#aaa398;line-height:1.6}
+
+/* v15.3.29 - per-company branding */
+.company-logo-preview{display:flex;justify-content:center;align-items:center;min-height:110px;padding:10px;border:1px solid rgba(214,168,62,.35);border-radius:16px;background:#0b0c0e}
+.company-logo-preview img{width:96px;height:96px;object-fit:contain;border-radius:50%}
+.company-logo-upload{display:flex;align-items:center;justify-content:center;gap:8px;padding:13px;border:1px dashed rgba(214,168,62,.65);border-radius:12px;color:#f0c85b;cursor:pointer}
+.company-logo-upload input{display:none}
+.company-logo-remove{background:#3a1717 !important;color:#ffb4b4 !important;border-color:#7d2929 !important}
+.mobile-header-logo,.alaboud-sidebar-logo{object-fit:contain}
+
+/* v15.3.30 customer statement formula */
+.statement-usd-amount,.statement-rate,.statement-formula-result{font-weight:800;white-space:nowrap}
+.statement-rate{color:#f1c75b}
+.statement-formula-result{color:#54d98c}
+.statement-grand-total{margin-top:18px;padding:20px 24px;border:2px solid #c99d35;border-radius:18px;background:#111214;display:flex;align-items:center;justify-content:space-between;gap:18px;font-size:1.15rem}
+.statement-grand-total strong{font-size:1.65rem;color:#f1c75b;white-space:nowrap}
+@media(max-width:800px){.statement-grand-total{padding:16px;flex-direction:column;text-align:center}.statement-grand-total strong{font-size:1.45rem}}
+
+/* v15.3.31 - simple customer statement */
+.simple-customer-statement{max-width:900px;margin:0 auto;background:#fff;color:#111}
+.simple-statement-heading{text-align:center;margin-bottom:24px}
+.simple-statement-heading img{width:78px;height:78px;object-fit:contain;margin-bottom:8px}
+.simple-statement-heading h1{margin:4px 0;font-size:28px;color:#111}
+.simple-statement-heading h2{margin:8px 0;font-size:22px;color:#111}
+.simple-statement-heading h3{margin:6px 0;font-size:18px;color:#333}
+.simple-statement-table{width:100%;border-collapse:collapse;direction:rtl}
+.simple-statement-table th,.simple-statement-table td{border:1px solid #222;padding:12px 10px;text-align:center;color:#111;background:#fff;font-weight:700}
+.simple-statement-table th{background:#f1f1f1;font-size:16px}
+.simple-statement-total{margin-top:22px;padding-top:16px;border-top:2px solid #222;display:flex;justify-content:flex-start;gap:12px;align-items:center;font-size:22px;color:#111}
+.simple-statement-total strong{font-size:24px;color:#111}
+@media(max-width:700px){.simple-statement-table th,.simple-statement-table td{padding:9px 5px;font-size:12px;white-space:nowrap}.simple-statement-heading h1{font-size:22px}.simple-statement-total{font-size:18px}.simple-statement-total strong{font-size:20px}}
+@media print{.simple-customer-statement{box-shadow:none!important;border:none!important}.simple-statement-table th,.simple-statement-table td{color:#000!important;border-color:#000!important}.simple-statement-total,.simple-statement-total strong,.simple-statement-heading h1,.simple-statement-heading h2,.simple-statement-heading h3{color:#000!important}}
