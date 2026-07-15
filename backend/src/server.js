@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const path = require("path");
 const fs = require("fs");
-const { readStore, mutate, id, now, runWithTenant } = require("./store");
+const { readStore, mutate, id, now, runWithTenant, initStore } = require("./store");
 
 const PORT = Number(process.env.PORT || 5000);
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
@@ -39,7 +39,6 @@ function seedAdmin(){
     }
   });
 }
-seedAdmin();
 
 function auth(req,res,next){
   const h=req.headers.authorization||"";
@@ -127,7 +126,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.33",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.34",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -1750,8 +1749,11 @@ app.use((err,_req,res,_next)=>{
   res.status(400).json({message:err.message||"Request failed"});
 });
 
-app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v8.1 running on port ${PORT}`);
+async function startServer(){
+  await initStore();
+  seedAdmin();
+  app.listen(PORT,"0.0.0.0",()=>{
+  console.log(`AlAboud Enterprise Cloud v15.3.34 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{
@@ -1766,4 +1768,9 @@ app.listen(PORT,"0.0.0.0",()=>{
 
   setTimeout(runHourlyRateRefresh,60*1000);
   setInterval(runHourlyRateRefresh,60*60*1000);
+  });
+}
+startServer().catch(error=>{
+  console.error("Server startup failed:",error);
+  process.exit(1);
 });
