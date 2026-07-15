@@ -3230,3 +3230,37 @@ aside button.active{
   .trend-same{color:#f0c85b !important}
   .trend-new{color:#8da2bd !important}
 }
+
+
+/* v15.3.20 - custom new Syrian flag for SYP */
+.currency-flag-image{
+  width:26px !important;
+  height:18px !important;
+  min-width:26px !important;
+  object-fit:cover !important;
+  border-radius:3px !important;
+  display:inline-block !important;
+  vertical-align:middle !important;
+  box-shadow:0 0 0 1px rgba(255,255,255,.22) !important;
+}
+
+.dashboard-rate-flag.currency-flag-image{
+  width:24px !important;
+  height:16px !important;
+  min-width:24px !important;
+  font-size:0 !important;
+}
+
+@media screen and (max-width:600px){
+  .currency-flag-image{
+    width:23px !important;
+    height:15px !important;
+    min-width:23px !important;
+  }
+
+  .dashboard-rate-flag.currency-flag-image{
+    width:21px !important;
+    height:14px !important;
+    min-width:21px !important;
+  }
+}

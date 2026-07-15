@@ -3,8 +3,20 @@ const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
 const currencyFlag=code=>({
-  CAD:"🇨🇦",USD:"🇺🇸",EUR:"🇪🇺",GBP:"🇬🇧",AED:"🇦🇪",TRY:"🇹🇷",SYP:"🇸🇾"
+  CAD:"🇨🇦",USD:"🇺🇸",EUR:"🇪🇺",GBP:"🇬🇧",AED:"🇦🇪",TRY:"🇹🇷"
 }[String(code||"").toUpperCase()]||"🏳️");
+
+function CurrencyFlag({code,className=""}){
+  const normalized=String(code||"").toUpperCase();
+  if(normalized==="SYP"){
+    return <img
+      className={`currency-flag-image syria-new-flag ${className}`}
+      src="/syria-flag-new.svg"
+      alt="علم سوريا"
+    />;
+  }
+  return <span className={className}>{currencyFlag(normalized)}</span>;
+}
 
 function rateTrend(rate,history=[]){
   const pairHistory=history
@@ -93,7 +105,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.19 Final Mobile</p>
+        <p>v15.3.20 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -139,7 +151,7 @@ function Dashboard({navigate}){
               const trend=rateTrend(rate,dashboardRateHistory);
               return <>
                 <strong className="dashboard-rate-pair">
-                  <span className="dashboard-rate-flag">{currencyFlag(rate.baseCurrency)}</span>
+                  <CurrencyFlag code={rate.baseCurrency} className="dashboard-rate-flag"/>
                   <span>{rate.baseCurrency}/{rate.quoteCurrency}</span>
                   <span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol}</span>
                 </strong>
@@ -1582,8 +1594,8 @@ function ExchangeRates(){
         <tbody>{list.map(r=>{
           const trend=trendFor(r);
           return <tr key={r.id} className={`rate-row rate-${trend.type}`}>
-            <td><span className="currency-badge currency-with-flag"><span>{currencyFlag(r.baseCurrency)}</span>{r.baseCurrency}</span></td>
-            <td><span className="currency-badge currency-with-flag"><span>{currencyFlag(r.quoteCurrency)}</span>{r.quoteCurrency}</span></td>
+            <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.baseCurrency}/>{r.baseCurrency}</span></td>
+            <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.quoteCurrency}/>{r.quoteCurrency}</span></td>
             <td className="buy-rate">{Number(r.buyRate).toFixed(4)}</td>
             <td className={`sell-rate ${trend.type}`}>
               <strong>{Number(r.sellRate).toFixed(4)}</strong>
@@ -2395,7 +2407,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.19 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.20 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2409,7 +2421,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v15.3.19 Final Mobile</small>
+          <small>v15.3.20 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
