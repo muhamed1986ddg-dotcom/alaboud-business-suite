@@ -2956,4 +2956,74 @@ aside button.active{
     background: #050607 !important;
     background-color: #050607 !important;
   }
+}/* v15.3.14 - Customer card dark premium + red amounts */
+@media (max-width: 768px) {
+
+  .customers-v153 .customer-card {
+    background: linear-gradient(
+      145deg,
+      #17191d 0%,
+      #101215 55%,
+      #0b0d10 100%
+    ) !important;
+
+    color: #eee7d8 !important;
+    border: 1px solid rgba(214, 168, 62, 0.72) !important;
+    border-top: 5px solid #d6a83e !important;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35) !important;
+  }
+
+  .customers-v153 .customer-card > div,
+  .customers-v153 .customer-summary,
+  .customers-v153 .balance-summary,
+  .customers-v153 [class*="metric"],
+  .customers-v153 [class*="summary-box"] {
+    background: rgba(255, 255, 255, 0.025) !important;
+    color: #eee7d8 !important;
+  }
+
+  /* Customer name */
+  .customers-v153 .customer-card h3,
+  .customers-v153 .customer-card h2 {
+    color: #e3b94f !important;
+  }
+
+  /* Normal text */
+  .customers-v153 .customer-card span,
+  .customers-v153 .customer-card p,
+  .customers-v153 .customer-card label {
+    color: #ddd6c8 !important;
+  }
+
+  /* Amounts and important numbers RED */
+  .customers-v153 .customer-card strong,
+  .customers-v153 .customer-summary strong,
+  .customers-v153 .balance-summary strong,
+  .customers-v153 [class*="metric"] strong,
+  .customers-v153 [class*="summary-box"] strong {
+    color: #ff3b3b !important;
+    font-weight: 800 !important;
+    text-shadow: 0 0 10px rgba(255, 59, 59, 0.15) !important;
+  }
+
+  /* Final total box */
+  .customers-v153 .customer-card .final,
+  .customers-v153 [class*="final"] {
+    background: rgba(255, 59, 59, 0.07) !important;
+    border-color: rgba(255, 59, 59, 0.35) !important;
+  }
+
+  /* Buttons */
+  .customers-v153 .customer-card button {
+    background: linear-gradient(145deg, #1c1e22, #101215) !important;
+    color: #e7c96d !important;
+    border: 1px solid rgba(214, 168, 62, 0.65) !important;
+  }
+
+  /* WhatsApp stays green */
+  .customers-v153 .customer-card button[class*="whatsapp"],
+  .customers-v153 .customer-card .whatsapp-button {
+    background: #169c50 !important;
+    color: #ffffff !important;
+  }
 }
