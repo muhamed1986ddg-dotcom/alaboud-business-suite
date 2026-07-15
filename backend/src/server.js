@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const path = require("path");
 const fs = require("fs");
-const { readStore, mutate, id, now } = require("./store");
+const { readStore, mutate, id, now, runWithTenant } = require("./store");
 
 const PORT = Number(process.env.PORT || 5000);
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
@@ -12,20 +12,45 @@ const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: "1mb" }));
 
-function seedAdmin() {
-  mutate((store) => {
-    if (!store.users.some((u) => u.email === "admin@alaboud.local")) {
-      store.users.push({ id: id(), name: "System Administrator", email: "admin@alaboud.local", passwordHash: bcrypt.hashSync("Admin123!", 12), role: "ADMIN", active: true, createdAt: now() });
+function seedAdmin(){
+  mutate((store)=>{
+    let company=store.companies.find(item=>item.slug==="alaboud-primary");
+    if(!company){
+      company={id:id(),name:"شركة العبود التجارية",slug:"alaboud-primary",phone:"",active:true,createdAt:now()};
+      store.companies.push(company);
+    }
+
+    let admin=store.users.find(user=>user.email==="admin@alaboud.local");
+    if(!admin){
+      admin={id:id(),companyId:company.id,name:"System Administrator",email:"admin@alaboud.local",passwordHash:bcrypt.hashSync("Admin123!",12),role:"ADMIN",active:true,createdAt:now()};
+      store.users.push(admin);
+    }else if(!admin.companyId){
+      admin.companyId=company.id;
+    }
+
+    const tenantArrays=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","notificationActions","auditLogs"];
+    for(const key of tenantArrays){
+      for(const item of store[key]||[]){
+        if(item&&!item.companyId)item.companyId=company.id;
+      }
+    }
+    if(!store.companySettings[company.id]){
+      store.companySettings[company.id]={...(store.notificationSettings||{}),overdueDays:store.notificationSettings?.overdueDays||7,lowCashLimit:store.notificationSettings?.lowCashLimit||5000,whatsappTemplate:store.notificationSettings?.whatsappTemplate||""};
     }
   });
 }
 seedAdmin();
 
-function auth(req, res, next) {
-  const h = req.headers.authorization || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7) : "";
-  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
-  catch { res.status(401).json({ message: "Authentication required" }); }
+function auth(req,res,next){
+  const h=req.headers.authorization||"";
+  const token=h.startsWith("Bearer ")?h.slice(7):"";
+  try{
+    req.user=jwt.verify(token,JWT_SECRET);
+    if(!req.user.companyId)return res.status(401).json({message:"Company account required"});
+    runWithTenant(req.user.companyId,()=>next());
+  }catch{
+    res.status(401).json({message:"Authentication required"});
+  }
 }
 
 function audit(store, userId, action, entityType, entityId, details = {}) {
@@ -102,14 +127,46 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"13.3.0",channel:"enterprise-alpha",cloud:true}));
-app.post("/api/auth/login", (req,res)=>{
-  const { email, password } = req.body || {};
-  const store = readStore();
-  const user = store.users.find((u)=>u.email.toLowerCase()===String(email||"").toLowerCase() && u.active);
-  if (!user || !bcrypt.compareSync(String(password||""), user.passwordHash)) return res.status(401).json({message:"Invalid credentials"});
-  const token = jwt.sign({id:user.id,name:user.name,role:user.role},JWT_SECRET,{expiresIn:"12h"});
-  res.json({token,user:{id:user.id,name:user.name,email:user.email,role:user.role}});
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.27",channel:"enterprise-alpha",cloud:true}));
+app.post("/api/auth/login",(req,res)=>{
+  const {email,password}=req.body||{};
+  const store=readStore();
+  const user=store.users.find(u=>u.email.toLowerCase()===String(email||"").toLowerCase()&&u.active);
+  if(!user||!bcrypt.compareSync(String(password||""),user.passwordHash)){
+    return res.status(401).json({message:"Invalid credentials"});
+  }
+  const company=store.companies.find(item=>item.id===user.companyId&&item.active);
+  if(!company)return res.status(403).json({message:"Company account is inactive"});
+  const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId},JWT_SECRET,{expiresIn:"30d"});
+  res.json({token,user:{id:user.id,name:user.name,email:user.email,role:user.role,companyId:user.companyId,companyName:company.name}});
+});
+
+app.post("/api/auth/register-company",(req,res)=>{
+  const ownerName=String(req.body?.ownerName||"").trim();
+  const companyName=String(req.body?.companyName||"").trim();
+  const email=String(req.body?.email||"").trim().toLowerCase();
+  const phone=String(req.body?.phone||"").trim();
+  const password=String(req.body?.password||"");
+  if(!ownerName||!companyName||!email.includes("@")){
+    return res.status(400).json({message:"الاسم واسم الشركة والبريد الإلكتروني مطلوبة"});
+  }
+  if(password.length<8)return res.status(400).json({message:"كلمة المرور يجب أن تكون 8 أحرف على الأقل"});
+
+  try{
+    const result=mutate(store=>{
+      if(store.users.some(user=>String(user.email||"").toLowerCase()===email))throw new Error("البريد الإلكتروني مستخدم مسبقًا");
+      const company={id:id(),name:companyName,phone,active:true,createdAt:now()};
+      const user={id:id(),companyId:company.id,name:ownerName,email,passwordHash:bcrypt.hashSync(password,12),role:"ADMIN",active:true,createdAt:now()};
+      store.companies.push(company);
+      store.users.push(user);
+      store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
+      return {company,user};
+    });
+    const token=jwt.sign({id:result.user.id,name:result.user.name,role:result.user.role,companyId:result.company.id},JWT_SECRET,{expiresIn:"30d"});
+    res.status(201).json({token,user:{id:result.user.id,name:result.user.name,email:result.user.email,role:result.user.role,companyId:result.company.id,companyName:result.company.name}});
+  }catch(error){
+    res.status(400).json({message:error.message||"تعذر إنشاء حساب الشركة"});
+  }
 });
 
 app.post("/api/auth/change-password", auth, (req,res)=>{

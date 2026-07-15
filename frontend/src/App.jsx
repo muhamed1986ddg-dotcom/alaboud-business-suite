@@ -176,7 +176,66 @@ function AppLanguageBridge(){
   return null;
 }
 
-function Login({onLogin}){const[email,setEmail]=useState("admin@alaboud.local"),[password,setPassword]=useState("Admin123!"),[error,setError]=useState("");async function submit(e){e.preventDefault();try{const{data}=await api.post("/auth/login",{email,password});localStorage.setItem("afs_token",data.token);localStorage.setItem("afs_user",JSON.stringify(data.user));onLogin();}catch{setError("فشل تسجيل الدخول");}}return <div className="login"><form className="panel" onSubmit={submit}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><h1>شركة العبود التجارية</h1><p className="login-company-en">ALABOUD TRADING COMPANY</p><p>إدارة الحوالات والحسابات</p><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد"/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور"/>{error&&<div className="error">{error}</div>}<button>تسجيل الدخول</button><small>admin@alaboud.local / Admin123!</small></form></div>}
+function Login({onLogin}){
+  const [mode,setMode]=useState("login");
+  const [email,setEmail]=useState("");
+  const [password,setPassword]=useState("");
+  const [form,setForm]=useState({ownerName:"",companyName:"",email:"",phone:"",password:"",confirmPassword:""});
+  const [error,setError]=useState("");
+  const [busy,setBusy]=useState(false);
+
+  function saveSession(data){
+    localStorage.setItem("afs_token",data.token);
+    localStorage.setItem("afs_user",JSON.stringify(data.user));
+    onLogin();
+  }
+
+  async function submitLogin(e){
+    e.preventDefault();setError("");setBusy(true);
+    try{const {data}=await api.post("/auth/login",{email,password});saveSession(data)}
+    catch(error){setError(error.response?.data?.message||"فشل تسجيل الدخول")}
+    finally{setBusy(false)}
+  }
+
+  async function submitRegister(e){
+    e.preventDefault();setError("");
+    if(form.password!==form.confirmPassword){setError("تأكيد كلمة المرور غير مطابق");return}
+    setBusy(true);
+    try{
+      const {data}=await api.post("/auth/register-company",{
+        ownerName:form.ownerName,companyName:form.companyName,email:form.email,phone:form.phone,password:form.password
+      });
+      saveSession(data);
+    }catch(error){setError(error.response?.data?.message||"تعذر إنشاء الحساب")}
+    finally{setBusy(false)}
+  }
+
+  return <div className="login">
+    <form className="panel public-account-panel" onSubmit={mode==="login"?submitLogin:submitRegister}>
+      <img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+      <h1>{mode==="login"?"تسجيل الدخول":"إنشاء حساب شركة جديد"}</h1>
+      <p className="login-company-en">ALABOUD BUSINESS SUITE</p>
+      {mode==="login"?<>
+        <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد الإلكتروني" required/>
+        <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور" required/>
+      </>:<>
+        <input value={form.ownerName} onChange={e=>setForm({...form,ownerName:e.target.value})} placeholder="اسم صاحب الحساب" required/>
+        <input value={form.companyName} onChange={e=>setForm({...form,companyName:e.target.value})} placeholder="اسم الشركة" required/>
+        <input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="البريد الإلكتروني" required/>
+        <input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="رقم الهاتف"/>
+        <input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="كلمة المرور — 8 أحرف على الأقل" required/>
+        <input type="password" value={form.confirmPassword} onChange={e=>setForm({...form,confirmPassword:e.target.value})} placeholder="تأكيد كلمة المرور" required/>
+        <div className="tenant-privacy-note">🔒 سيتم إنشاء مساحة بيانات مستقلة لشركتك. لن ترى بيانات أي شركة أخرى.</div>
+      </>}
+      {error&&<div className="error">{error}</div>}
+      <button disabled={busy}>{busy?"جاري التنفيذ...":mode==="login"?"تسجيل الدخول":"إنشاء الحساب والدخول"}</button>
+      <button className="account-mode-button" type="button" onClick={()=>{setMode(mode==="login"?"register":"login");setError("")}}>
+        {mode==="login"?"مستخدم جديد؟ إنشاء حساب شركة":"لدي حساب بالفعل — تسجيل الدخول"}
+      </button>
+      <small>يمكن استخدام نفس الحساب على أكثر من هاتف وستظهر نفس البيانات السحابية.</small>
+    </form>
+  </div>
+}
 function Dashboard({navigate}){
   const [data,setData]=useState(null);
   const [noticeData,setNoticeData]=useState({count:0,overdueCount:0,overdueTotal:0,notifications:[]});
@@ -226,7 +285,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.26 Final Mobile</p>
+        <p>v15.3.27 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -2441,7 +2500,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.26 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.27 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
 
@@ -2506,7 +2565,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.26 Final"
+        version:"v15.3.27 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -2548,7 +2607,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.26 Final</span>
+      <span className="settings-version">v15.3.27 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -2607,7 +2666,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.26 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.27 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -2745,7 +2804,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.26 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.27 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2759,7 +2818,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v15.3.26 Final Mobile</small>
+          <small>v15.3.27 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
