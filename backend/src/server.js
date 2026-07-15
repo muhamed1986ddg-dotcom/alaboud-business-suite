@@ -126,7 +126,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.38",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.40",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -1705,6 +1705,41 @@ app.post("/api/expenses", auth, (req,res)=>{const {title,amount,currency="CAD",c
 app.get("/api/capital", auth, (_req,res)=>res.json(readStore().capitalMovements.slice().reverse()));
 app.post("/api/capital", auth, (req,res)=>{const {type="IN",amount,currency="CAD",description="",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount);if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid capital movement"});const m=mutate(s=>{const x={id:id(),type,amount:+n.toFixed(2),currency,description,date,createdAt:now(),createdBy:req.user.id};s.capitalMovements.push(x);audit(s,req.user.id,"CREATE","CAPITAL",x.id);return x;});res.status(201).json(m);});
 
+app.patch("/api/capital/:id", auth, (req,res)=>{
+  const {type,amount,currency,description,date}=req.body||{};
+  const n=Number(amount);
+  if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0){
+    return res.status(400).json({message:"بيانات حركة رأس المال غير صحيحة"});
+  }
+  const updated=mutate(store=>{
+    const item=store.capitalMovements.find(entry=>entry.id===req.params.id);
+    if(!item)return null;
+    item.type=type;
+    item.amount=+n.toFixed(2);
+    item.currency=String(currency||"CAD").toUpperCase();
+    item.description=String(description||"");
+    item.date=date||new Date().toISOString().slice(0,10);
+    item.updatedAt=now();
+    item.updatedBy=req.user.id;
+    audit(store,req.user.id,"UPDATE","CAPITAL",item.id,{type:item.type,amount:item.amount});
+    return item;
+  });
+  if(!updated)return res.status(404).json({message:"حركة رأس المال غير موجودة"});
+  res.json(updated);
+});
+
+app.delete("/api/capital/:id", auth, (req,res)=>{
+  const removed=mutate(store=>{
+    const index=store.capitalMovements.findIndex(entry=>entry.id===req.params.id);
+    if(index<0)return null;
+    const [item]=store.capitalMovements.splice(index,1);
+    audit(store,req.user.id,"DELETE","CAPITAL",item.id,{type:item.type,amount:item.amount});
+    return item;
+  });
+  if(!removed)return res.status(404).json({message:"حركة رأس المال غير موجودة"});
+  res.json({message:"تم حذف حركة رأس المال",id:removed.id});
+});
+
 const publicDir = path.resolve(__dirname, "../public");
 const indexFile = path.join(publicDir, "index.html");
 
@@ -1753,7 +1788,7 @@ async function startServer(){
   await initStore();
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v15.3.38 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v15.3.40 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{

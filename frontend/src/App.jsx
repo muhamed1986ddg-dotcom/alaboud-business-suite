@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.38 Final Mobile</p>
+        <p>v15.3.40 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -2190,7 +2190,9 @@ function PartnerProfile({id,back}){
       </select>
       <input type="number" min=".01" step=".01" value={transaction.amount} onChange={e=>setTransaction({...transaction,amount:e.target.value})} placeholder="المبلغ" required/>
       <select value={transaction.currency} onChange={e=>setTransaction({...transaction,currency:e.target.value})}>
-        {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=><option key={currency}>{currency}</option>)}
+        <option value="CAD">CAD 🇨🇦 — الدولار الكندي</option>
+        <option value="USD">USD 🇺🇸 — الدولار الأمريكي</option>
+        <option value="SYP">SYP 🇸🇾 — الليرة السورية</option>
       </select>
       <input type="date" value={transaction.date} onChange={e=>setTransaction({...transaction,date:e.target.value})}/>
       <input type="date" value={transaction.dueDate} onChange={e=>setTransaction({...transaction,dueDate:e.target.value})}/>
@@ -2206,7 +2208,9 @@ function PartnerProfile({id,back}){
       </select>
       <input type="number" min=".01" step=".01" value={payment.amount} onChange={e=>setPayment({...payment,amount:e.target.value})} placeholder="مبلغ الدفعة" required/>
       <select value={payment.currency} onChange={e=>setPayment({...payment,currency:e.target.value})}>
-        {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=><option key={currency}>{currency}</option>)}
+        <option value="CAD">CAD 🇨🇦 — الدولار الكندي</option>
+        <option value="USD">USD 🇺🇸 — الدولار الأمريكي</option>
+        <option value="SYP">SYP 🇸🇾 — الليرة السورية</option>
       </select>
       <input type="date" value={payment.date} onChange={e=>setPayment({...payment,date:e.target.value})}/>
       <input value={payment.reference} onChange={e=>setPayment({...payment,reference:e.target.value})} placeholder="المرجع"/>
@@ -2343,13 +2347,27 @@ function Partners({open}){
 function CapitalOverview(){
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
   const [data,setData]=useState(null);
+  const [movements,setMovements]=useState([]);
   const [error,setError]=useState("");
+  const [message,setMessage]=useState("");
+  const [editing,setEditing]=useState(null);
+  const [form,setForm]=useState({
+    type:"IN",
+    amount:"",
+    currency:"CAD",
+    description:"",
+    date:new Date().toISOString().slice(0,10)
+  });
 
   async function load(){
     setError("");
     try{
-      const response=await api.get("/capital-overview",{params:{month}});
-      setData(response.data);
+      const [overviewResponse,movementsResponse]=await Promise.all([
+        api.get("/capital-overview",{params:{month}}),
+        api.get("/capital")
+      ]);
+      setData(overviewResponse.data);
+      setMovements(Array.isArray(movementsResponse.data)?movementsResponse.data:[]);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل رأس المال");
     }
@@ -2357,33 +2375,163 @@ function CapitalOverview(){
 
   useEffect(()=>{load();},[month]);
 
+  async function addCapital(event){
+    event.preventDefault();
+    setError("");setMessage("");
+    try{
+      await api.post("/capital",form);
+      setForm({
+        type:"IN",
+        amount:"",
+        currency:"CAD",
+        description:"",
+        date:new Date().toISOString().slice(0,10)
+      });
+      setMessage("تمت إضافة حركة رأس المال بنجاح");
+      await load();
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر إضافة رأس المال");
+    }
+  }
+
+  async function saveEdit(event){
+    event.preventDefault();
+    setError("");setMessage("");
+    try{
+      await api.patch(`/capital/${editing.id}`,editing);
+      setEditing(null);
+      setMessage("تم تعديل حركة رأس المال بنجاح");
+      await load();
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر تعديل رأس المال");
+    }
+  }
+
+  async function deleteCapital(item){
+    if(!window.confirm(`هل تريد حذف حركة رأس المال بقيمة ${money(item.amount)} ${item.currency||"CAD"}؟`))return;
+    setError("");setMessage("");
+    try{
+      await api.delete(`/capital/${item.id}`);
+      setMessage("تم حذف حركة رأس المال");
+      if(editing?.id===item.id)setEditing(null);
+      await load();
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر حذف رأس المال");
+    }
+  }
+
   if(!data)return <><h2>رأس المال الكلي</h2>{error?<div className="card customer-error">{error}</div>:<p>جاري التحميل...</p>}</>;
 
   const efficiency=data.turnoverRate>=3?"ممتاز":data.turnoverRate>=2?"جيد جداً":data.turnoverRate>=1?"جيد":"منخفض";
+  const capitalIn=movements.filter(item=>item.type==="IN").reduce((sum,item)=>sum+Number(item.amount||0),0);
+  const capitalOut=movements.filter(item=>item.type==="OUT").reduce((sum,item)=>sum+Number(item.amount||0),0);
 
   return <>
     <div className="page-title-row">
-      <h2>رأس المال الكلي وحركة دورانه</h2>
+      <h2>💰 إدارة رأس المال الكلي</h2>
       <button className="no-print" onClick={()=>window.print()}>طباعة التقرير</button>
     </div>
 
-    <div className="card form no-print">
-      <label>اختيار الشهر</label>
-      <input type="month" value={month} onChange={e=>setMonth(e.target.value)}/>
-      <button onClick={load}>تحديث</button>
-    </div>
-
     {error&&<div className="card customer-error">{error}</div>}
+    {message&&<div className="card rate-message">{message}</div>}
 
-    <div className="stats">
+    <div className="stats capital-management-stats">
       <div className="card final">
         <span>رأس المال الكلي التقديري</span>
-        <strong>{money(data.totalCapital)}</strong>
+        <strong>{money(data.totalCapital)} CAD</strong>
+      </div>
+      <div className="card receivable-card">
+        <span>إجمالي الإضافات</span>
+        <strong>{money(capitalIn)} CAD</strong>
+      </div>
+      <div className="card payable-card">
+        <span>إجمالي السحوبات</span>
+        <strong>{money(capitalOut)} CAD</strong>
       </div>
       <div className="card">
         <span>صافي حركة رأس المال</span>
-        <strong>{money(data.capitalBalance)}</strong>
+        <strong>{money(data.capitalBalance)} CAD</strong>
       </div>
+    </div>
+
+    <form className="card form capital-manage-form no-print" onSubmit={addCapital}>
+      <h3>➕ إضافة رأس مال أو سحب</h3>
+      <select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}>
+        <option value="IN">إضافة رأس مال</option>
+        <option value="OUT">سحب من رأس المال</option>
+      </select>
+      <input
+        type="number"
+        min=".01"
+        step=".01"
+        value={form.amount}
+        onChange={e=>setForm({...form,amount:e.target.value})}
+        placeholder="المبلغ"
+        required
+      />
+      <select value={form.currency} onChange={e=>setForm({...form,currency:e.target.value})}>
+        {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=><option key={currency}>{currency}</option>)}
+      </select>
+      <label className="capital-today-field">
+        <span>📅 تاريخ اليوم</span>
+        <input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/>
+      </label>
+      <input value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="الوصف أو سبب الإضافة / السحب"/>
+      <button>{form.type==="IN"?"إضافة رأس المال":"تسجيل السحب"}</button>
+    </form>
+
+    {editing&&<form className="card form edit-panel capital-edit-form no-print" onSubmit={saveEdit}>
+      <h3>✏️ تعديل حركة رأس المال</h3>
+      <select value={editing.type} onChange={e=>setEditing({...editing,type:e.target.value})}>
+        <option value="IN">إضافة رأس مال</option>
+        <option value="OUT">سحب من رأس المال</option>
+      </select>
+      <input type="number" min=".01" step=".01" value={editing.amount} onChange={e=>setEditing({...editing,amount:e.target.value})} required/>
+      <select value={editing.currency||"CAD"} onChange={e=>setEditing({...editing,currency:e.target.value})}>
+        {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=><option key={currency}>{currency}</option>)}
+      </select>
+      <input type="date" value={editing.date||""} onChange={e=>setEditing({...editing,date:e.target.value})}/>
+      <input value={editing.description||""} onChange={e=>setEditing({...editing,description:e.target.value})} placeholder="الوصف"/>
+      <button>حفظ التعديل</button>
+      <button type="button" onClick={()=>setEditing(null)}>إلغاء</button>
+    </form>}
+
+    <div className="card tablewrap capital-movements-table">
+      <h3>📋 سجل رأس المال</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>التاريخ</th>
+            <th>النوع</th>
+            <th>المبلغ</th>
+            <th>العملة</th>
+            <th>الوصف</th>
+            <th className="no-print">الإجراءات</th>
+          </tr>
+        </thead>
+        <tbody>{movements.length?movements.map(item=><tr key={item.id}>
+          <td>{item.date||String(item.createdAt||"").slice(0,10)}</td>
+          <td><span className={`capital-type-badge ${item.type==="IN"?"capital-in":"capital-out"}`}>
+            {item.type==="IN"?"إضافة":"سحب"}
+          </span></td>
+          <td><strong>{money(item.amount)}</strong></td>
+          <td>{item.currency||"CAD"}</td>
+          <td>{item.description||"-"}</td>
+          <td className="actions no-print">
+            <button type="button" onClick={()=>setEditing({...item})}>تعديل</button>
+            <button type="button" className="danger-button" onClick={()=>deleteCapital(item)}>حذف</button>
+          </td>
+        </tr>):<tr><td colSpan="6">لا توجد حركات رأس مال مسجلة.</td></tr>}</tbody>
+      </table>
+    </div>
+
+    <div className="card form no-print">
+      <label>اختيار الشهر للتقرير</label>
+      <input type="month" value={month} onChange={e=>setMonth(e.target.value)}/>
+      <button onClick={load}>تحديث التقرير</button>
+    </div>
+
+    <div className="stats">
       <div className="card transfer-total-card">
         <span>إجمالي الحوالات في الشهر</span>
         <strong>{money(data.monthlyTransferValue)}</strong>
@@ -2393,16 +2541,8 @@ function CapitalOverview(){
         <strong>{Number(data.turnoverRate).toFixed(2)} مرة</strong>
         <small>{efficiency}</small>
       </div>
-    </div>
-
-    <div className="stats">
-      <div className="card"><span>عدد الحوالات الشهرية</span><strong>{data.monthlyTransferCount}</strong></div>
-      <div className="card"><span>متوسط قيمة الحوالة</span><strong>{money(data.averageTransfer)}</strong></div>
       <div className="card"><span>أرباح الشهر</span><strong>{money(data.monthlyProfit)}</strong></div>
       <div className="card"><span>مصروفات الشهر</span><strong>{money(data.monthlyExpenses)}</strong></div>
-      <div className="card receivable-card"><span>ذمم العملاء</span><strong>{money(data.receivables)}</strong></div>
-      <div className="card receivable-card"><span>دين لنا</span><strong>{money(data.generalReceivable)}</strong></div>
-      <div className="card payable-card"><span>دين علينا</span><strong>{money(data.generalPayable)}</strong></div>
     </div>
 
     <div className="card capital-formula">
@@ -2563,7 +2703,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.38 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.40 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -2656,7 +2796,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.38 Final"
+        version:"v15.3.40 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -2698,7 +2838,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.38 Final</span>
+      <span className="settings-version">v15.3.40 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -2774,7 +2914,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.38 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.40 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -2928,7 +3068,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.38 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.40 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2942,7 +3082,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.38 Final Mobile</small>
+          <small>v15.3.40 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

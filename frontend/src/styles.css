@@ -3751,3 +3751,29 @@ body.app-language-en aside{
 @media(max-width:800px){
   .rates-entry-grid{grid-template-columns:1fr}
 }
+
+
+/* v15.3.39 - full capital management */
+.capital-management-stats .card strong{white-space:nowrap}
+.capital-manage-form,.capital-edit-form{border-color:rgba(214,168,62,.55)!important}
+.capital-movements-table h3{margin-top:0}
+.capital-type-badge{display:inline-flex;padding:6px 12px;border-radius:999px;font-weight:800}
+.capital-type-badge.capital-in{background:rgba(31,180,92,.14);color:#56df91;border:1px solid rgba(31,180,92,.38)}
+.capital-type-badge.capital-out{background:rgba(220,55,55,.14);color:#ff7676;border:1px solid rgba(220,55,55,.4)}
+.capital-movements-table .actions{display:flex;gap:8px;justify-content:center}
+@media(max-width:700px){
+  .capital-movements-table .actions{flex-direction:column}
+  .capital-movements-table .actions button{min-width:92px}
+}
+
+
+/* v15.3.40 - capital currencies and today's date */
+.capital-today-field{
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+}
+.capital-today-field span{
+  color:#f0c85b;
+  font-weight:800;
+}
