@@ -126,7 +126,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.40",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.41",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -1788,7 +1788,7 @@ async function startServer(){
   await initStore();
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v15.3.40 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v15.3.41 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{
