@@ -122,7 +122,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.23 Final Mobile</p>
+        <p>v15.3.24 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -2308,6 +2308,200 @@ function NotificationSettings(){
   </>;
 }
 
+
+function SettingsPanel(){
+  const savedUser=(()=>{
+    try{return JSON.parse(localStorage.getItem("afs_user")||"{}")}catch{return {}}
+  })();
+
+  const [language,setLanguage]=useState(localStorage.getItem("alaboud_language")||"ar");
+  const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
+  const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
+  const [message,setMessage]=useState("");
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.24 Final"});
+  const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
+  const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
+
+  useEffect(()=>{
+    document.documentElement.lang=language;
+    document.documentElement.dir=language==="ar"?"rtl":"ltr";
+    document.body.classList.remove("display-compact","display-comfortable","display-large");
+    document.body.classList.add(`display-${displayMode}`);
+  },[]);
+
+  function savePreferences(){
+    localStorage.setItem("alaboud_language",language);
+    localStorage.setItem("alaboud_display_mode",displayMode);
+    localStorage.setItem("alaboud_primary_currency",currency);
+
+    document.documentElement.lang=language;
+    document.documentElement.dir=language==="ar"?"rtl":"ltr";
+    document.body.classList.remove("display-compact","display-comfortable","display-large");
+    document.body.classList.add(`display-${displayMode}`);
+
+    setMessage(language==="ar"?"تم حفظ إعدادات العرض":"Display settings saved");
+  }
+
+  async function createAccount(event){
+    event.preventDefault();
+    setMessage("");
+    try{
+      await api.post("/users",accountForm);
+      setAccountForm({name:"",email:"",password:"",role:"USER"});
+      setMessage("تم إنشاء الحساب بنجاح");
+    }catch(error){
+      setMessage(error.response?.data?.message||"تعذر إنشاء الحساب");
+    }
+  }
+
+  async function changePassword(event){
+    event.preventDefault();
+    setMessage("");
+    if(passwordForm.newPassword!==passwordForm.confirmPassword){
+      setMessage("تأكيد كلمة المرور غير مطابق");
+      return;
+    }
+
+    try{
+      const response=await api.post("/auth/change-password",{
+        currentPassword:passwordForm.currentPassword,
+        newPassword:passwordForm.newPassword
+      });
+      setPasswordForm({currentPassword:"",newPassword:"",confirmPassword:""});
+      setMessage(response.data?.message||"تم تغيير كلمة المرور");
+    }catch(error){
+      setMessage(error.response?.data?.message||"تعذر تغيير كلمة المرور");
+    }
+  }
+
+  async function checkUpdates(){
+    setUpdateInfo(current=>({...current,checking:true,status:"جاري التحقق..."}));
+    try{
+      const response=await api.get("/health");
+      const serverVersion=response.data?.version||"غير معروف";
+      setUpdateInfo({
+        checking:false,
+        status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
+        version:"v15.3.24 Final"
+      });
+    }catch{
+      setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
+    }
+  }
+
+  const labels=language==="ar"
+    ?{
+      title:"الإعدادات",
+      language:"اللغة",
+      arabic:"العربية",
+      english:"English",
+      display:"طريقة العرض",
+      compact:"مضغوط",
+      comfortable:"مريح",
+      large:"كبير",
+      currency:"العملة الرئيسية",
+      save:"حفظ إعدادات العرض"
+    }
+    :{
+      title:"Settings",
+      language:"Language",
+      arabic:"العربية",
+      english:"English",
+      display:"Display mode",
+      compact:"Compact",
+      comfortable:"Comfortable",
+      large:"Large",
+      currency:"Primary currency",
+      save:"Save display settings"
+    };
+
+  return <section className="settings-page">
+    <div className="settings-hero">
+      <div>
+        <span className="settings-hero-icon">⚙️</span>
+        <div>
+          <h2>{labels.title}</h2>
+          <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
+        </div>
+      </div>
+      <span className="settings-version">v15.3.24 Final</span>
+    </div>
+
+    {message&&<div className="card settings-message">{message}</div>}
+
+    <div className="settings-grid">
+      <article className="settings-card">
+        <div className="settings-card-title"><span>🌐</span><h3>{labels.language}</h3></div>
+        <div className="settings-choice-grid">
+          <button type="button" className={language==="ar"?"selected":""} onClick={()=>setLanguage("ar")}>العربية</button>
+          <button type="button" className={language==="en"?"selected":""} onClick={()=>setLanguage("en")}>English</button>
+        </div>
+
+        <div className="settings-card-title settings-subtitle"><span>🖥️</span><h3>{labels.display}</h3></div>
+        <div className="settings-choice-grid three">
+          <button type="button" className={displayMode==="compact"?"selected":""} onClick={()=>setDisplayMode("compact")}>{labels.compact}</button>
+          <button type="button" className={displayMode==="comfortable"?"selected":""} onClick={()=>setDisplayMode("comfortable")}>{labels.comfortable}</button>
+          <button type="button" className={displayMode==="large"?"selected":""} onClick={()=>setDisplayMode("large")}>{labels.large}</button>
+        </div>
+
+        <label className="settings-label">{labels.currency}</label>
+        <select value={currency} onChange={e=>setCurrency(e.target.value)}>
+          {["CAD","USD","EUR","GBP","AED","TRY","SYP"].map(code=><option key={code} value={code}>{code}</option>)}
+        </select>
+
+        <button className="settings-primary-button" type="button" onClick={savePreferences}>{labels.save}</button>
+      </article>
+
+      <article className="settings-card">
+        <div className="settings-card-title"><span>👤</span><h3>إنشاء حساب</h3></div>
+        <p className="settings-help">الحساب الحالي: {savedUser.name||savedUser.email||"مدير النظام"}</p>
+        <form className="settings-form-modern" onSubmit={createAccount}>
+          <input value={accountForm.name} onChange={e=>setAccountForm({...accountForm,name:e.target.value})} placeholder="اسم المستخدم" required/>
+          <input type="email" value={accountForm.email} onChange={e=>setAccountForm({...accountForm,email:e.target.value})} placeholder="البريد الإلكتروني" required/>
+          <input type="password" value={accountForm.password} onChange={e=>setAccountForm({...accountForm,password:e.target.value})} placeholder="كلمة المرور — 8 أحرف على الأقل" required/>
+          <select value={accountForm.role} onChange={e=>setAccountForm({...accountForm,role:e.target.value})}>
+            <option value="USER">مستخدم</option>
+            <option value="MANAGER">مدير</option>
+            <option value="ADMIN">مسؤول كامل</option>
+          </select>
+          <button>إنشاء الحساب</button>
+        </form>
+      </article>
+
+      <article className="settings-card">
+        <div className="settings-card-title"><span>🔐</span><h3>تغيير كلمة السر</h3></div>
+        <form className="settings-form-modern" onSubmit={changePassword}>
+          <input type="password" value={passwordForm.currentPassword} onChange={e=>setPasswordForm({...passwordForm,currentPassword:e.target.value})} placeholder="كلمة المرور الحالية" required/>
+          <input type="password" value={passwordForm.newPassword} onChange={e=>setPasswordForm({...passwordForm,newPassword:e.target.value})} placeholder="كلمة المرور الجديدة" required/>
+          <input type="password" value={passwordForm.confirmPassword} onChange={e=>setPasswordForm({...passwordForm,confirmPassword:e.target.value})} placeholder="تأكيد كلمة المرور الجديدة" required/>
+          <button>تغيير كلمة السر</button>
+        </form>
+      </article>
+
+      <article className="settings-card">
+        <div className="settings-card-title"><span>🛟</span><h3>الدعم الفني</h3></div>
+        <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
+        <div className="support-actions">
+          <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.24 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+        </div>
+      </article>
+
+      <article className="settings-card settings-updates-card">
+        <div className="settings-card-title"><span>⬆️</span><h3>التحديثات</h3></div>
+        <div className="update-current-version">
+          <span>الإصدار الحالي</span>
+          <strong>{updateInfo.version}</strong>
+        </div>
+        <p className="settings-help">{updateInfo.status||"اضغط للتحقق من حالة الخدمة والتحديث."}</p>
+        <button type="button" className="settings-primary-button" onClick={checkUpdates} disabled={updateInfo.checking}>
+          {updateInfo.checking?"جاري التحقق...":"التحقق من التحديثات"}
+        </button>
+      </article>
+    </div>
+  </section>;
+}
+
 function Simple({type}){const[list,setList]=useState([]),[title,setTitle]=useState(""),[amount,setAmount]=useState(""),[move,setMove]=useState("IN");const endpoint=type==="expenses"?"/expenses":"/capital";const load=()=>api.get(endpoint).then(r=>setList(r.data));useEffect(()=>{load();},[type]);async function add(e){e.preventDefault();await api.post(endpoint,type==="expenses"?{title,amount}:{type:move,amount,description:title});setTitle("");setAmount("");load();}return <><h2>{type==="expenses"?"المصروفات":"رأس المال"}</h2><form className="card form" onSubmit={add}>{type==="capital"&&<select value={move} onChange={e=>setMove(e.target.value)}><option value="IN">زيادة</option><option value="OUT">سحب</option></select>}<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="الوصف" required/><input type="number" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="المبلغ" required/><button>حفظ</button></form><div className="card tablewrap"><table><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.title||x.description}</td><td>{x.type||x.category}</td><td>{money(x.amount)}</td></tr>)}</tbody></table></div></>}
 export default function App(){
   const [token,setToken]=useState(localStorage.getItem("afs_token"));
@@ -2390,6 +2584,8 @@ export default function App(){
     content=<MonthlyReport/>;
   }else if(page==="notification-settings"){
     content=<NotificationSettings/>;
+  }else if(page==="settings"){
+    content=<SettingsPanel/>;
   }else if(page==="expenses"){
     content=<Simple type="expenses"/>;
   }else{
@@ -2415,6 +2611,7 @@ export default function App(){
     ["capital-overview","💰 رأس المال الكلي"],
     ["monthly-report","📊 التقارير الشهرية"],
     ["notification-settings","🔔 إعدادات التنبيهات"],
+    ["settings","⚙️ الإعدادات"],
     ["expenses","🧾 المصروفات"],
     ["capital","🏦 حركة رأس المال"]
   ];
@@ -2424,7 +2621,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.23 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.24 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2438,7 +2635,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v15.3.23 Final Mobile</small>
+          <small>v15.3.24 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

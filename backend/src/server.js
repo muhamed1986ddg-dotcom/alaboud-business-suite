@@ -112,6 +112,74 @@ app.post("/api/auth/login", (req,res)=>{
   res.json({token,user:{id:user.id,name:user.name,email:user.email,role:user.role}});
 });
 
+app.post("/api/auth/change-password", auth, (req,res)=>{
+  const currentPassword=String(req.body?.currentPassword||"");
+  const newPassword=String(req.body?.newPassword||"");
+  if(newPassword.length<8){
+    return res.status(400).json({message:"كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل"});
+  }
+
+  try{
+    mutate((store)=>{
+      const user=store.users.find(item=>item.id===req.user.id&&item.active);
+      if(!user)throw new Error("الحساب غير موجود");
+      if(!bcrypt.compareSync(currentPassword,user.passwordHash)){
+        throw new Error("كلمة المرور الحالية غير صحيحة");
+      }
+      user.passwordHash=bcrypt.hashSync(newPassword,12);
+      user.updatedAt=now();
+      audit(store,req.user.id,"UPDATE","USER_PASSWORD",user.id,{});
+    });
+    res.json({message:"تم تغيير كلمة المرور بنجاح"});
+  }catch(error){
+    res.status(400).json({message:error.message||"تعذر تغيير كلمة المرور"});
+  }
+});
+
+app.post("/api/users", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN"){
+    return res.status(403).json({message:"إنشاء الحسابات متاح للمدير فقط"});
+  }
+
+  const name=String(req.body?.name||"").trim();
+  const email=String(req.body?.email||"").trim().toLowerCase();
+  const password=String(req.body?.password||"");
+  const role=["ADMIN","MANAGER","USER"].includes(String(req.body?.role||"").toUpperCase())
+    ? String(req.body.role).toUpperCase()
+    : "USER";
+
+  if(!name||!email||!email.includes("@")){
+    return res.status(400).json({message:"الاسم والبريد الإلكتروني مطلوبان"});
+  }
+  if(password.length<8){
+    return res.status(400).json({message:"كلمة المرور يجب أن تكون 8 أحرف على الأقل"});
+  }
+
+  try{
+    const created=mutate((store)=>{
+      if(store.users.some(item=>String(item.email||"").toLowerCase()===email)){
+        throw new Error("البريد الإلكتروني مستخدم مسبقًا");
+      }
+      const user={
+        id:id(),
+        name,
+        email,
+        passwordHash:bcrypt.hashSync(password,12),
+        role,
+        active:true,
+        createdAt:now()
+      };
+      store.users.push(user);
+      audit(store,req.user.id,"CREATE","USER",user.id,{name,email,role});
+      return {id:user.id,name:user.name,email:user.email,role:user.role,active:user.active};
+    });
+    res.status(201).json(created);
+  }catch(error){
+    res.status(400).json({message:error.message||"تعذر إنشاء الحساب"});
+  }
+});
+
+
 app.get("/api/dashboard", auth, (_req,res)=>{
   const s = readStore();
   const today = new Date().toISOString().slice(0,10);
