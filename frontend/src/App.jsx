@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.45 Final Mobile</p>
+        <p>v15.3.46 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -610,6 +610,70 @@ function Customers({open}){
     }
   }
 
+  function createStatementImage(data,customer){
+    const rows=Array.isArray(data.transactions)?data.transactions:[];
+    const width=1080,rowHeight=82;
+    const height=Math.max(1350,390+rows.length*rowHeight+440);
+    const canvas=document.createElement("canvas");
+    canvas.width=width;canvas.height=height;
+    const ctx=canvas.getContext("2d");
+    const total=Number(data.totals?.formulaResultCad||0);
+    const paid=Number(data.totals?.paid||0);
+    const finalBalance=Math.max(total-paid,0);
+    const txt=(v,x,y,size,color="#f4f4f5",align="center",weight="700")=>{
+      ctx.fillStyle=color;ctx.font=`${weight} ${size}px Arial, sans-serif`;
+      ctx.textAlign=align;ctx.textBaseline="middle";ctx.direction="rtl";ctx.fillText(String(v),x,y);
+    };
+    ctx.fillStyle="#061018";ctx.fillRect(0,0,width,height);
+    const g=ctx.createLinearGradient(0,0,width,height);
+    g.addColorStop(0,"#15232f");g.addColorStop(1,"#08131c");
+    ctx.fillStyle=g;ctx.beginPath();ctx.roundRect(28,28,width-56,height-56,38);ctx.fill();
+    ctx.strokeStyle="#47545e";ctx.lineWidth=2;ctx.stroke();
+    txt(data.company?.name||"شركة العبود للتجارة",width/2,90,56);
+    txt("كشف حساب العميل",width/2,165,48,"#d8a33f");
+    txt(customer.name,width/2,235,41);
+    ctx.strokeStyle="#69747c";ctx.beginPath();ctx.moveTo(55,292);ctx.lineTo(width-55,292);ctx.stroke();
+    let y=345;
+    rows.forEach((item,index)=>{
+      const amount=Number(item.usdAmount||item.amount||0).toFixed(2).replace(/\.00$/,"");
+      const rate=Number(item.customerRate||item.finalRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
+      ctx.direction="ltr";ctx.textAlign="left";ctx.fillStyle="#f4f4f5";
+      ctx.font='700 39px Arial, sans-serif';
+      ctx.fillText(`${index+1}_  ${amount}  🇺🇸  ×  ${rate}  =  ${money(item.formulaResultCad)}  🇨🇦`,65,y);
+      ctx.strokeStyle="#2b3a45";ctx.beginPath();ctx.moveTo(55,y+38);ctx.lineTo(width-55,y+38);ctx.stroke();
+      y+=rowHeight;
+    });
+    y+=25;ctx.setLineDash([12,10]);ctx.strokeStyle="#65717a";ctx.beginPath();ctx.moveTo(55,y);ctx.lineTo(width-55,y);ctx.stroke();ctx.setLineDash([]);
+    y+=75;txt("💵  المجموع الإجمالي",90,y,38,"#f4f4f5","left");txt(`${money(total)}  🇨🇦`,width-75,y,43,"#f4f4f5","right","800");
+    y+=88;txt("👛  الدفعات",90,y,38,"#f4f4f5","left");txt(`${money(paid)}  🇨🇦`,width-75,y,43,"#ef4444","right","800");
+    y+=65;ctx.setLineDash([12,10]);ctx.strokeStyle="#65717a";ctx.beginPath();ctx.moveTo(55,y);ctx.lineTo(width-55,y);ctx.stroke();ctx.setLineDash([]);
+    y+=88;txt("🧮  المجموع النهائي",90,y,42,"#f4f4f5","left","800");txt(`${money(finalBalance)}  🇨🇦`,width-75,y,49,"#63c443","right","900");
+    y+=90;ctx.strokeStyle="#69747c";ctx.beginPath();ctx.moveTo(55,y);ctx.lineTo(width-55,y);ctx.stroke();
+    y+=62;const d=new Date();txt(`📅 التاريخ: ${d.toLocaleDateString("en-CA")}`,65,y,28,"#aeb7bf","left","500");txt(`🕘 الوقت: ${d.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}`,width-65,y,28,"#aeb7bf","right","500");
+    y+=65;txt("شكراً لتعاملكم معنا",width/2,y,34,"#d8a33f");
+    return new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error("تعذر إنشاء الصورة")),"image/png",0.96));
+  }
+
+  async function shareStatementImage(customer){
+    try{
+      const {data}=await api.get(`/customers/${customer.id}/statement`);
+      const blob=await createStatementImage(data,customer);
+      const safe=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
+      const file=new File([blob],`كشف-حساب-${safe}.png`,{type:"image/png"});
+      if(navigator.share&&navigator.canShare?.({files:[file]})){
+        await navigator.share({files:[file]});
+        return;
+      }
+      const url=URL.createObjectURL(blob),link=document.createElement("a");
+      link.href=url;link.download=file.name;document.body.appendChild(link);link.click();link.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),3000);
+      setError("تم حفظ صورة كشف الحساب. أرسلها للعميل عبر واتساب.");
+    }catch(e){
+      if(e?.name==="AbortError")return;
+      setError(e.response?.data?.message||e.message||"تعذر إنشاء صورة كشف الحساب");
+    }
+  }
+
   async function whatsappFinalBalance(customer, urgent=false){
     const phone=String(customer.phone||"").replace(/\D/g,"");
     if(!phone){
@@ -631,7 +695,7 @@ function Customers({open}){
       const lines=(Array.isArray(data.transactions)?data.transactions:[]).map((item,index)=>{
         const amount=Number(item.usdAmount||0).toFixed(2).replace(/\.00$/,"");
         const rate=Number(item.customerRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
-        return `${index+1}_ ${amount} USA 🇺🇸 × ${rate} = ${money(item.formulaResultCad)} CAD 🇨🇦`;
+        return `${index+1}_ ${amount} 🇺🇸 × ${rate} = ${money(item.formulaResultCad)} 🇨🇦`;
       });
 
       const statementTotal=Number(data.totals?.formulaResultCad||0);
@@ -647,8 +711,8 @@ function Customers({open}){
         ...lines,
         "",
         "--------------------",
-        `الدفعات: ${money(statementPaid)} CAD 🇨🇦`,
-        `المجموع النهائي: ${money(finalStatementBalance)} CAD 🇨🇦`
+        `الدفعات: ${money(statementPaid)} 🇨🇦`,
+        `المجموع النهائي: ${money(finalStatementBalance)} 🇨🇦`
       ].join("\n");
 
       openRegularWhatsApp(phone,message);
@@ -885,7 +949,7 @@ function Customers({open}){
           <button onClick={()=>prepareTransfer(customer)}>إضافة حوالة</button>
           <button onClick={()=>preparePayment(customer)}>إضافة دفعة</button>
           <button onClick={()=>{setEditingCustomer({...customer});setActivePanel("")}}>تعديل</button>
-          <button className="whatsapp-button" onClick={()=>whatsappFinalBalance(customer,false)}>واتساب كشف الحساب</button>
+          <button className="whatsapp-button" onClick={()=>shareStatementImage(customer)}>📷 إرسال صورة كشف الحساب</button>
           {customer.overdue&&<button className="danger-button" onClick={()=>whatsappFinalBalance(customer,true)}>تنبيه الدفع</button>}
         </div>
       </article>):<div className="card">لا توجد نتائج.</div>}
@@ -1447,9 +1511,9 @@ function Statement({customerId,back}){
             {data.transactions.length?
               data.transactions.map((item,index)=><tr key={item.id}>
                 <td>{index+1}</td>
-                <td>{Number(item.usdAmount).toFixed(2)} USA 🇺🇸</td>
+                <td>{Number(item.usdAmount).toFixed(2)} 🇺🇸</td>
                 <td>× {Number(item.customerRate).toFixed(4).replace(/0+$/,"").replace(/\.$/,"")} =</td>
-                <td>{money(item.formulaResultCad)} CAD 🇨🇦</td>
+                <td>{money(item.formulaResultCad)} 🇨🇦</td>
               </tr>)
               :<tr><td colSpan="4">لا توجد حوالات في هذه الفترة.</td></tr>
             }
@@ -1459,7 +1523,7 @@ function Statement({customerId,back}){
 
       <div className="simple-statement-payments">
         <span>الدفعات:</span>
-        <strong>{money(data.totals.paid||0)} CAD 🇨🇦</strong>
+        <strong>{money(data.totals.paid||0)} 🇨🇦</strong>
       </div>
       <div className="simple-statement-total">
         <span>المجموع النهائي:</span>
@@ -1467,7 +1531,7 @@ function Statement({customerId,back}){
           Number(data.totals.formulaResultCad ?? data.transactions.reduce((sum,item)=>sum+Number(item.formulaResultCad||0),0))
           - Number(data.totals.paid||0),
           0
-        ))} CAD 🇨🇦</strong>
+        ))} 🇨🇦</strong>
       </div>
     </section>}
   </>;
@@ -2810,7 +2874,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.45 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.46 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -2903,7 +2967,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.45 Final"
+        version:"v15.3.46 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -2945,7 +3009,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.45 Final</span>
+      <span className="settings-version">v15.3.46 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3021,7 +3085,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.45 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.46 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3174,7 +3238,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.45 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.46 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3188,7 +3252,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.45 Final Mobile</small>
+          <small>v15.3.46 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
