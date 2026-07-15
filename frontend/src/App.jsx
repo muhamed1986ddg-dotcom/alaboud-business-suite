@@ -2,20 +2,19 @@ import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
-const currencyFlag=code=>({
-  CAD:"🇨🇦",USD:"🇺🇸",EUR:"🇪🇺",GBP:"🇬🇧",AED:"🇦🇪",TRY:"🇹🇷"
-}[String(code||"").toUpperCase()]||"🏳️");
+const currencyFlag=code=>String(code||"").toUpperCase();
 
 function CurrencyFlag({code,className=""}){
   const normalized=String(code||"").toUpperCase();
-  if(normalized==="SYP"){
+  const supported=["CAD","USD","EUR","GBP","AED","TRY","SYP"];
+  if(supported.includes(normalized)){
     return <img
-      className={`currency-flag-image syria-new-flag ${className}`}
-      src="/syria-flag-new.svg"
-      alt="علم سوريا"
+      className={`currency-flag-image ${normalized==="SYP"?"syria-new-flag":""} ${className}`}
+      src={`/currency-flags/${normalized.toLowerCase()}.svg`}
+      alt={`${normalized} flag`}
     />;
   }
-  return <span className={className}>{currencyFlag(normalized)}</span>;
+  return <span className={className}>🏳️</span>;
 }
 
 function rateTrend(rate,history=[]){
@@ -105,7 +104,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.20 Final Mobile</p>
+        <p>v15.3.21 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -2407,7 +2406,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.20 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.21 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2421,7 +2420,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v15.3.20 Final Mobile</small>
+          <small>v15.3.21 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
