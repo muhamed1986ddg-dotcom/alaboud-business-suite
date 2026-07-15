@@ -63,7 +63,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.15 Final Mobile</p>
+        <p>v15.3.16 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -1229,7 +1229,8 @@ function Transactions({openInvoice}){
     transferDate:new Date().toISOString().slice(0,10),
     rateMode:"auto",
     rateSource:"exchange-rates",
-    rateUpdatedAt:null
+    rateUpdatedAt:null,
+    paymentStatus:"UNPAID"
   });
   const [rateMeta,setRateMeta]=useState(null);
 
@@ -1292,7 +1293,7 @@ function Transactions({openInvoice}){
     event.preventDefault();
     setError("");
     try{
-      await api.post("/transactions",{
+      const transactionResponse=await api.post("/transactions",{
         ...f,
         amount:Number(f.amount),
         costRate:Number(f.costRate),
@@ -1301,12 +1302,28 @@ function Transactions({openInvoice}){
         rateSource:f.rateMode==="auto"?"exchange-rates":"manual",
         rateUpdatedAt:f.rateUpdatedAt||rateMeta?.createdAt||null
       });
+
+      if(f.paymentStatus==="PAID"){
+        const transaction=transactionResponse.data||{};
+        const totalDue=Number(transaction.totalCustomerDue||0);
+        if(transaction.id&&totalDue>0){
+          await api.post(`/transactions/${transaction.id}/payments`,{
+            amount:totalDue,
+            paymentDate:f.transferDate||new Date().toISOString().slice(0,10),
+            method:"CASH",
+            notes:"مدفوع بالكامل عند تسجيل الحوالة",
+            reference:"AUTO-PAID"
+          });
+        }
+      }
+
       setF(current=>({
         ...current,
         amount:"",
         finalRate:"",
         transferFee:"0",
-        transferDate:new Date().toISOString().slice(0,10)
+        transferDate:new Date().toISOString().slice(0,10),
+        paymentStatus:"UNPAID"
       }));
       await load();
     }catch(requestError){
@@ -1372,7 +1389,28 @@ function Transactions({openInvoice}){
         <option value="ADD">إضافة الأجور</option>
         <option value="DEDUCT">خصم الأجور</option>
       </select>
-      <button>حفظ</button>
+      <div className="transfer-payment-status">
+        <span className="transfer-payment-status-title">حالة الحوالة</span>
+        <div className="transfer-payment-status-actions">
+          <button
+            type="button"
+            className={`transfer-status-button unpaid ${f.paymentStatus==="UNPAID"?"active":""}`}
+            onClick={()=>setF({...f,paymentStatus:"UNPAID"})}
+          >
+            <span className="transfer-status-icon">⊖</span>
+            غير مدفوع
+          </button>
+          <button
+            type="button"
+            className={`transfer-status-button paid ${f.paymentStatus==="PAID"?"active":""}`}
+            onClick={()=>setF({...f,paymentStatus:"PAID"})}
+          >
+            <span className="transfer-status-icon">✓</span>
+            مدفوع
+          </button>
+        </div>
+      </div>
+      <button className="save-transfer-button">حفظ الحوالة</button>
     </form>
 
     <div className="card tablewrap">
@@ -2326,7 +2364,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.15 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.16 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2340,7 +2378,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v15.3.15 Final Mobile</small>
+          <small>v15.3.16 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
