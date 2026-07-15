@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.41 Final Mobile</p>
+        <p>v15.3.42 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -634,6 +634,10 @@ function Customers({open}){
         return `${index+1}_ ${amount} USA 🇺🇸 × ${rate} = ${money(item.formulaResultCad)} CAD 🇨🇦`;
       });
 
+      const statementTotal=Number(data.totals?.formulaResultCad||0);
+      const statementPaid=Number(data.totals?.paid||0);
+      const finalStatementBalance=Math.max(statementTotal-statementPaid,0);
+
       const message=[
         data.company?.name||"شركة العبود التجارية",
         "",
@@ -643,8 +647,7 @@ function Customers({open}){
         ...lines,
         "",
         "--------------------",
-        `الدفعات: ${money(data.totals?.paid||0)} CAD 🇨🇦`,
-        `المجموع الكلي: ${money(data.totals?.formulaResultCad||0)} CAD 🇨🇦`
+        `المجموع النهائي: ${money(finalStatementBalance)} CAD 🇨🇦`
       ].join("\n");
 
       openRegularWhatsApp(phone,message);
@@ -1453,13 +1456,13 @@ function Statement({customerId,back}){
         </table>
       </div>
 
-      <div className="simple-statement-payments">
-        <span>الدفعات:</span>
-        <strong>{money(data.totals.paid||0)} CAD 🇨🇦</strong>
-      </div>
       <div className="simple-statement-total">
-        <span>المجموع الكلي:</span>
-        <strong>{money(data.totals.formulaResultCad ?? data.transactions.reduce((sum,item)=>sum+Number(item.formulaResultCad||0),0))} CAD 🇨🇦</strong>
+        <span>المجموع النهائي:</span>
+        <strong>{money(Math.max(
+          Number(data.totals.formulaResultCad ?? data.transactions.reduce((sum,item)=>sum+Number(item.formulaResultCad||0),0))
+          - Number(data.totals.paid||0),
+          0
+        ))} CAD 🇨🇦</strong>
       </div>
     </section>}
   </>;
@@ -2703,7 +2706,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.41 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.42 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -2796,7 +2799,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.41 Final"
+        version:"v15.3.42 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -2838,7 +2841,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.41 Final</span>
+      <span className="settings-version">v15.3.42 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -2914,7 +2917,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.41 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.42 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3067,7 +3070,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.41 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.42 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3081,7 +3084,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.41 Final Mobile</small>
+          <small>v15.3.42 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
