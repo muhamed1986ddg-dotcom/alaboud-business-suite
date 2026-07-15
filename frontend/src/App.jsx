@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.50 Final Mobile</p>
+        <p>v15.3.51 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -593,7 +593,28 @@ function Customers({open}){
   async function addPayment(event){
     event.preventDefault();
     try{
-      await api.post(`/transactions/${paymentForm.transactionId}/payments`,paymentForm);
+      let remainingPayment=Number(paymentForm.amount||0);
+      if(!paymentForm.customerId||remainingPayment<=0)throw new Error("INVALID_PAYMENT");
+
+      const response=await api.get(`/customers/${paymentForm.customerId}`);
+      const unpaid=(Array.isArray(response.data?.transactions)?response.data.transactions:[])
+        .filter(item=>Number(item.remaining||0)>0)
+        .sort((a,b)=>new Date(a.transferDate||a.createdAt)-new Date(b.transferDate||b.createdAt));
+
+      if(!unpaid.length)throw new Error("NO_UNPAID_TRANSFERS");
+
+      for(const transaction of unpaid){
+        if(remainingPayment<=0)break;
+        const appliedAmount=Math.min(remainingPayment,Number(transaction.remaining||0));
+        await api.post(`/transactions/${transaction.id}/payments`,{
+          amount:appliedAmount,
+          paymentDate:paymentForm.paymentDate,
+          method:paymentForm.method,
+          reference:paymentForm.reference
+        });
+        remainingPayment-=appliedAmount;
+      }
+
       setPaymentForm({
         customerId:"",
         transactionId:"",
@@ -606,7 +627,12 @@ function Customers({open}){
       setActivePanel("");
       await load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"تعذر إضافة الدفعة");
+      const message=requestError.message==="NO_UNPAID_TRANSFERS"
+        ?"لا توجد حوالات مستحقة لهذا العميل"
+        :requestError.message==="INVALID_PAYMENT"
+          ?"اختر العميل وأدخل مبلغ الدفعة"
+          :requestError.response?.data?.message||"تعذر إضافة الدفعة";
+      setError(message);
     }
   }
 
@@ -908,12 +934,6 @@ function Customers({open}){
         }} required>
           <option value="">اختر العميل</option>
           {list.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
-        </select>
-        <select value={paymentForm.transactionId} onChange={e=>setPaymentForm({...paymentForm,transactionId:e.target.value})} required>
-          <option value="">اختر الحوالة غير المدفوعة</option>
-          {customerTransactions.map(transaction=><option key={transaction.id} value={transaction.id}>
-            {transaction.number} — متبقي {money(transaction.remaining)}
-          </option>)}
         </select>
         <input type="number" min=".01" step=".01" value={paymentForm.amount} onChange={e=>setPaymentForm({...paymentForm,amount:e.target.value})} placeholder="مبلغ الدفعة" required/>
         <input type="date" value={paymentForm.paymentDate} onChange={e=>setPaymentForm({...paymentForm,paymentDate:e.target.value})}/>
@@ -2875,7 +2895,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.50 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.51 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -2968,7 +2988,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.50 Final"
+        version:"v15.3.51 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3010,7 +3030,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.50 Final</span>
+      <span className="settings-version">v15.3.51 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3086,7 +3106,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.50 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.51 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3239,7 +3259,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.50 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.51 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3253,7 +3273,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.50 Final Mobile</small>
+          <small>v15.3.51 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
