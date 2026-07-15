@@ -226,7 +226,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.25 Final Mobile</p>
+        <p>v15.3.26 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -573,10 +573,13 @@ function Customers({open}){
     `${customer.name} ${customer.phone||""}`.toLowerCase().includes(search.toLowerCase())
   );
 
+  const customerActionFocus=activePanel==="transfer"||activePanel==="payment";
+
   return <>
     <h2>قائمة العملاء</h2>
     {error&&<div className="card customer-error">{error}</div>}
 
+    {!customerActionFocus&&<>
     <div className="stats customer-stats-final">
       <div className="card customer-stat-row">
         <div className="customer-stat-icon">👥</div>
@@ -610,6 +613,8 @@ function Customers({open}){
       <button onClick={()=>setActivePanel(activePanel==="transfer"?"":"transfer")}>إضافة حوالة</button>
       <button onClick={()=>setActivePanel(activePanel==="payment"?"":"payment")}>إضافة دفعة</button>
     </div>
+    </>}
+
 
     {activePanel==="newCustomer"&&
       <form className="card form edit-panel" onSubmit={addCustomer}>
@@ -634,7 +639,12 @@ function Customers({open}){
     }
 
     {activePanel==="transfer"&&
-      <form className="card form edit-panel" onSubmit={addTransfer}>
+      <div className="customer-action-focus-page">
+        <div className="customer-action-focus-header">
+          <div><span>⇄</span><h2>إضافة حوالة</h2></div>
+          <button type="button" onClick={()=>setActivePanel("")}>✕ إغلاق</button>
+        </div>
+      <form className="card form edit-panel customer-action-focus-form" onSubmit={addTransfer}>
         <h3>إضافة حوالة</h3>
         <select value={transferForm.customerId} onChange={e=>setTransferForm({...transferForm,customerId:e.target.value})} required>
           <option value="">اختر العميل</option>
@@ -710,10 +720,16 @@ function Customers({open}){
         <button className="save-transfer-button">حفظ الحوالة</button>
         <button type="button" onClick={()=>setActivePanel("")}>إلغاء</button>
       </form>
+      </div>
     }
 
     {activePanel==="payment"&&
-      <form className="card form edit-panel" onSubmit={addPayment}>
+      <div className="customer-action-focus-page">
+        <div className="customer-action-focus-header">
+          <div><span>💵</span><h2>إضافة دفعة</h2></div>
+          <button type="button" onClick={()=>setActivePanel("")}>✕ إغلاق</button>
+        </div>
+      <form className="card form edit-panel customer-action-focus-form" onSubmit={addPayment}>
         <h3>إضافة دفعة</h3>
         <select value={paymentForm.customerId} onChange={async e=>{
           const customer=list.find(item=>item.id===e.target.value);
@@ -740,8 +756,10 @@ function Customers({open}){
         <button>حفظ الدفعة</button>
         <button type="button" onClick={()=>setActivePanel("")}>إلغاء</button>
       </form>
+      </div>
     }
 
+    {!customerActionFocus&&<>
     {alerts.count>0&&
       <div className="card overdue-panel">
         <h3>تنبيهات العملاء المتأخرين</h3>
@@ -784,6 +802,7 @@ function Customers({open}){
         </div>
       </article>):<div className="card">لا توجد نتائج.</div>}
     </div>
+    </>}
   </>;
 }
 
@@ -2422,7 +2441,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.25 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.26 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
 
@@ -2487,7 +2506,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.25 Final"
+        version:"v15.3.26 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -2529,7 +2548,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.25 Final</span>
+      <span className="settings-version">v15.3.26 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -2588,7 +2607,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.25 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.26 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -2726,7 +2745,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.25 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.26 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2740,7 +2759,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v15.3.25 Final Mobile</small>
+          <small>v15.3.26 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

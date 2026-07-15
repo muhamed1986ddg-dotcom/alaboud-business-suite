@@ -3574,3 +3574,77 @@ body.app-language-en .mobile-bottom-nav,
 body.app-language-en aside{
   direction:ltr;
 }
+
+
+/* v15.3.26 - focused customer transfer/payment page */
+.customer-action-focus-page{
+  width:100%;
+  max-width:860px;
+  margin:0 auto 24px;
+}
+
+.customer-action-focus-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:14px;
+  padding:14px 16px;
+  border:1px solid rgba(214,168,62,.48);
+  border-radius:18px;
+  background:linear-gradient(145deg,#17191d,#0d0f12);
+}
+
+.customer-action-focus-header > div{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.customer-action-focus-header span{
+  font-size:28px;
+}
+
+.customer-action-focus-header h2{
+  margin:0;
+  color:#f0c85b;
+}
+
+.customer-action-focus-header button{
+  min-height:42px !important;
+  padding:8px 14px !important;
+  border-radius:12px !important;
+}
+
+.customer-action-focus-form{
+  margin:0 !important;
+}
+
+@media screen and (max-width:768px){
+  .customer-action-focus-page{
+    max-width:none;
+    margin-bottom:110px;
+  }
+
+  .customer-action-focus-header{
+    padding:10px 12px;
+    border-radius:15px;
+    position:sticky;
+    top:82px;
+    z-index:30;
+  }
+
+  .customer-action-focus-header span{
+    font-size:23px;
+  }
+
+  .customer-action-focus-header h2{
+    font-size:20px;
+  }
+
+  .customer-action-focus-header button{
+    min-height:38px !important;
+    font-size:14px !important;
+    padding:7px 10px !important;
+  }
+}
