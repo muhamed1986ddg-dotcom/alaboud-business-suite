@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.37 Final Mobile</p>
+        <p>v15.3.38 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -1758,7 +1758,21 @@ function ExchangeRates(){
     }finally{setRefreshing(false)}
   }
 
-  const currencyRates=list.filter(rate=>!isGoldRate(rate));
+  const storedCurrencyRates=list.filter(rate=>!isGoldRate(rate));
+  const hasSyrianPound=storedCurrencyRates.some(rate=>rate.baseCurrency==="SYP"||rate.quoteCurrency==="SYP");
+  const currencyRates=hasSyrianPound?storedCurrencyRates:[
+    ...storedCurrencyRates,
+    {
+      id:"syp-visible-placeholder",
+      baseCurrency:"USD",
+      quoteCurrency:"SYP",
+      buyRate:0,
+      sellRate:0,
+      source:"MANUAL",
+      createdAt:new Date().toISOString(),
+      sypPlaceholder:true
+    }
+  ];
   const goldRates=list.filter(isGoldRate);
 
   return <>
@@ -1827,10 +1841,10 @@ function ExchangeRates(){
           return <tr key={r.id} className={`rate-row rate-${trend.type} ${r.baseCurrency==="SYP"||r.quoteCurrency==="SYP"?"syp-highlight":""}`}>
             <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.baseCurrency}/>{r.baseCurrency}</span></td>
             <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.quoteCurrency}/>{r.quoteCurrency}</span></td>
-            <td className="buy-rate">{Number(r.buyRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</td>
-            <td className="sell-rate"><strong>{Number(r.sellRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</strong></td>
-            <td><span className={`trend trend-${trend.type}`}>{trend.symbol} {trend.label}</span></td>
-            <td><span className={`source-badge ${r.source==="FRANKFURTER"?"auto":"manual"}`}>{r.source==="FRANKFURTER"?"تلقائي":"يدوي"}</span></td>
+            <td className="buy-rate">{r.sypPlaceholder?"أدخل السعر":Number(r.buyRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</td>
+            <td className="sell-rate"><strong>{r.sypPlaceholder?"أدخل السعر":Number(r.sellRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</strong></td>
+            <td><span className={`trend trend-${r.sypPlaceholder?"new":trend.type}`}>{r.sypPlaceholder?"● بانتظار السعر":`${trend.symbol} ${trend.label}`}</span></td>
+            <td><span className={`source-badge ${r.source==="FRANKFURTER"?"auto":"manual"}`}>{r.sypPlaceholder?"سوري":r.source==="FRANKFURTER"?"تلقائي":"يدوي"}</span></td>
             <td>{new Date(r.createdAt).toLocaleString("ar-CA")}</td>
           </tr>
         }):<tr><td colSpan="7">لا توجد أسعار عملات مسجلة.</td></tr>}</tbody>
@@ -2549,7 +2563,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.37 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.38 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -2642,7 +2656,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.37 Final"
+        version:"v15.3.38 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -2684,7 +2698,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.37 Final</span>
+      <span className="settings-version">v15.3.38 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -2760,7 +2774,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.37 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.38 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -2914,7 +2928,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.37 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.38 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2928,7 +2942,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.37 Final Mobile</small>
+          <small>v15.3.38 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
