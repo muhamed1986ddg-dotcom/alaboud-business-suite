@@ -63,7 +63,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.14 Final Mobile</p>
+        <p>v15.3.15 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -603,40 +603,7 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
 
   useEffect(()=>{load();},[]);
 
-  useEffect(()=>{
-    if(!f.currency)return;
 
-    if(f.currency==="CAD"){
-      const timestamp=new Date().toISOString();
-      setRateMeta({baseCurrency:"CAD",quoteCurrency:"CAD",buyRate:1,createdAt:timestamp});
-      if(f.rateMode==="auto"){
-        setF(current=>({...current,costRate:"1",rateUpdatedAt:timestamp,rateSource:"base"}));
-      }
-      return;
-    }
-
-    api.get("/exchange-rates")
-      .then(response=>{
-        const rates=Array.isArray(response.data)?response.data:[];
-        const direct=rates.find(item=>
-          String(item.baseCurrency||"").toUpperCase()===f.currency &&
-          String(item.quoteCurrency||"").toUpperCase()==="CAD"
-        );
-        setRateMeta(direct||null);
-        const rate=Number(direct?.buyRate||direct?.sellRate||0);
-        if(rate>0&&f.rateMode==="auto"){
-          setF(current=>({...current,costRate:String(rate),rateUpdatedAt:direct.createdAt||null,rateSource:"exchange-rates"}));
-        }else if(!direct&&f.rateMode==="auto"){
-          setF(current=>({...current,costRate:"",rateUpdatedAt:null}));
-        }
-      })
-      .catch(()=>{
-        setRateMeta(null);
-        if(f.rateMode==="auto"){
-          setF(current=>({...current,costRate:"",rateUpdatedAt:null}));
-        }
-      });
-  },[f.currency,f.rateMode]);
 
   function updateDraft(customerId,patch){
     setDrafts(current=>({
@@ -1284,6 +1251,42 @@ function Transactions({openInvoice}){
   }
 
   useEffect(()=>{load();},[]);
+
+  useEffect(()=>{
+    if(!f.currency)return;
+
+    if(f.currency==="CAD"){
+      const timestamp=new Date().toISOString();
+      setRateMeta({baseCurrency:"CAD",quoteCurrency:"CAD",buyRate:1,createdAt:timestamp});
+      if(f.rateMode==="auto"){
+        setF(current=>({...current,costRate:"1",rateUpdatedAt:timestamp,rateSource:"base"}));
+      }
+      return;
+    }
+
+    api.get("/exchange-rates")
+      .then(response=>{
+        const rates=Array.isArray(response.data)?response.data:[];
+        const direct=rates.find(item=>
+          String(item.baseCurrency||"").toUpperCase()===f.currency &&
+          String(item.quoteCurrency||"").toUpperCase()==="CAD"
+        );
+        setRateMeta(direct||null);
+        const rate=Number(direct?.buyRate||direct?.sellRate||0);
+        if(rate>0&&f.rateMode==="auto"){
+          setF(current=>({...current,costRate:String(rate),rateUpdatedAt:direct.createdAt||null,rateSource:"exchange-rates"}));
+        }else if(!direct&&f.rateMode==="auto"){
+          setF(current=>({...current,costRate:"",rateUpdatedAt:null}));
+        }
+      })
+      .catch(()=>{
+        setRateMeta(null);
+        if(f.rateMode==="auto"){
+          setF(current=>({...current,costRate:"",rateUpdatedAt:null}));
+        }
+      });
+  },[f.currency,f.rateMode]);
+
 
   async function add(event){
     event.preventDefault();
@@ -2323,7 +2326,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.14 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.15 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2337,15 +2340,15 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v15.3.14 Final Mobile</small>
+          <small>v15.3.15 Final Mobile</small>
         </div>
-        <button className="logout-top" onClick={()=>setLogoutConfirm(true)}>🚪 تسجيل الخروج</button>
       </div>
       {menu.map(([key,label])=><button
         key={key}
         className={page===key&&!customerId&&!invoiceId&&!statementCustomerId&&!partnerId?"active":""}
         onClick={()=>navigate(key)}
       >{label}</button>)}
+      <button className="logout-top sidebar-logout-bottom" onClick={()=>setLogoutConfirm(true)}>🚪 تسجيل الخروج</button>
       {logoutConfirm&&<div className="logout-confirm-overlay no-print" onClick={()=>setLogoutConfirm(false)}>
         <div className="logout-confirm-card" onClick={e=>e.stopPropagation()}>
           <h3>تسجيل الخروج</h3>
