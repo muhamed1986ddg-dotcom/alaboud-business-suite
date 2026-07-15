@@ -72,6 +72,110 @@ class AppErrorBoundary extends React.Component{
   }
 }
 
+
+const APP_EN_TRANSLATIONS={
+  "القائمة الرئيسية":"Main Dashboard","الرئيسية":"Home","القائمة":"Menu","العملاء":"Customers",
+  "العملاء المتأخرون":"Overdue Customers","الموردون والشركات":"Suppliers & Companies",
+  "الحوالات":"Transfers","الأرباح":"Profits","العملات وأسعار الصرف":"Currencies & Exchange Rates",
+  "الدَّين العام":"General Debts","رأس المال الكلي":"Total Capital","التقارير الشهرية":"Monthly Reports",
+  "إعدادات التنبيهات":"Alert Settings","الإعدادات":"Settings","المصروفات":"Expenses","حركة رأس المال":"Capital Movement",
+  "تسجيل الخروج":"Log out","هل تريد تسجيل الخروج من البرنامج؟":"Do you want to log out of the application?",
+  "نعم، تسجيل الخروج":"Yes, log out","إلغاء":"Cancel","العودة إلى القائمة الرئيسية":"Back to Main Dashboard",
+  "شركة العبود التجارية":"AlAboud Trading Company","إدارة الحوالات والحسابات":"Transfers & Accounts Management",
+  "البريد":"Email","كلمة المرور":"Password","تسجيل الدخول":"Sign in","فشل تسجيل الدخول":"Login failed",
+  "جاري تحميل لوحة التحكم…":"Loading dashboard…","إجمالي الحوالات":"Total Transfers","حوالات اليوم":"Today's Transfers",
+  "إجمالي الأرباح":"Total Profit","الربح اليومي":"Daily Profit","مصروفات اليوم":"Today's Expenses",
+  "عدد العملاء":"Customers","ملخص اليوم":"Today's Summary","نشرة أسعار الصرف":"Exchange Rate Board",
+  "عرض الكل":"View All","أحدث الحوالات":"Latest Transfers","إضافة حوالة":"Add Transfer","إضافة عميل":"Add Customer",
+  "إضافة مصروف":"Add Expense","تقرير سريع":"Quick Report","تحديث أسعار الصرف":"Refresh Exchange Rates",
+  "قائمة العملاء":"Customer List","بحث باسم العميل أو رقم الهاتف":"Search by customer name or phone",
+  "مجموع الحسابات الكلي":"Total Accounts","مجموع المدفوع":"Total Paid","المجموع النهائي (CAD) المتبقي":"Final Remaining Total (CAD)",
+  "المتأخرون أكثر من أسبوع":"Overdue More Than a Week","مجموع الحساب":"Account Total","المدفوع":"Paid",
+  "فتح الحساب":"Open Account","إضافة دفعة":"Add Payment","تعديل":"Edit","واتساب بالمجموع النهائي (CAD)":"WhatsApp Final Total (CAD)",
+  "مستحق":"Due","مسدد":"Paid","لا يوجد رقم هاتف":"No phone number",
+  "حفظ الحوالة":"Save Transfer","مدفوع":"Paid","غير مدفوع":"Unpaid","أجور الحوالة":"Transfer Fee",
+  "ربح الحوالة":"Transfer Profit","المجموع النهائي (CAD) للعميل":"Customer Final Total (CAD)",
+  "سعر التحويل للعميل":"Customer Exchange Rate","السعر الذي يحاسب عليه العميل مقابل كل وحدة من عملة الحوالة":"Rate charged to the customer for each transfer currency unit",
+  "آخر تحديث":"Last Update","شراء":"Buy","بيع":"Sell","صعود":"Up","نزول":"Down","ثابت":"Stable",
+  "إعدادات التنبيهات وواتساب":"Alerts & WhatsApp Settings","بدء تنبيه التأخير بعد عدد الأيام":"Start overdue alert after days",
+  "حد انخفاض السيولة (CAD)":"Low Cash Limit (CAD)","قالب رسالة واتساب (اختياري)":"WhatsApp Message Template (Optional)",
+  "حفظ الإعدادات":"Save Settings","ملاحظة:":"Note:","اللغة":"Language","طريقة العرض":"Display Mode",
+  "مضغوط":"Compact","مريح":"Comfortable","كبير":"Large","العملة الرئيسية":"Primary Currency",
+  "حفظ إعدادات العرض":"Save Display Settings","إنشاء حساب":"Create Account","اسم المستخدم":"User Name",
+  "البريد الإلكتروني":"Email Address","مستخدم":"User","مدير":"Manager","مسؤول كامل":"Full Administrator",
+  "إنشاء الحساب":"Create Account","تغيير كلمة السر":"Change Password","كلمة المرور الحالية":"Current Password",
+  "كلمة المرور الجديدة":"New Password","تأكيد كلمة المرور الجديدة":"Confirm New Password",
+  "الدعم الفني":"Technical Support","البريد الفني":"Support Email","نسخ رقم الإصدار":"Copy Version Number",
+  "التحديثات":"Updates","الإصدار الحالي":"Current Version","التحقق من التحديثات":"Check for Updates",
+  "جاري التحقق...":"Checking...","تم حفظ إعدادات العرض":"Display settings saved",
+  "تم إنشاء الحساب بنجاح":"Account created successfully","تم تغيير كلمة المرور بنجاح":"Password changed successfully",
+  "تم نسخ رقم الإصدار":"Version number copied","حفظ":"Save","الوصف":"Description","المبلغ":"Amount",
+  "زيادة":"Deposit","سحب":"Withdrawal","رأس المال":"Capital","لا توجد بيانات.":"No data available.",
+  "لا توجد حوالات.":"No transfers.","لا توجد حوالات في هذا الشهر.":"No transfers this month.",
+  "العميل":"Customer","التاريخ":"Date","الرقم":"Number","الأجور":"Fees","الربح":"Profit",
+  "تفاصيل حوالات الشهر":"Monthly Transfer Details","أكثر العملاء تعاملًا خلال الشهر":"Top Customers This Month",
+  "إجمالي الحوالات":"Total Transfers","جاري التحميل...":"Loading...","حدث خطأ في الصفحة":"Page Error",
+  "إعادة تحميل البرنامج":"Reload Application"
+};
+
+function translateAppText(value){
+  if(typeof value!=="string")return value;
+  const direct=APP_EN_TRANSLATIONS[value.trim()];
+  if(direct)return direct;
+  let output=value;
+  Object.entries(APP_EN_TRANSLATIONS)
+    .sort((a,b)=>b[0].length-a[0].length)
+    .forEach(([ar,en])=>{output=output.split(ar).join(en)});
+  return output;
+}
+
+function AppLanguageBridge(){
+  useEffect(()=>{
+    const applyLanguage=()=>{
+      const language=localStorage.getItem("alaboud_language")||"ar";
+      const english=language==="en";
+      document.documentElement.lang=language;
+      document.documentElement.dir=english?"ltr":"rtl";
+      document.body.classList.toggle("app-language-en",english);
+
+      document.querySelectorAll("body *").forEach(node=>{
+        if(node.closest("script,style"))return;
+        node.childNodes.forEach(child=>{
+          if(child.nodeType===Node.TEXT_NODE){
+            if(english){
+              if(child.__alaboudArabicOriginal===undefined)child.__alaboudArabicOriginal=child.nodeValue;
+              child.nodeValue=translateAppText(child.__alaboudArabicOriginal);
+            }else if(child.__alaboudArabicOriginal!==undefined){
+              child.nodeValue=child.__alaboudArabicOriginal;
+            }
+          }
+        });
+
+        ["placeholder","title","aria-label"].forEach(attribute=>{
+          if(!node.hasAttribute?.(attribute))return;
+          const key=`alaboudOriginal${attribute.replace("-","")}`;
+          if(english){
+            if(node.dataset[key]===undefined)node.dataset[key]=node.getAttribute(attribute)||"";
+            node.setAttribute(attribute,translateAppText(node.dataset[key]));
+          }else if(node.dataset[key]!==undefined){
+            node.setAttribute(attribute,node.dataset[key]);
+          }
+        });
+      });
+    };
+
+    applyLanguage();
+    const observer=new MutationObserver(()=>applyLanguage());
+    observer.observe(document.body,{childList:true,subtree:true,characterData:false});
+    window.addEventListener("alaboud-language-change",applyLanguage);
+    return()=>{
+      observer.disconnect();
+      window.removeEventListener("alaboud-language-change",applyLanguage);
+    };
+  },[]);
+  return null;
+}
+
 function Login({onLogin}){const[email,setEmail]=useState("admin@alaboud.local"),[password,setPassword]=useState("Admin123!"),[error,setError]=useState("");async function submit(e){e.preventDefault();try{const{data}=await api.post("/auth/login",{email,password});localStorage.setItem("afs_token",data.token);localStorage.setItem("afs_user",JSON.stringify(data.user));onLogin();}catch{setError("فشل تسجيل الدخول");}}return <div className="login"><form className="panel" onSubmit={submit}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><h1>شركة العبود التجارية</h1><p className="login-company-en">ALABOUD TRADING COMPANY</p><p>إدارة الحوالات والحسابات</p><input value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد"/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور"/>{error&&<div className="error">{error}</div>}<button>تسجيل الدخول</button><small>admin@alaboud.local / Admin123!</small></form></div>}
 function Dashboard({navigate}){
   const [data,setData]=useState(null);
@@ -122,7 +226,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.24 Final Mobile</p>
+        <p>v15.3.25 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -2318,13 +2422,14 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.24 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.25 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
 
   useEffect(()=>{
     document.documentElement.lang=language;
     document.documentElement.dir=language==="ar"?"rtl":"ltr";
+    window.dispatchEvent(new Event("alaboud-language-change"));
     document.body.classList.remove("display-compact","display-comfortable","display-large");
     document.body.classList.add(`display-${displayMode}`);
   },[]);
@@ -2382,7 +2487,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.24 Final"
+        version:"v15.3.25 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -2424,7 +2529,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.24 Final</span>
+      <span className="settings-version">v15.3.25 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -2483,7 +2588,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.24 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.25 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -2616,12 +2721,12 @@ export default function App(){
     ["capital","🏦 حركة رأس المال"]
   ];
 
-  return <div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
+  return <><AppLanguageBridge/><div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
     <div className="mobile-page-header no-print">
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.24 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.25 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2635,7 +2740,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v15.3.24 Final Mobile</small>
+          <small>v15.3.25 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
@@ -2692,5 +2797,5 @@ export default function App(){
         <span>•••</span><small>المزيد</small>
       </button>
     </nav>
-  </div>;
+  </div></>;
 }
