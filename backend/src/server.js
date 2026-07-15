@@ -1560,7 +1560,17 @@ if (!fs.existsSync(indexFile)) {
 
 app.use(express.static(publicDir, {
   index: "index.html",
-  maxAge: process.env.NODE_ENV === "production" ? "1h" : 0
+  maxAge: 0,
+  etag: true,
+  setHeaders(res, filePath){
+    if(filePath.endsWith("index.html")){
+      res.setHeader("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.setHeader("Pragma","no-cache");
+      res.setHeader("Expires","0");
+    }else{
+      res.setHeader("Cache-Control","no-cache");
+    }
+  }
 }));
 
 app.get("/", (_req, res) => {

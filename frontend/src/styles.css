@@ -3188,3 +3188,45 @@ aside button.active{
   .dashboard-rate-flag{font-size:17px !important}
   .dashboard-rate-pair{gap:5px !important}
 }
+
+
+/* v15.3.19 - force rate flags and trend arrows on desktop + mobile */
+@media screen and (min-width:601px){
+  .currency-with-flag{
+    display:inline-flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    gap:8px !important;
+    direction:ltr !important;
+  }
+
+  .currency-with-flag > span{
+    display:inline-block !important;
+    font-size:22px !important;
+    line-height:1 !important;
+  }
+
+  .dashboard-rate-pair{
+    display:inline-flex !important;
+    align-items:center !important;
+    gap:8px !important;
+    direction:ltr !important;
+  }
+
+  .dashboard-rate-flag{
+    display:inline-block !important;
+    font-size:20px !important;
+    line-height:1 !important;
+  }
+
+  .dashboard-rate-trend{
+    display:inline-block !important;
+    font-size:17px !important;
+    font-weight:900 !important;
+  }
+
+  .trend-up{color:#22c55e !important}
+  .trend-down{color:#ff3b3b !important}
+  .trend-same{color:#f0c85b !important}
+  .trend-new{color:#8da2bd !important}
+}
