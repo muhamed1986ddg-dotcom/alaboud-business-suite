@@ -3160,3 +3160,31 @@ aside button.active{
   font-size:18px !important;
   font-weight:800 !important;
 }
+
+
+/* v15.3.18 - flags + green/red trend arrows */
+.currency-with-flag{
+  display:inline-flex !important;
+  align-items:center !important;
+  gap:7px !important;
+  direction:ltr !important;
+}
+.currency-with-flag > span{font-size:22px !important;line-height:1 !important}
+.dashboard-rate-pair{
+  display:flex !important;
+  align-items:center !important;
+  gap:7px !important;
+}
+.dashboard-rate-flag{font-size:20px !important;line-height:1 !important}
+.dashboard-rate-trend,.trend{font-weight:900 !important;line-height:1 !important}
+.trend-up,.rate-up .trend{color:#22c55e !important}
+.trend-down,.rate-down .trend{color:#ff3b3b !important}
+.trend-same,.rate-same .trend{color:#f0c85b !important}
+.trend-new,.rate-new .trend{color:#8da2bd !important}
+.rate-up{box-shadow:inset 4px 0 0 rgba(34,197,94,.72) !important}
+.rate-down{box-shadow:inset 4px 0 0 rgba(255,59,59,.72) !important}
+@media screen and (max-width:600px){
+  .currency-with-flag > span{font-size:19px !important}
+  .dashboard-rate-flag{font-size:17px !important}
+  .dashboard-rate-pair{gap:5px !important}
+}

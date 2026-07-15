@@ -1588,4 +1588,17 @@ app.use((err,_req,res,_next)=>{
 app.listen(PORT,"0.0.0.0",()=>{
   console.log(`AlAboud Enterprise Cloud v8.1 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
+
+  const runHourlyRateRefresh=async()=>{
+    try{
+      const results=await refreshAutomaticRates("SYSTEM_HOURLY");
+      const successCount=results.filter(item=>item.ok).length;
+      console.log(`Hourly exchange-rate refresh: ${successCount}/${results.length} updated`);
+    }catch(error){
+      console.error("Hourly exchange-rate refresh failed:",error.message);
+    }
+  };
+
+  setTimeout(runHourlyRateRefresh,60*1000);
+  setInterval(runHourlyRateRefresh,60*60*1000);
 });

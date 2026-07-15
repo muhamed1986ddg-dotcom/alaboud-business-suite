@@ -2,6 +2,24 @@ import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
+const currencyFlag=code=>({
+  CAD:"🇨🇦",USD:"🇺🇸",EUR:"🇪🇺",GBP:"🇬🇧",AED:"🇦🇪",TRY:"🇹🇷",SYP:"🇸🇾"
+}[String(code||"").toUpperCase()]||"🏳️");
+
+function rateTrend(rate,history=[]){
+  const pairHistory=history
+    .filter(item=>item.baseCurrency===rate.baseCurrency&&item.quoteCurrency===rate.quoteCurrency)
+    .sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
+  const previous=pairHistory.find(item=>item.id!==rate.id);
+  if(!previous)return {type:"new",symbol:"●",label:"جديد"};
+  const currentValue=Number(rate.sellRate||rate.buyRate||0);
+  const previousValue=Number(previous.sellRate||previous.buyRate||0);
+  if(currentValue>previousValue)return {type:"up",symbol:"▲",label:"صعود"};
+  if(currentValue<previousValue)return {type:"down",symbol:"▼",label:"نزول"};
+  return {type:"same",symbol:"→",label:"ثابت"};
+}
+
+
 class AppErrorBoundary extends React.Component{
   constructor(props){
     super(props);
@@ -31,22 +49,34 @@ function Dashboard({navigate}){
   const [noticeData,setNoticeData]=useState({count:0,overdueCount:0,overdueTotal:0,notifications:[]});
   const [recent,setRecent]=useState([]);
   const [dashboardRates,setDashboardRates]=useState([]);
+  const [dashboardRateHistory,setDashboardRateHistory]=useState([]);
   const [open,setOpen]=useState(false);
 
   useEffect(()=>{
-    Promise.all([
-      api.get("/dashboard"),
-      api.get("/notifications"),
-      api.get("/transactions"),
-      api.get("/exchange-rates")
-    ]).then(([dashboardResponse,notificationResponse,transactionsResponse,ratesResponse])=>{
-      setData(dashboardResponse.data);
-      setNoticeData(notificationResponse.data);
-      const rows=Array.isArray(transactionsResponse.data)?transactionsResponse.data:[];
-      setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
-      const rateRows=Array.isArray(ratesResponse.data)?ratesResponse.data:[];
-      setDashboardRates(rateRows.slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,5));
-    });
+    let active=true;
+    const loadDashboard=async(refreshRates=false)=>{
+      try{
+        if(refreshRates)await api.post("/exchange-rates/refresh");
+        const [dashboardResponse,notificationResponse,transactionsResponse,ratesResponse,historyResponse]=await Promise.all([
+          api.get("/dashboard"),
+          api.get("/notifications"),
+          api.get("/transactions"),
+          api.get("/exchange-rates"),
+          api.get("/exchange-rates/history")
+        ]);
+        if(!active)return;
+        setData(dashboardResponse.data);
+        setNoticeData(notificationResponse.data);
+        const rows=Array.isArray(transactionsResponse.data)?transactionsResponse.data:[];
+        setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
+        const rateRows=Array.isArray(ratesResponse.data)?ratesResponse.data:[];
+        setDashboardRates(rateRows.slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,7));
+        setDashboardRateHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
+      }catch{}
+    };
+    loadDashboard(false);
+    const hourly=setInterval(()=>loadDashboard(true),60*60*1000);
+    return ()=>{active=false;clearInterval(hourly)};
   },[]);
 
   if(!data)return <div className="premium-loading">جاري تحميل لوحة التحكم…</div>;
@@ -63,7 +93,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.17 Final Mobile</p>
+        <p>v15.3.18 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -105,9 +135,18 @@ function Dashboard({navigate}){
             key={rate.id||`${rate.baseCurrency}-${rate.quoteCurrency}`}
             onClick={()=>navigate("rates")}
           >
-            <strong className="dashboard-rate-pair">{rate.baseCurrency}/{rate.quoteCurrency}</strong>
-            <span>شراء <b>{Number(rate.buyRate||0).toFixed(4)}</b></span>
-            <span>بيع <b>{Number(rate.sellRate||0).toFixed(4)}</b></span>
+            {(()=>{
+              const trend=rateTrend(rate,dashboardRateHistory);
+              return <>
+                <strong className="dashboard-rate-pair">
+                  <span className="dashboard-rate-flag">{currencyFlag(rate.baseCurrency)}</span>
+                  <span>{rate.baseCurrency}/{rate.quoteCurrency}</span>
+                  <span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol}</span>
+                </strong>
+                <span>شراء <b>{Number(rate.buyRate||0).toFixed(4)}</b></span>
+                <span>بيع <b>{Number(rate.sellRate||0).toFixed(4)}</b></span>
+              </>;
+            })()}
           </button>):<p className="empty-state">لا توجد أسعار صرف مسجلة.</p>}
         </div>
       </div>
@@ -1480,21 +1519,16 @@ function ExchangeRates(){
   const [refreshing,setRefreshing]=useState(false);
   const [message,setMessage]=useState("");
 
-  function trendFor(rate){
-    const pairHistory=history
-      .filter(item=>item.baseCurrency===rate.baseCurrency&&item.quoteCurrency===rate.quoteCurrency)
-      .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
-    const previous=pairHistory.find(item=>item.id!==rate.id);
-    if(!previous)return {type:"new",symbol:"●",label:"جديد",change:0};
-    const currentValue=Number(rate.sellRate||rate.buyRate||0);
-    const previousValue=Number(previous.sellRate||previous.buyRate||0);
-    const change=currentValue-previousValue;
-    if(change>0)return {type:"up",symbol:"↑",label:"مرتفع",change};
-    if(change<0)return {type:"down",symbol:"↓",label:"منخفض",change};
-    return {type:"same",symbol:"→",label:"ثابت",change:0};
-  }
+  const trendFor=(rate)=>rateTrend(rate,history);
   const load=()=>Promise.all([api.get("/exchange-rates"),api.get("/exchange-rates/history")]).then(([a,b])=>{setList(a.data);setHistory(b.data)});
-  useEffect(()=>{load();},[]);
+  useEffect(()=>{
+    load();
+    const hourly=setInterval(async()=>{
+      try{await api.post("/exchange-rates/refresh")}catch{}
+      await load();
+    },60*60*1000);
+    return ()=>clearInterval(hourly);
+  },[]);
   async function add(e){
     e.preventDefault();
     await api.post("/exchange-rates",f);
@@ -1522,7 +1556,7 @@ function ExchangeRates(){
     <div className="card auto-rate-bar">
       <div>
         <strong>التحديث التلقائي</strong>
-        <p>يتم تحديث الأسعار آليًا كل 6 ساعات من مصدر أسعار بنوك مركزية.</p>
+        <p>يتم تحديث الأسعار آليًا كل ساعة مع إظهار الصعود والنزول.</p>
       </div>
       <button type="button" onClick={refresh} disabled={refreshing}>
         {refreshing?"جاري التحديث...":"تحديث الأسعار الآن"}
@@ -1548,8 +1582,8 @@ function ExchangeRates(){
         <tbody>{list.map(r=>{
           const trend=trendFor(r);
           return <tr key={r.id} className={`rate-row rate-${trend.type}`}>
-            <td><span className="currency-badge">{r.baseCurrency}</span></td>
-            <td><span className="currency-badge">{r.quoteCurrency}</span></td>
+            <td><span className="currency-badge currency-with-flag"><span>{currencyFlag(r.baseCurrency)}</span>{r.baseCurrency}</span></td>
+            <td><span className="currency-badge currency-with-flag"><span>{currencyFlag(r.quoteCurrency)}</span>{r.quoteCurrency}</span></td>
             <td className="buy-rate">{Number(r.buyRate).toFixed(4)}</td>
             <td className={`sell-rate ${trend.type}`}>
               <strong>{Number(r.sellRate).toFixed(4)}</strong>
@@ -2361,7 +2395,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.17 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v15.3.18 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2375,7 +2409,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v15.3.17 Final Mobile</small>
+          <small>v15.3.18 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
