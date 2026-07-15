@@ -126,7 +126,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.43",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.44",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -930,52 +930,140 @@ const AUTO_RATE_PAIRS = [
   ["EUR","USD"], ["USD","EUR"], ["GBP","USD"], ["USD","GBP"]
 ];
 
+const TROY_OUNCE_GRAMS = 31.1034768;
+const GOLD_KARATS = [
+  ["XAU24", 24/24],
+  ["XAU22", 22/24],
+  ["XAU21", 21/24],
+  ["XAU18", 18/24]
+];
+
 async function fetchOfficialRate(baseCurrency, quoteCurrency) {
   const url = `https://api.frankfurter.dev/v2/rate/${encodeURIComponent(baseCurrency)}/${encodeURIComponent(quoteCurrency)}`;
   const response = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/6.3" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.44" }
   });
-  if (!response.ok) {
-    throw new Error(`Rate provider returned ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`Rate provider returned ${response.status}`);
   const data = await response.json();
   const rate = Number(data.rate);
-  if (!Number.isFinite(rate) || rate <= 0) {
-    throw new Error("Invalid rate received");
-  }
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error("Invalid rate received");
   return { rate, date: data.date || new Date().toISOString().slice(0,10) };
+}
+
+async function fetchSyrianPoundRate() {
+  const response = await fetch("https://open.er-api.com/v6/latest/USD", {
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.44" }
+  });
+  if (!response.ok) throw new Error(`SYP provider returned ${response.status}`);
+  const data = await response.json();
+  if (data.result !== "success") throw new Error(data["error-type"] || "SYP provider failed");
+  const rate = Number(data.rates?.SYP);
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error("SYP rate is unavailable");
+  return {
+    rate,
+    updatedAt:data.time_last_update_utc || new Date().toISOString(),
+    nextUpdate:data.time_next_update_utc || null
+  };
+}
+
+async function fetchGoldPriceCad() {
+  const response = await fetch("https://api.gold-api.com/price/XAU/CAD", {
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.44" }
+  });
+  if (!response.ok) throw new Error(`Gold provider returned ${response.status}`);
+  const data = await response.json();
+  const pricePerOunceCad = Number(data.price);
+  if (!Number.isFinite(pricePerOunceCad) || pricePerOunceCad <= 0) {
+    throw new Error("Gold price is unavailable");
+  }
+  return {
+    pricePerOunceCad,
+    updatedAt:data.updatedAt || new Date().toISOString()
+  };
+}
+
+function saveAutomaticRate({baseCurrency,quoteCurrency,rate,source,notes,sourceDate,userId}) {
+  return mutate((store)=>{
+    const x = {
+      id:id(),
+      baseCurrency,
+      quoteCurrency,
+      buyRate:rate,
+      sellRate:rate,
+      notes,
+      source,
+      sourceDate:sourceDate || new Date().toISOString(),
+      isAutomatic:true,
+      createdAt:now(),
+      createdBy:userId
+    };
+    store.exchangeRates.push(x);
+    audit(store,userId,"AUTO_REFRESH","EXCHANGE_RATE",x.id,{
+      baseCurrency,quoteCurrency,rate,source
+    });
+    return x;
+  });
 }
 
 async function refreshAutomaticRates(userId="SYSTEM") {
   const results = [];
+
   for (const [baseCurrency, quoteCurrency] of AUTO_RATE_PAIRS) {
     try {
       const official = await fetchOfficialRate(baseCurrency, quoteCurrency);
-      const saved = mutate((s)=>{
-        const x = {
-          id:id(),
-          baseCurrency,
-          quoteCurrency,
-          buyRate: official.rate,
-          sellRate: official.rate,
-          notes:"تحديث تلقائي من مصدر أسعار البنوك المركزية",
-          source:"FRANKFURTER",
-          sourceDate:official.date,
-          isAutomatic:true,
-          createdAt:now(),
-          createdBy:userId
-        };
-        s.exchangeRates.push(x);
-        audit(s,userId,"AUTO_REFRESH","EXCHANGE_RATE",x.id,{
-          baseCurrency,quoteCurrency,rate:official.rate,source:"FRANKFURTER"
-        });
-        return x;
+      const saved = saveAutomaticRate({
+        baseCurrency,
+        quoteCurrency,
+        rate:official.rate,
+        source:"FRANKFURTER",
+        notes:"تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+        sourceDate:official.date,
+        userId
       });
-      results.push({ok:true, pair:`${baseCurrency}/${quoteCurrency}`, rate:saved.buyRate});
+      results.push({ok:true, pair:`${baseCurrency}/${quoteCurrency}`, rate:saved.buyRate, source:"FRANKFURTER"});
     } catch (error) {
       results.push({ok:false, pair:`${baseCurrency}/${quoteCurrency}`, error:error.message});
     }
   }
+
+  try {
+    const syp = await fetchSyrianPoundRate();
+    const saved = saveAutomaticRate({
+      baseCurrency:"USD",
+      quoteCurrency:"SYP",
+      rate:syp.rate,
+      source:"EXCHANGE_RATE_API",
+      notes:"تحديث تلقائي لسعر USD/SYP من ExchangeRate-API",
+      sourceDate:syp.updatedAt,
+      userId
+    });
+    results.push({ok:true,pair:"USD/SYP",rate:saved.buyRate,source:"EXCHANGE_RATE_API"});
+  } catch (error) {
+    results.push({ok:false,pair:"USD/SYP",error:error.message});
+  }
+
+  try {
+    const gold = await fetchGoldPriceCad();
+    const pureGramCad = gold.pricePerOunceCad / TROY_OUNCE_GRAMS;
+    for (const [baseCurrency, purity] of GOLD_KARATS) {
+      const gramRate = +(pureGramCad * purity).toFixed(4);
+      const saved = saveAutomaticRate({
+        baseCurrency,
+        quoteCurrency:"CAD",
+        rate:gramRate,
+        source:"GOLD_API",
+        notes:`سعر غرام الذهب التلقائي — ${baseCurrency.replace("XAU","")} قيراط`,
+        sourceDate:gold.updatedAt,
+        userId
+      });
+      results.push({ok:true,pair:`${baseCurrency}/CAD`,rate:saved.buyRate,source:"GOLD_API"});
+    }
+  } catch (error) {
+    for (const [baseCurrency] of GOLD_KARATS) {
+      results.push({ok:false,pair:`${baseCurrency}/CAD`,error:error.message});
+    }
+  }
+
   return results;
 }
 
@@ -1040,7 +1128,7 @@ app.post("/api/exchange-rates/refresh", auth, async (req,res)=>{
     const results = await refreshAutomaticRates(req.user.id);
     const successCount = results.filter(x=>x.ok).length;
     res.json({
-      message:`تم تحديث ${successCount} من ${results.length} أزواج تلقائية. سعر SYP يُحدّث يدويًا لضمان الدقة.`,
+      message:`تم تحديث ${successCount} من ${results.length} أسعار تلقائية، بما فيها الليرة السورية والذهب عند توفر المصدر.`,
       successCount,
       total:results.length,
       updatedAt:now(),
@@ -1788,7 +1876,7 @@ async function startServer(){
   await initStore();
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v15.3.43 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v15.3.44 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{

@@ -3809,3 +3809,8 @@ body.app-language-en aside{
 @media(max-width:700px){
   .transaction-edit-actions{flex-direction:column}
 }
+
+
+/* v15.3.44 automatic SYP and gold rates */
+.source-badge.auto{font-weight:800}
+.gold-rates-table .source-badge{white-space:nowrap}
