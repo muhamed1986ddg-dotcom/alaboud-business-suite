@@ -3264,3 +3264,18 @@ aside button.active{
     min-width:21px !important;
   }
 }
+
+
+/* v15.3.22 - raise mobile bottom navigation above Samsung/Android system bar */
+@media screen and (max-width: 768px){
+  .mobile-bottom-nav,
+  .bottom-nav,
+  nav.mobile-nav,
+  .mobile-nav{
+    bottom: calc(22px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  body{
+    padding-bottom: calc(112px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
