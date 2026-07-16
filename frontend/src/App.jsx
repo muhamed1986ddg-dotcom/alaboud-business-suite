@@ -8,39 +8,15 @@ function openRegularWhatsApp(phone,message){
 
   if(!cleanPhone)return false;
 
-  const userAgent=navigator.userAgent||"";
-  const isAndroid=/Android/i.test(userAgent);
-  const isWindows=/Windows/i.test(userAgent);
-
+  const isAndroid=/Android/i.test(navigator.userAgent||"");
   if(isAndroid){
     const intentUrl=`intent://send?phone=${cleanPhone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp;end`;
     window.location.href=intentUrl;
     return true;
   }
 
-  if(isWindows){
-    // يحاول فتح تطبيق WhatsApp Desktop أولاً، ثم يفتح WhatsApp Web كخيار احتياطي.
-    const webUrl=`https://wa.me/${cleanPhone}?text=${encodedText}`;
-    const fallbackTimer=window.setTimeout(()=>window.open(webUrl,"_blank"),1300);
-    const stopFallback=()=>window.clearTimeout(fallbackTimer);
-    window.addEventListener("blur",stopFallback,{once:true});
-    window.location.href=`whatsapp://send?phone=${cleanPhone}&text=${encodedText}`;
-    return true;
-  }
-
   window.open(`https://wa.me/${cleanPhone}?text=${encodedText}`,"_blank");
   return true;
-}
-
-function downloadBlob(blob,fileName){
-  const url=URL.createObjectURL(blob);
-  const link=document.createElement("a");
-  link.href=url;
-  link.download=fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
 
 
@@ -313,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.58 Final Mobile</p>
+        <p>v15.3.59 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -1306,26 +1282,16 @@ function Customer({id,back,onStatement}){
       const width=720;
       const sidePadding=34;
       const rowHeight=54;
-      const headerHeight=210;
-      const summaryRowHeight=50;
-      const footerHeight=82;
-      const summaryHeight=(summaryRowHeight*3)+34;
-      const contentHeight=(rows.length*rowHeight);
-      const height=headerHeight+contentHeight+summaryHeight+footerHeight;
+      const workingHeight=Math.max(900,260+(rows.length*rowHeight)+360);
 
-      const canvas=document.createElement("canvas");
-      canvas.width=width;
-      canvas.height=height;
+      const workingCanvas=document.createElement("canvas");
+      workingCanvas.width=width;
+      workingCanvas.height=workingHeight;
 
-      const ctx=canvas.getContext("2d");
+      const ctx=workingCanvas.getContext("2d");
       if(!ctx)throw new Error("تعذر إنشاء صورة كشف الحساب");
 
-      const drawText=(value,x,y,size,{
-        color="#f5f5f5",
-        align="center",
-        weight="700",
-        direction="rtl"
-      }={})=>{
+      const drawText=(value,x,y,size,{color="#f5f5f5",align="center",weight="700",direction="rtl"}={})=>{
         ctx.save();
         ctx.fillStyle=color;
         ctx.font=`${weight} ${size}px Arial, sans-serif`;
@@ -1348,24 +1314,18 @@ function Customer({id,back,onStatement}){
         ctx.restore();
       };
 
-      const gradient=ctx.createLinearGradient(0,0,width,height);
+      const gradient=ctx.createLinearGradient(0,0,width,workingHeight);
       gradient.addColorStop(0,"#142331");
       gradient.addColorStop(1,"#08131c");
       ctx.fillStyle=gradient;
-      ctx.fillRect(0,0,width,height);
+      ctx.fillRect(0,0,width,workingHeight);
 
-      ctx.save();
-      ctx.strokeStyle="#9b7425";
-      ctx.lineWidth=2;
-      ctx.strokeRect(14,14,width-28,height-28);
-      ctx.restore();
+      drawText(statement.company?.name||"شركة العبود التجارية",width/2,50,34,{weight:"800"});
+      drawText("كشف حساب العميل",width/2,101,30,{color:"#d8a33f",weight:"800"});
+      drawText(customer.name||"العميل",width/2,147,26,{weight:"700"});
+      drawLine(180);
 
-      drawText(statement.company?.name||"شركة العبود التجارية",width/2,52,34,{weight:"800"});
-      drawText("كشف حساب العميل",width/2,104,30,{color:"#d8a33f",weight:"800"});
-      drawText(customer.name||"العميل",width/2,151,26,{weight:"700"});
-      drawLine(185);
-
-      let y=224;
+      let y=219;
 
       rows.forEach((item,index)=>{
         const amount=Number(item.usdAmount||item.amount||0).toFixed(2).replace(/\.00$/,"");
@@ -1379,28 +1339,27 @@ function Customer({id,back,onStatement}){
           24,
           {align:"left",direction:"ltr",weight:"700"}
         );
-
         drawLine(y+27,"#283844");
         y+=rowHeight;
       });
 
-      drawLine(y+8,"#68747c",[10,8]);
-      y+=38;
+      drawLine(y+7,"#68747c",[10,8]);
+      y+=37;
 
-      drawText("الحساب القديم",sidePadding,y,23,{align:"left",weight:"700"});
+      drawText("الحساب القديم",sidePadding,y,23,{align:"left"});
       drawText(`${money(oldBalance)} 🇨🇦`,width-sidePadding,y,24,{align:"right",color:"#d8a33f",weight:"800"});
-      y+=summaryRowHeight;
+      y+=48;
 
-      drawText("الدفعات",sidePadding,y,23,{align:"left",weight:"700"});
+      drawText("الدفعات",sidePadding,y,23,{align:"left"});
       drawText(`${money(paid)} 🇨🇦`,width-sidePadding,y,24,{align:"right",color:"#ef4444",weight:"800"});
-      y+=summaryRowHeight;
+      y+=48;
 
       drawText("المجموع النهائي",sidePadding,y,25,{align:"left",weight:"800"});
       drawText(`${money(finalBalance)} 🇨🇦`,width-sidePadding,y,28,{align:"right",color:"#63c443",weight:"900"});
-      y+=summaryRowHeight;
+      y+=46;
 
       drawLine(y+4,"#68747c");
-      y+=36;
+      y+=34;
 
       const nowDate=new Date();
       drawText(
@@ -1417,8 +1376,31 @@ function Customer({id,back,onStatement}){
         18,
         {align:"right",color:"#b8c0c7",weight:"500"}
       );
+      y+=46;
 
-      drawText("شكراً لتعاملكم معنا",width/2,height-36,22,{color:"#d8a33f",weight:"700"});
+      drawText("شكراً لتعاملكم معنا",width/2,y,22,{color:"#d8a33f",weight:"700"});
+
+      const contentBottom=y+42;
+      const finalHeight=Math.max(500,Math.ceil(contentBottom));
+
+      const canvas=document.createElement("canvas");
+      canvas.width=width;
+      canvas.height=finalHeight;
+
+      const finalCtx=canvas.getContext("2d");
+      if(!finalCtx)throw new Error("تعذر قص صورة كشف الحساب");
+
+      finalCtx.drawImage(
+        workingCanvas,
+        0,0,width,finalHeight,
+        0,0,width,finalHeight
+      );
+
+      finalCtx.save();
+      finalCtx.strokeStyle="#9b7425";
+      finalCtx.lineWidth=2;
+      finalCtx.strokeRect(14,14,width-28,finalHeight-28);
+      finalCtx.restore();
 
       const blob=await new Promise((resolve,reject)=>{
         canvas.toBlob(value=>{
@@ -1430,11 +1412,7 @@ function Customer({id,back,onStatement}){
       const safeName=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safeName}.png`,{type:"image/png"});
 
-      const phone=String(customer.phone||"").replace(/\D/g,"");
-      const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||"");
-
-      // على الهاتف نستعمل نافذة المشاركة الأصلية لأنها تستطيع تمرير ملف الصورة إلى واتساب.
-      if(isMobile&&navigator.share){
+      if(navigator.share){
         try{
           await navigator.share({files:[file],title:"كشف حساب العميل"});
           return;
@@ -1444,21 +1422,17 @@ function Customer({id,back,onStatement}){
         }
       }
 
-      // على الكمبيوتر لا يدعم المتصفح إرفاق الملف مباشرة بواتساب لأسباب أمنية.
-      // لذلك ننزّل الصورة فوراً ثم نفتح محادثة العميل في تطبيق واتساب المثبت.
-      downloadBlob(blob,file.name);
-
-      if(phone){
-        const message=[
-          `مرحباً ${customer.name||""}`.trim(),
-          "تم تجهيز صورة كشف الحساب.",
-          "ستجد الصورة في مجلد التنزيلات، اسحبها إلى هذه المحادثة ثم اضغط إرسال."
-        ].join("\n");
-        openRegularWhatsApp(phone,message);
-        setError("تم تنزيل صورة كشف الحساب وفتح واتساب. اسحب الصورة من مجلد التنزيلات إلى المحادثة.");
-      }else{
-        setError("تم تنزيل صورة كشف الحساب. لا يوجد رقم واتساب محفوظ لهذا العميل.");
+      const url=URL.createObjectURL(blob);
+      const preview=window.open(url,"_blank");
+      if(!preview){
+        const link=document.createElement("a");
+        link.href=url;
+        link.download=file.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
       }
+      setTimeout(()=>URL.revokeObjectURL(url),60000);
     }catch(error){
       setError(error.response?.data?.message||error.message||"تعذر مشاركة صورة كشف الحساب");
     }
@@ -1519,7 +1493,7 @@ function Customer({id,back,onStatement}){
       <button onClick={back}>رجوع</button>
       <button onClick={()=>onStatement(id)}>كشف حساب العميل</button>
       <button className="whatsapp-text-button" onClick={shareCustomerStatementText}>💬 إرسال رسالة نصية عبر واتساب</button>
-      <button className="whatsapp-image-button" onClick={shareCustomerStatement}>📷 تنزيل الصورة وفتح واتساب</button>
+      <button className="whatsapp-image-button" onClick={shareCustomerStatement}>📷 إرسال صورة عبر واتساب</button>
     </div>
 
     <h2>{customer.name||"العميل"}</h2>
@@ -3137,7 +3111,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.58 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.59 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3230,7 +3204,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.58 Final"
+        version:"v15.3.59 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3272,7 +3246,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.58 Final</span>
+      <span className="settings-version">v15.3.59 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3348,7 +3322,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.58 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.59 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3501,7 +3475,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.58 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.59 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3515,7 +3489,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.58 Final Mobile</small>
+          <small>v15.3.59 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
