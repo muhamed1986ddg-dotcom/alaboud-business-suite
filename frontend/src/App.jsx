@@ -285,13 +285,13 @@ function Dashboard({navigate}){
   ];
 
   return <div className="premium-dashboard">
-    <section className="premium-hero">
-      <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-      <div>
-        <h2>شركة العبود التجارية</h2>
-        <p>v15.3.60 Professional UI</p>
+    <section className="premium-hero dashboard-pro-hero">
+      <div className="dashboard-pro-brand">
+        <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+        <div><h2>شركة العبود التجارية</h2><p>v15.3.61 Dashboard Pro <span>● متصل</span></p></div>
       </div>
-      <span className="online-chip">● متصل</span>
+      <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
+      <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
     </section>
 
     <section className="premium-kpis">
@@ -345,6 +345,35 @@ function Dashboard({navigate}){
             })()}
           </button>):<p className="empty-state">لا توجد أسعار صرف مسجلة.</p>}
         </div>
+      </div>
+    </section>
+
+    <section className="dashboard-pro-analysis">
+      <div className="dashboard-pro-performance panel-dark">
+        <div className="section-heading"><h3>ملخص الأداء (آخر 7 أيام)</h3><span className="dashboard-pro-period">آخر 7 أيام</span></div>
+        <div className="dashboard-pro-chart">
+          <div className="dashboard-pro-grid"><i/><i/><i/><i/><i/></div>
+          <div className="dashboard-pro-bars">{[38,54,61,69,82,66,77].map((value,index)=><div className="dashboard-pro-bar-col" key={index}><div className="dashboard-pro-bar" style={{height:`${value}%`}}/><small>{index+8}/7</small></div>)}</div>
+          <svg viewBox="0 0 700 220" preserveAspectRatio="none"><polyline points="50,160 150,115 250,102 350,78 450,42 550,85 650,65"/></svg>
+        </div>
+        <div className="dashboard-pro-legend"><span>● إجمالي الحوالات (CAD)</span><span>● إجمالي الأرباح</span></div>
+      </div>
+      <div className="dashboard-pro-finance panel-dark">
+        <div className="section-heading"><h3>حركة رأس المال</h3><button onClick={()=>navigate("capital")}>عرض الكل</button></div>
+        <p><span>الرصيد الحالي</span><strong>{cad(data.capital||0)}</strong></p>
+        <p><span>الذمم المستحقة</span><strong>{cad(data.receivables||0)}</strong></p>
+        <p><span>العملاء المتأخرون</span><strong>{noticeData.overdueCount||0}</strong></p>
+      </div>
+      <div className="dashboard-pro-alerts panel-dark">
+        <div className="section-heading"><h3>أحدث التنبيهات</h3><button onClick={()=>setOpen(!open)}>عرض الكل</button></div>
+        {(noticeData.notifications||[]).slice(0,3).map(item=><div className={`dashboard-pro-alert severity-${item.severity}`} key={item.id}><b>!</b><div><strong>{item.title}</strong><small>{item.message}</small></div></div>)}
+        {!noticeData.notifications?.length&&<p className="empty-state">لا توجد تنبيهات حالياً.</p>}
+      </div>
+      <div className="dashboard-pro-stats panel-dark">
+        <div className="section-heading"><h3>إحصائيات سريعة</h3></div>
+        <p><span>حوالات اليوم</span><strong>{data.todayTransactions||0}</strong></p>
+        <p><span>أرباح اليوم</span><strong>{cad(data.todayProfit)}</strong></p>
+        <p><span>عدد العملاء</span><strong>{data.customers||0}</strong></p>
       </div>
     </section>
 
@@ -3076,7 +3105,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.60 Professional UI"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.61 Dashboard Pro"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3169,7 +3198,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.60 Professional UI"
+        version:"v15.3.61 Dashboard Pro"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3211,7 +3240,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.60 Professional UI</span>
+      <span className="settings-version">v15.3.61 Dashboard Pro</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3287,7 +3316,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.60 Professional UI").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.61 Dashboard Pro").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3444,7 +3473,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.60 Professional UI</small>
+          <small>v15.3.61 Dashboard Pro</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3460,7 +3489,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.60 Professional UI</small>
+          <small>v15.3.61 Dashboard Pro</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
