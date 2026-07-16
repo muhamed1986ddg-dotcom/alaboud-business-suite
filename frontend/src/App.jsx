@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.56 Final Mobile</p>
+        <p>v15.3.57 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -1276,8 +1276,11 @@ function Customer({id,back,onStatement}){
       const total=Number(statement.totals?.formulaResultCad||0)+oldBalance;
       const paid=Number(statement.totals?.paid||0);
       const finalBalance=Number(statement.totals?.remaining||Math.max(total-paid,0));
-      const width=720,rowHeight=55;
-      const height=Math.max(500,260+rows.length*rowHeight+245);
+      const width=640,rowHeight=46;
+      const headerHeight=205;
+      const summaryHeight=190;
+      const footerHeight=58;
+      const height=headerHeight+(rows.length*rowHeight)+summaryHeight+footerHeight;
       const canvas=document.createElement("canvas");
       canvas.width=width;canvas.height=height;
       const ctx=canvas.getContext("2d");
@@ -1288,30 +1291,30 @@ function Customer({id,back,onStatement}){
       const gradient=ctx.createLinearGradient(0,0,width,height);
       gradient.addColorStop(0,"#15232f");gradient.addColorStop(1,"#08131c");
       ctx.fillStyle=gradient;ctx.fillRect(0,0,width,height);
-      ctx.strokeStyle="#9b7425";ctx.lineWidth=2;ctx.strokeRect(18,18,width-36,height-36);
-      text(statement.company?.name||"شركة العبود التجارية",width/2,62,38);
-      text("كشف حساب العميل",width/2,115,32,"#d8a33f");
-      text(customer.name,width/2,160,28);
-      ctx.strokeStyle="#6b6f73";ctx.beginPath();ctx.moveTo(35,200);ctx.lineTo(width-35,200);ctx.stroke();
-      let y=245;
+      ctx.strokeStyle="#9b7425";ctx.lineWidth=2;ctx.strokeRect(12,12,width-24,height-24);
+      text(statement.company?.name||"شركة العبود التجارية",width/2,48,31);
+      text("كشف حساب العميل",width/2,91,27,"#d8a33f");
+      text(customer.name,width/2,130,24);
+      ctx.strokeStyle="#6b6f73";ctx.beginPath();ctx.moveTo(30,165);ctx.lineTo(width-30,165);ctx.stroke();
+      let y=205;
       rows.forEach((item,index)=>{
         const amount=Number(item.usdAmount||0).toFixed(2).replace(/\.00$/,"");
         const rate=Number(item.customerRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
-        ctx.direction="ltr";ctx.textAlign="left";ctx.fillStyle="#f5f5f5";ctx.font="700 25px Arial, sans-serif";
-        ctx.fillText(`${index+1}_ ${amount} 🇺🇸 × ${rate} = ${money(item.formulaResultCad)} 🇨🇦`,42,y);
+        ctx.direction="ltr";ctx.textAlign="left";ctx.fillStyle="#f5f5f5";ctx.font="700 22px Arial, sans-serif";
+        ctx.fillText(`${index+1}_ ${amount} 🇺🇸 × ${rate} = ${money(item.formulaResultCad)} 🇨🇦`,34,y);
         y+=rowHeight;
       });
-      y+=25;
-      text("الحساب القديم",42,y,25,"#f5f5f5","left");
-      text(`${money(oldBalance)} 🇨🇦`,width-42,y,27,"#d8a33f","right","800");
-      y+=50;
-      text("الدفعات",42,y,25,"#f5f5f5","left");
-      text(`${money(paid)} 🇨🇦`,width-42,y,27,"#ef4444","right","800");
-      y+=50;
-      text("المجموع النهائي",42,y,28,"#f5f5f5","left","800");
-      text(`${money(finalBalance)} 🇨🇦`,width-42,y,31,"#63c443","right","900");
-      y+=48;
-      text("شكراً لتعاملكم معنا",width/2,y,24,"#d8a33f");
+      y+=18;
+      text("الحساب القديم",34,y,22,"#f5f5f5","left");
+      text(`${money(oldBalance)} 🇨🇦`,width-34,y,23,"#d8a33f","right","800");
+      y+=39;
+      text("الدفعات",34,y,22,"#f5f5f5","left");
+      text(`${money(paid)} 🇨🇦`,width-34,y,23,"#ef4444","right","800");
+      y+=39;
+      text("المجموع النهائي",34,y,24,"#f5f5f5","left","800");
+      text(`${money(finalBalance)} 🇨🇦`,width-34,y,27,"#63c443","right","900");
+      y+=38;
+      text("شكراً لتعاملكم معنا",width/2,y,21,"#d8a33f");
       const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error("تعذر إنشاء الصورة")),"image/png",0.96));
       const safe=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safe}.png`,{type:"image/png"});
@@ -2998,7 +3001,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.56 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.57 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3091,7 +3094,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.56 Final"
+        version:"v15.3.57 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3133,7 +3136,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.56 Final</span>
+      <span className="settings-version">v15.3.57 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3209,7 +3212,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.56 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.57 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3362,7 +3365,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.56 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.57 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3376,7 +3379,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.56 Final Mobile</small>
+          <small>v15.3.57 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
