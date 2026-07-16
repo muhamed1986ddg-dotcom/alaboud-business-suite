@@ -4524,3 +4524,8 @@ button.rate-bulletin-card{width:100%;cursor:pointer}
 .settings-alert-note{margin:0;padding-top:4px}
 .settings-alert-note p{margin:6px 0 0}
 @media(min-width:1050px){.settings-alerts-card{grid-column:span 2}}
+
+
+/* v15.3.66 — transfer debt breakdown in General Debt */
+.debt-summary-card small{display:block;margin-top:6px;font-size:.82rem;opacity:.88;line-height:1.45}
+.debt-summary-card strong{margin-bottom:2px}

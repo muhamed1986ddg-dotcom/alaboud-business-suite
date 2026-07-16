@@ -132,7 +132,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.63",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.66",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -1093,7 +1093,7 @@ const GOLD_KARATS = [
 async function fetchOfficialRate(baseCurrency, quoteCurrency) {
   const url = `https://api.frankfurter.dev/v2/rate/${encodeURIComponent(baseCurrency)}/${encodeURIComponent(quoteCurrency)}`;
   const response = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.65" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.66" }
   });
   if (!response.ok) throw new Error(`Rate provider returned ${response.status}`);
   const data = await response.json();
@@ -1104,7 +1104,7 @@ async function fetchOfficialRate(baseCurrency, quoteCurrency) {
 
 async function fetchSyrianPoundRate() {
   const response = await fetch("https://open.er-api.com/v6/latest/USD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.65" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.66" }
   });
   if (!response.ok) throw new Error(`SYP provider returned ${response.status}`);
   const data = await response.json();
@@ -1120,7 +1120,7 @@ async function fetchSyrianPoundRate() {
 
 async function fetchGoldPriceCad() {
   const response = await fetch("https://api.gold-api.com/price/XAU/CAD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.65" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.66" }
   });
   if (!response.ok) throw new Error(`Gold provider returned ${response.status}`);
   const data = await response.json();
@@ -1382,17 +1382,42 @@ app.get("/api/general-debts", auth, (req,res)=>{
     })
     .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
 
-  const totals = {
-    receivable: rows.filter((x)=>x.type==="RECEIVABLE").reduce((s,x)=>s+safeNumber(x.remaining),0),
-    payable: rows.filter((x)=>x.type==="PAYABLE").reduce((s,x)=>s+safeNumber(x.remaining),0),
-  };
+  // إجمالي الديون المسجلة يدويًا يُحسب من جميع السجلات، حتى عند استخدام تبويب التصفية.
+  const allDebtRows = debts.map((debt)=>{
+    const paid = payments
+      .filter((payment)=>payment.debtId===debt.id)
+      .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
+    return {...debt, remaining:Math.max(safeNumber(debt.amount)-paid,0)};
+  });
+
+  const manualReceivable = allDebtRows
+    .filter((x)=>x.type==="RECEIVABLE")
+    .reduce((sum,x)=>sum+safeNumber(x.remaining),0);
+  const payable = allDebtRows
+    .filter((x)=>x.type==="PAYABLE")
+    .reduce((sum,x)=>sum+safeNumber(x.remaining),0);
+
+  // الحوالات غير المدفوعة أو المدفوعة جزئيًا تدخل تلقائيًا ضمن «دين لنا».
+  const transferReceivable = (Array.isArray(store.transactions) ? store.transactions : [])
+    .filter((transaction)=>!transaction.isDeleted && transaction.status!=="CANCELLED")
+    .reduce((sum,transaction)=>{
+      const paidAmount = (Array.isArray(store.payments) ? store.payments : [])
+        .filter((payment)=>payment.transactionId===transaction.id && !payment.isDeleted)
+        .reduce((paymentSum,payment)=>paymentSum+safeNumber(payment.amount),0);
+      const remaining = Math.max(safeNumber(transaction.totalCustomerDue)-paidAmount,0);
+      return sum+remaining;
+    },0);
+
+  const receivable = manualReceivable+transferReceivable;
 
   res.json({
     rows,
     totals:{
-      receivable:+totals.receivable.toFixed(2),
-      payable:+totals.payable.toFixed(2),
-      net:+(totals.receivable-totals.payable).toFixed(2),
+      receivable:+receivable.toFixed(2),
+      manualReceivable:+manualReceivable.toFixed(2),
+      transferReceivable:+transferReceivable.toFixed(2),
+      payable:+payable.toFixed(2),
+      net:+(receivable-payable).toFixed(2),
     }
   });
 });
@@ -2055,7 +2080,7 @@ async function startServer(){
   await initStore();
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v15.3.65 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v15.3.66 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{

@@ -38,7 +38,7 @@ function assert(condition,label,response){
 setTimeout(async()=>{
   try{
     let r=await request("GET","/api/health");
-    assert(r.status===200&&r.body.version==="7.0.0","health",r);
+    assert(r.status===200&&r.body.version==="15.3.66","health",r);
 
     r=await request("POST","/api/auth/login",{email:"admin@alaboud.local",password:"Admin123!"});
     assert(r.status===200&&r.body.token,"login",r);
@@ -57,6 +57,9 @@ setTimeout(async()=>{
 
     r=await request("GET",`/api/customers/${customerId}/statement`,null,token);
     assert(r.status===200,"customer statement",r);
+
+    r=await request("GET","/api/general-debts",null,token);
+    assert(r.status===200&&r.body.totals.transferReceivable===1395&&r.body.totals.receivable===1395,"transfer debt summary",r);
 
     r=await request("POST","/api/partners",{
       name:"شركة اختبار",contactName:"مسؤول",phone:"15195550000",whatsapp:"15195550000"
@@ -91,7 +94,7 @@ setTimeout(async()=>{
     r=await request("GET","/api/dashboard",null,token);
     assert(r.status===200,"dashboard",r);
 
-    console.log("SELFTEST_OK: v7 critical flows passed");
+    console.log("SELFTEST_OK: v15.3.66 critical flows passed");
     child.kill();
     fs.rmSync(dataDir,{recursive:true,force:true});
     process.exit(0);

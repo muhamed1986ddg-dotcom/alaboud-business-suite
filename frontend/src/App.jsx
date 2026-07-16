@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
-const APP_VERSION="v15.3.65 Settings & Mobile Menu";
+const APP_VERSION="v15.3.66 Transfer Debts Summary";
 
 function openRegularWhatsApp(phone,message){
   const cleanPhone=String(phone||"").replace(/\D/g,"");
@@ -2483,7 +2483,7 @@ function GeneralDebts(){
       const {data}=await api.get("/general-debts",{params:{type:filter}});
       setData({
         rows:Array.isArray(data?.rows)?data.rows:[],
-        totals:data?.totals||{receivable:0,payable:0,net:0}
+        totals:data?.totals||{receivable:0,manualReceivable:0,transferReceivable:0,payable:0,net:0}
       });
     }catch(error){
       setMessage(error.response?.data?.message||"تعذر تحميل الديون");
@@ -2540,9 +2540,11 @@ function GeneralDebts(){
     <h2>الدَّين العام</h2>
 
     <div className="stats">
-      <div className="card receivable-card">
+      <div className="card receivable-card debt-summary-card">
         <span>دين لنا</span>
         <strong>{money(data.totals.receivable)}</strong>
+        <small>مجموع دين الحوالات: {money(data.totals.transferReceivable||0)}</small>
+        <small>ديون مسجلة يدويًا: {money(data.totals.manualReceivable||0)}</small>
       </div>
       <div className="card payable-card">
         <span>دين علينا</span>
