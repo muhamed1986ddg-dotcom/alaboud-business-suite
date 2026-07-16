@@ -288,7 +288,7 @@ function Dashboard({navigate}){
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v15.3.61 Dashboard Pro <span>● متصل</span></p></div>
+        <div><h2>شركة العبود التجارية</h2><p>v15.3.62 Transfer Payment Status <span>● متصل</span></p></div>
       </div>
       <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
@@ -424,7 +424,8 @@ function Customers({open}){
     transferDate:new Date().toISOString().slice(0,10),
     rateMode:"auto",
     rateSource:"exchange-rates",
-    rateUpdatedAt:null
+    rateUpdatedAt:null,
+    paymentStatus:"UNPAID"
   });
   const [selectedRateMeta,setSelectedRateMeta]=useState(null);
 
@@ -1862,7 +1863,8 @@ function Transactions({openInvoice}){
         amount:"",
         finalRate:"",
         transferFee:"0",
-        transferDate:new Date().toISOString().slice(0,10)
+        transferDate:new Date().toISOString().slice(0,10),
+        paymentStatus:"UNPAID"
       }));
       await load();
     }catch(requestError){
@@ -1907,6 +1909,24 @@ function Transactions({openInvoice}){
       setError(requestError.response?.data?.message||"تعذر تعديل الحوالة");
     }finally{
       setEditSaving(false);
+    }
+  }
+
+
+  async function markTransactionPaid(transaction){
+    const remaining=Number(transaction.remaining||0);
+    if(remaining<=0)return;
+    setError("");
+    try{
+      await api.post(`/transactions/${transaction.id}/payments`,{
+        amount:remaining,
+        method:"CASH",
+        notes:"تسديد كامل للحوالة",
+        paymentDate:new Date().toISOString().slice(0,10)
+      });
+      await load();
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر تسجيل الحوالة كمدفوعة");
     }
   }
 
@@ -1968,6 +1988,17 @@ function Transactions({openInvoice}){
         <option value="ADD">إضافة الأجور</option>
         <option value="DEDUCT">خصم الأجور</option>
       </select>
+
+      <div className="transfer-payment-choice">
+        <div className="transfer-payment-choice-title">
+          <strong>حالة دفع الحوالة</strong>
+          <small>الحوالة غير المدفوعة تدخل تلقائيًا في رصيد دين لنا.</small>
+        </div>
+        <div className="transfer-payment-choice-buttons">
+          <button type="button" className={f.paymentStatus==="PAID"?"is-active paid":""} onClick={()=>setF({...f,paymentStatus:"PAID"})}>✓ مدفوع</button>
+          <button type="button" className={f.paymentStatus==="UNPAID"?"is-active unpaid":""} onClick={()=>setF({...f,paymentStatus:"UNPAID"})}>◷ غير مدفوع</button>
+        </div>
+      </div>
       <button>حفظ</button>
     </form>
 
@@ -2032,7 +2063,7 @@ function Transactions({openInvoice}){
         <thead>
           <tr>
             <th>الرقم</th><th>تاريخ الحوالة</th><th>العميل</th><th>المبلغ</th>
-            <th>الأجور</th><th>الإجمالي</th><th>الربح</th><th>الفاتورة</th><th>تعديل</th>
+            <th>الأجور</th><th>الإجمالي</th><th>حالة الدفع</th><th>المتبقي</th><th>الربح</th><th>الفاتورة</th><th>تعديل</th>
           </tr>
         </thead>
         <tbody>
@@ -2043,6 +2074,17 @@ function Transactions({openInvoice}){
             <td>{money(transaction.amount)}</td>
             <td>{money(transaction.transferFee)}</td>
             <td>{money(transaction.totalCustomerDue)}</td>
+            <td>
+              <span className={`transfer-payment-badge ${transaction.paymentStatus==="PAID"?"paid":"unpaid"}`}>
+                {transaction.paymentStatus==="PAID"?"مدفوع":"غير مدفوع"}
+              </span>
+            </td>
+            <td>
+              <div className="transfer-remaining-cell">
+                <strong>{money(transaction.remaining||0)}</strong>
+                {transaction.paymentStatus!=="PAID"&&<button type="button" onClick={()=>markTransactionPaid(transaction)}>تسديد كامل</button>}
+              </div>
+            </td>
             <td>{money(transaction.totalProfit)}</td>
             <td><button onClick={()=>openInvoice(transaction.id)}>فتح</button></td>
             <td><button className="transaction-edit-button" onClick={()=>startEditTransaction(transaction)}>✏️ تعديل</button></td>

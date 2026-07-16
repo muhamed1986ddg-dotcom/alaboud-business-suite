@@ -132,7 +132,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.61",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.62",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -711,7 +711,19 @@ app.get("/api/transactions", auth, (_req,res)=>{
   res.json(
     s.transactions
       .filter(t=>!t.isDeleted)
-      .map(t=>({...t,customerName:s.customers.find(c=>c.id===t.customerId)?.name||"-"}))
+      .map(t=>{
+        const paidAmount=s.payments
+          .filter(payment=>payment.transactionId===t.id&&!payment.isDeleted)
+          .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
+        const remaining=Math.max(safeNumber(t.totalCustomerDue)-paidAmount,0);
+        return {
+          ...t,
+          customerName:s.customers.find(c=>c.id===t.customerId)?.name||"-",
+          paidAmount:+paidAmount.toFixed(2),
+          remaining:+remaining.toFixed(2),
+          paymentStatus:remaining<=0.001?"PAID":"UNPAID"
+        };
+      })
       .reverse()
   );
 });
@@ -727,6 +739,7 @@ app.post("/api/transactions", auth, (req,res)=>{
     rateSource="manual",
     rateUpdatedAt=null,
     status="COMPLETED",
+    paymentStatus="UNPAID",
     transferDate=""
   }=req.body||{};
 
@@ -770,15 +783,41 @@ app.post("/api/transactions", auth, (req,res)=>{
       createdBy:req.user.id
     };
     s.transactions.push(t);
+    const normalizedPaymentStatus=String(paymentStatus||"UNPAID").toUpperCase();
+
+    if(normalizedPaymentStatus==="PAID"){
+      s.payments.push({
+        id:id(),
+        transactionId:t.id,
+        customerId:t.customerId,
+        amount:t.totalCustomerDue,
+        method:"CASH",
+        notes:"تم تسجيل الحوالة كمدفوعة عند الإنشاء",
+        reference:"",
+        paymentDate:t.transferDate,
+        date:now(),
+        receivedBy:req.user.id,
+        isDeleted:false,
+        allocationMode:"TRANSFER_INITIAL_FULL"
+      });
+    }
+
     audit(s,req.user.id,"CREATE","TRANSACTION",t.id,{
       currency:t.currency,
       costRate:t.costRate,
       finalRate:t.finalRate,
       rateSource:t.rateSource,
       totalCustomerDue:t.totalCustomerDue,
-      totalProfit:t.totalProfit
+      totalProfit:t.totalProfit,
+      paymentStatus:normalizedPaymentStatus
     });
-    return t;
+
+    return {
+      ...t,
+      paidAmount:normalizedPaymentStatus==="PAID"?t.totalCustomerDue:0,
+      remaining:normalizedPaymentStatus==="PAID"?0:t.totalCustomerDue,
+      paymentStatus:normalizedPaymentStatus==="PAID"?"PAID":"UNPAID"
+    };
   });
 
   res.status(201).json(tx);

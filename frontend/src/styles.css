@@ -4174,3 +4174,20 @@ body.app-language-en aside{
 .dashboard-pro-finance p,.dashboard-pro-stats p{display:flex;justify-content:space-between;gap:10px;margin:0;padding:11px 0;border-bottom:1px solid #1c2d37;color:#bfc5c8}.dashboard-pro-finance p strong,.dashboard-pro-stats p strong{color:#f2f1ea}.dashboard-pro-alert{display:flex;gap:9px;align-items:flex-start;padding:9px;border-bottom:1px solid #1c2d37}.dashboard-pro-alert>b{width:25px;height:25px;border-radius:50%;display:grid;place-items:center;background:#6d221e;color:#ff8173}.dashboard-pro-alert div{display:flex;flex-direction:column;gap:3px}.dashboard-pro-alert small{color:#aeb5b8}
 @media(max-width:1100px){.dashboard-pro-hero{grid-template-columns:1fr auto!important}.dashboard-pro-search{display:none}.dashboard-pro-analysis{grid-template-columns:1fr 1fr}.dashboard-pro-performance{grid-column:1/-1}}
 @media(max-width:600px){.dashboard-pro-hero{display:flex!important;justify-content:space-between!important}.dashboard-pro-brand img{width:42px!important;height:42px!important}.dashboard-pro-brand h2{font-size:14px}.dashboard-pro-brand p{font-size:9px}.dashboard-pro-clock strong{font-size:14px}.dashboard-pro-clock small{display:none}.dashboard-pro-analysis{grid-template-columns:1fr}.dashboard-pro-performance{grid-column:auto}.dashboard-pro-chart{height:200px;padding-inline:4px}.dashboard-pro-bars{gap:8px}.dashboard-pro-legend{gap:10px;font-size:9px}}
+
+/* v15.3.62 transfer payment status */
+.transfer-payment-choice{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid rgba(231,189,74,.35);border-radius:14px;background:rgba(231,189,74,.06)}
+.transfer-payment-choice-title{display:flex;flex-direction:column;gap:4px}
+.transfer-payment-choice-title strong{color:#f1d47b}
+.transfer-payment-choice-title small{color:#aeb2b4}
+.transfer-payment-choice-buttons{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.transfer-payment-choice-buttons button{min-height:48px;border-radius:12px;border:1px solid #35434d;background:#10161c;color:#dfe4e6}
+.transfer-payment-choice-buttons button.is-active.paid{background:linear-gradient(135deg,#116b3b,#1a9855);border-color:#37cf78;color:#fff}
+.transfer-payment-choice-buttons button.is-active.unpaid{background:linear-gradient(135deg,#6d3117,#a64c20);border-color:#f08a45;color:#fff}
+.transfer-payment-badge{display:inline-flex;align-items:center;justify-content:center;min-width:82px;padding:7px 10px;border-radius:999px;font-weight:800;font-size:12px}
+.transfer-payment-badge.paid{background:rgba(34,197,94,.14);border:1px solid rgba(34,197,94,.48);color:#4ade80}
+.transfer-payment-badge.unpaid{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.45);color:#fb7185}
+.transfer-remaining-cell{display:flex;flex-direction:column;gap:6px;min-width:105px}
+.transfer-remaining-cell strong{color:#efc95c}
+.transfer-remaining-cell button{min-height:30px;padding:5px 8px;border-radius:8px;background:#176b3e;color:#fff;border:1px solid #36a66a;font-size:11px}
+@media(max-width:700px){.transfer-payment-choice-buttons{grid-template-columns:1fr}}
