@@ -4619,3 +4619,43 @@ button.rate-bulletin-card{width:100%;cursor:pointer}
   .debt-currency-card{min-height:0;padding:16px}
   .debt-currency-main>strong{font-size:1.22rem}
 }
+
+
+/* v15.3.69 — professional Android header spacing and corner controls */
+@media screen and (max-width:900px){
+  .app.mobile-menu-view aside{
+    padding-top:calc(118px + env(safe-area-inset-top, 0px)) !important;
+    scroll-padding-top:calc(118px + env(safe-area-inset-top, 0px)) !important;
+  }
+  .app.mobile-menu-view .mobile-menu-heading{
+    height:82px !important;
+    min-height:82px !important;
+    margin:0 0 12px !important;
+    padding:8px 0 10px !important;
+    border-radius:18px !important;
+  }
+  .app.mobile-menu-view .mobile-menu-heading .mobile-logo{
+    width:68px !important;
+    height:68px !important;
+    min-width:68px !important;
+  }
+  .app.mobile-menu-view .mobile-menu-heading button{
+    top:17px !important;
+    left:8px !important;
+    width:48px !important;
+    min-width:48px !important;
+    height:48px !important;
+    min-height:48px !important;
+    border-radius:15px !important;
+  }
+  .sidebar-account-box{
+    margin-top:2px !important;
+    margin-bottom:12px !important;
+    border-radius:18px !important;
+  }
+  .app.mobile-menu-view aside > button{
+    min-height:52px !important;
+    margin:4px 0 !important;
+    border-radius:15px !important;
+  }
+}

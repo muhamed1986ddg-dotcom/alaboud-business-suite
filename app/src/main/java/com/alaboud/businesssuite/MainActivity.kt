@@ -89,7 +89,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/15.3.68"
+            userAgentString = "$userAgentString AlAboudMobile/15.3.69"
         }
 
         CookieManager.getInstance().apply {
@@ -233,7 +233,7 @@ class MainActivity : AppCompatActivity() {
                       z-index: 2147483001 !important;
                       overflow-y: auto !important;
                       transition: right .25s ease !important;
-                      padding-top: 76px !important;
+                      padding-top: 118px !important;
                       box-shadow: -10px 0 30px rgba(0,0,0,.35) !important;
                     }
                     .app > aside.alaboud-menu-open { right: 0 !important; }
@@ -241,7 +241,7 @@ class MainActivity : AppCompatActivity() {
                       width: 100% !important;
                       max-width: 100% !important;
                       margin: 0 !important;
-                      padding: 72px 12px 20px !important;
+                      padding: 118px 12px 24px !important;
                       box-sizing: border-box !important;
                     }
                     .app > aside h1 { display:none !important; }
@@ -250,7 +250,7 @@ class MainActivity : AppCompatActivity() {
                       width:calc(100% - 20px) !important;
                       margin:7px 10px !important;
                       min-height:46px !important;
-                      border-radius:12px !important;
+                      border-radius:15px !important;
                     }
                     .app > aside button.alaboud-active-page {
                       background: linear-gradient(135deg,#d4af37,#f4d675) !important;
@@ -267,14 +267,14 @@ class MainActivity : AppCompatActivity() {
                     #alaboud-mobile-header {
                       display:flex !important;
                       position:fixed !important;
-                      top:max(env(safe-area-inset-top, 0px), 26px) !important;
+                      top:max(calc(env(safe-area-inset-top, 0px) + 12px), 40px) !important;
                       left:0 !important;
                       right:0 !important;
-                      height:62px !important;
+                      height:66px !important;
                       z-index:2147483003 !important;
                       align-items:center !important;
                       justify-content:space-between !important;
-                      padding:0 16px !important;
+                      padding:0 18px !important;
                       background:linear-gradient(135deg,#050505,#171717) !important;
                       color:#d4af37 !important;
                       border-bottom:1px solid rgba(212,175,55,.5) !important;
@@ -285,8 +285,8 @@ class MainActivity : AppCompatActivity() {
                       border:1px solid rgba(212,175,55,.7) !important;
                       background:#111 !important;
                       color:#f4d675 !important;
-                      width:44px !important;
-                      height:44px !important;
+                      width:48px !important;
+                      height:48px !important;
                       padding:0 !important;
                       border-radius:12px !important;
                       font-size:25px !important;
@@ -346,7 +346,7 @@ class MainActivity : AppCompatActivity() {
                   if (button && !button.classList.contains('logout')) {
                     button.classList.add('alaboud-active-page');
                     var title = button.textContent.trim();
-                    document.getElementById('alaboud-mobile-title').textContent = title;
+                    document.getElementById('alaboud-mobile-title').textContent = title === '✕' ? 'القائمة الرئيسية' : title;
                   }
                 }
 
@@ -368,12 +368,13 @@ class MainActivity : AppCompatActivity() {
                 aside.addEventListener('click', function (event) {
                   var button = event.target.closest('button');
                   if (!button) return;
+                  if (button.closest('.mobile-menu-heading')) { closeMenu(); return; }
                   markActive(button);
                   setTimeout(closeMenu, 80);
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 });
 
-                var firstButton = aside.querySelector('button:not(.logout)');
+                var firstButton = aside.querySelector(':scope > button:not(.logout-top):not(.sidebar-logout-bottom)');
                 if (firstButton) markActive(firstButton);
 
                 // Close the menu after browser back/forward navigation.

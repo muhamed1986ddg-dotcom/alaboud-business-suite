@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
-const APP_VERSION="v15.3.68 Multi-Currency Debts";
+const APP_VERSION="v15.3.69 Professional Mobile Header";
 
 function openRegularWhatsApp(phone,message){
   const cleanPhone=String(phone||"").replace(/\D/g,"");
