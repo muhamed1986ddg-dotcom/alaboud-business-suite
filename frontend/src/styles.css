@@ -3906,3 +3906,24 @@ body.app-language-en aside{
 .old-balance-card{border-color:rgba(216,163,63,.65)!important;background:linear-gradient(145deg,#20180b,#111317)!important}
 .old-balance-card strong,.simple-statement-old-balance strong{color:#d8a33f}
 .simple-statement-old-balance{display:flex;justify-content:space-between;gap:12px;padding:14px 16px;border:1px solid rgba(216,163,63,.45);border-radius:14px;margin-top:12px}
+
+/* v15.3.55 - editable old balance in customer page */
+.old-balance-edit-card{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  align-items:stretch;
+}
+.old-balance-edit-card input{
+  width:100%;
+  min-height:48px;
+  padding:12px 14px;
+  border-radius:12px;
+  border:1px solid rgba(216,163,63,.55);
+  background:#0f1216;
+  color:#fff;
+  font-size:1.1rem;
+}
+.old-balance-edit-card button{
+  min-height:44px;
+}
