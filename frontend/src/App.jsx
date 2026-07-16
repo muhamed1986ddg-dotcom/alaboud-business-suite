@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
-const APP_VERSION="v15.3.71 Android Status Bar Safe";
+const APP_VERSION="v15.3.73 Android Status Bar Safe";
 
 function openRegularWhatsApp(phone,message){
   const cleanPhone=String(phone||"").replace(/\D/g,"");
@@ -1507,7 +1507,19 @@ function Customer({id,back,onStatement}){
       const safeName=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safeName}.png`,{type:"image/png"});
 
-      if(navigator.share){
+      // داخل تطبيق Android: شارك الملف مباشرة إلى واتساب بدل فتح المعاينة فقط.
+      if(window.AlAboudNative?.shareImageToWhatsApp){
+        const dataUrl=await new Promise((resolve,reject)=>{
+          const reader=new FileReader();
+          reader.onload=()=>resolve(String(reader.result||""));
+          reader.onerror=()=>reject(new Error("تعذر تجهيز صورة واتساب"));
+          reader.readAsDataURL(blob);
+        });
+        window.AlAboudNative.shareImageToWhatsApp(dataUrl,file.name);
+        return;
+      }
+
+      if(navigator.canShare?.({files:[file]}) && navigator.share){
         try{
           await navigator.share({files:[file],title:"كشف حساب العميل"});
           return;

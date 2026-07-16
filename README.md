@@ -1,6 +1,6 @@
-# ALABOUD Business Suite v15.3.71
+# ALABOUD Business Suite v15.3.73
 
-## إصلاح v15.3.71
+## إصلاح v15.3.73
 - إضافة معالجة أصلية لـ Android 15 تمنع WebView من الدخول تحت شريط الحالة.
 - إنزال أزرار الرئيسية والإغلاق والقائمة أسفل رموز الساعة والشبكة والبطارية.
 - الحفاظ على جميع الصفحات والبيانات والتعديلات السابقة.
@@ -12,13 +12,13 @@
 - الاحتفاظ بإدخال الأسعار اليدوي وأسعار الذهب وسجل التغييرات.
 - تحديث تلقائي مباشر لعملات إضافية مقابل CAD.
 - الحفاظ على دمج العملاء المتأخرين داخل صفحة العملاء.
-- رفع Android versionCode إلى 15371 لضمان ظهور التحديث على الهاتف.
+- رفع Android versionCode إلى 15373 لضمان ظهور التحديث على الهاتف.
 
 ## البناء والنشر
 ```bash
 npm install
 npm run render-build
 git add .
-git commit -m "Release v15.3.71 android status bar safe"
+git commit -m "Release v15.3.73 compact mobile dashboard"
 git push origin main
 ```

@@ -15,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.JavascriptInterface
@@ -32,11 +33,13 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.json.JSONObject
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -102,7 +105,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/15.3.71"
+            userAgentString = "$userAgentString AlAboudMobile/15.3.73"
         }
 
         CookieManager.getInstance().apply {
@@ -551,6 +554,50 @@ class MainActivity : AppCompatActivity() {
     }
 
     class NativeBridge(private val activity: MainActivity) {
+
+        @JavascriptInterface
+        fun shareImageToWhatsApp(dataUrl: String, fileName: String) {
+            try {
+                val base64Data = dataUrl.substringAfter("base64,", "")
+                if (base64Data.isBlank()) throw IllegalArgumentException("Invalid image data")
+                val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+                val shareDir = File(activity.cacheDir, "shared_statements").apply { mkdirs() }
+                val safeName = fileName.replace(Regex("[^\\p{L}\\p{N}._-]"), "-")
+                val imageFile = File(shareDir, if (safeName.endsWith(".png")) safeName else "$safeName.png")
+                imageFile.writeBytes(bytes)
+                val contentUri = FileProvider.getUriForFile(
+                    activity,
+                    "${activity.packageName}.fileprovider",
+                    imageFile
+                )
+
+                activity.runOnUiThread {
+                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/png"
+                        putExtra(Intent.EXTRA_STREAM, contentUri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        clipData = android.content.ClipData.newRawUri("كشف حساب العميل", contentUri)
+                    }
+                    try {
+                        sendIntent.setPackage("com.whatsapp")
+                        activity.startActivity(sendIntent)
+                    } catch (_: ActivityNotFoundException) {
+                        try {
+                            sendIntent.setPackage("com.whatsapp.w4b")
+                            activity.startActivity(sendIntent)
+                        } catch (_: ActivityNotFoundException) {
+                            sendIntent.setPackage(null)
+                            activity.startActivity(Intent.createChooser(sendIntent, "إرسال صورة كشف الحساب"))
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                activity.runOnUiThread {
+                    Toast.makeText(activity, "تعذر فتح واتساب لإرسال الصورة", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
         @JavascriptInterface
         fun showOverdueNotification(payload: String) {
             try {
