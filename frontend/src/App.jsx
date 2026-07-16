@@ -8,15 +8,39 @@ function openRegularWhatsApp(phone,message){
 
   if(!cleanPhone)return false;
 
-  const isAndroid=/Android/i.test(navigator.userAgent||"");
+  const userAgent=navigator.userAgent||"";
+  const isAndroid=/Android/i.test(userAgent);
+  const isWindows=/Windows/i.test(userAgent);
+
   if(isAndroid){
     const intentUrl=`intent://send?phone=${cleanPhone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp;end`;
     window.location.href=intentUrl;
     return true;
   }
 
+  if(isWindows){
+    // يحاول فتح تطبيق WhatsApp Desktop أولاً، ثم يفتح WhatsApp Web كخيار احتياطي.
+    const webUrl=`https://wa.me/${cleanPhone}?text=${encodedText}`;
+    const fallbackTimer=window.setTimeout(()=>window.open(webUrl,"_blank"),1300);
+    const stopFallback=()=>window.clearTimeout(fallbackTimer);
+    window.addEventListener("blur",stopFallback,{once:true});
+    window.location.href=`whatsapp://send?phone=${cleanPhone}&text=${encodedText}`;
+    return true;
+  }
+
   window.open(`https://wa.me/${cleanPhone}?text=${encodedText}`,"_blank");
   return true;
+}
+
+function downloadBlob(blob,fileName){
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement("a");
+  link.href=url;
+  link.download=fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
 
 
@@ -1406,12 +1430,13 @@ function Customer({id,back,onStatement}){
       const safeName=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safeName}.png`,{type:"image/png"});
 
-      if(navigator.share){
+      const phone=String(customer.phone||"").replace(/\D/g,"");
+      const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||"");
+
+      // على الهاتف نستعمل نافذة المشاركة الأصلية لأنها تستطيع تمرير ملف الصورة إلى واتساب.
+      if(isMobile&&navigator.share){
         try{
-          await navigator.share({
-            files:[file],
-            title:"كشف حساب العميل"
-          });
+          await navigator.share({files:[file],title:"كشف حساب العميل"});
           return;
         }catch(shareError){
           if(shareError?.name==="AbortError")return;
@@ -1419,17 +1444,21 @@ function Customer({id,back,onStatement}){
         }
       }
 
-      const url=URL.createObjectURL(blob);
-      const preview=window.open(url,"_blank");
-      if(!preview){
-        const link=document.createElement("a");
-        link.href=url;
-        link.download=file.name;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
+      // على الكمبيوتر لا يدعم المتصفح إرفاق الملف مباشرة بواتساب لأسباب أمنية.
+      // لذلك ننزّل الصورة فوراً ثم نفتح محادثة العميل في تطبيق واتساب المثبت.
+      downloadBlob(blob,file.name);
+
+      if(phone){
+        const message=[
+          `مرحباً ${customer.name||""}`.trim(),
+          "تم تجهيز صورة كشف الحساب.",
+          "ستجد الصورة في مجلد التنزيلات، اسحبها إلى هذه المحادثة ثم اضغط إرسال."
+        ].join("\n");
+        openRegularWhatsApp(phone,message);
+        setError("تم تنزيل صورة كشف الحساب وفتح واتساب. اسحب الصورة من مجلد التنزيلات إلى المحادثة.");
+      }else{
+        setError("تم تنزيل صورة كشف الحساب. لا يوجد رقم واتساب محفوظ لهذا العميل.");
       }
-      setTimeout(()=>URL.revokeObjectURL(url),60000);
     }catch(error){
       setError(error.response?.data?.message||error.message||"تعذر مشاركة صورة كشف الحساب");
     }
@@ -1490,7 +1519,7 @@ function Customer({id,back,onStatement}){
       <button onClick={back}>رجوع</button>
       <button onClick={()=>onStatement(id)}>كشف حساب العميل</button>
       <button className="whatsapp-text-button" onClick={shareCustomerStatementText}>💬 إرسال رسالة نصية عبر واتساب</button>
-      <button className="whatsapp-image-button" onClick={shareCustomerStatement}>📷 إرسال صورة عبر واتساب</button>
+      <button className="whatsapp-image-button" onClick={shareCustomerStatement}>📷 تنزيل الصورة وفتح واتساب</button>
     </div>
 
     <h2>{customer.name||"العميل"}</h2>
