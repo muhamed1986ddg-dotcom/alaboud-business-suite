@@ -3889,3 +3889,5 @@ body.app-language-en aside{
   text-align:center;
   font-size:1.2rem;
 }
+
+.payment-auto-note{margin:0;padding:12px 14px;border-radius:12px;background:rgba(214,168,62,.09);border:1px solid rgba(214,168,62,.32);color:#e9cf87;line-height:1.7}

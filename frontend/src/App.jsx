@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.51 Final Mobile</p>
+        <p>v15.3.52 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -401,14 +401,12 @@ function Customers({open}){
 
   const [paymentForm,setPaymentForm]=useState({
     customerId:"",
-    transactionId:"",
     amount:"",
     paymentDate:new Date().toISOString().slice(0,10),
     method:"CASH",
     reference:""
   });
 
-  const [customerTransactions,setCustomerTransactions]=useState([]);
   const [activePanel,setActivePanel]=useState("");
 
   async function load(){
@@ -569,70 +567,39 @@ function Customers({open}){
     }
   }
 
-  async function preparePayment(customer){
+  function preparePayment(customer){
     setPaymentForm({
       customerId:customer.id,
-      transactionId:"",
       amount:"",
       paymentDate:new Date().toISOString().slice(0,10),
       method:"CASH",
       reference:""
     });
-    try{
-      const response=await api.get(`/customers/${customer.id}`);
-      const unpaid=(Array.isArray(response.data?.transactions)?response.data.transactions:[])
-        .filter(item=>Number(item.remaining||0)>0);
-      setCustomerTransactions(unpaid);
-      setActivePanel("payment");
-      window.scrollTo({top:0,behavior:"smooth"});
-    }catch(requestError){
-      setError(requestError.response?.data?.message||"تعذر تحميل حوالات العميل");
-    }
+    setActivePanel("payment");
+    window.scrollTo({top:0,behavior:"smooth"});
   }
 
   async function addPayment(event){
     event.preventDefault();
     try{
-      let remainingPayment=Number(paymentForm.amount||0);
-      if(!paymentForm.customerId||remainingPayment<=0)throw new Error("INVALID_PAYMENT");
-
-      const response=await api.get(`/customers/${paymentForm.customerId}`);
-      const unpaid=(Array.isArray(response.data?.transactions)?response.data.transactions:[])
-        .filter(item=>Number(item.remaining||0)>0)
-        .sort((a,b)=>new Date(a.transferDate||a.createdAt)-new Date(b.transferDate||b.createdAt));
-
-      if(!unpaid.length)throw new Error("NO_UNPAID_TRANSFERS");
-
-      for(const transaction of unpaid){
-        if(remainingPayment<=0)break;
-        const appliedAmount=Math.min(remainingPayment,Number(transaction.remaining||0));
-        await api.post(`/transactions/${transaction.id}/payments`,{
-          amount:appliedAmount,
-          paymentDate:paymentForm.paymentDate,
-          method:paymentForm.method,
-          reference:paymentForm.reference
-        });
-        remainingPayment-=appliedAmount;
-      }
-
+      if(!paymentForm.customerId)throw new Error("اختر العميل");
+      await api.post(`/customers/${paymentForm.customerId}/payments`,{
+        amount:Number(paymentForm.amount),
+        paymentDate:paymentForm.paymentDate,
+        method:paymentForm.method,
+        reference:paymentForm.reference
+      });
       setPaymentForm({
         customerId:"",
-        transactionId:"",
         amount:"",
         paymentDate:new Date().toISOString().slice(0,10),
         method:"CASH",
         reference:""
       });
-      setCustomerTransactions([]);
       setActivePanel("");
       await load();
-    }catch(requestError){
-      const message=requestError.message==="NO_UNPAID_TRANSFERS"
-        ?"لا توجد حوالات مستحقة لهذا العميل"
-        :requestError.message==="INVALID_PAYMENT"
-          ?"اختر العميل وأدخل مبلغ الدفعة"
-          :requestError.response?.data?.message||"تعذر إضافة الدفعة";
-      setError(message);
+    }catch(error){
+      setError(error.response?.data?.message||error.message||"تعذر إضافة الدفعة");
     }
   }
 
@@ -928,10 +895,8 @@ function Customers({open}){
         </div>
       <form className="card form edit-panel customer-action-focus-form" onSubmit={addPayment}>
         <h3>إضافة دفعة</h3>
-        <select value={paymentForm.customerId} onChange={async e=>{
-          const customer=list.find(item=>item.id===e.target.value);
-          if(customer)await preparePayment(customer);
-        }} required>
+        <p className="payment-auto-note">تُخصم الدفعة تلقائيًا من أقدم الحوالات غير المدفوعة للعميل.</p>
+        <select value={paymentForm.customerId} onChange={e=>setPaymentForm({...paymentForm,customerId:e.target.value})} required>
           <option value="">اختر العميل</option>
           {list.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
@@ -1184,7 +1149,6 @@ function Customer({id,back,onStatement}){
   const [error,setError]=useState("");
   const [loading,setLoading]=useState(true);
   const [paymentForm,setPaymentForm]=useState({
-    transactionId:"",
     amount:"",
     paymentDate:new Date().toISOString().slice(0,10),
     method:"CASH",
@@ -1218,15 +1182,14 @@ function Customer({id,back,onStatement}){
   async function addPayment(event){
     event.preventDefault();
     try{
-      await api.post(`/transactions/${paymentForm.transactionId}/payments`,{
-        amount:paymentForm.amount,
+      await api.post(`/customers/${id}/payments`,{
+        amount:Number(paymentForm.amount),
         paymentDate:paymentForm.paymentDate,
         method:paymentForm.method,
         reference:paymentForm.reference,
         notes:paymentForm.notes
       });
       setPaymentForm({
-        transactionId:"",
         amount:"",
         paymentDate:new Date().toISOString().slice(0,10),
         method:"CASH",
@@ -1234,8 +1197,57 @@ function Customer({id,back,onStatement}){
         notes:""
       });
       await load();
-    }catch(requestError){
-      setError(requestError.response?.data?.message||"تعذر حفظ الدفعة");
+    }catch(error){
+      setError(error.response?.data?.message||error.message||"تعذر حفظ الدفعة");
+    }
+  }
+
+  async function shareCustomerStatement(){
+    try{
+      const response=await api.get(`/customers/${id}/statement`);
+      const statement=response.data;
+      const rows=Array.isArray(statement.transactions)?statement.transactions:[];
+      const total=Number(statement.totals?.formulaResultCad||0);
+      const paid=Number(statement.totals?.paid||0);
+      const finalBalance=Math.max(total-paid,0);
+      const width=720,rowHeight=55;
+      const height=Math.max(900,260+rows.length*rowHeight+300);
+      const canvas=document.createElement("canvas");
+      canvas.width=width;canvas.height=height;
+      const ctx=canvas.getContext("2d");
+      const text=(value,x,y,size,color="#f5f5f5",align="center",weight="700")=>{
+        ctx.fillStyle=color;ctx.font=`${weight} ${size}px Arial, sans-serif`;
+        ctx.textAlign=align;ctx.textBaseline="middle";ctx.direction="rtl";ctx.fillText(String(value),x,y);
+      };
+      const gradient=ctx.createLinearGradient(0,0,width,height);
+      gradient.addColorStop(0,"#15232f");gradient.addColorStop(1,"#08131c");
+      ctx.fillStyle=gradient;ctx.fillRect(0,0,width,height);
+      ctx.strokeStyle="#9b7425";ctx.lineWidth=2;ctx.strokeRect(18,18,width-36,height-36);
+      text(statement.company?.name||"شركة العبود التجارية",width/2,62,38);
+      text("كشف حساب العميل",width/2,115,32,"#d8a33f");
+      text(customer.name,width/2,160,28);
+      ctx.strokeStyle="#6b6f73";ctx.beginPath();ctx.moveTo(35,200);ctx.lineTo(width-35,200);ctx.stroke();
+      let y=245;
+      rows.forEach((item,index)=>{
+        const amount=Number(item.usdAmount||0).toFixed(2).replace(/\.00$/,"");
+        const rate=Number(item.customerRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
+        ctx.direction="ltr";ctx.textAlign="left";ctx.fillStyle="#f5f5f5";ctx.font="700 25px Arial, sans-serif";
+        ctx.fillText(`${index+1}_ ${amount} 🇺🇸 × ${rate} = ${money(item.formulaResultCad)} 🇨🇦`,42,y);
+        y+=rowHeight;
+      });
+      y+=25;text("الدفعات",42,y,25,"#f5f5f5","left");text(`${money(paid)} 🇨🇦`,width-42,y,27,"#ef4444","right");
+      y+=55;text("المجموع النهائي",42,y,28,"#f5f5f5","left","800");text(`${money(finalBalance)} 🇨🇦`,width-42,y,31,"#63c443","right","900");
+      y+=55;text("شكراً لتعاملكم معنا",width/2,y,24,"#d8a33f");
+      const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error("تعذر إنشاء الصورة")),"image/png",0.96));
+      const safe=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
+      const file=new File([blob],`كشف-حساب-${safe}.png`,{type:"image/png"});
+      if(navigator.share){
+        try{await navigator.share({files:[file],title:"كشف حساب العميل"});return;}
+        catch(shareError){if(shareError?.name==="AbortError")return;}
+      }
+      const url=URL.createObjectURL(blob);window.open(url,"_blank");setTimeout(()=>URL.revokeObjectURL(url),60000);
+    }catch(error){
+      setError(error.response?.data?.message||error.message||"تعذر مشاركة صورة كشف الحساب");
     }
   }
 
@@ -1293,6 +1305,7 @@ function Customer({id,back,onStatement}){
     <div className="card no-print form">
       <button onClick={back}>رجوع</button>
       <button onClick={()=>onStatement(id)}>كشف حساب العميل</button>
+      <button onClick={shareCustomerStatement}>📷 إرسال صورة كشف الحساب</button>
     </div>
 
     <h2>{customer.name||"العميل"}</h2>
@@ -1307,12 +1320,7 @@ function Customer({id,back,onStatement}){
     {unpaidTransactions.length>0&&
       <form className="card form" onSubmit={addPayment}>
         <h3>إضافة دفعة</h3>
-        <select value={paymentForm.transactionId} onChange={e=>setPaymentForm({...paymentForm,transactionId:e.target.value})} required>
-          <option value="">اختر الحوالة</option>
-          {unpaidTransactions.map(transaction=><option key={transaction.id} value={transaction.id}>
-            {transaction.number} — متبقي {money(transaction.remaining)}
-          </option>)}
-        </select>
+        <p className="payment-auto-note">تُوزع الدفعة تلقائيًا على أقدم الحوالات المستحقة.</p>
         <input type="number" min=".01" step=".01" value={paymentForm.amount} onChange={e=>setPaymentForm({...paymentForm,amount:e.target.value})} placeholder="المبلغ" required/>
         <input type="date" value={paymentForm.paymentDate} onChange={e=>setPaymentForm({...paymentForm,paymentDate:e.target.value})}/>
         <select value={paymentForm.method} onChange={e=>setPaymentForm({...paymentForm,method:e.target.value})}>
@@ -1373,7 +1381,6 @@ function Customer({id,back,onStatement}){
           <td>{money(transaction.paid)}</td>
           <td>{money(transaction.remaining)}</td>
           <td className="actions">
-            <button onClick={()=>setPaymentForm({...paymentForm,transactionId:transaction.id})}>إضافة دفعة</button>
             <button onClick={()=>setEditingTransaction({...transaction})}>تعديل</button>
             <button className="danger-button" onClick={()=>deleteTransaction(transaction.id)}>حذف</button>
           </td>
@@ -2895,7 +2902,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.51 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.52 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -2988,7 +2995,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.51 Final"
+        version:"v15.3.52 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3030,7 +3037,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.51 Final</span>
+      <span className="settings-version">v15.3.52 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3106,7 +3113,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.51 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.52 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3259,7 +3266,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.51 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.52 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3273,7 +3280,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.51 Final Mobile</small>
+          <small>v15.3.52 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

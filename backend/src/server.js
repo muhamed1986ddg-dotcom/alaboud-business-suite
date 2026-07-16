@@ -126,7 +126,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.51",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.52",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -775,6 +775,74 @@ app.post("/api/transactions", auth, (req,res)=>{
 
   res.status(201).json(tx);
 });
+
+app.post("/api/customers/:id/payments", auth, (req,res)=>{
+  try{
+    const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{};
+    const requested=Number(amount);
+    if(!Number.isFinite(requested)||requested<=0){
+      return res.status(400).json({message:"مبلغ الدفعة غير صحيح"});
+    }
+
+    const result=mutate((store)=>{
+      const customer=store.customers.find(item=>item.id===req.params.id);
+      if(!customer)throw new Error("العميل غير موجود");
+
+      const rows=store.transactions
+        .filter(item=>item.customerId===customer.id&&!item.isDeleted&&item.status!=="CANCELLED")
+        .sort((a,b)=>String(a.transferDate||a.createdAt||"").localeCompare(String(b.transferDate||b.createdAt||"")))
+        .map(transaction=>{
+          const paid=store.payments
+            .filter(payment=>payment.transactionId===transaction.id&&!payment.isDeleted)
+            .reduce((sum,payment)=>sum+Number(payment.amount||0),0);
+          return {transaction,remaining:Math.max(Number(transaction.totalCustomerDue||0)-paid,0)};
+        })
+        .filter(row=>row.remaining>0.0001);
+
+      const totalRemaining=rows.reduce((sum,row)=>sum+row.remaining,0);
+      if(totalRemaining<=0)throw new Error("لا يوجد رصيد مستحق على العميل");
+      if(requested>totalRemaining+0.001){
+        throw new Error(`الدفعة أكبر من الرصيد المتبقي (${totalRemaining.toFixed(2)} CAD)`);
+      }
+
+      let left=requested;
+      const allocations=[];
+      for(const row of rows){
+        if(left<=0.0001)break;
+        const allocated=Math.min(left,row.remaining);
+        const payment={
+          id:id(),
+          transactionId:row.transaction.id,
+          customerId:customer.id,
+          amount:+allocated.toFixed(2),
+          method,
+          notes,
+          reference,
+          paymentDate:paymentDate||new Date().toISOString().slice(0,10),
+          date:now(),
+          receivedBy:req.user.id,
+          isDeleted:false,
+          allocationMode:"CUSTOMER_AUTO"
+        };
+        store.payments.push(payment);
+        allocations.push(payment);
+        left-=allocated;
+      }
+
+      audit(store,req.user.id,"PAYMENT","CUSTOMER",customer.id,{
+        amount:+requested.toFixed(2),
+        allocations:allocations.map(item=>({transactionId:item.transactionId,amount:item.amount}))
+      });
+
+      return {customerId:customer.id,amount:+requested.toFixed(2),allocations};
+    });
+
+    res.status(201).json(result);
+  }catch(error){
+    res.status(400).json({message:error.message||"تعذر إضافة الدفعة"});
+  }
+});
+
 app.post("/api/transactions/:id/payments", auth, (req,res)=>{
   const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{}; const n=Number(amount); if(!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid amount"});
   const payment=mutate((s)=>{const t=s.transactions.find(x=>x.id===req.params.id);if(!t)throw new Error("Transaction not found");const already=s.payments.filter(p=>p.transactionId===t.id).reduce((a,p)=>a+Number(p.amount),0);if(already+n>Number(t.totalCustomerDue)+0.001)throw new Error("Payment exceeds remaining balance");const p={
@@ -941,7 +1009,7 @@ const GOLD_KARATS = [
 async function fetchOfficialRate(baseCurrency, quoteCurrency) {
   const url = `https://api.frankfurter.dev/v2/rate/${encodeURIComponent(baseCurrency)}/${encodeURIComponent(quoteCurrency)}`;
   const response = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.51" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.52" }
   });
   if (!response.ok) throw new Error(`Rate provider returned ${response.status}`);
   const data = await response.json();
@@ -952,7 +1020,7 @@ async function fetchOfficialRate(baseCurrency, quoteCurrency) {
 
 async function fetchSyrianPoundRate() {
   const response = await fetch("https://open.er-api.com/v6/latest/USD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.51" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.52" }
   });
   if (!response.ok) throw new Error(`SYP provider returned ${response.status}`);
   const data = await response.json();
@@ -968,7 +1036,7 @@ async function fetchSyrianPoundRate() {
 
 async function fetchGoldPriceCad() {
   const response = await fetch("https://api.gold-api.com/price/XAU/CAD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.51" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.52" }
   });
   if (!response.ok) throw new Error(`Gold provider returned ${response.status}`);
   const data = await response.json();
@@ -1876,7 +1944,7 @@ async function startServer(){
   await initStore();
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v15.3.51 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v15.3.52 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{
