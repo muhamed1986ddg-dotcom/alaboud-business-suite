@@ -1,3 +1,3 @@
-# ALABOUD Android v15.1 Customer Management
+# Build helper scripts
 
-يعرض ميزات حذف وأرشفة واستعادة العملاء من نظام الويب.
+الملف المستخدم في البناء هو `scripts/copy-frontend.js`. المجلدات الفرعية الأخرى نسخ قديمة محفوظة للرجوع فقط.

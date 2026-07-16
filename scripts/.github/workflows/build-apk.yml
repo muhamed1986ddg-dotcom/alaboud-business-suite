@@ -1,4 +1,4 @@
-name: Build Android v15.1 Customer Management APK
+name: Build Android v15.3.64 Price Bulletin APK
 
 on:
   workflow_dispatch:
@@ -39,6 +39,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: AlAboud-Mobile-v15.1-Customer-Management-APK
+          name: AlAboud-Mobile-v15.3.64-Price-Bulletin-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
