@@ -1390,12 +1390,27 @@ app.get("/api/general-debts", auth, (req,res)=>{
     return {...debt, remaining:Math.max(safeNumber(debt.amount)-paid,0)};
   });
 
-  const manualReceivable = allDebtRows
-    .filter((x)=>x.type==="RECEIVABLE")
-    .reduce((sum,x)=>sum+safeNumber(x.remaining),0);
-  const payable = allDebtRows
-    .filter((x)=>x.type==="PAYABLE")
-    .reduce((sum,x)=>sum+safeNumber(x.remaining),0);
+  const supportedDebtCurrencies = ["CAD","USD","EUR","SYP"];
+  const emptyCurrencyTotals = ()=>Object.fromEntries(
+    supportedDebtCurrencies.map((currency)=>[currency,0])
+  );
+  const manualReceivableByCurrency = emptyCurrencyTotals();
+  const payableByCurrency = emptyCurrencyTotals();
+
+  allDebtRows.forEach((debt)=>{
+    const currency = String(debt.currency || "CAD").toUpperCase();
+    if (!supportedDebtCurrencies.includes(currency)) return;
+    if (debt.type === "RECEIVABLE") {
+      manualReceivableByCurrency[currency] += safeNumber(debt.remaining);
+    } else if (debt.type === "PAYABLE") {
+      payableByCurrency[currency] += safeNumber(debt.remaining);
+    }
+  });
+
+  const manualReceivable = Object.values(manualReceivableByCurrency)
+    .reduce((sum,value)=>sum+safeNumber(value),0);
+  const payable = Object.values(payableByCurrency)
+    .reduce((sum,value)=>sum+safeNumber(value),0);
 
   // الحوالات غير المدفوعة أو المدفوعة جزئيًا تدخل تلقائيًا ضمن «دين لنا».
   const transferReceivable = (Array.isArray(store.transactions) ? store.transactions : [])
@@ -1408,7 +1423,26 @@ app.get("/api/general-debts", auth, (req,res)=>{
       return sum+remaining;
     },0);
 
-  const receivable = manualReceivable+transferReceivable;
+  // دين الحوالات محسوب بالدولار الكندي، لذلك يُضاف فقط إلى بطاقة CAD.
+  const receivableByCurrency = {
+    ...manualReceivableByCurrency,
+    CAD: manualReceivableByCurrency.CAD + transferReceivable,
+  };
+  const netByCurrency = Object.fromEntries(
+    supportedDebtCurrencies.map((currency)=>[
+      currency,
+      safeNumber(receivableByCurrency[currency]) - safeNumber(payableByCurrency[currency])
+    ])
+  );
+  const receivable = Object.values(receivableByCurrency)
+    .reduce((sum,value)=>sum+safeNumber(value),0);
+
+  const roundedCurrencyMap = (values)=>Object.fromEntries(
+    supportedDebtCurrencies.map((currency)=>[
+      currency,
+      +safeNumber(values[currency]).toFixed(2)
+    ])
+  );
 
   res.json({
     rows,
@@ -1418,6 +1452,10 @@ app.get("/api/general-debts", auth, (req,res)=>{
       transferReceivable:+transferReceivable.toFixed(2),
       payable:+payable.toFixed(2),
       net:+(receivable-payable).toFixed(2),
+      receivableByCurrency:roundedCurrencyMap(receivableByCurrency),
+      manualReceivableByCurrency:roundedCurrencyMap(manualReceivableByCurrency),
+      payableByCurrency:roundedCurrencyMap(payableByCurrency),
+      netByCurrency:roundedCurrencyMap(netByCurrency),
     }
   });
 });

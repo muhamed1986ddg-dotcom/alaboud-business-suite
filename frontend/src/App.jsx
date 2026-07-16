@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
-const APP_VERSION="v15.3.67 Mobile Safe Header";
+const APP_VERSION="v15.3.68 Multi-Currency Debts";
 
 function openRegularWhatsApp(phone,message){
   const cleanPhone=String(phone||"").replace(/\D/g,"");
@@ -2483,7 +2483,12 @@ function GeneralDebts(){
       const {data}=await api.get("/general-debts",{params:{type:filter}});
       setData({
         rows:Array.isArray(data?.rows)?data.rows:[],
-        totals:data?.totals||{receivable:0,manualReceivable:0,transferReceivable:0,payable:0,net:0}
+        totals:data?.totals||{
+          receivable:0,manualReceivable:0,transferReceivable:0,payable:0,net:0,
+          receivableByCurrency:{CAD:0,USD:0,EUR:0,SYP:0},
+          payableByCurrency:{CAD:0,USD:0,EUR:0,SYP:0},
+          netByCurrency:{CAD:0,USD:0,EUR:0,SYP:0}
+        }
       });
     }catch(error){
       setMessage(error.response?.data?.message||"تعذر تحميل الديون");
@@ -2539,21 +2544,37 @@ function GeneralDebts(){
   return <>
     <h2>الدَّين العام</h2>
 
-    <div className="stats">
-      <div className="card receivable-card debt-summary-card">
-        <span>دين لنا</span>
-        <strong>{money(data.totals.receivable)}</strong>
-        <small>مجموع دين الحوالات: {money(data.totals.transferReceivable||0)}</small>
-        <small>ديون مسجلة يدويًا: {money(data.totals.manualReceivable||0)}</small>
-      </div>
-      <div className="card payable-card">
-        <span>دين علينا</span>
-        <strong>{money(data.totals.payable)}</strong>
-      </div>
-      <div className="card final">
-        <span>صافي الديون</span>
-        <strong>{money(data.totals.net)}</strong>
-      </div>
+    <div className="debt-currency-summary-grid">
+      {[{
+        code:"CAD",label:"الدولار الكندي",flag:"🇨🇦"
+      },{
+        code:"USD",label:"الدولار الأمريكي",flag:"🇺🇸"
+      },{
+        code:"SYP",label:"الليرة السورية",flag:"🇸🇾"
+      },{
+        code:"EUR",label:"اليورو",flag:"🇪🇺"
+      }].map(({code,label,flag})=>{
+        const receivable=Number(data.totals.receivableByCurrency?.[code]||0);
+        const payable=Number(data.totals.payableByCurrency?.[code]||0);
+        const net=Number(data.totals.netByCurrency?.[code]||0);
+        return <article className={`card debt-currency-card debt-currency-${code.toLowerCase()}`} key={code}>
+          <div className="debt-currency-title">
+            <span className="debt-currency-flag">{flag}</span>
+            <div><strong>{label}</strong><small>{code}</small></div>
+          </div>
+          <div className="debt-currency-main">
+            <span>دين لنا</span>
+            <strong>{money(receivable)} {code}</strong>
+          </div>
+          {code==="CAD"&&<small className="debt-transfer-total">
+            مجموع دين الحوالات: {money(data.totals.transferReceivable||0)} CAD
+          </small>}
+          <div className="debt-currency-details">
+            <span>دين علينا: <b>{money(payable)} {code}</b></span>
+            <span>الصافي: <b>{money(net)} {code}</b></span>
+          </div>
+        </article>;
+      })}
     </div>
 
     <div className="card debt-tabs">
