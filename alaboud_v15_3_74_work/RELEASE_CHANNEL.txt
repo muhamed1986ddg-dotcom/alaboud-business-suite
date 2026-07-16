@@ -1,3 +1,0 @@
-Version: 15.3.73
-Channel: Production
-Production ready: YES
