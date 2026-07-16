@@ -89,7 +89,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/15.3.66"
+            userAgentString = "$userAgentString AlAboudMobile/15.3.67"
         }
 
         CookieManager.getInstance().apply {
@@ -267,14 +267,14 @@ class MainActivity : AppCompatActivity() {
                     #alaboud-mobile-header {
                       display:flex !important;
                       position:fixed !important;
-                      top:0 !important;
+                      top:max(env(safe-area-inset-top, 0px), 26px) !important;
                       left:0 !important;
                       right:0 !important;
-                      height:60px !important;
+                      height:62px !important;
                       z-index:2147483003 !important;
                       align-items:center !important;
                       justify-content:space-between !important;
-                      padding:0 14px !important;
+                      padding:0 16px !important;
                       background:linear-gradient(135deg,#050505,#171717) !important;
                       color:#d4af37 !important;
                       border-bottom:1px solid rgba(212,175,55,.5) !important;
@@ -285,8 +285,8 @@ class MainActivity : AppCompatActivity() {
                       border:1px solid rgba(212,175,55,.7) !important;
                       background:#111 !important;
                       color:#f4d675 !important;
-                      width:43px !important;
-                      height:43px !important;
+                      width:44px !important;
+                      height:44px !important;
                       padding:0 !important;
                       border-radius:12px !important;
                       font-size:25px !important;
