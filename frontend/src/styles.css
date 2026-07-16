@@ -3943,3 +3943,6 @@ body.app-language-en aside{
 .simple-statement-old-balance strong{color:#d8a33f}
 
 /* v15.3.57 compact statement image */
+
+/* v15.3.58 - rebuilt statement image generator */
+.whatsapp-image-button{min-height:46px}

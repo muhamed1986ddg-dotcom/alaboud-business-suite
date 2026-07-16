@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.57 Final Mobile</p>
+        <p>v15.3.58 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -1270,59 +1270,166 @@ function Customer({id,back,onStatement}){
   async function shareCustomerStatement(){
     try{
       const response=await api.get(`/customers/${id}/statement`);
-      const statement=response.data;
+      const statement=response.data||{};
       const rows=Array.isArray(statement.transactions)?statement.transactions:[];
       const oldBalance=Number(statement.totals?.oldBalance||0);
-      const total=Number(statement.totals?.formulaResultCad||0)+oldBalance;
       const paid=Number(statement.totals?.paid||0);
-      const finalBalance=Number(statement.totals?.remaining||Math.max(total-paid,0));
-      const width=640,rowHeight=46;
-      const headerHeight=205;
-      const summaryHeight=190;
-      const footerHeight=58;
-      const height=headerHeight+(rows.length*rowHeight)+summaryHeight+footerHeight;
+      const finalBalance=Number(
+        statement.totals?.remaining ??
+        Math.max(Number(statement.totals?.formulaResultCad||0)+oldBalance-paid,0)
+      );
+
+      const width=720;
+      const sidePadding=34;
+      const rowHeight=54;
+      const headerHeight=210;
+      const summaryRowHeight=50;
+      const footerHeight=82;
+      const summaryHeight=(summaryRowHeight*3)+34;
+      const contentHeight=(rows.length*rowHeight);
+      const height=headerHeight+contentHeight+summaryHeight+footerHeight;
+
       const canvas=document.createElement("canvas");
-      canvas.width=width;canvas.height=height;
+      canvas.width=width;
+      canvas.height=height;
+
       const ctx=canvas.getContext("2d");
-      const text=(value,x,y,size,color="#f5f5f5",align="center",weight="700")=>{
-        ctx.fillStyle=color;ctx.font=`${weight} ${size}px Arial, sans-serif`;
-        ctx.textAlign=align;ctx.textBaseline="middle";ctx.direction="rtl";ctx.fillText(String(value),x,y);
+      if(!ctx)throw new Error("تعذر إنشاء صورة كشف الحساب");
+
+      const drawText=(value,x,y,size,{
+        color="#f5f5f5",
+        align="center",
+        weight="700",
+        direction="rtl"
+      }={})=>{
+        ctx.save();
+        ctx.fillStyle=color;
+        ctx.font=`${weight} ${size}px Arial, sans-serif`;
+        ctx.textAlign=align;
+        ctx.textBaseline="middle";
+        ctx.direction=direction;
+        ctx.fillText(String(value??""),x,y);
+        ctx.restore();
       };
+
+      const drawLine=(y,color="#51606b",dash=[])=>{
+        ctx.save();
+        ctx.strokeStyle=color;
+        ctx.lineWidth=1.5;
+        ctx.setLineDash(dash);
+        ctx.beginPath();
+        ctx.moveTo(sidePadding,y);
+        ctx.lineTo(width-sidePadding,y);
+        ctx.stroke();
+        ctx.restore();
+      };
+
       const gradient=ctx.createLinearGradient(0,0,width,height);
-      gradient.addColorStop(0,"#15232f");gradient.addColorStop(1,"#08131c");
-      ctx.fillStyle=gradient;ctx.fillRect(0,0,width,height);
-      ctx.strokeStyle="#9b7425";ctx.lineWidth=2;ctx.strokeRect(12,12,width-24,height-24);
-      text(statement.company?.name||"شركة العبود التجارية",width/2,48,31);
-      text("كشف حساب العميل",width/2,91,27,"#d8a33f");
-      text(customer.name,width/2,130,24);
-      ctx.strokeStyle="#6b6f73";ctx.beginPath();ctx.moveTo(30,165);ctx.lineTo(width-30,165);ctx.stroke();
-      let y=205;
+      gradient.addColorStop(0,"#142331");
+      gradient.addColorStop(1,"#08131c");
+      ctx.fillStyle=gradient;
+      ctx.fillRect(0,0,width,height);
+
+      ctx.save();
+      ctx.strokeStyle="#9b7425";
+      ctx.lineWidth=2;
+      ctx.strokeRect(14,14,width-28,height-28);
+      ctx.restore();
+
+      drawText(statement.company?.name||"شركة العبود التجارية",width/2,52,34,{weight:"800"});
+      drawText("كشف حساب العميل",width/2,104,30,{color:"#d8a33f",weight:"800"});
+      drawText(customer.name||"العميل",width/2,151,26,{weight:"700"});
+      drawLine(185);
+
+      let y=224;
+
       rows.forEach((item,index)=>{
-        const amount=Number(item.usdAmount||0).toFixed(2).replace(/\.00$/,"");
-        const rate=Number(item.customerRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
-        ctx.direction="ltr";ctx.textAlign="left";ctx.fillStyle="#f5f5f5";ctx.font="700 22px Arial, sans-serif";
-        ctx.fillText(`${index+1}_ ${amount} 🇺🇸 × ${rate} = ${money(item.formulaResultCad)} 🇨🇦`,34,y);
+        const amount=Number(item.usdAmount||item.amount||0).toFixed(2).replace(/\.00$/,"");
+        const rate=Number(item.customerRate||item.finalRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
+        const result=money(item.formulaResultCad ?? item.totalCad ?? 0);
+
+        drawText(
+          `${index+1}_ ${amount} 🇺🇸 × ${rate} = ${result} 🇨🇦`,
+          sidePadding,
+          y,
+          24,
+          {align:"left",direction:"ltr",weight:"700"}
+        );
+
+        drawLine(y+27,"#283844");
         y+=rowHeight;
       });
-      y+=18;
-      text("الحساب القديم",34,y,22,"#f5f5f5","left");
-      text(`${money(oldBalance)} 🇨🇦`,width-34,y,23,"#d8a33f","right","800");
-      y+=39;
-      text("الدفعات",34,y,22,"#f5f5f5","left");
-      text(`${money(paid)} 🇨🇦`,width-34,y,23,"#ef4444","right","800");
-      y+=39;
-      text("المجموع النهائي",34,y,24,"#f5f5f5","left","800");
-      text(`${money(finalBalance)} 🇨🇦`,width-34,y,27,"#63c443","right","900");
+
+      drawLine(y+8,"#68747c",[10,8]);
       y+=38;
-      text("شكراً لتعاملكم معنا",width/2,y,21,"#d8a33f");
-      const blob=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error("تعذر إنشاء الصورة")),"image/png",0.96));
-      const safe=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
-      const file=new File([blob],`كشف-حساب-${safe}.png`,{type:"image/png"});
+
+      drawText("الحساب القديم",sidePadding,y,23,{align:"left",weight:"700"});
+      drawText(`${money(oldBalance)} 🇨🇦`,width-sidePadding,y,24,{align:"right",color:"#d8a33f",weight:"800"});
+      y+=summaryRowHeight;
+
+      drawText("الدفعات",sidePadding,y,23,{align:"left",weight:"700"});
+      drawText(`${money(paid)} 🇨🇦`,width-sidePadding,y,24,{align:"right",color:"#ef4444",weight:"800"});
+      y+=summaryRowHeight;
+
+      drawText("المجموع النهائي",sidePadding,y,25,{align:"left",weight:"800"});
+      drawText(`${money(finalBalance)} 🇨🇦`,width-sidePadding,y,28,{align:"right",color:"#63c443",weight:"900"});
+      y+=summaryRowHeight;
+
+      drawLine(y+4,"#68747c");
+      y+=36;
+
+      const nowDate=new Date();
+      drawText(
+        `التاريخ: ${nowDate.toLocaleDateString("en-CA")}`,
+        sidePadding,
+        y,
+        18,
+        {align:"left",color:"#b8c0c7",weight:"500"}
+      );
+      drawText(
+        `الوقت: ${nowDate.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}`,
+        width-sidePadding,
+        y,
+        18,
+        {align:"right",color:"#b8c0c7",weight:"500"}
+      );
+
+      drawText("شكراً لتعاملكم معنا",width/2,height-36,22,{color:"#d8a33f",weight:"700"});
+
+      const blob=await new Promise((resolve,reject)=>{
+        canvas.toBlob(value=>{
+          if(value)resolve(value);
+          else reject(new Error("تعذر إنشاء صورة كشف الحساب"));
+        },"image/png",0.96);
+      });
+
+      const safeName=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
+      const file=new File([blob],`كشف-حساب-${safeName}.png`,{type:"image/png"});
+
       if(navigator.share){
-        try{await navigator.share({files:[file],title:"كشف حساب العميل"});return;}
-        catch(shareError){if(shareError?.name==="AbortError")return;}
+        try{
+          await navigator.share({
+            files:[file],
+            title:"كشف حساب العميل"
+          });
+          return;
+        }catch(shareError){
+          if(shareError?.name==="AbortError")return;
+          console.warn("Statement image share failed",shareError);
+        }
       }
-      const url=URL.createObjectURL(blob);window.open(url,"_blank");setTimeout(()=>URL.revokeObjectURL(url),60000);
+
+      const url=URL.createObjectURL(blob);
+      const preview=window.open(url,"_blank");
+      if(!preview){
+        const link=document.createElement("a");
+        link.href=url;
+        link.download=file.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+      setTimeout(()=>URL.revokeObjectURL(url),60000);
     }catch(error){
       setError(error.response?.data?.message||error.message||"تعذر مشاركة صورة كشف الحساب");
     }
@@ -3001,7 +3108,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.57 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.58 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3094,7 +3201,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.57 Final"
+        version:"v15.3.58 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3136,7 +3243,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.57 Final</span>
+      <span className="settings-version">v15.3.58 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3212,7 +3319,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.57 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.58 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3365,7 +3472,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.57 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.58 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3379,7 +3486,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.57 Final Mobile</small>
+          <small>v15.3.58 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
