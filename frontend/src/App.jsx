@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.52 Final Mobile</p>
+        <p>v15.3.53 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -1202,6 +1202,46 @@ function Customer({id,back,onStatement}){
     }
   }
 
+  async function shareCustomerStatementText(){
+    try{
+      const phone=String(customer.phone||"").replace(/\D/g,"");
+      if(!phone){
+        setError("لا يوجد رقم واتساب محفوظ لهذا العميل");
+        return;
+      }
+
+      const response=await api.get(`/customers/${id}/statement`);
+      const statement=response.data;
+      const rows=Array.isArray(statement.transactions)?statement.transactions:[];
+      const total=Number(statement.totals?.formulaResultCad||0);
+      const paid=Number(statement.totals?.paid||0);
+      const finalBalance=Math.max(total-paid,0);
+
+      const lines=rows.map((item,index)=>{
+        const amount=Number(item.usdAmount||0).toFixed(2).replace(/\.00$/,"");
+        const rate=Number(item.customerRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
+        return `${index+1}_ ${amount} 🇺🇸 × ${rate} = ${money(item.formulaResultCad)} 🇨🇦`;
+      });
+
+      const message=[
+        statement.company?.name||"شركة العبود التجارية",
+        "",
+        "كشف حساب العميل",
+        customer.name,
+        "",
+        ...lines,
+        "",
+        "--------------------",
+        `الدفعات: ${money(paid)} 🇨🇦`,
+        `المجموع النهائي: ${money(finalBalance)} 🇨🇦`
+      ].join("\n");
+
+      openRegularWhatsApp(phone,message);
+    }catch(error){
+      setError(error.response?.data?.message||error.message||"تعذر إرسال رسالة كشف الحساب");
+    }
+  }
+
   async function shareCustomerStatement(){
     try{
       const response=await api.get(`/customers/${id}/statement`);
@@ -1211,7 +1251,7 @@ function Customer({id,back,onStatement}){
       const paid=Number(statement.totals?.paid||0);
       const finalBalance=Math.max(total-paid,0);
       const width=720,rowHeight=55;
-      const height=Math.max(900,260+rows.length*rowHeight+300);
+      const height=Math.max(520,260+rows.length*rowHeight+220);
       const canvas=document.createElement("canvas");
       canvas.width=width;canvas.height=height;
       const ctx=canvas.getContext("2d");
@@ -1305,7 +1345,8 @@ function Customer({id,back,onStatement}){
     <div className="card no-print form">
       <button onClick={back}>رجوع</button>
       <button onClick={()=>onStatement(id)}>كشف حساب العميل</button>
-      <button onClick={shareCustomerStatement}>📷 إرسال صورة كشف الحساب</button>
+      <button className="whatsapp-text-button" onClick={shareCustomerStatementText}>💬 إرسال رسالة نصية عبر واتساب</button>
+      <button className="whatsapp-image-button" onClick={shareCustomerStatement}>📷 إرسال صورة عبر واتساب</button>
     </div>
 
     <h2>{customer.name||"العميل"}</h2>
@@ -2902,7 +2943,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.52 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.53 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -2995,7 +3036,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.52 Final"
+        version:"v15.3.53 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3037,7 +3078,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.52 Final</span>
+      <span className="settings-version">v15.3.53 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3113,7 +3154,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.52 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.53 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3266,7 +3307,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.52 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.53 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3280,7 +3321,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.52 Final Mobile</small>
+          <small>v15.3.53 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

@@ -3891,3 +3891,13 @@ body.app-language-en aside{
 }
 
 .payment-auto-note{margin:0;padding:12px 14px;border-radius:12px;background:rgba(214,168,62,.09);border:1px solid rgba(214,168,62,.32);color:#e9cf87;line-height:1.7}
+
+/* v15.3.53 - WhatsApp text or image choices */
+.whatsapp-text-button{
+  background:linear-gradient(135deg,#157347,#1f9d5a)!important;
+  color:#fff!important;
+}
+.whatsapp-image-button{
+  background:linear-gradient(135deg,#0d6efd,#3b82f6)!important;
+  color:#fff!important;
+}
