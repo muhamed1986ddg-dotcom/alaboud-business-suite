@@ -4499,3 +4499,28 @@ button.rate-bulletin-card{width:100%;cursor:pointer}
   .rates-summary-strip{grid-template-columns:1fr}
   .dashboard-price-bulletin .rate-bulletin-list{grid-template-columns:1fr}
 }
+
+/* v15.3.65 — compact mobile menu and alerts merged into Settings */
+.sidebar-logout-bottom{
+  margin-top:10px !important;
+  margin-bottom:6px !important;
+}
+@media screen and (max-width:800px){
+  .app.mobile-menu-view aside{
+    justify-content:flex-start !important;
+    padding-top:10px !important;
+    padding-bottom:calc(12px + env(safe-area-inset-bottom)) !important;
+  }
+  .app.mobile-menu-view aside > .sidebar-logout-bottom{
+    margin-top:10px !important;
+    margin-bottom:4px !important;
+    flex:0 0 42px !important;
+  }
+}
+.settings-alerts-card{grid-column:span 1}
+.settings-alerts-embedded{display:flex;flex-direction:column;gap:12px}
+.settings-alerts-embedded .settings-form-modern{display:grid;gap:10px}
+.settings-alerts-embedded textarea{min-height:120px;resize:vertical}
+.settings-alert-note{margin:0;padding-top:4px}
+.settings-alert-note p{margin:6px 0 0}
+@media(min-width:1050px){.settings-alerts-card{grid-column:span 2}}

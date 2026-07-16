@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
-const APP_VERSION="v15.3.64 Price Bulletin & Overdue Tabs";
+const APP_VERSION="v15.3.65 Settings & Mobile Menu";
 
 function openRegularWhatsApp(phone,message){
   const cleanPhone=String(phone||"").replace(/\D/g,"");
@@ -3227,7 +3227,7 @@ function MonthlyReport(){
   </>;
 }
 
-function NotificationSettings(){
+function NotificationSettings({embedded=false}){
   const [settings,setSettings]=useState({overdueDays:7,lowCashLimit:5000,whatsappTemplate:""});
   const [message,setMessage]=useState("");
 
@@ -3246,10 +3246,11 @@ function NotificationSettings(){
     }
   }
 
-  return <>
-    <h2>إعدادات التنبيهات وواتساب</h2>
+  return <div className={embedded?"settings-alerts-embedded":"notification-settings-page"}>
+    {!embedded&&<h2>إعدادات التنبيهات وواتساب</h2>}
+    {embedded&&<div className="settings-card-title"><span>🔔</span><h3>إعدادات التنبيهات وواتساب</h3></div>}
     {message&&<div className="card rate-message">{message}</div>}
-    <form className="card form settings-form" onSubmit={save}>
+    <form className={embedded?"settings-form-modern":"card form settings-form"} onSubmit={save}>
       <label>بدء تنبيه التأخير بعد عدد الأيام</label>
       <input type="number" min="1" max="365" value={settings.overdueDays}
         onChange={e=>setSettings({...settings,overdueDays:e.target.value})}/>
@@ -3262,11 +3263,11 @@ function NotificationSettings(){
         placeholder="يمكن استخدام: {name} {balance} {days}"/>
       <button>حفظ الإعدادات</button>
     </form>
-    <div className="card">
+    <div className={embedded?"settings-help settings-alert-note":"card"}>
       <strong>ملاحظة:</strong>
       <p>زر واتساب يفتح الرسالة جاهزة للإرسال. الإرسال التلقائي دون ضغط يحتاج ربط WhatsApp Business API رسمي.</p>
     </div>
-  </>;
+  </div>;
 }
 
 
@@ -3494,6 +3495,10 @@ function SettingsPanel(){
         </div>
       </article>
 
+      <article className="settings-card settings-alerts-card">
+        <NotificationSettings embedded/>
+      </article>
+
       <article className="settings-card settings-updates-card">
         <div className="settings-card-title"><span>⬆️</span><h3>التحديثات</h3></div>
         <div className="update-current-version">
@@ -3603,9 +3608,8 @@ export default function App(){
     content=<CapitalOverview/>;
   }else if(page==="monthly-report"){
     content=<MonthlyReport/>;
-  }else if(page==="notification-settings"){
-    content=<NotificationSettings/>;
   }else if(page==="settings"){
+
     content=<SettingsPanel/>;
   }else if(page==="expenses"){
     content=<Simple type="expenses"/>;
@@ -3630,8 +3634,7 @@ export default function App(){
     ["debts","📒 الدَّين العام"],
     ["capital-overview","💰 رأس المال الكلي وحركة رأس المال"],
     ["monthly-report","📊 التقارير الشهرية"],
-    ["notification-settings","🔔 إعدادات التنبيهات"],
-    ["settings","⚙️ الإعدادات"],
+    ["settings","⚙️ الإعدادات والتنبيهات"],
     ["expenses","🧾 المصروفات"]
   ];
 
