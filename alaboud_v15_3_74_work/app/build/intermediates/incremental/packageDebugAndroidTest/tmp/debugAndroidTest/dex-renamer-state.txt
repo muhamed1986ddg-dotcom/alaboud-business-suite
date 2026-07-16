@@ -1,0 +1,4 @@
+#Thu Jul 16 18:24:06 EDT 2026
+base.0=C\:\\Users\\hh233\\Desktop\\alaboud-business-suite\\alaboud_v15_3_74_work\\app\\build\\intermediates\\dex\\debugAndroidTest\\mergeProjectDexDebugAndroidTest\\0\\classes.dex
+path.0=0/classes.dex
+renamed.0=classes.dex

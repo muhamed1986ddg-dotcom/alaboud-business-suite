@@ -562,9 +562,23 @@ class MainActivity : AppCompatActivity() {
                 if (base64Data.isBlank()) throw IllegalArgumentException("Invalid image data")
                 val bytes = Base64.decode(base64Data, Base64.DEFAULT)
                 val shareDir = File(activity.cacheDir, "shared_statements").apply { mkdirs() }
-                val safeName = fileName.replace(Regex("[^\p{L}\p{N}._-]"), "-")
-                val imageFile = File(shareDir, if (safeName.endsWith(".png")) safeName else "$safeName.png")
+                val safeName = fileName
+                    .map { char ->
+                        if (char.isLetterOrDigit() || char in "._-") char else '-'
+                    }
+                    .joinToString("")
+
+                val imageFile = File(
+                    shareDir,
+                    if (safeName.endsWith(".png")) safeName else "$safeName.png"
+                )
+
                 imageFile.writeBytes(bytes)
+
+
+
+                imageFile.writeBytes(bytes)
+
                 val contentUri = FileProvider.getUriForFile(
                     activity,
                     "${activity.packageName}.fileprovider",
