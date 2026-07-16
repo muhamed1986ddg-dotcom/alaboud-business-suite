@@ -4659,3 +4659,116 @@ button.rate-bulletin-card{width:100%;cursor:pointer}
     border-radius:15px !important;
   }
 }
+
+
+/* v15.3.70 — compact professional mobile menu; remove oversized logo gap */
+@media screen and (max-width:900px){
+  .app.mobile-menu-view aside{
+    height:100dvh !important;
+    min-height:100dvh !important;
+    padding-top:12px !important;
+    padding-right:12px !important;
+    padding-left:12px !important;
+    padding-bottom:calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+    scroll-padding-top:12px !important;
+    scroll-padding-bottom:calc(88px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  .app.mobile-menu-view .mobile-menu-heading{
+    display:flex !important;
+    position:relative !important;
+    top:auto !important;
+    width:100% !important;
+    height:112px !important;
+    min-height:112px !important;
+    max-height:112px !important;
+    margin:0 0 10px !important;
+    padding:8px 10px !important;
+    overflow:hidden !important;
+    box-sizing:border-box !important;
+    border:1px solid rgba(214,174,66,.28) !important;
+    border-radius:20px !important;
+    background:linear-gradient(155deg,rgba(5,6,8,.98),rgba(13,15,18,.98)) !important;
+    box-shadow:0 12px 30px rgba(0,0,0,.25) !important;
+  }
+
+  .app.mobile-menu-view .mobile-menu-heading .mobile-logo{
+    position:absolute !important;
+    left:50% !important;
+    top:50% !important;
+    transform:translate(-50%,-50%) !important;
+    width:88px !important;
+    height:88px !important;
+    min-width:88px !important;
+    max-width:88px !important;
+    min-height:88px !important;
+    max-height:88px !important;
+    margin:0 !important;
+    object-fit:contain !important;
+    border-radius:50% !important;
+  }
+
+  .app.mobile-menu-view .mobile-menu-heading button{
+    position:absolute !important;
+    left:10px !important;
+    right:auto !important;
+    top:50% !important;
+    transform:translateY(-50%) !important;
+    width:48px !important;
+    min-width:48px !important;
+    height:48px !important;
+    min-height:48px !important;
+    margin:0 !important;
+    padding:0 !important;
+    border-radius:15px !important;
+    font-size:25px !important;
+    line-height:1 !important;
+    z-index:3 !important;
+  }
+
+  .app.mobile-menu-view .sidebar-logo-wrap{
+    display:none !important;
+  }
+
+  .app.mobile-menu-view .sidebar-account-box{
+    min-height:76px !important;
+    margin:0 0 10px !important;
+    padding:12px 14px !important;
+    border-radius:18px !important;
+  }
+
+  .app.mobile-menu-view .sidebar-account-box strong{
+    font-size:17px !important;
+  }
+
+  .app.mobile-menu-view aside > button{
+    min-height:54px !important;
+    margin:4px 0 !important;
+    padding:11px 16px !important;
+    border-radius:16px !important;
+    font-size:18px !important;
+  }
+
+  .app.mobile-menu-view aside > .sidebar-logout-bottom{
+    margin-top:10px !important;
+    margin-bottom:8px !important;
+  }
+}
+
+@media screen and (max-width:430px){
+  .app.mobile-menu-view .mobile-menu-heading{
+    height:104px !important;
+    min-height:104px !important;
+    max-height:104px !important;
+  }
+  .app.mobile-menu-view .mobile-menu-heading .mobile-logo{
+    width:80px !important;
+    height:80px !important;
+    min-width:80px !important;
+    min-height:80px !important;
+  }
+  .app.mobile-menu-view aside > button{
+    min-height:52px !important;
+    font-size:17px !important;
+  }
+}

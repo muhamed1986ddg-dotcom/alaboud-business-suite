@@ -1,13 +1,13 @@
-ALABOUD Business Suite v15.3.69
+ALABOUD Business Suite v15.3.70
 
 1) افتح المجلد الرئيسي نفسه في VS Code.
 2) نفّذ: npm install
 3) نفّذ: npm run render-build
 4) ارفع التعديل إلى GitHub:
    git add .
-   git commit -m "Release v15.3.69 professional mobile header"
+   git commit -m "Release v15.3.70 compact professional menu"
    git push origin main
 5) انتظر اكتمال Render ثم حدّث الصفحة.
-6) لبناء APK افتح GitHub Actions وشغّل: Build Android v15.3.69 Professional-Mobile-Header APK.
+6) لبناء APK افتح GitHub Actions وشغّل: Build Android v15.3.70 Compact-Professional-Menu APK.
 
 مهم: استخدم ملفات المجلد الرئيسي frontend وbackend وapp، ولا تستخدم مجلدات النسخ القديمة ALABOUD_Web_* أو gradle/frontend أو scripts/frontend.

@@ -1,4 +1,4 @@
-name: Build Android v15.3.69 Professional-Mobile-Header APK
+name: Build Android v15.3.70 Compact-Professional-Menu APK
 
 on:
   workflow_dispatch:
@@ -39,6 +39,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: AlAboud-Mobile-v15.3.69-Multi-Currency-Debts-APK
+          name: AlAboud-Mobile-v15.3.70-Compact-Professional-Menu-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
