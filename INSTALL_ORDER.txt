@@ -1,13 +1,13 @@
-ALABOUD Business Suite v15.3.70
+ALABOUD Business Suite v15.3.71
 
 1) افتح المجلد الرئيسي نفسه في VS Code.
 2) نفّذ: npm install
 3) نفّذ: npm run render-build
 4) ارفع التعديل إلى GitHub:
    git add .
-   git commit -m "Release v15.3.70 compact professional menu"
+   git commit -m "Release v15.3.71 android status bar safe"
    git push origin main
 5) انتظر اكتمال Render ثم حدّث الصفحة.
-6) لبناء APK افتح GitHub Actions وشغّل: Build Android v15.3.70 Compact-Professional-Menu APK.
+6) لبناء APK افتح GitHub Actions وشغّل: Build Android v15.3.71 Android-Status-Bar-Safe APK.
 
 مهم: استخدم ملفات المجلد الرئيسي frontend وbackend وapp، ولا تستخدم مجلدات النسخ القديمة ALABOUD_Web_* أو gradle/frontend أو scripts/frontend.

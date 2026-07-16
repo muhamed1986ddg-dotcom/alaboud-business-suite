@@ -4661,7 +4661,7 @@ button.rate-bulletin-card{width:100%;cursor:pointer}
 }
 
 
-/* v15.3.70 — compact professional mobile menu; remove oversized logo gap */
+/* v15.3.71 — compact professional mobile menu; remove oversized logo gap */
 @media screen and (max-width:900px){
   .app.mobile-menu-view aside{
     height:100dvh !important;
@@ -4770,5 +4770,17 @@ button.rate-bulletin-card{width:100%;cursor:pointer}
   .app.mobile-menu-view aside > button{
     min-height:52px !important;
     font-size:17px !important;
+  }
+}
+
+/* v15.3.71 — Android status-bar collision guard */
+@media screen and (max-width:900px){
+  /* Native Android applies the real status-bar inset to the WebView root.
+     This small fallback protects installed/PWA fullscreen modes too. */
+  @supports (padding-top: env(safe-area-inset-top)){
+    html{scroll-padding-top:env(safe-area-inset-top,0px)}
+  }
+  .app.mobile-page-view .mobile-page-header{
+    box-sizing:border-box !important;
   }
 }

@@ -32,6 +32,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.json.JSONObject
 
@@ -51,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
 
         createNotificationChannel()
@@ -58,6 +62,15 @@ class MainActivity : AppCompatActivity() {
 
         refreshLayout = findViewById(R.id.refreshLayout)
         webView = findViewById(R.id.webView)
+
+        // Android 15 draws apps edge-to-edge. Keep the WebView below the status bar
+        // so the home, close and menu buttons never overlap system icons.
+        ViewCompat.setOnApplyWindowInsetsListener(refreshLayout) { view, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            view.setPadding(0, systemBars.top, 0, 0)
+            insets
+        }
+        ViewCompat.requestApplyInsets(refreshLayout)
 
         configureWebView()
         configureDownloads()
@@ -89,7 +102,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/15.3.70"
+            userAgentString = "$userAgentString AlAboudMobile/15.3.71"
         }
 
         CookieManager.getInstance().apply {

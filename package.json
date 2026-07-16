@@ -1,6 +1,6 @@
 {
   "name": "alaboud-business-suite-cloud",
-  "version": "15.3.70",
+  "version": "15.3.71",
   "private": true,
   "scripts": {
     "install:all": "npm ci --prefix backend && npm ci --prefix frontend",
