@@ -3901,3 +3901,8 @@ body.app-language-en aside{
   background:linear-gradient(135deg,#0d6efd,#3b82f6)!important;
   color:#fff!important;
 }
+
+/* v15.3.54 - old customer account */
+.old-balance-card{border-color:rgba(216,163,63,.65)!important;background:linear-gradient(145deg,#20180b,#111317)!important}
+.old-balance-card strong,.simple-statement-old-balance strong{color:#d8a33f}
+.simple-statement-old-balance{display:flex;justify-content:space-between;gap:12px;padding:14px 16px;border:1px solid rgba(216,163,63,.45);border-radius:14px;margin-top:12px}

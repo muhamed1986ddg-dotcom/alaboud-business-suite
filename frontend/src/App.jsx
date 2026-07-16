@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.53 Final Mobile</p>
+        <p>v15.3.54 Final Mobile</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -380,7 +380,7 @@ function Customers({open}){
   const [search,setSearch]=useState("");
   const [error,setError]=useState("");
 
-  const [customerForm,setCustomerForm]=useState({name:"",phone:"",email:""});
+  const [customerForm,setCustomerForm]=useState({name:"",phone:"",email:"",oldBalance:""});
   const [editingCustomer,setEditingCustomer]=useState(null);
 
   const [transferForm,setTransferForm]=useState({
@@ -483,7 +483,7 @@ function Customers({open}){
     event.preventDefault();
     try{
       await api.post("/customers",customerForm);
-      setCustomerForm({name:"",phone:"",email:""});
+      setCustomerForm({name:"",phone:"",email:"",oldBalance:""});
       setActivePanel("");
       await load();
     }catch(requestError){
@@ -720,6 +720,7 @@ function Customers({open}){
         "كشف حساب العميل",
         customer.name,
         "",
+        ...(oldBalance>0?[`الحساب القديم: ${money(oldBalance)} 🇨🇦`,""]:[]),
         ...lines,
         "",
         "--------------------",
@@ -786,6 +787,7 @@ function Customers({open}){
         <input value={customerForm.name} onChange={e=>setCustomerForm({...customerForm,name:e.target.value})} placeholder="اسم العميل" required/>
         <input value={customerForm.phone} onChange={e=>setCustomerForm({...customerForm,phone:e.target.value})} placeholder="رقم الهاتف / واتساب"/>
         <input type="email" value={customerForm.email} onChange={e=>setCustomerForm({...customerForm,email:e.target.value})} placeholder="البريد الإلكتروني"/>
+        <input type="number" min="0" step=".01" value={customerForm.oldBalance} onChange={e=>setCustomerForm({...customerForm,oldBalance:e.target.value})} placeholder="الحساب القديم (CAD)"/>
         <button>حفظ العميل</button>
         <button type="button" onClick={()=>setActivePanel("")}>إلغاء</button>
       </form>
@@ -797,6 +799,7 @@ function Customers({open}){
         <input value={editingCustomer.name||""} onChange={e=>setEditingCustomer({...editingCustomer,name:e.target.value})} placeholder="اسم العميل" required/>
         <input value={editingCustomer.phone||""} onChange={e=>setEditingCustomer({...editingCustomer,phone:e.target.value})} placeholder="رقم الهاتف / واتساب"/>
         <input type="email" value={editingCustomer.email||""} onChange={e=>setEditingCustomer({...editingCustomer,email:e.target.value})} placeholder="البريد الإلكتروني"/>
+        <input type="number" min="0" step=".01" value={editingCustomer.oldBalance||""} onChange={e=>setEditingCustomer({...editingCustomer,oldBalance:e.target.value})} placeholder="الحساب القديم (CAD)"/>
         <button>حفظ التعديل</button>
         <button type="button" onClick={()=>setEditingCustomer(null)}>إلغاء</button>
       </form>
@@ -1213,9 +1216,10 @@ function Customer({id,back,onStatement}){
       const response=await api.get(`/customers/${id}/statement`);
       const statement=response.data;
       const rows=Array.isArray(statement.transactions)?statement.transactions:[];
-      const total=Number(statement.totals?.formulaResultCad||0);
+      const oldBalance=Number(statement.totals?.oldBalance||0);
+      const total=Number(statement.totals?.formulaResultCad||0)+oldBalance;
       const paid=Number(statement.totals?.paid||0);
-      const finalBalance=Math.max(total-paid,0);
+      const finalBalance=Number(statement.totals?.remaining||Math.max(total-paid,0));
 
       const lines=rows.map((item,index)=>{
         const amount=Number(item.usdAmount||0).toFixed(2).replace(/\.00$/,"");
@@ -1247,9 +1251,10 @@ function Customer({id,back,onStatement}){
       const response=await api.get(`/customers/${id}/statement`);
       const statement=response.data;
       const rows=Array.isArray(statement.transactions)?statement.transactions:[];
-      const total=Number(statement.totals?.formulaResultCad||0);
+      const oldBalance=Number(statement.totals?.oldBalance||0);
+      const total=Number(statement.totals?.formulaResultCad||0)+oldBalance;
       const paid=Number(statement.totals?.paid||0);
-      const finalBalance=Math.max(total-paid,0);
+      const finalBalance=Number(statement.totals?.remaining||Math.max(total-paid,0));
       const width=720,rowHeight=55;
       const height=Math.max(520,260+rows.length*rowHeight+220);
       const canvas=document.createElement("canvas");
@@ -1268,6 +1273,11 @@ function Customer({id,back,onStatement}){
       text(customer.name,width/2,160,28);
       ctx.strokeStyle="#6b6f73";ctx.beginPath();ctx.moveTo(35,200);ctx.lineTo(width-35,200);ctx.stroke();
       let y=245;
+      if(oldBalance>0){
+        ctx.direction="rtl";ctx.textAlign="right";ctx.fillStyle="#d8a33f";ctx.font="700 25px Arial, sans-serif";
+        ctx.fillText(`الحساب القديم: ${money(oldBalance)} 🇨🇦`,width-42,y);
+        y+=rowHeight;
+      }
       rows.forEach((item,index)=>{
         const amount=Number(item.usdAmount||0).toFixed(2).replace(/\.00$/,"");
         const rate=Number(item.customerRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
@@ -1353,6 +1363,7 @@ function Customer({id,back,onStatement}){
     {error&&<div className="card customer-error">{error}</div>}
 
     <div className="stats">
+      <div className="card old-balance-card"><span>الحساب القديم</span><strong>{cad(customer.oldBalance||0)}</strong><small>المتبقي: {cad(customer.oldBalanceRemaining||0)}</small></div>
       <div className="card"><span>إجمالي الحساب</span><strong>{cad(customer.totalTransactions)}</strong></div>
       <div className="card"><span>المدفوع</span><strong>{cad(customer.totalPaid)}</strong></div>
       <div className="card final"><span>الحساب النهائي</span><strong>{cad(customer.finalBalance)}</strong></div>
@@ -1590,6 +1601,10 @@ function Statement({customerId,back}){
         </table>
       </div>
 
+      {Number(data.totals.oldBalance||0)>0&&<div className="simple-statement-old-balance">
+        <span>الحساب القديم:</span>
+        <strong>{money(data.totals.oldBalance||0)} 🇨🇦</strong>
+      </div>}
       <div className="simple-statement-payments">
         <span>الدفعات:</span>
         <strong>{money(data.totals.paid||0)} 🇨🇦</strong>
@@ -2943,7 +2958,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.53 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.54 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3036,7 +3051,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.53 Final"
+        version:"v15.3.54 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3078,7 +3093,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.53 Final</span>
+      <span className="settings-version">v15.3.54 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3154,7 +3169,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.53 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.54 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3307,7 +3322,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.53 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.54 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3321,7 +3336,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.53 Final Mobile</small>
+          <small>v15.3.54 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

@@ -80,8 +80,11 @@ function customerSummary(store, c) {
     );
   }
 
-  let total = 0;
-  let paid = 0;
+  const oldBalance = Math.max(safeNumber(c.oldBalance), 0);
+  const oldBalancePaid = Math.min(Math.max(safeNumber(c.oldBalancePaid), 0), oldBalance);
+
+  let total = oldBalance;
+  let paid = oldBalancePaid;
   let oldestUnpaidDate = "";
   let overdueTransactions = 0;
   const today = new Date();
@@ -115,6 +118,9 @@ function customerSummary(store, c) {
   return {
     ...c,
     name: String(c?.name || "عميل بدون اسم"),
+    oldBalance:+oldBalance.toFixed(2),
+    oldBalancePaid:+oldBalancePaid.toFixed(2),
+    oldBalanceRemaining:+Math.max(oldBalance-oldBalancePaid,0).toFixed(2),
     totalTransactions: +total.toFixed(2),
     totalPaid: +paid.toFixed(2),
     finalBalance: +outstanding.toFixed(2),
@@ -126,7 +132,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.53",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.54",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -617,9 +623,9 @@ app.get("/api/monthly-report", auth, (req,res)=>{
 
 app.get("/api/customers", auth, (_req,res)=>{ const s=readStore(); res.json(s.customers.map(c=>customerSummary(s,c)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))); });
 app.post("/api/customers", auth, (req,res)=>{
-  const {name,phone="",email="",identityNumber="",notes=""}=req.body||{};
+  const {name,phone="",email="",identityNumber="",notes="",oldBalance=0}=req.body||{};
   if(!String(name).trim()) return res.status(400).json({message:"Customer name is required"});
-  const customer=mutate((s)=>{const c={id:id(),name:String(name).trim(),phone,email,identityNumber,notes,createdAt:now()};s.customers.push(c);audit(s,req.user.id,"CREATE","CUSTOMER",c.id);return c;});
+  const customer=mutate((s)=>{const c={id:id(),name:String(name).trim(),phone,email,identityNumber,notes,oldBalance:+Math.max(safeNumber(oldBalance),0).toFixed(2),oldBalancePaid:0,createdAt:now()};s.customers.push(c);audit(s,req.user.id,"CREATE","CUSTOMER",c.id);return c;});
   res.status(201).json(customer);
 });
 
@@ -631,13 +637,15 @@ app.patch("/api/customers/:id", auth, (req,res)=>{
       if(!customer)return null;
 
       const oldData={...customer};
-      const allowed=["name","phone","email","address","notes"];
+      const allowed=["name","phone","email","address","notes","oldBalance"];
       for(const key of allowed){
         if(req.body[key]!==undefined)customer[key]=req.body[key];
       }
       if(!String(customer.name||"").trim()){
         throw new Error("اسم العميل مطلوب");
       }
+      customer.oldBalance=+Math.max(safeNumber(customer.oldBalance),0).toFixed(2);
+      customer.oldBalancePaid=+Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),customer.oldBalance).toFixed(2);
       customer.updatedAt=now();
       customer.updatedBy=req.user.id;
       audit(store,req.user.id,"UPDATE","CUSTOMER",customer.id,{oldData,newData:{...customer}});
@@ -800,13 +808,24 @@ app.post("/api/customers/:id/payments", auth, (req,res)=>{
         .filter(row=>row.remaining>0.0001);
 
       const totalRemaining=rows.reduce((sum,row)=>sum+row.remaining,0);
-      if(totalRemaining<=0)throw new Error("لا يوجد رصيد مستحق على العميل");
-      if(requested>totalRemaining+0.001){
-        throw new Error(`الدفعة أكبر من الرصيد المتبقي (${totalRemaining.toFixed(2)} CAD)`);
+      const oldBalance=Math.max(safeNumber(customer.oldBalance),0);
+      const oldBalancePaid=Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),oldBalance);
+      const oldBalanceRemaining=Math.max(oldBalance-oldBalancePaid,0);
+      const grandRemaining=totalRemaining+oldBalanceRemaining;
+
+      if(grandRemaining<=0)throw new Error("لا يوجد رصيد مستحق على العميل");
+      if(requested>grandRemaining+0.001){
+        throw new Error(`الدفعة أكبر من الرصيد المتبقي (${grandRemaining.toFixed(2)} CAD)`);
       }
 
       let left=requested;
       const allocations=[];
+      let oldBalanceAllocation=0;
+      if(oldBalanceRemaining>0&&left>0.0001){
+        oldBalanceAllocation=Math.min(left,oldBalanceRemaining);
+        customer.oldBalancePaid=+(oldBalancePaid+oldBalanceAllocation).toFixed(2);
+        left-=oldBalanceAllocation;
+      }
       for(const row of rows){
         if(left<=0.0001)break;
         const allocated=Math.min(left,row.remaining);
@@ -831,10 +850,11 @@ app.post("/api/customers/:id/payments", auth, (req,res)=>{
 
       audit(store,req.user.id,"PAYMENT","CUSTOMER",customer.id,{
         amount:+requested.toFixed(2),
+        oldBalanceAllocation:+oldBalanceAllocation.toFixed(2),
         allocations:allocations.map(item=>({transactionId:item.transactionId,amount:item.amount}))
       });
 
-      return {customerId:customer.id,amount:+requested.toFixed(2),allocations};
+      return {customerId:customer.id,amount:+requested.toFixed(2),oldBalanceAllocation:+oldBalanceAllocation.toFixed(2),allocations};
     });
 
     res.status(201).json(result);
@@ -1009,7 +1029,7 @@ const GOLD_KARATS = [
 async function fetchOfficialRate(baseCurrency, quoteCurrency) {
   const url = `https://api.frankfurter.dev/v2/rate/${encodeURIComponent(baseCurrency)}/${encodeURIComponent(quoteCurrency)}`;
   const response = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.53" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.54" }
   });
   if (!response.ok) throw new Error(`Rate provider returned ${response.status}`);
   const data = await response.json();
@@ -1020,7 +1040,7 @@ async function fetchOfficialRate(baseCurrency, quoteCurrency) {
 
 async function fetchSyrianPoundRate() {
   const response = await fetch("https://open.er-api.com/v6/latest/USD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.53" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.54" }
   });
   if (!response.ok) throw new Error(`SYP provider returned ${response.status}`);
   const data = await response.json();
@@ -1036,7 +1056,7 @@ async function fetchSyrianPoundRate() {
 
 async function fetchGoldPriceCad() {
   const response = await fetch("https://api.gold-api.com/price/XAU/CAD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.53" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.54" }
   });
   if (!response.ok) throw new Error(`Gold provider returned ${response.status}`);
   const data = await response.json();
@@ -1496,6 +1516,10 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
       })
       .sort((a,b)=>String(a.transferDate).localeCompare(String(b.transferDate)));
 
+    const oldBalance=Math.max(safeNumber(customer.oldBalance),0);
+    const oldBalancePaid=Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),oldBalance);
+    const oldBalanceRemaining=Math.max(oldBalance-oldBalancePaid,0);
+
     const totals=transactions.reduce((acc,item)=>{
       acc.usdAmount+=safeNumber(item.usdAmount);
       acc.costCad+=safeNumber(item.costCad);
@@ -1517,9 +1541,12 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
       })(),
       customer:{
         ...customer,
-        totalTransactions:+totals.totalCad.toFixed(2),
-        totalPaid:+totals.paid.toFixed(2),
-        finalBalance:+totals.remaining.toFixed(2)
+        oldBalance:+oldBalance.toFixed(2),
+        oldBalancePaid:+oldBalancePaid.toFixed(2),
+        oldBalanceRemaining:+oldBalanceRemaining.toFixed(2),
+        totalTransactions:+(totals.totalCad+oldBalance).toFixed(2),
+        totalPaid:+(totals.paid+oldBalancePaid).toFixed(2),
+        finalBalance:+(totals.remaining+oldBalanceRemaining).toFixed(2)
       },
       from:from||null,
       to:to||null,
@@ -1531,8 +1558,11 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
         costCad:+totals.costCad.toFixed(2),
         totalCad:+totals.totalCad.toFixed(2),
         formulaResultCad:+totals.formulaResultCad.toFixed(2),
-        paid:+totals.paid.toFixed(2),
-        remaining:+totals.remaining.toFixed(2)
+        oldBalance:+oldBalance.toFixed(2),
+        oldBalancePaid:+oldBalancePaid.toFixed(2),
+        oldBalanceRemaining:+oldBalanceRemaining.toFixed(2),
+        paid:+(totals.paid+oldBalancePaid).toFixed(2),
+        remaining:+(totals.remaining+oldBalanceRemaining).toFixed(2)
       }
     });
   }catch(error){
@@ -1944,7 +1974,7 @@ async function startServer(){
   await initStore();
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v15.3.53 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v15.3.54 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{
