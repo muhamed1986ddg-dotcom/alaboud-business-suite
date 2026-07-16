@@ -3927,3 +3927,17 @@ body.app-language-en aside{
 .old-balance-edit-card button{
   min-height:44px;
 }
+
+/* v15.3.56 - old balance before payments in statements */
+.simple-statement-old-balance{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-top:12px;
+  padding:14px 16px;
+  border:1px solid rgba(216,163,63,.5);
+  border-radius:14px;
+  background:rgba(216,163,63,.08);
+}
+.simple-statement-old-balance strong{color:#d8a33f}
