@@ -288,7 +288,7 @@ function Dashboard({navigate}){
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v15.3.62 Transfer Payment Status <span>● متصل</span></p></div>
+        <div><h2>شركة العبود التجارية</h2><p>v15.3.63 Customers Overdue Tabs <span>● متصل</span></p></div>
       </div>
       <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
@@ -403,10 +403,11 @@ function Dashboard({navigate}){
   </div>;
 }
 
-function Customers({open}){
+function Customers({open,onStatement}){
   const [list,setList]=useState([]);
   const [alerts,setAlerts]=useState({count:0,totalOverdue:0,rows:[]});
   const [search,setSearch]=useState("");
+  const [customerTab,setCustomerTab]=useState("all");
   const [error,setError]=useState("");
 
   const [customerForm,setCustomerForm]=useState({name:"",phone:"",email:"",oldBalance:""});
@@ -768,6 +769,10 @@ function Customers({open}){
     `${customer.name} ${customer.phone||""}`.toLowerCase().includes(search.toLowerCase())
   );
 
+  const filteredOverdue=(Array.isArray(alerts.rows)?alerts.rows:[]).filter(customer=>
+    `${customer.name||""} ${customer.phone||""}`.toLowerCase().includes(search.toLowerCase())
+  );
+
   const customerActionFocus=activePanel==="transfer"||activePanel==="payment";
 
   return <>
@@ -949,30 +954,74 @@ function Customers({open}){
     }
 
     {!customerActionFocus&&<>
-    {alerts.count>0&&
-      <div className="card overdue-panel">
-        <h3>تنبيهات العملاء المتأخرين</h3>
-        {alerts.rows.slice(0,8).map(customer=><div className="overdue-row" key={customer.id}>
-          <span><strong>{customer.name}</strong> — متأخر {customer.overdueDays} يوم — الرصيد {cad(customer.finalBalance)}</span>
-          <button className="danger-button" onClick={()=>whatsappFinalBalance(customer,true)}>تنبيه واتساب</button>
-        </div>)}
-      </div>
-    }
+    <div className="customer-tabs card no-print">
+      <button
+        type="button"
+        className={customerTab==="all"?"active":""}
+        onClick={()=>setCustomerTab("all")}
+      >
+        جميع العملاء <span>{list.length}</span>
+      </button>
+      <button
+        type="button"
+        className={customerTab==="overdue"?"active overdue":""}
+        onClick={()=>setCustomerTab("overdue")}
+      >
+        العملاء المتأخرون <span>{alerts.count||0}</span>
+      </button>
+    </div>
 
     <input className="card customer-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
 
-    <div className="customer-cards customer-list-simple">
-      {filtered.length?filtered.map(customer=><button
-        type="button"
-        className={`customer-simple-row ${customer.overdue?"is-overdue":customer.finalBalance>0?"has-balance":"is-paid"}`}
-        key={customer.id}
-        onClick={()=>open(customer.id)}
-      >
-        <div className="customer-simple-main customer-name-only">
-          <strong>{customer.name}</strong>
+    {customerTab==="all"&&
+      <div className="customer-cards customer-list-simple">
+        {filtered.length?filtered.map(customer=><button
+          type="button"
+          className={`customer-simple-row ${customer.overdue?"is-overdue":customer.finalBalance>0?"has-balance":"is-paid"}`}
+          key={customer.id}
+          onClick={()=>open(customer.id)}
+        >
+          <div className="customer-simple-main customer-name-only">
+            <strong>{customer.name}</strong>
+          </div>
+        </button>):<div className="card">لا توجد نتائج.</div>}
+      </div>
+    }
+
+    {customerTab==="overdue"&&
+      <div className="customers-overdue-integrated">
+        <div className="customers-overdue-summary">
+          <div className="card"><span>عدد المتأخرين</span><strong>{alerts.count||0}</strong></div>
+          <div className="card"><span>إجمالي المبلغ المتأخر</span><strong>{cad(alerts.totalOverdue||0)}</strong></div>
         </div>
-      </button>):<div className="card">لا توجد نتائج.</div>}
-    </div>
+
+        {filteredOverdue.length?filteredOverdue.map(customer=>
+          <article className="card integrated-overdue-card" key={customer.id}>
+            <div className="integrated-overdue-head">
+              <div>
+                <strong>{customer.name}</strong>
+                <small>{customer.phone||"لا يوجد رقم هاتف"}</small>
+              </div>
+              <span className="overdue-days-badge">متأخر {customer.overdueDays||0} يوم</span>
+            </div>
+
+            <div className="integrated-overdue-details">
+              <div><span>المبلغ المتأخر</span><strong>{cad(customer.finalBalance||0)}</strong></div>
+              <div><span>آخر حوالة</span><strong>{customer.lastTransferNumber||"-"}</strong><small>{customer.lastTransferDate||"-"}</small></div>
+              <div><span>قيمة آخر حوالة</span><strong>{cad(customer.lastTransferAmount||0)}</strong></div>
+              <div><span>المتبقي منها</span><strong>{cad(customer.lastTransferRemaining||0)}</strong></div>
+            </div>
+
+            <div className="integrated-overdue-actions no-print">
+              <button type="button" className="payment" onClick={()=>preparePayment(customer)}>💵 تسجيل دفعة</button>
+              <button type="button" className="whatsapp" onClick={()=>whatsappFinalBalance(customer,true)}>📲 إرسال تذكير واتساب</button>
+              <button type="button" className="statement" onClick={()=>onStatement?.(customer.id)}>📄 عرض كشف الحساب</button>
+              <button type="button" onClick={()=>open(customer.id)}>فتح صفحة العميل</button>
+            </div>
+          </article>
+        ):<div className="card overdue-empty-state">لا يوجد عملاء متأخرون حاليًا.</div>}
+      </div>
+    }
     </>}
   </>;
 }
@@ -3455,10 +3504,8 @@ export default function App(){
     content=<PartnerProfile id={partnerId} back={()=>setPartnerId(null)}/>;
   }else if(page==="dashboard"){
     content=<Dashboard navigate={navigate}/>;
-  }else if(page==="customers"){
-    content=<Customers open={setCustomerId}/>;
-  }else if(page==="overdue-customers"){
-    content=<OverdueCustomers openCustomer={setCustomerId} onStatement={setStatementCustomerId} navigateCustomers={()=>navigate("customers")}/>;
+  }else if(page==="customers"||page==="overdue-customers"){
+    content=<Customers open={setCustomerId} onStatement={setStatementCustomerId}/>;
   }else if(page==="partners"){
     content=<Partners open={setPartnerId}/>;
   }else if(page==="transactions"){
@@ -3492,8 +3539,7 @@ export default function App(){
 
   const menu=[
     ["dashboard","⌂ القائمة الرئيسية"],
-    ["customers","👥 العملاء"],
-    ["overdue-customers",`⏰ العملاء المتأخرون${overdueCount?` (${overdueCount})`:""}`],
+    ["customers",`👥 العملاء${overdueCount?` (${overdueCount} متأخر)`:""}`],
     ["partners","🏢 الموردون والشركات"],
     ["transactions","⇄ الحوالات"],
     ["profits","📈 الأرباح"],

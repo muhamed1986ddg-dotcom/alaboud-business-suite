@@ -132,7 +132,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.62",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.63",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -426,11 +426,35 @@ app.get("/api/customer-alerts", auth, (_req,res)=>{
         })
         .sort((a,b)=>String(b.paymentDate||b.createdAt).localeCompare(String(a.paymentDate||a.createdAt)));
       const latestAction=latestActionByCustomer.get(customer.id)||null;
+
+      const customerTransactions=(Array.isArray(store.transactions)?store.transactions:[])
+        .filter(item=>item?.customerId===customer.id&&!item.isDeleted&&item.status!=="CANCELLED")
+        .map(transaction=>{
+          const paid=payments
+            .filter(payment=>payment?.transactionId===transaction.id&&!payment.isDeleted)
+            .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
+          return {
+            transaction,
+            remaining:Math.max(safeNumber(transaction.totalCustomerDue)-paid,0)
+          };
+        })
+        .filter(item=>item.remaining>0.0001)
+        .sort((x,y)=>String(y.transaction.transferDate||y.transaction.createdAt||"")
+          .localeCompare(String(x.transaction.transferDate||x.transaction.createdAt||"")));
+
+      const latestUnpaid=customerTransactions[0]||null;
+
       return {
         ...summary,
         lastPaymentDate:customerPayments[0]
           ? String(customerPayments[0].paymentDate||customerPayments[0].createdAt).slice(0,10)
           : null,
+        lastTransferNumber:latestUnpaid?.transaction?.number||null,
+        lastTransferDate:latestUnpaid
+          ? String(latestUnpaid.transaction.transferDate||latestUnpaid.transaction.createdAt||"").slice(0,10)
+          : null,
+        lastTransferAmount:latestUnpaid?+safeNumber(latestUnpaid.transaction.totalCustomerDue).toFixed(2):0,
+        lastTransferRemaining:latestUnpaid?+safeNumber(latestUnpaid.remaining).toFixed(2):0,
         latestAction,
         promiseDate:latestAction?.promiseDate||null,
         expectedAmount:latestAction?.expectedAmount??null,

@@ -4191,3 +4191,40 @@ body.app-language-en aside{
 .transfer-remaining-cell strong{color:#efc95c}
 .transfer-remaining-cell button{min-height:30px;padding:5px 8px;border-radius:8px;background:#176b3e;color:#fff;border:1px solid #36a66a;font-size:11px}
 @media(max-width:700px){.transfer-payment-choice-buttons{grid-template-columns:1fr}}
+
+/* v15.3.63 - overdue customers merged into customers */
+.customer-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:8px;margin-bottom:10px}
+.customer-tabs button{min-height:48px;border-radius:12px;border:1px solid rgba(231,189,74,.25);background:#10161c;color:#d9dde0;font-weight:800}
+.customer-tabs button span{display:inline-grid;place-items:center;min-width:25px;height:25px;margin-inline-start:7px;border-radius:999px;background:#27323a;color:#fff;font-size:11px}
+.customer-tabs button.active{background:linear-gradient(135deg,#9c7420,#e7bd4a);color:#111;border-color:#f2d475}
+.customer-tabs button.active.overdue{background:linear-gradient(135deg,#7e251f,#c94a3e);color:#fff;border-color:#ef756b}
+.customers-overdue-integrated{display:flex;flex-direction:column;gap:10px}
+.customers-overdue-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.customers-overdue-summary .card{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.customers-overdue-summary strong{color:#f3c74f;font-size:20px}
+.integrated-overdue-card{display:flex;flex-direction:column;gap:13px;border-color:rgba(239,86,77,.42)!important}
+.integrated-overdue-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.integrated-overdue-head>div{display:flex;flex-direction:column;gap:4px}
+.integrated-overdue-head strong{font-size:18px;color:#f7f4ea}
+.integrated-overdue-head small{color:#aeb5b9;direction:ltr;text-align:right}
+.overdue-days-badge{padding:7px 11px;border-radius:999px;background:rgba(239,68,68,.14);border:1px solid rgba(239,68,68,.45);color:#fb7185;font-weight:800;white-space:nowrap}
+.integrated-overdue-details{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.integrated-overdue-details>div{display:flex;flex-direction:column;gap:5px;padding:11px;border-radius:11px;background:#0d151c;border:1px solid #23323d}
+.integrated-overdue-details span,.integrated-overdue-details small{color:#9fa9ae;font-size:11px}
+.integrated-overdue-details strong{color:#f2f2ee}
+.integrated-overdue-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.integrated-overdue-actions button{min-height:44px;border-radius:10px}
+.integrated-overdue-actions .payment{background:#176b3e;border-color:#36a66a}
+.integrated-overdue-actions .whatsapp{background:#137a4c;border-color:#25d366}
+.integrated-overdue-actions .statement{background:#805f18;border-color:#d4aa3c}
+.overdue-empty-state{text-align:center;color:#aeb5b9;padding:24px}
+@media(max-width:800px){
+  .integrated-overdue-details{grid-template-columns:1fr 1fr}
+  .integrated-overdue-actions{grid-template-columns:1fr 1fr}
+}
+@media(max-width:460px){
+  .customers-overdue-summary{grid-template-columns:1fr}
+  .integrated-overdue-head{flex-direction:column}
+  .integrated-overdue-details{grid-template-columns:1fr}
+  .integrated-overdue-actions{grid-template-columns:1fr}
+}
