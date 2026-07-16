@@ -289,7 +289,7 @@ function Dashboard({navigate}){
       <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
       <div>
         <h2>شركة العبود التجارية</h2>
-        <p>v15.3.59 Final Mobile</p>
+        <p>v15.3.60 Professional UI</p>
       </div>
       <span className="online-chip">● متصل</span>
     </section>
@@ -1282,13 +1282,15 @@ function Customer({id,back,onStatement}){
       const width=720;
       const sidePadding=34;
       const rowHeight=54;
-      const workingHeight=Math.max(900,260+(rows.length*rowHeight)+360);
+      const headerHeight=205;
+      const summaryHeight=188;
+      const footerHeight=82;
+      const height=headerHeight+(rows.length*rowHeight)+summaryHeight+footerHeight;
 
-      const workingCanvas=document.createElement("canvas");
-      workingCanvas.width=width;
-      workingCanvas.height=workingHeight;
-
-      const ctx=workingCanvas.getContext("2d");
+      const canvas=document.createElement("canvas");
+      canvas.width=width;
+      canvas.height=height;
+      const ctx=canvas.getContext("2d");
       if(!ctx)throw new Error("تعذر إنشاء صورة كشف الحساب");
 
       const drawText=(value,x,y,size,{color="#f5f5f5",align="center",weight="700",direction="rtl"}={})=>{
@@ -1314,11 +1316,15 @@ function Customer({id,back,onStatement}){
         ctx.restore();
       };
 
-      const gradient=ctx.createLinearGradient(0,0,width,workingHeight);
+      const gradient=ctx.createLinearGradient(0,0,width,height);
       gradient.addColorStop(0,"#142331");
       gradient.addColorStop(1,"#08131c");
       ctx.fillStyle=gradient;
-      ctx.fillRect(0,0,width,workingHeight);
+      ctx.fillRect(0,0,width,height);
+
+      ctx.strokeStyle="#9b7425";
+      ctx.lineWidth=2;
+      ctx.strokeRect(14,14,width-28,height-28);
 
       drawText(statement.company?.name||"شركة العبود التجارية",width/2,50,34,{weight:"800"});
       drawText("كشف حساب العميل",width/2,101,30,{color:"#d8a33f",weight:"800"});
@@ -1326,7 +1332,6 @@ function Customer({id,back,onStatement}){
       drawLine(180);
 
       let y=219;
-
       rows.forEach((item,index)=>{
         const amount=Number(item.usdAmount||item.amount||0).toFixed(2).replace(/\.00$/,"");
         const rate=Number(item.customerRate||item.finalRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
@@ -1362,51 +1367,12 @@ function Customer({id,back,onStatement}){
       y+=34;
 
       const nowDate=new Date();
-      drawText(
-        `التاريخ: ${nowDate.toLocaleDateString("en-CA")}`,
-        sidePadding,
-        y,
-        18,
-        {align:"left",color:"#b8c0c7",weight:"500"}
-      );
-      drawText(
-        `الوقت: ${nowDate.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}`,
-        width-sidePadding,
-        y,
-        18,
-        {align:"right",color:"#b8c0c7",weight:"500"}
-      );
-      y+=46;
-
-      drawText("شكراً لتعاملكم معنا",width/2,y,22,{color:"#d8a33f",weight:"700"});
-
-      const contentBottom=y+42;
-      const finalHeight=Math.max(500,Math.ceil(contentBottom));
-
-      const canvas=document.createElement("canvas");
-      canvas.width=width;
-      canvas.height=finalHeight;
-
-      const finalCtx=canvas.getContext("2d");
-      if(!finalCtx)throw new Error("تعذر قص صورة كشف الحساب");
-
-      finalCtx.drawImage(
-        workingCanvas,
-        0,0,width,finalHeight,
-        0,0,width,finalHeight
-      );
-
-      finalCtx.save();
-      finalCtx.strokeStyle="#9b7425";
-      finalCtx.lineWidth=2;
-      finalCtx.strokeRect(14,14,width-28,finalHeight-28);
-      finalCtx.restore();
+      drawText(`التاريخ: ${nowDate.toLocaleDateString("en-CA")}`,sidePadding,y,18,{align:"left",color:"#b8c0c7",weight:"500"});
+      drawText(`الوقت: ${nowDate.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}`,width-sidePadding,y,18,{align:"right",color:"#b8c0c7",weight:"500"});
+      drawText("شكراً لتعاملكم معنا",width/2,height-34,22,{color:"#d8a33f"});
 
       const blob=await new Promise((resolve,reject)=>{
-        canvas.toBlob(value=>{
-          if(value)resolve(value);
-          else reject(new Error("تعذر إنشاء صورة كشف الحساب"));
-        },"image/png",0.96);
+        canvas.toBlob(value=>value?resolve(value):reject(new Error("تعذر إنشاء صورة كشف الحساب")),"image/png",0.96);
       });
 
       const safeName=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
@@ -1418,7 +1384,6 @@ function Customer({id,back,onStatement}){
           return;
         }catch(shareError){
           if(shareError?.name==="AbortError")return;
-          console.warn("Statement image share failed",shareError);
         }
       }
 
@@ -3111,7 +3076,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.59 Final"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.60 Professional UI"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3204,7 +3169,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.59 Final"
+        version:"v15.3.60 Professional UI"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3246,7 +3211,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.59 Final</span>
+      <span className="settings-version">v15.3.60 Professional UI</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3322,7 +3287,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.59 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.60 Professional UI").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3475,7 +3440,13 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.59 Final</small></div>
+      <div className="mobile-brand-center">
+        <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
+        <div className="mobile-brand-copy">
+          <strong>{companyBrand.name}</strong>
+          <small>v15.3.60 Professional UI</small>
+        </div>
+      </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3489,7 +3460,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.59 Final Mobile</small>
+          <small>v15.3.60 Professional UI</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
