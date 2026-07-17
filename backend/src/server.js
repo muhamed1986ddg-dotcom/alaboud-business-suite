@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const path = require("path");
 const fs = require("fs");
-const { readStore, mutate, id, now, runWithTenant, initStore } = require("./store");
+const { readStore, mutate, id, now, runWithTenant, replaceTenantData, initStore } = require("./store");
 
 const PORT = Number(process.env.PORT || 5000);
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
@@ -140,7 +140,9 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"16.0.7",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"16.0.14",channel:"enterprise",cloud:true}));
+app.get("/api/settings/backup",auth,(req,res)=>{const s=readStore();res.json({format:"alaboud-business-suite-backup",version:"16.0.14",createdAt:now(),...Object.fromEntries(["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","notificationActions","auditLogs"].map(k=>[k,[...s[k]]])),notificationSettings:{...s.notificationSettings}})});
+app.post("/api/settings/restore",auth,(req,res)=>{if(req.user.role!=="ADMIN")return res.status(403).json({message:"للمسؤول فقط"});if(req.body?.format!=="alaboud-business-suite-backup")return res.status(400).json({message:"ملف غير صالح"});replaceTenantData(req.user.companyId,req.body);res.json({message:"تمت الاستعادة بنجاح"})});
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();

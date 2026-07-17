@@ -241,6 +241,7 @@ function Login({onLogin}){
   </div>
 }
 function Dashboard({navigate}){
+  const dashboardCurrencies=["USD","CAD","EUR","TRY","SYP","SAR","JOD"];
   const [data,setData]=useState(null);
   const [noticeData,setNoticeData]=useState({count:0,overdueCount:0,overdueTotal:0,notifications:[]});
   const [recent,setRecent]=useState([]);
@@ -266,7 +267,7 @@ function Dashboard({navigate}){
         const rows=Array.isArray(transactionsResponse.data)?transactionsResponse.data:[];
         setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
         const rateRows=Array.isArray(ratesResponse.data)?ratesResponse.data:[];
-        setDashboardRates(rateRows.slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,7));
+        setDashboardRates(rateRows.slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))));
         setDashboardRateHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
       }catch{}
     };
@@ -276,6 +277,7 @@ function Dashboard({navigate}){
   },[]);
 
   if(!data)return <div className="premium-loading">جاري تحميل لوحة التحكم…</div>;
+  const latest=new Map();for(const r of dashboardRates){const c=String(r.baseCurrency||"").toUpperCase();if(dashboardCurrencies.includes(c)&&!latest.has(c))latest.set(c,r)}const displayRates=dashboardCurrencies.map(c=>c==="CAD"?{id:c,baseCurrency:c,quoteCurrency:c,buyRate:1,sellRate:1}:(latest.get(c)||{id:c,baseCurrency:c,quoteCurrency:"CAD",missing:true}));
 
   const kpis=[
     {label:"إجمالي الحوالات",value:data.todayTransactions||0,icon:"💱",tone:"green",note:"حوالات اليوم"},
@@ -288,7 +290,7 @@ function Dashboard({navigate}){
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v16.0.13 Enterprise <span>● متصل</span></p></div>
+        <div><h2>شركة العبود التجارية</h2><p>v16.0.14 Enterprise <span>● متصل</span></p></div>
       </div>
       <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
@@ -326,7 +328,7 @@ function Dashboard({navigate}){
           <button onClick={()=>navigate("rates")}>عرض الكل</button>
         </div>
         <div className="dashboard-rate-list">
-          {dashboardRates.length?dashboardRates.map(rate=><button
+          {displayRates.map(rate=><button
             className="dashboard-rate-row"
             key={rate.id||`${rate.baseCurrency}-${rate.quoteCurrency}`}
             onClick={()=>navigate("rates")}
@@ -339,11 +341,10 @@ function Dashboard({navigate}){
                   <span>{rate.baseCurrency}/{rate.quoteCurrency}</span>
                   <span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol}</span>
                 </strong>
-                <span>شراء <b>{Number(rate.buyRate||0).toFixed(4)}</b></span>
-                <span>بيع <b>{Number(rate.sellRate||0).toFixed(4)}</b></span>
+                <span>شراء <b>{rate.missing?"—":Number(rate.buyRate||0).toFixed(4)}</b></span><span>بيع <b>{rate.missing?"—":Number(rate.sellRate||0).toFixed(4)}</b></span>
               </>;
             })()}
-          </button>):<p className="empty-state">لا توجد أسعار صرف مسجلة.</p>}
+          </button>)}
         </div>
       </div>
     </section>
@@ -1296,7 +1297,7 @@ function Customer({id,back,onStatement}){
     }
   }
 
-  async function shareCustomerStatement(){
+  async function shareCustomerStatement(mode="share"){
     try{
       const response=await api.get(`/customers/${id}/statement`);
       const statement=response.data||{};
@@ -1406,6 +1407,7 @@ function Customer({id,back,onStatement}){
 
       const safeName=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safeName}.png`,{type:"image/png"});
+      if(mode==="save"){const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=file.name;a.click();URL.revokeObjectURL(u);return}if(window.AlAboudNative?.shareImageToWhatsApp){window.AlAboudNative.shareImageToWhatsApp(canvas.toDataURL("image/png"),file.name);return}
 
       if(navigator.share){
         try{
@@ -1487,7 +1489,7 @@ function Customer({id,back,onStatement}){
       <button onClick={back}>رجوع</button>
       <button onClick={()=>onStatement(id)}>كشف حساب العميل</button>
       <button className="whatsapp-text-button" onClick={shareCustomerStatementText}>💬 إرسال رسالة نصية عبر واتساب</button>
-      <button className="whatsapp-image-button" onClick={shareCustomerStatement}>📷 إرسال صورة عبر واتساب</button>
+      <button className="whatsapp-image-button" onClick={()=>shareCustomerStatement("share")}>📤 مشاركة صورة كشف الحساب</button><button onClick={()=>shareCustomerStatement("save")}>💾 حفظ الصورة</button>
     </div>
 
     <h2>{customer.name||"العميل"}</h2>
@@ -2423,7 +2425,7 @@ function GeneralDebts(){
     if(!payment.debtId||!payment.amount)return;
     setMessage("");
     try{
-      await api.post(`/general-debts/${payment.debtId}/payments`,payment);
+      if(String(payment.debtId).startsWith("TRANSFER:"))await api.post(`/transactions/${String(payment.debtId).slice(9)}/payments`,payment);else await api.post(`/general-debts/${payment.debtId}/payments`,payment);
       setPayment({debtId:"",amount:"",paymentDate:"",notes:""});
       setMessage("تم تسجيل الدفعة");
       await load();
@@ -2909,7 +2911,7 @@ function CapitalOverview(){
 
   return <>
     <div className="page-title-row">
-      <h2>💰 رأس المال الكلي وحركة رأس المال</h2>
+      <h2>💰 الميزانية وحركة رأس المال</h2>
       <button className="no-print" onClick={()=>window.print()}>طباعة التقرير</button>
     </div>
 
@@ -3184,7 +3186,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v16.0.13 Enterprise"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v16.0.14 Enterprise"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3277,13 +3279,14 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v16.0.13 Enterprise"
+        version:"v16.0.14 Enterprise"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
     }
   }
 
+  async function downloadBackup(){const r=await api.get("/settings/backup",{responseType:"blob"});const u=URL.createObjectURL(r.data),a=document.createElement("a");a.href=u;a.download="alaboud-backup.json";a.click();URL.revokeObjectURL(u)}async function restoreBackup(e){const f=e.target.files?.[0];if(f&&confirm("استبدال البيانات الحالية؟"))await api.post("/settings/restore",JSON.parse(await f.text()))}
   const labels=language==="ar"
     ?{
       title:"الإعدادات",
@@ -3319,7 +3322,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v16.0.13 Enterprise</span>
+      <span className="settings-version">v16.0.14 Enterprise</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3351,6 +3354,7 @@ function SettingsPanel(){
         <div className="settings-card-title"><span>🔔</span><h3>إعدادات التنبيهات وواتساب</h3></div>
         <NotificationSettings embedded />
       </article>
+      <article className="settings-card"><h3>🗄️ النسخ الاحتياطي</h3><button type="button" onClick={downloadBackup}>حفظ نسخة</button><label className="company-logo-upload">استعادة<input type="file" accept=".json" onChange={restoreBackup}/></label></article>
 
       <article className="settings-card company-branding-settings">
         <div className="settings-card-title"><span>🏢</span><h3>معلومات وهوية الشركة</h3></div>
@@ -3400,7 +3404,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v16.0.13 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v16.0.14 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3556,7 +3560,7 @@ export default function App(){
     ["profits","📈 الأرباح"],
     ["rates","💱 العملات وأسعار الصرف"],
     ["debts","📒 الدَّين العام"],
-    ["capital-overview","💰 رأس المال الكلي وحركة رأس المال"],
+    ["capital-overview","💰 الميزانية وحركة رأس المال"],
     ["monthly-report","📊 التقارير الشهرية"],
     ["settings","⚙️ الإعدادات والتنبيهات"]
   ];
@@ -3570,7 +3574,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v16.0.13 Enterprise</small>
+          <small>v16.0.14 Enterprise</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3586,7 +3590,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v16.0.13 Enterprise</small>
+          <small>v16.0.14 Enterprise</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

@@ -129,6 +129,7 @@ function mutate(fn){
   return result;
 }
 function runWithTenant(companyId,fn){return tenantContext.run({companyId},fn)}
+function replaceTenantData(companyId,snapshot){for(const key of DATA_ARRAYS){rootStore[key]=rootStore[key].filter(x=>x.companyId!==companyId);rootStore[key].push(...(snapshot[key]||[]).map(x=>({...x,companyId})))}if(snapshot.notificationSettings)rootStore.companySettings[companyId]=snapshot.notificationSettings;writeStore(rootStore)}
 function id(){return crypto.randomUUID()}
 function now(){return new Date().toISOString()}
-module.exports={readStore,writeStore,mutate,id,now,dataFile,runWithTenant,readRootStore,initStore};
+module.exports={readStore,writeStore,mutate,id,now,dataFile,runWithTenant,readRootStore,replaceTenantData,initStore};

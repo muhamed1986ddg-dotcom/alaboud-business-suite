@@ -4302,3 +4302,4 @@ body.app-language-en aside{
 
 /* v16.0.7 — General debts: automatic unpaid transfers and multi-currency totals */
 .debt-currency-totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:12px 0}.debt-currency-total{display:flex;flex-direction:column;gap:7px}.debt-currency-total strong{font-size:1rem}.debt-currency-total span{font-weight:700}.debt-auto-note{border-inline-start:4px solid #d4af37;line-height:1.8}.receivable-card small{display:block;margin-top:6px;opacity:.78}
+.premium-dashboard>.premium-kpis,.premium-dashboard>.dashboard-pro-analysis,.premium-dashboard>.premium-quick,.premium-dashboard>.premium-alert-strip{display:none!important}.premium-dashboard>.premium-grid{grid-template-columns:1fr!important}.premium-dashboard>.premium-grid>.premium-recent{display:none!important}.premium-dashboard .dashboard-rate-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
