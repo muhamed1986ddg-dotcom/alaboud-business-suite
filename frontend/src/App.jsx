@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
-const APP_VERSION="v15.3.73 Android Status Bar Safe";
+const APP_VERSION="V15.3.76 Live Data Session Fix";
 
 function openRegularWhatsApp(phone,message){
   const cleanPhone=String(phone||"").replace(/\D/g,"");
