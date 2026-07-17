@@ -24,7 +24,7 @@ const currencyFlag=code=>String(code||"").toUpperCase();
 
 function CurrencyFlag({code,className=""}){
   const normalized=String(code||"").toUpperCase();
-  const supported=["CAD","USD","EUR","GBP","AED","TRY","SYP"];
+  const supported=["CAD","USD","EUR","GBP","AED","TRY","SYP","SAR"];
   const goldCodes=["XAU24","XAU22","XAU21","XAU18"];
   if(goldCodes.includes(normalized)){
     return <span className={`gold-rate-icon ${className}`} aria-label="gold">🪙</span>;
@@ -266,7 +266,12 @@ function Dashboard({navigate}){
         const rows=Array.isArray(transactionsResponse.data)?transactionsResponse.data:[];
         setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
         const rateRows=Array.isArray(ratesResponse.data)?ratesResponse.data:[];
-        setDashboardRates(rateRows.slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,7));
+        const currencyOnlyRates=rateRows.filter(rate=>{
+          const base=String(rate.baseCurrency||"").toUpperCase();
+          const quote=String(rate.quoteCurrency||"").toUpperCase();
+          return !base.startsWith("XAU")&&!quote.startsWith("XAU");
+        });
+        setDashboardRates(currencyOnlyRates.slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,8));
         setDashboardRateHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
       }catch{}
     };
@@ -288,7 +293,7 @@ function Dashboard({navigate}){
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v16.0.7 Enterprise <span>● متصل</span></p></div>
+        <div><h2>شركة العبود التجارية</h2><p>v16.0.9 Enterprise <span>● متصل</span></p></div>
       </div>
       <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
@@ -401,6 +406,72 @@ function Dashboard({navigate}){
       ):<p>لا توجد تنبيهات حالياً.</p>}
     </div>}
   </div>;
+}
+
+
+function globalBlobToDataUrl(blob){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(String(reader.result||""));
+    reader.onerror=()=>reject(new Error("تعذر تجهيز الصورة للمشاركة"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function openGlobalAndroidShareSheet(blob,file,title="صورة كشف حساب العميل"){
+  if(window.AlAboudNative?.shareImageToWhatsApp){
+    const dataUrl=await globalBlobToDataUrl(blob);
+    window.AlAboudNative.shareImageToWhatsApp(dataUrl,file.name);
+    return true;
+  }
+  const canShareFiles=typeof navigator.canShare==="function"
+    ? navigator.canShare({files:[file]})
+    : Boolean(navigator.share);
+  if(navigator.share && canShareFiles){
+    await navigator.share({files:[file],title});
+    return true;
+  }
+  return false;
+}
+
+function showImageShareOptionsGlobal(blob,file,title="صورة كشف حساب العميل"){
+  const objectUrl=URL.createObjectURL(blob);
+  const overlay=document.createElement("div");
+  overlay.setAttribute("role","dialog");
+  overlay.setAttribute("aria-modal","true");
+  overlay.style.cssText="position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;padding:18px;direction:rtl";
+  const card=document.createElement("div");
+  card.style.cssText="width:min(520px,100%);max-height:94vh;overflow:auto;background:#0b1118;border:1px solid #9b7425;border-radius:22px;padding:16px;box-shadow:0 20px 60px rgba(0,0,0,.55);color:#fff";
+  const heading=document.createElement("h3");
+  heading.textContent="خيارات إرسال الصورة";
+  heading.style.cssText="margin:0 0 12px;text-align:center;color:#f1c84b;font-size:22px";
+  const preview=document.createElement("img");
+  preview.src=objectUrl; preview.alt=title;
+  preview.style.cssText="display:block;width:100%;max-height:55vh;object-fit:contain;background:#05080b;border-radius:14px;border:1px solid #2d3742";
+  const actions=document.createElement("div");
+  actions.style.cssText="display:grid;gap:10px;margin-top:14px";
+  const makeButton=(label,background="#17202a")=>{
+    const button=document.createElement("button"); button.type="button"; button.textContent=label;
+    button.style.cssText=`width:100%;border:1px solid #9b7425;border-radius:13px;padding:14px 12px;background:${background};color:#fff;font-size:17px;font-weight:800;cursor:pointer`;
+    return button;
+  };
+  const shareButton=makeButton("📤 مشاركة الصورة إلى واتساب أو أي تطبيق","#176b3a");
+  const downloadButton=makeButton("⬇️ حفظ الصورة في الهاتف");
+  const openButton=makeButton("🖼️ فتح الصورة بالحجم الكامل");
+  const closeButton=makeButton("✖ إغلاق","#702b2b");
+  const cleanup=()=>{ overlay.remove(); setTimeout(()=>URL.revokeObjectURL(objectUrl),1000); };
+  shareButton.onclick=async()=>{
+    try{
+      if(await openGlobalAndroidShareSheet(blob,file,title))return;
+      alert("المتصفح الحالي لا يدعم إرسال ملف الصورة مباشرة. استخدم Chrome أو زر حفظ الصورة ثم أرسلها من واتساب.");
+    }catch(error){ if(error?.name!=="AbortError")alert(error?.message||"تعذر فتح خيارات المشاركة"); }
+  };
+  downloadButton.onclick=()=>{ const link=document.createElement("a"); link.href=objectUrl; link.download=file.name; document.body.appendChild(link); link.click(); link.remove(); };
+  openButton.onclick=()=>window.open(objectUrl,"_blank");
+  closeButton.onclick=cleanup;
+  overlay.onclick=event=>{if(event.target===overlay)cleanup();};
+  actions.append(shareButton,downloadButton,openButton,closeButton);
+  card.append(heading,preview,actions); overlay.append(card); document.body.append(overlay);
 }
 
 function Customers({open}){
@@ -1477,7 +1548,7 @@ function Customer({id,back,onStatement}){
       const safeName=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safeName}.png`,{type:"image/png"});
 
-      showImageShareOptions(blob,file,"كشف حساب العميل");
+      showImageShareOptionsGlobal(blob,file,"كشف حساب العميل");
     }catch(error){
       setError(error.response?.data?.message||error.message||"تعذر مشاركة صورة كشف الحساب");
     }
@@ -3266,7 +3337,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v16.0.7 Enterprise"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v16.0.9 Enterprise"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3359,7 +3430,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v16.0.7 Enterprise"
+        version:"v16.0.9 Enterprise"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3401,7 +3472,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v16.0.7 Enterprise</span>
+      <span className="settings-version">v16.0.9 Enterprise</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3482,7 +3553,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v16.0.7 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v16.0.9 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3662,7 +3733,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v16.0.7 Enterprise</small>
+          <small>v16.0.9 Enterprise</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3678,7 +3749,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v16.0.7 Enterprise</small>
+          <small>v16.0.9 Enterprise</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
