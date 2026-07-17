@@ -2367,8 +2367,8 @@ function ExchangeRates(){
     </div>
 
     <div className="exchange-rates-summary">
-      <div><span>عدد العملات</span><strong>{rates.length}</strong><small>أزواج عملات مسجلة</small></div>
-      <div><span>أفضل سعر اليوم</span><strong>{rates.length?`${rates[0].baseCurrency}/${rates[0].quoteCurrency}`:"—"}</strong><small>آخر سعر محدث</small></div>
+      <div><span>عدد العملات</span><strong>{currencyRates.length}</strong><small>أزواج عملات مسجلة</small></div>
+      <div><span>أفضل سعر اليوم</span><strong>{currencyRates.length?`${currencyRates[0].baseCurrency}/${currencyRates[0].quoteCurrency}`:"—"}</strong><small>آخر سعر محدث</small></div>
       <div><span>متوسط التغيير</span><strong className="positive">+0.28%</strong><small>مؤشر تقريبي</small></div>
       <div><span>الذهب</span><strong>GOLD/CAD</strong><small>سعر يدوي</small></div>
     </div>
