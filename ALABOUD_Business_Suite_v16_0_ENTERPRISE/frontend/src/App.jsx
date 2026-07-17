@@ -288,7 +288,7 @@ function Dashboard({navigate}){
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v16.0.2 Enterprise <span>● متصل</span></p></div>
+        <div><h2>شركة العبود التجارية</h2><p>v16.0.3 Enterprise <span>● متصل</span></p></div>
       </div>
       <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
@@ -632,6 +632,33 @@ function Customers({open}){
     }
   }
 
+  function blobToDataUrl(blob){
+    return new Promise((resolve,reject)=>{
+      const reader=new FileReader();
+      reader.onload=()=>resolve(String(reader.result||""));
+      reader.onerror=()=>reject(new Error("تعذر تجهيز الصورة للمشاركة"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function openAndroidShareSheet(blob,file,title="صورة كشف حساب العميل"){
+    if(window.AlAboudNative?.shareImageToWhatsApp){
+      const dataUrl=await blobToDataUrl(blob);
+      window.AlAboudNative.shareImageToWhatsApp(dataUrl,file.name);
+      return true;
+    }
+
+    const canShareFiles=typeof navigator.canShare==="function"
+      ? navigator.canShare({files:[file]})
+      : Boolean(navigator.share);
+
+    if(navigator.share && canShareFiles){
+      await navigator.share({files:[file],title});
+      return true;
+    }
+    return false;
+  }
+
   function createStatementImage(data,customer){
     const rows=Array.isArray(data.transactions)?data.transactions:[];
     const width=1080,rowHeight=82;
@@ -683,17 +710,11 @@ function Customers({open}){
       const blob=await createStatementImage(data,customer);
       const safe=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safe}.png`,{type:"image/png"});
-      if(navigator.share){
-        try{
-          await navigator.share({
-            files:[file],
-            title:"كشف حساب العميل"
-          });
-          return;
-        }catch(shareError){
-          if(shareError?.name==="AbortError")return;
-          console.warn("Native file share failed",shareError);
-        }
+      try{
+        if(await openAndroidShareSheet(blob,file,"كشف حساب العميل"))return;
+      }catch(shareError){
+        if(shareError?.name==="AbortError")return;
+        console.warn("Native file share failed",shareError);
       }
 
       const url=URL.createObjectURL(blob);
@@ -1407,13 +1428,11 @@ function Customer({id,back,onStatement}){
       const safeName=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safeName}.png`,{type:"image/png"});
 
-      if(navigator.share){
-        try{
-          await navigator.share({files:[file],title:"كشف حساب العميل"});
-          return;
-        }catch(shareError){
-          if(shareError?.name==="AbortError")return;
-        }
+      try{
+        if(await openAndroidShareSheet(blob,file,"كشف حساب العميل"))return;
+      }catch(shareError){
+        if(shareError?.name==="AbortError")return;
+        console.warn("Native file share failed",shareError);
       }
 
       const url=URL.createObjectURL(blob);
@@ -3184,7 +3203,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v16.0.2 Enterprise"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v16.0.3 Enterprise"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3277,7 +3296,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v16.0.2 Enterprise"
+        version:"v16.0.3 Enterprise"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3319,7 +3338,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v16.0.2 Enterprise</span>
+      <span className="settings-version">v16.0.3 Enterprise</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3400,7 +3419,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v16.0.2 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v16.0.3 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3580,7 +3599,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v16.0.2 Enterprise</small>
+          <small>v16.0.3 Enterprise</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3596,7 +3615,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v16.0.2 Enterprise</small>
+          <small>v16.0.3 Enterprise</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
