@@ -14,7 +14,7 @@ api.interceptors.request.use(config=>{
   const token=localStorage.getItem("afs_token");
   if(token)config.headers.Authorization=`Bearer ${token}`;
 
-  config.headers["X-Alaboud-Client-Version"]="15.5.0";
+  config.headers["X-Alaboud-Client-Version"]="15.3.78";
   config.params={
     ...(config.params||{}),
     _live:Date.now()

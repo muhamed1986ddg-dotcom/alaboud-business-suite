@@ -4253,3 +4253,11 @@ body.app-language-en aside{
   .exchange-rates-summary>div{min-height:90px;padding:10px}
   .exchange-rates-summary strong{font-size:17px}
 }
+
+/* v15.3.78 unified pages */
+.home-return-bottom{margin-top:24px;margin-bottom:88px}
+.settings-alerts-embedded .notification-settings-embedded .settings-form{box-shadow:none;border:0;padding:0;background:transparent}
+.settings-alerts-embedded .notification-settings-embedded .settings-form label{font-weight:700}
+.currency-with-flag{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
+.currency-with-flag small{opacity:.7;font-size:.75rem}
+@media (max-width:800px){.home-return-bottom{margin:18px 0 100px}.home-return-button{width:100%;min-height:52px}}

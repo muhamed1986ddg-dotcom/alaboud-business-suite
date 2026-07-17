@@ -79,7 +79,7 @@ class AppErrorBoundary extends React.Component{
 
 const APP_EN_TRANSLATIONS={
   "القائمة الرئيسية":"Main Dashboard","الرئيسية":"Home","القائمة":"Menu","العملاء":"Customers",
-  "العملاء المتأخرون":"Overdue Customers","الموردون والشركات":"Suppliers & Companies",
+  "العملاء المتأخرون":"Overdue Customers","الشركات":"Companies",
   "الحوالات":"Transfers","الأرباح":"Profits","العملات وأسعار الصرف":"Currencies & Exchange Rates",
   "الدَّين العام":"General Debts","رأس المال الكلي":"Total Capital","التقارير الشهرية":"Monthly Reports",
   "إعدادات التنبيهات":"Alert Settings","الإعدادات":"Settings","المصروفات":"Expenses","حركة رأس المال":"Capital Movement",
@@ -118,7 +118,7 @@ const APP_EN_TRANSLATIONS={
   "لا توجد حوالات.":"No transfers.","لا توجد حوالات في هذا الشهر.":"No transfers this month.",
   "العميل":"Customer","التاريخ":"Date","الرقم":"Number","الأجور":"Fees","الربح":"Profit",
   "تفاصيل حوالات الشهر":"Monthly Transfer Details","أكثر العملاء تعاملًا خلال الشهر":"Top Customers This Month",
-  "جاري التحميل...":"Loading...","حدث خطأ في الصفحة":"Page Error",
+  "إجمالي الحوالات":"Total Transfers","جاري التحميل...":"Loading...","حدث خطأ في الصفحة":"Page Error",
   "إعادة تحميل البرنامج":"Reload Application"
 };
 
@@ -288,7 +288,7 @@ function Dashboard({navigate}){
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v15.5.0 Live Data Sync <span>● متصل</span></p></div>
+        <div><h2>شركة العبود التجارية</h2><p>v15.3.78 Live Data Sync <span>● متصل</span></p></div>
       </div>
       <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
@@ -563,6 +563,16 @@ function Customers({open}){
         rateSource:transferForm.rateMode==="auto"?"exchange-rates":"manual",
         rateUpdatedAt:transferForm.rateUpdatedAt||selectedRateMeta?.createdAt||null
       });
+
+      const createdTransaction=transactionResponse.data;
+      if(transferForm.paymentStatus==="PAID"&&createdTransaction?.id&&Number(createdTransaction.totalCustomerDue)>0){
+        await api.post(`/transactions/${createdTransaction.id}/payments`,{
+          amount:Number(createdTransaction.totalCustomerDue),
+          paymentDate:transferForm.transferDate||new Date().toISOString().slice(0,10),
+          method:"CASH",
+          notes:"تم تسجيل الحوالة كمدفوعة عند الإنشاء"
+        });
+      }
 
       setTransferForm({
         customerId:"",
@@ -2142,11 +2152,39 @@ function ExchangeRates(){
     XAU18:"ذهب 18 قيراط"
   }[code]||code);
 
-  const load=()=>Promise.all([api.get("/exchange-rates"),api.get("/exchange-rates/history")])
-    .then(([ratesResponse,historyResponse])=>{
-      setList(Array.isArray(ratesResponse.data)?ratesResponse.data:[]);
-      setHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
-    });
+  const normalizeRatesPayload=(payload)=>{
+    if(Array.isArray(payload))return payload;
+    if(Array.isArray(payload?.rows))return payload.rows;
+    if(Array.isArray(payload?.rates))return payload.rates;
+    if(Array.isArray(payload?.data))return payload.data;
+    return [];
+  };
+  const safeDateText=(value)=>{
+    const date=new Date(value||Date.now());
+    return Number.isNaN(date.getTime())?"—":date.toLocaleString("ar-CA");
+  };
+  const currencyInfo={
+    CAD:{name:"الدولار الكندي",flag:"🇨🇦"},USD:{name:"الدولار الأمريكي",flag:"🇺🇸"},
+    EUR:{name:"اليورو",flag:"🇪🇺"},SYP:{name:"الليرة السورية",flag:"🇸🇾"},
+    AED:{name:"الدرهم الإماراتي",flag:"🇦🇪"},GBP:{name:"الجنيه الإسترليني",flag:"🇬🇧"},
+    TRY:{name:"الليرة التركية",flag:"🇹🇷"}
+  };
+  const currencyLabel=(code)=>`${currencyInfo[code]?.flag||"🏳️"} ${currencyInfo[code]?.name||code} (${code})`;
+
+  const load=async()=>{
+    setMessage("");
+    try{
+      const [ratesResponse,historyResponse]=await Promise.all([
+        api.get("/exchange-rates"),
+        api.get("/exchange-rates/history").catch(()=>({data:[]}))
+      ]);
+      setList(normalizeRatesPayload(ratesResponse.data));
+      setHistory(normalizeRatesPayload(historyResponse.data));
+    }catch(error){
+      setList([]);setHistory([]);
+      setMessage(error.response?.data?.message||"تعذر تحميل أسعار الصرف. حاول التحديث مرة أخرى.");
+    }
+  };
 
   useEffect(()=>{
     load();
@@ -2237,10 +2275,10 @@ function ExchangeRates(){
       <form className="card form" onSubmit={add}>
         <h3>💱 إضافة سعر عملة</h3>
         <select value={f.baseCurrency} onChange={e=>setF({...f,baseCurrency:e.target.value})}>
-          {["CAD","USD","EUR","SYP","AED","GBP","TRY"].map(x=><option key={x}>{x}</option>)}
+          {["CAD","USD","EUR","SYP","AED","GBP","TRY"].map(x=><option key={x} value={x}>{currencyLabel(x)}</option>)}
         </select>
         <select value={f.quoteCurrency} onChange={e=>setF({...f,quoteCurrency:e.target.value})}>
-          {["USD","CAD","EUR","SYP","AED","GBP","TRY"].map(x=><option key={x}>{x}</option>)}
+          {["USD","CAD","EUR","SYP","AED","GBP","TRY"].map(x=><option key={x} value={x}>{currencyLabel(x)}</option>)}
         </select>
         <input type="number" step=".000001" value={f.buyRate} onChange={e=>setF({...f,buyRate:e.target.value})} placeholder="سعر الشراء" required/>
         <input type="number" step=".000001" value={f.sellRate} onChange={e=>setF({...f,sellRate:e.target.value})} placeholder="سعر البيع" required/>
@@ -2275,13 +2313,13 @@ function ExchangeRates(){
         <tbody>{currencyRates.length?currencyRates.map(r=>{
           const trend=trendFor(r);
           return <tr key={r.id} className={`rate-row rate-${trend.type} ${r.baseCurrency==="SYP"||r.quoteCurrency==="SYP"?"syp-highlight":""}`}>
-            <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.baseCurrency}/>{r.baseCurrency}</span></td>
-            <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.quoteCurrency}/>{r.quoteCurrency}</span></td>
+            <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.baseCurrency}/><span>{currencyInfo[r.baseCurrency]?.name||r.baseCurrency}</span><small>{r.baseCurrency}</small></span></td>
+            <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.quoteCurrency}/><span>{currencyInfo[r.quoteCurrency]?.name||r.quoteCurrency}</span><small>{r.quoteCurrency}</small></span></td>
             <td className="buy-rate">{r.sypPlaceholder?"أدخل السعر":Number(r.buyRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</td>
             <td className="sell-rate"><strong>{r.sypPlaceholder?"أدخل السعر":Number(r.sellRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</strong></td>
             <td><span className={`trend trend-${r.sypPlaceholder?"new":trend.type}`}>{r.sypPlaceholder?"● بانتظار السعر":`${trend.symbol} ${trend.label}`}</span></td>
             <td><span className={`source-badge ${["FRANKFURTER","EXCHANGE_RATE_API","GOLD_API"].includes(r.source)?"auto":"manual"}`}>{r.sypPlaceholder?"سوري":r.source==="FRANKFURTER"?"تلقائي":"يدوي"}</span></td>
-            <td>{new Date(r.createdAt).toLocaleString("ar-CA")}</td>
+            <td>{safeDateText(r.createdAt)}</td>
           </tr>
         }):<tr><td colSpan="7">لا توجد أسعار عملات مسجلة.</td></tr>}</tbody>
       </table>
@@ -2295,11 +2333,11 @@ function ExchangeRates(){
           const trend=trendFor(r);
           return <tr key={r.id} className={`rate-row gold-rate-row rate-${trend.type}`}>
             <td><span className="gold-karat-badge">🪙 {goldLabel(r.baseCurrency)}</span></td>
-            <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.quoteCurrency}/>{r.quoteCurrency}</span></td>
+            <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.quoteCurrency}/><span>{currencyInfo[r.quoteCurrency]?.name||r.quoteCurrency}</span><small>{r.quoteCurrency}</small></span></td>
             <td className="buy-rate">{money(r.buyRate)}</td>
             <td className="sell-rate"><strong>{money(r.sellRate)}</strong></td>
             <td><span className={`trend trend-${trend.type}`}>{trend.symbol} {trend.label}</span></td>
-            <td>{new Date(r.createdAt).toLocaleString("ar-CA")}</td>
+            <td>{safeDateText(r.createdAt)}</td>
           </tr>
         }):<tr><td colSpan="6">لا توجد أسعار ذهب مسجلة. أضف سعر الذهب من النموذج أعلاه.</td></tr>}</tbody>
       </table>
@@ -2317,7 +2355,7 @@ function ExchangeRates(){
       <table>
         <thead><tr><th>التاريخ</th><th>الزوج / العيار</th><th>شراء</th><th>بيع</th><th>المصدر</th><th>ملاحظات</th></tr></thead>
         <tbody>{history.map(r=><tr key={r.id}>
-          <td>{new Date(r.createdAt).toLocaleString("ar-CA")}</td>
+          <td>{safeDateText(r.createdAt)}</td>
           <td>{isGoldRate(r)?goldLabel(r.baseCurrency):`${r.baseCurrency}/${r.quoteCurrency}`}</td>
           <td>{Number(r.buyRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</td>
           <td>{Number(r.sellRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</td>
@@ -2754,7 +2792,7 @@ function Partners({open}){
   }
 
   return <>
-    <h2>الموردون والشركات</h2>
+    <h2>الشركات</h2>
     {error&&<div className="card customer-error">{error}</div>}
     <div className="stats">
       <div className="card receivable-card"><span>إجمالي دين لنا</span><strong>{money(data.totals.receivable)}</strong></div>
@@ -3094,7 +3132,7 @@ function MonthlyReport(){
   </>;
 }
 
-function NotificationSettings(){
+function NotificationSettings({embedded=false}){
   const [settings,setSettings]=useState({overdueDays:7,lowCashLimit:5000,whatsappTemplate:""});
   const [message,setMessage]=useState("");
 
@@ -3113,8 +3151,8 @@ function NotificationSettings(){
     }
   }
 
-  return <>
-    <h2>إعدادات التنبيهات وواتساب</h2>
+  return <div className={embedded?"notification-settings-embedded":"notification-settings-page"}>
+    {!embedded&&<h2>إعدادات التنبيهات وواتساب</h2>}
     {message&&<div className="card rate-message">{message}</div>}
     <form className="card form settings-form" onSubmit={save}>
       <label>بدء تنبيه التأخير بعد عدد الأيام</label>
@@ -3129,11 +3167,11 @@ function NotificationSettings(){
         placeholder="يمكن استخدام: {name} {balance} {days}"/>
       <button>حفظ الإعدادات</button>
     </form>
-    <div className="card">
+    <div className={embedded?"settings-help":"card"}>
       <strong>ملاحظة:</strong>
       <p>زر واتساب يفتح الرسالة جاهزة للإرسال. الإرسال التلقائي دون ضغط يحتاج ربط WhatsApp Business API رسمي.</p>
     </div>
-  </>;
+  </div>;
 }
 
 
@@ -3146,7 +3184,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.5.0 Live Data Sync"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.78 Live Data Sync"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3239,7 +3277,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.5.0 Live Data Sync"
+        version:"v15.3.78 Live Data Sync"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3281,7 +3319,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.5.0 Live Data Sync</span>
+      <span className="settings-version">v15.3.78 Live Data Sync</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3307,6 +3345,11 @@ function SettingsPanel(){
         </select>
 
         <button className="settings-primary-button" type="button" onClick={savePreferences}>{labels.save}</button>
+      </article>
+
+      <article className="settings-card settings-alerts-embedded">
+        <div className="settings-card-title"><span>🔔</span><h3>إعدادات التنبيهات وواتساب</h3></div>
+        <NotificationSettings embedded />
       </article>
 
       <article className="settings-card company-branding-settings">
@@ -3357,7 +3400,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.5.0 Live Data Sync").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.78 Live Data Sync").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3378,7 +3421,7 @@ function SettingsPanel(){
 
 function Simple({type}){const[list,setList]=useState([]),[title,setTitle]=useState(""),[amount,setAmount]=useState(""),[move,setMove]=useState("IN");const endpoint=type==="expenses"?"/expenses":"/capital";const load=()=>api.get(endpoint).then(r=>setList(r.data));useEffect(()=>{load();},[type]);async function add(e){e.preventDefault();await api.post(endpoint,type==="expenses"?{title,amount}:{type:move,amount,description:title});setTitle("");setAmount("");load();}return <><h2>{type==="expenses"?"المصروفات":"رأس المال"}</h2><form className="card form" onSubmit={add}>{type==="capital"&&<select value={move} onChange={e=>setMove(e.target.value)}><option value="IN">زيادة</option><option value="OUT">سحب</option></select>}<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="الوصف" required/><input type="number" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="المبلغ" required/><button>حفظ</button></form><div className="card tablewrap"><table><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.title||x.description}</td><td>{x.type||x.category}</td><td>{money(x.amount)}</td></tr>)}</tbody></table></div></>}
 export default function App(){
-  const sessionFixVersion="15.5.0";
+  const sessionFixVersion="15.3.78";
   const savedSessionFix=localStorage.getItem("alaboud_session_fix_version");
 
   if(savedSessionFix!==sessionFixVersion){
@@ -3472,7 +3515,7 @@ export default function App(){
   }else if(page==="customers"){
     content=<Customers open={setCustomerId}/>;
   }else if(page==="overdue-customers"){
-    content=<OverdueCustomers openCustomer={setCustomerId} onStatement={setStatementCustomerId} navigateCustomers={()=>navigate("customers")}/>;
+    content=<Customers open={setCustomerId}/>;
   }else if(page==="partners"){
     content=<Partners open={setPartnerId}/>;
   }else if(page==="transactions"){
@@ -3488,7 +3531,7 @@ export default function App(){
   }else if(page==="monthly-report"){
     content=<MonthlyReport/>;
   }else if(page==="notification-settings"){
-    content=<NotificationSettings/>;
+    content=<SettingsPanel/>;
   }else if(page==="settings"){
     content=<SettingsPanel/>;
   }else if(page==="expenses"){
@@ -3506,18 +3549,16 @@ export default function App(){
 
   const menu=[
     ["dashboard","⌂ القائمة الرئيسية"],
-    ["customers","👥 العملاء"],
-    ["overdue-customers",`⏰ العملاء المتأخرون${overdueCount?` (${overdueCount})`:""}`],
-    ["partners","🏢 الموردون والشركات"],
+    ["customers",`👥 العملاء${overdueCount?` — متأخرون (${overdueCount})`:""}`],
+    ["partners","🏢 الشركات"],
     ["transactions","⇄ الحوالات"],
+    ["expenses","🧾 المصروفات"],
     ["profits","📈 الأرباح"],
     ["rates","💱 العملات وأسعار الصرف"],
     ["debts","📒 الدَّين العام"],
     ["capital-overview","💰 رأس المال الكلي وحركة رأس المال"],
     ["monthly-report","📊 التقارير الشهرية"],
-    ["notification-settings","🔔 إعدادات التنبيهات"],
-    ["settings","⚙️ الإعدادات"],
-    ["expenses","🧾 المصروفات"]
+    ["settings","⚙️ الإعدادات والتنبيهات"]
   ];
 
   return <><AppLanguageBridge/><div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
@@ -3529,7 +3570,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v15.5.0 Live Data Sync</small>
+          <small>v15.3.78 Live Data Sync</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3545,7 +3586,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.5.0 Live Data Sync</small>
+          <small>v15.3.78 Live Data Sync</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
@@ -3570,20 +3611,14 @@ export default function App(){
       </div>}
     </aside>
     <main className="app-main-content">
-      {showHomeButton&&<div className="home-return-bar no-print">
-        <button className="home-return-button" onClick={()=>{
-          if(typeof window!=="undefined"&&window.matchMedia("(max-width: 800px)").matches){
-            setMobileMenuOpen(true);
-          }else{
-            navigate("dashboard");
-          }
-        }}>
-          ⬅ العودة إلى القائمة الرئيسية
-        </button>
-      </div>}
       <AppErrorBoundary key={`${page}-${customerId}-${invoiceId}-${statementCustomerId}-${partnerId}`}>
         {content}
       </AppErrorBoundary>
+      {showHomeButton&&<div className="home-return-bar home-return-bottom no-print">
+        <button className="home-return-button" onClick={()=>navigate("dashboard")}>
+          ⬅ الذهاب إلى القائمة الرئيسية
+        </button>
+      </div>}
     </main>
     <nav className="mobile-bottom-nav no-print" aria-label="التنقل السريع">
       <button className={page==="customers"?"active":""} onClick={()=>navigate("customers")}>
