@@ -1,7 +1,6 @@
 import React,{useEffect,useState}from"react";import api from"./api";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
-const APP_VERSION="V15.3.76 Live Data Session Fix";
 
 function openRegularWhatsApp(phone,message){
   const cleanPhone=String(phone||"").replace(/\D/g,"");
@@ -9,15 +8,39 @@ function openRegularWhatsApp(phone,message){
 
   if(!cleanPhone)return false;
 
-  const isAndroid=/Android/i.test(navigator.userAgent||"");
+  const userAgent=navigator.userAgent||"";
+  const isAndroid=/Android/i.test(userAgent);
+  const isWindows=/Windows/i.test(userAgent);
+
   if(isAndroid){
     const intentUrl=`intent://send?phone=${cleanPhone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp;end`;
     window.location.href=intentUrl;
     return true;
   }
 
+  if(isWindows){
+    // يحاول فتح تطبيق WhatsApp Desktop أولاً، ثم يفتح WhatsApp Web كخيار احتياطي.
+    const webUrl=`https://wa.me/${cleanPhone}?text=${encodedText}`;
+    const fallbackTimer=window.setTimeout(()=>window.open(webUrl,"_blank"),1300);
+    const stopFallback=()=>window.clearTimeout(fallbackTimer);
+    window.addEventListener("blur",stopFallback,{once:true});
+    window.location.href=`whatsapp://send?phone=${cleanPhone}&text=${encodedText}`;
+    return true;
+  }
+
   window.open(`https://wa.me/${cleanPhone}?text=${encodedText}`,"_blank");
   return true;
+}
+
+function downloadBlob(blob,fileName){
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement("a");
+  link.href=url;
+  link.download=fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(()=>URL.revokeObjectURL(url),60000);
 }
 
 
@@ -51,67 +74,6 @@ function rateTrend(rate,history=[]){
   if(currentValue>previousValue)return {type:"up",symbol:"▲",label:"صعود"};
   if(currentValue<previousValue)return {type:"down",symbol:"▼",label:"نزول"};
   return {type:"same",symbol:"→",label:"ثابت"};
-}
-
-const RATE_CURRENCY_NAMES={
-  CAD:"الدولار الكندي",USD:"الدولار الأمريكي",EUR:"اليورو",GBP:"الجنيه الإسترليني",
-  AED:"الدرهم الإماراتي",TRY:"الليرة التركية",SYP:"الليرة السورية"
-};
-const formatRateValue=value=>{
-  if(value===null||value===undefined||value==="")return "—";
-  const number=Number(value);
-  if(!Number.isFinite(number))return "—";
-  if(number===0)return "0";
-  if(number>=1000)return number.toLocaleString("en-CA",{maximumFractionDigits:2});
-  if(number>=1)return number.toFixed(4).replace(/0+$/g,"").replace(/\.$/,"");
-  return number.toFixed(6).replace(/0+$/g,"").replace(/\.$/,"");
-};
-const rateSourceLabel=source=>({
-  BASE:"العملة الأساسية",FRANKFURTER:"تلقائي",EXCHANGE_RATE_API:"تلقائي SYP",GOLD_API:"تلقائي ذهب",UNAVAILABLE:"بانتظار السعر"
-}[source]||"يدوي");
-
-function buildRateBulletinRows(rates=[],prefix="rate") {
-  const currencyRows=rates.filter(rate=>!String(rate.baseCurrency||"").startsWith("XAU"));
-  const desired=["USD","EUR","GBP","AED","TRY","SYP"];
-  const base={id:`${prefix}-cad-base`,baseCurrency:"CAD",quoteCurrency:"CAD",buyRate:1,sellRate:1,source:"BASE",createdAt:null,isBase:true};
-  const selected=desired.map(code=>{
-    const direct=currencyRows.find(rate=>rate.baseCurrency===code&&rate.quoteCurrency==="CAD");
-    const fallback=currencyRows.find(rate=>rate.baseCurrency===code);
-    return direct||fallback||{
-      id:`${prefix}-${code}-placeholder`,baseCurrency:code,quoteCurrency:"CAD",buyRate:null,sellRate:null,source:"UNAVAILABLE",createdAt:null,placeholder:true
-    };
-  });
-  return [base,...selected];
-}
-
-function RateBulletinCard({rate,history=[],onClick=null,compact=false}){
-  const isBase=Boolean(rate.isBase);
-  const trend=isBase?{type:"same",symbol:"●",label:"أساسي"}:rate.placeholder?{type:"new",symbol:"●",label:"بانتظار"}:rateTrend(rate,history);
-  const Tag=onClick?"button":"article";
-  const updatedAt=rate.createdAt?new Date(rate.createdAt):null;
-  const validDate=updatedAt&&!Number.isNaN(updatedAt.getTime());
-  return <Tag
-    type={onClick?"button":undefined}
-    className={`rate-bulletin-card rate-${trend.type} ${compact?"compact":""} ${isBase?"base-cad":""}`}
-    onClick={onClick||undefined}
-  >
-    <div className="rate-card-head">
-      <span className="rate-card-flag"><CurrencyFlag code={rate.baseCurrency}/></span>
-      <div className="rate-card-title">
-        <strong>{RATE_CURRENCY_NAMES[rate.baseCurrency]||rate.baseCurrency}</strong>
-        <small>{isBase?"CAD — العملة الأساسية":`${rate.baseCurrency} / ${rate.quoteCurrency}`}</small>
-      </div>
-      <span className={`rate-card-trend trend-${trend.type}`}>{trend.symbol} {trend.label}</span>
-    </div>
-    <div className="rate-card-values">
-      <div><span>شراء</span><b>{formatRateValue(rate.buyRate)}</b></div>
-      <div><span>بيع</span><b>{formatRateValue(rate.sellRate)}</b></div>
-    </div>
-    <div className="rate-card-foot">
-      <span>{rateSourceLabel(rate.source)}</span>
-      <small>{validDate?updatedAt.toLocaleString("ar-CA",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}):"ثابت"}</small>
-    </div>
-  </Tag>;
 }
 
 
@@ -180,7 +142,7 @@ const APP_EN_TRANSLATIONS={
   "لا توجد حوالات.":"No transfers.","لا توجد حوالات في هذا الشهر.":"No transfers this month.",
   "العميل":"Customer","التاريخ":"Date","الرقم":"Number","الأجور":"Fees","الربح":"Profit",
   "تفاصيل حوالات الشهر":"Monthly Transfer Details","أكثر العملاء تعاملًا خلال الشهر":"Top Customers This Month",
-  "جاري التحميل...":"Loading...","حدث خطأ في الصفحة":"Page Error",
+  "إجمالي الحوالات":"Total Transfers","جاري التحميل...":"Loading...","حدث خطأ في الصفحة":"Page Error",
   "إعادة تحميل البرنامج":"Reload Application"
 };
 
@@ -328,7 +290,7 @@ function Dashboard({navigate}){
         const rows=Array.isArray(transactionsResponse.data)?transactionsResponse.data:[];
         setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
         const rateRows=Array.isArray(ratesResponse.data)?ratesResponse.data:[];
-        setDashboardRates(buildRateBulletinRows(rateRows,"dashboard"));
+        setDashboardRates(rateRows.slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,7));
         setDashboardRateHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
       }catch{}
     };
@@ -347,13 +309,13 @@ function Dashboard({navigate}){
   ];
 
   return <div className="premium-dashboard">
-    <section className="premium-hero dashboard-pro-hero">
-      <div className="dashboard-pro-brand">
-        <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>{APP_VERSION} <span>● متصل</span></p></div>
+    <section className="premium-hero">
+      <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+      <div>
+        <h2>شركة العبود التجارية</h2>
+        <p>v15.3.58 Final Mobile</p>
       </div>
-      <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
-      <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
+      <span className="online-chip">● متصل</span>
     </section>
 
     <section className="premium-kpis">
@@ -387,44 +349,26 @@ function Dashboard({navigate}){
           <h3>نشرة أسعار الصرف</h3>
           <button onClick={()=>navigate("rates")}>عرض الكل</button>
         </div>
-        <div className="dashboard-rate-list rate-bulletin-list">
-          {dashboardRates.length?dashboardRates.map(rate=><RateBulletinCard
+        <div className="dashboard-rate-list">
+          {dashboardRates.length?dashboardRates.map(rate=><button
+            className="dashboard-rate-row"
             key={rate.id||`${rate.baseCurrency}-${rate.quoteCurrency}`}
-            rate={rate}
-            history={dashboardRateHistory}
-            compact
             onClick={()=>navigate("rates")}
-          />):<p className="empty-state">لا توجد أسعار صرف مسجلة.</p>}
+          >
+            {(()=>{
+              const trend=rateTrend(rate,dashboardRateHistory);
+              return <>
+                <strong className="dashboard-rate-pair">
+                  <CurrencyFlag code={rate.baseCurrency} className="dashboard-rate-flag"/>
+                  <span>{rate.baseCurrency}/{rate.quoteCurrency}</span>
+                  <span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol}</span>
+                </strong>
+                <span>شراء <b>{Number(rate.buyRate||0).toFixed(4)}</b></span>
+                <span>بيع <b>{Number(rate.sellRate||0).toFixed(4)}</b></span>
+              </>;
+            })()}
+          </button>):<p className="empty-state">لا توجد أسعار صرف مسجلة.</p>}
         </div>
-      </div>
-    </section>
-
-    <section className="dashboard-pro-analysis">
-      <div className="dashboard-pro-performance panel-dark">
-        <div className="section-heading"><h3>ملخص الأداء (آخر 7 أيام)</h3><span className="dashboard-pro-period">آخر 7 أيام</span></div>
-        <div className="dashboard-pro-chart">
-          <div className="dashboard-pro-grid"><i/><i/><i/><i/><i/></div>
-          <div className="dashboard-pro-bars">{[38,54,61,69,82,66,77].map((value,index)=><div className="dashboard-pro-bar-col" key={index}><div className="dashboard-pro-bar" style={{height:`${value}%`}}/><small>{index+8}/7</small></div>)}</div>
-          <svg viewBox="0 0 700 220" preserveAspectRatio="none"><polyline points="50,160 150,115 250,102 350,78 450,42 550,85 650,65"/></svg>
-        </div>
-        <div className="dashboard-pro-legend"><span>● إجمالي الحوالات (CAD)</span><span>● إجمالي الأرباح</span></div>
-      </div>
-      <div className="dashboard-pro-finance panel-dark">
-        <div className="section-heading"><h3>حركة رأس المال</h3><button onClick={()=>navigate("capital")}>عرض الكل</button></div>
-        <p><span>الرصيد الحالي</span><strong>{cad(data.capital||0)}</strong></p>
-        <p><span>الذمم المستحقة</span><strong>{cad(data.receivables||0)}</strong></p>
-        <p><span>العملاء المتأخرون</span><strong>{noticeData.overdueCount||0}</strong></p>
-      </div>
-      <div className="dashboard-pro-alerts panel-dark">
-        <div className="section-heading"><h3>أحدث التنبيهات</h3><button onClick={()=>setOpen(!open)}>عرض الكل</button></div>
-        {(noticeData.notifications||[]).slice(0,3).map(item=><div className={`dashboard-pro-alert severity-${item.severity}`} key={item.id}><b>!</b><div><strong>{item.title}</strong><small>{item.message}</small></div></div>)}
-        {!noticeData.notifications?.length&&<p className="empty-state">لا توجد تنبيهات حالياً.</p>}
-      </div>
-      <div className="dashboard-pro-stats panel-dark">
-        <div className="section-heading"><h3>إحصائيات سريعة</h3></div>
-        <p><span>حوالات اليوم</span><strong>{data.todayTransactions||0}</strong></p>
-        <p><span>أرباح اليوم</span><strong>{cad(data.todayProfit)}</strong></p>
-        <p><span>عدد العملاء</span><strong>{data.customers||0}</strong></p>
       </div>
     </section>
 
@@ -454,11 +398,10 @@ function Dashboard({navigate}){
   </div>;
 }
 
-function Customers({open,onStatement}){
+function Customers({open}){
   const [list,setList]=useState([]);
   const [alerts,setAlerts]=useState({count:0,totalOverdue:0,rows:[]});
   const [search,setSearch]=useState("");
-  const [customerTab,setCustomerTab]=useState("all");
   const [error,setError]=useState("");
 
   const [customerForm,setCustomerForm]=useState({name:"",phone:"",email:"",oldBalance:""});
@@ -819,10 +762,6 @@ function Customers({open,onStatement}){
     `${customer.name} ${customer.phone||""}`.toLowerCase().includes(search.toLowerCase())
   );
 
-  const filteredOverdue=(Array.isArray(alerts.rows)?alerts.rows:[]).filter(customer=>
-    `${customer.name||""} ${customer.phone||""}`.toLowerCase().includes(search.toLowerCase())
-  );
-
   const customerActionFocus=activePanel==="transfer"||activePanel==="payment";
 
   return <>
@@ -1004,74 +943,30 @@ function Customers({open,onStatement}){
     }
 
     {!customerActionFocus&&<>
-    <div className="customer-tabs card no-print">
-      <button
-        type="button"
-        className={customerTab==="all"?"active":""}
-        onClick={()=>setCustomerTab("all")}
-      >
-        جميع العملاء <span>{list.length}</span>
-      </button>
-      <button
-        type="button"
-        className={customerTab==="overdue"?"active overdue":""}
-        onClick={()=>setCustomerTab("overdue")}
-      >
-        العملاء المتأخرون <span>{alerts.count||0}</span>
-      </button>
-    </div>
+    {alerts.count>0&&
+      <div className="card overdue-panel">
+        <h3>تنبيهات العملاء المتأخرين</h3>
+        {alerts.rows.slice(0,8).map(customer=><div className="overdue-row" key={customer.id}>
+          <span><strong>{customer.name}</strong> — متأخر {customer.overdueDays} يوم — الرصيد {cad(customer.finalBalance)}</span>
+          <button className="danger-button" onClick={()=>whatsappFinalBalance(customer,true)}>تنبيه واتساب</button>
+        </div>)}
+      </div>
+    }
 
     <input className="card customer-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
 
-    {customerTab==="all"&&
-      <div className="customer-cards customer-list-simple">
-        {filtered.length?filtered.map(customer=><button
-          type="button"
-          className={`customer-simple-row ${customer.overdue?"is-overdue":customer.finalBalance>0?"has-balance":"is-paid"}`}
-          key={customer.id}
-          onClick={()=>open(customer.id)}
-        >
-          <div className="customer-simple-main customer-name-only">
-            <strong>{customer.name}</strong>
-          </div>
-        </button>):<div className="card">لا توجد نتائج.</div>}
-      </div>
-    }
-
-    {customerTab==="overdue"&&
-      <div className="customers-overdue-integrated">
-        <div className="customers-overdue-summary">
-          <div className="card"><span>عدد المتأخرين</span><strong>{alerts.count||0}</strong></div>
-          <div className="card"><span>إجمالي المبلغ المتأخر</span><strong>{cad(alerts.totalOverdue||0)}</strong></div>
+    <div className="customer-cards customer-list-simple">
+      {filtered.length?filtered.map(customer=><button
+        type="button"
+        className={`customer-simple-row ${customer.overdue?"is-overdue":customer.finalBalance>0?"has-balance":"is-paid"}`}
+        key={customer.id}
+        onClick={()=>open(customer.id)}
+      >
+        <div className="customer-simple-main customer-name-only">
+          <strong>{customer.name}</strong>
         </div>
-
-        {filteredOverdue.length?filteredOverdue.map(customer=>
-          <article className="card integrated-overdue-card" key={customer.id}>
-            <div className="integrated-overdue-head">
-              <div>
-                <strong>{customer.name}</strong>
-                <small>{customer.phone||"لا يوجد رقم هاتف"}</small>
-              </div>
-              <span className="overdue-days-badge">متأخر {customer.overdueDays||0} يوم</span>
-            </div>
-
-            <div className="integrated-overdue-details">
-              <div><span>المبلغ المتأخر</span><strong>{cad(customer.finalBalance||0)}</strong></div>
-              <div><span>آخر حوالة</span><strong>{customer.lastTransferNumber||"-"}</strong><small>{customer.lastTransferDate||"-"}</small></div>
-              <div><span>قيمة آخر حوالة</span><strong>{cad(customer.lastTransferAmount||0)}</strong></div>
-              <div><span>المتبقي منها</span><strong>{cad(customer.lastTransferRemaining||0)}</strong></div>
-            </div>
-
-            <div className="integrated-overdue-actions no-print">
-              <button type="button" className="payment" onClick={()=>preparePayment(customer)}>💵 تسجيل دفعة</button>
-              <button type="button" className="whatsapp" onClick={()=>whatsappFinalBalance(customer,true)}>📲 إرسال تذكير واتساب</button>
-              <button type="button" className="statement" onClick={()=>onStatement?.(customer.id)}>📄 عرض كشف الحساب</button>
-              <button type="button" onClick={()=>open(customer.id)}>فتح صفحة العميل</button>
-            </div>
-          </article>
-        ):<div className="card overdue-empty-state">لا يوجد عملاء متأخرون حاليًا.</div>}
-      </div>
-    }
+      </button>):<div className="card">لا توجد نتائج.</div>}
+    </div>
     </>}
   </>;
 }
@@ -1411,18 +1306,26 @@ function Customer({id,back,onStatement}){
       const width=720;
       const sidePadding=34;
       const rowHeight=54;
-      const headerHeight=205;
-      const summaryHeight=188;
+      const headerHeight=210;
+      const summaryRowHeight=50;
       const footerHeight=82;
-      const height=headerHeight+(rows.length*rowHeight)+summaryHeight+footerHeight;
+      const summaryHeight=(summaryRowHeight*3)+34;
+      const contentHeight=(rows.length*rowHeight);
+      const height=headerHeight+contentHeight+summaryHeight+footerHeight;
 
       const canvas=document.createElement("canvas");
       canvas.width=width;
       canvas.height=height;
+
       const ctx=canvas.getContext("2d");
       if(!ctx)throw new Error("تعذر إنشاء صورة كشف الحساب");
 
-      const drawText=(value,x,y,size,{color="#f5f5f5",align="center",weight="700",direction="rtl"}={})=>{
+      const drawText=(value,x,y,size,{
+        color="#f5f5f5",
+        align="center",
+        weight="700",
+        direction="rtl"
+      }={})=>{
         ctx.save();
         ctx.fillStyle=color;
         ctx.font=`${weight} ${size}px Arial, sans-serif`;
@@ -1451,16 +1354,19 @@ function Customer({id,back,onStatement}){
       ctx.fillStyle=gradient;
       ctx.fillRect(0,0,width,height);
 
+      ctx.save();
       ctx.strokeStyle="#9b7425";
       ctx.lineWidth=2;
       ctx.strokeRect(14,14,width-28,height-28);
+      ctx.restore();
 
-      drawText(statement.company?.name||"شركة العبود التجارية",width/2,50,34,{weight:"800"});
-      drawText("كشف حساب العميل",width/2,101,30,{color:"#d8a33f",weight:"800"});
-      drawText(customer.name||"العميل",width/2,147,26,{weight:"700"});
-      drawLine(180);
+      drawText(statement.company?.name||"شركة العبود التجارية",width/2,52,34,{weight:"800"});
+      drawText("كشف حساب العميل",width/2,104,30,{color:"#d8a33f",weight:"800"});
+      drawText(customer.name||"العميل",width/2,151,26,{weight:"700"});
+      drawLine(185);
 
-      let y=219;
+      let y=224;
+
       rows.forEach((item,index)=>{
         const amount=Number(item.usdAmount||item.amount||0).toFixed(2).replace(/\.00$/,"");
         const rate=Number(item.customerRate||item.finalRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
@@ -1473,72 +1379,86 @@ function Customer({id,back,onStatement}){
           24,
           {align:"left",direction:"ltr",weight:"700"}
         );
+
         drawLine(y+27,"#283844");
         y+=rowHeight;
       });
 
-      drawLine(y+7,"#68747c",[10,8]);
-      y+=37;
+      drawLine(y+8,"#68747c",[10,8]);
+      y+=38;
 
-      drawText("الحساب القديم",sidePadding,y,23,{align:"left"});
+      drawText("الحساب القديم",sidePadding,y,23,{align:"left",weight:"700"});
       drawText(`${money(oldBalance)} 🇨🇦`,width-sidePadding,y,24,{align:"right",color:"#d8a33f",weight:"800"});
-      y+=48;
+      y+=summaryRowHeight;
 
-      drawText("الدفعات",sidePadding,y,23,{align:"left"});
+      drawText("الدفعات",sidePadding,y,23,{align:"left",weight:"700"});
       drawText(`${money(paid)} 🇨🇦`,width-sidePadding,y,24,{align:"right",color:"#ef4444",weight:"800"});
-      y+=48;
+      y+=summaryRowHeight;
 
       drawText("المجموع النهائي",sidePadding,y,25,{align:"left",weight:"800"});
       drawText(`${money(finalBalance)} 🇨🇦`,width-sidePadding,y,28,{align:"right",color:"#63c443",weight:"900"});
-      y+=46;
+      y+=summaryRowHeight;
 
       drawLine(y+4,"#68747c");
-      y+=34;
+      y+=36;
 
       const nowDate=new Date();
-      drawText(`التاريخ: ${nowDate.toLocaleDateString("en-CA")}`,sidePadding,y,18,{align:"left",color:"#b8c0c7",weight:"500"});
-      drawText(`الوقت: ${nowDate.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}`,width-sidePadding,y,18,{align:"right",color:"#b8c0c7",weight:"500"});
-      drawText("شكراً لتعاملكم معنا",width/2,height-34,22,{color:"#d8a33f"});
+      drawText(
+        `التاريخ: ${nowDate.toLocaleDateString("en-CA")}`,
+        sidePadding,
+        y,
+        18,
+        {align:"left",color:"#b8c0c7",weight:"500"}
+      );
+      drawText(
+        `الوقت: ${nowDate.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}`,
+        width-sidePadding,
+        y,
+        18,
+        {align:"right",color:"#b8c0c7",weight:"500"}
+      );
+
+      drawText("شكراً لتعاملكم معنا",width/2,height-36,22,{color:"#d8a33f",weight:"700"});
 
       const blob=await new Promise((resolve,reject)=>{
-        canvas.toBlob(value=>value?resolve(value):reject(new Error("تعذر إنشاء صورة كشف الحساب")),"image/png",0.96);
+        canvas.toBlob(value=>{
+          if(value)resolve(value);
+          else reject(new Error("تعذر إنشاء صورة كشف الحساب"));
+        },"image/png",0.96);
       });
 
       const safeName=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safeName}.png`,{type:"image/png"});
 
-      // داخل تطبيق Android: شارك الملف مباشرة إلى واتساب بدل فتح المعاينة فقط.
-      if(window.AlAboudNative?.shareImageToWhatsApp){
-        const dataUrl=await new Promise((resolve,reject)=>{
-          const reader=new FileReader();
-          reader.onload=()=>resolve(String(reader.result||""));
-          reader.onerror=()=>reject(new Error("تعذر تجهيز صورة واتساب"));
-          reader.readAsDataURL(blob);
-        });
-        window.AlAboudNative.shareImageToWhatsApp(dataUrl,file.name);
-        return;
-      }
+      const phone=String(customer.phone||"").replace(/\D/g,"");
+      const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||"");
 
-      if(navigator.canShare?.({files:[file]}) && navigator.share){
+      // على الهاتف نستعمل نافذة المشاركة الأصلية لأنها تستطيع تمرير ملف الصورة إلى واتساب.
+      if(isMobile&&navigator.share){
         try{
           await navigator.share({files:[file],title:"كشف حساب العميل"});
           return;
         }catch(shareError){
           if(shareError?.name==="AbortError")return;
+          console.warn("Statement image share failed",shareError);
         }
       }
 
-      const url=URL.createObjectURL(blob);
-      const preview=window.open(url,"_blank");
-      if(!preview){
-        const link=document.createElement("a");
-        link.href=url;
-        link.download=file.name;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
+      // على الكمبيوتر لا يدعم المتصفح إرفاق الملف مباشرة بواتساب لأسباب أمنية.
+      // لذلك ننزّل الصورة فوراً ثم نفتح محادثة العميل في تطبيق واتساب المثبت.
+      downloadBlob(blob,file.name);
+
+      if(phone){
+        const message=[
+          `مرحباً ${customer.name||""}`.trim(),
+          "تم تجهيز صورة كشف الحساب.",
+          "ستجد الصورة في مجلد التنزيلات، اسحبها إلى هذه المحادثة ثم اضغط إرسال."
+        ].join("\n");
+        openRegularWhatsApp(phone,message);
+        setError("تم تنزيل صورة كشف الحساب وفتح واتساب. اسحب الصورة من مجلد التنزيلات إلى المحادثة.");
+      }else{
+        setError("تم تنزيل صورة كشف الحساب. لا يوجد رقم واتساب محفوظ لهذا العميل.");
       }
-      setTimeout(()=>URL.revokeObjectURL(url),60000);
     }catch(error){
       setError(error.response?.data?.message||error.message||"تعذر مشاركة صورة كشف الحساب");
     }
@@ -1599,7 +1519,7 @@ function Customer({id,back,onStatement}){
       <button onClick={back}>رجوع</button>
       <button onClick={()=>onStatement(id)}>كشف حساب العميل</button>
       <button className="whatsapp-text-button" onClick={shareCustomerStatementText}>💬 إرسال رسالة نصية عبر واتساب</button>
-      <button className="whatsapp-image-button" onClick={shareCustomerStatement}>📷 إرسال صورة عبر واتساب</button>
+      <button className="whatsapp-image-button" onClick={shareCustomerStatement}>📷 تنزيل الصورة وفتح واتساب</button>
     </div>
 
     <h2>{customer.name||"العميل"}</h2>
@@ -1974,8 +1894,7 @@ function Transactions({openInvoice}){
         amount:"",
         finalRate:"",
         transferFee:"0",
-        transferDate:new Date().toISOString().slice(0,10),
-        paymentStatus:"UNPAID"
+        transferDate:new Date().toISOString().slice(0,10)
       }));
       await load();
     }catch(requestError){
@@ -2020,24 +1939,6 @@ function Transactions({openInvoice}){
       setError(requestError.response?.data?.message||"تعذر تعديل الحوالة");
     }finally{
       setEditSaving(false);
-    }
-  }
-
-
-  async function markTransactionPaid(transaction){
-    const remaining=Number(transaction.remaining||0);
-    if(remaining<=0)return;
-    setError("");
-    try{
-      await api.post(`/transactions/${transaction.id}/payments`,{
-        amount:remaining,
-        method:"CASH",
-        notes:"تسديد كامل للحوالة",
-        paymentDate:new Date().toISOString().slice(0,10)
-      });
-      await load();
-    }catch(requestError){
-      setError(requestError.response?.data?.message||"تعذر تسجيل الحوالة كمدفوعة");
     }
   }
 
@@ -2099,17 +2000,6 @@ function Transactions({openInvoice}){
         <option value="ADD">إضافة الأجور</option>
         <option value="DEDUCT">خصم الأجور</option>
       </select>
-
-      <div className="transfer-payment-choice">
-        <div className="transfer-payment-choice-title">
-          <strong>حالة دفع الحوالة</strong>
-          <small>الحوالة غير المدفوعة تدخل تلقائيًا في رصيد دين لنا.</small>
-        </div>
-        <div className="transfer-payment-choice-buttons">
-          <button type="button" className={f.paymentStatus==="PAID"?"is-active paid":""} onClick={()=>setF({...f,paymentStatus:"PAID"})}>✓ مدفوع</button>
-          <button type="button" className={f.paymentStatus==="UNPAID"?"is-active unpaid":""} onClick={()=>setF({...f,paymentStatus:"UNPAID"})}>◷ غير مدفوع</button>
-        </div>
-      </div>
       <button>حفظ</button>
     </form>
 
@@ -2174,7 +2064,7 @@ function Transactions({openInvoice}){
         <thead>
           <tr>
             <th>الرقم</th><th>تاريخ الحوالة</th><th>العميل</th><th>المبلغ</th>
-            <th>الأجور</th><th>الإجمالي</th><th>حالة الدفع</th><th>المتبقي</th><th>الربح</th><th>الفاتورة</th><th>تعديل</th>
+            <th>الأجور</th><th>الإجمالي</th><th>الربح</th><th>الفاتورة</th><th>تعديل</th>
           </tr>
         </thead>
         <tbody>
@@ -2185,17 +2075,6 @@ function Transactions({openInvoice}){
             <td>{money(transaction.amount)}</td>
             <td>{money(transaction.transferFee)}</td>
             <td>{money(transaction.totalCustomerDue)}</td>
-            <td>
-              <span className={`transfer-payment-badge ${transaction.paymentStatus==="PAID"?"paid":"unpaid"}`}>
-                {transaction.paymentStatus==="PAID"?"مدفوع":"غير مدفوع"}
-              </span>
-            </td>
-            <td>
-              <div className="transfer-remaining-cell">
-                <strong>{money(transaction.remaining||0)}</strong>
-                {transaction.paymentStatus!=="PAID"&&<button type="button" onClick={()=>markTransactionPaid(transaction)}>تسديد كامل</button>}
-              </div>
-            </td>
             <td>{money(transaction.totalProfit)}</td>
             <td><button onClick={()=>openInvoice(transaction.id)}>فتح</button></td>
             <td><button className="transaction-edit-button" onClick={()=>startEditTransaction(transaction)}>✏️ تعديل</button></td>
@@ -2315,12 +2194,12 @@ function ExchangeRates(){
 
   const storedCurrencyRates=list.filter(rate=>!isGoldRate(rate));
   const hasSyrianPound=storedCurrencyRates.some(rate=>rate.baseCurrency==="SYP"||rate.quoteCurrency==="SYP");
-  const visibleCurrencyRates=hasSyrianPound?storedCurrencyRates:[
+  const currencyRates=hasSyrianPound?storedCurrencyRates:[
     ...storedCurrencyRates,
     {
       id:"syp-visible-placeholder",
-      baseCurrency:"SYP",
-      quoteCurrency:"CAD",
+      baseCurrency:"USD",
+      quoteCurrency:"SYP",
       buyRate:0,
       sellRate:0,
       source:"MANUAL",
@@ -2328,118 +2207,85 @@ function ExchangeRates(){
       sypPlaceholder:true
     }
   ];
-  const bulletinRates=buildRateBulletinRows(visibleCurrencyRates,"rates");
   const goldRates=list.filter(isGoldRate);
-  const automaticCount=storedCurrencyRates.filter(rate=>["FRANKFURTER","EXCHANGE_RATE_API"].includes(rate.source)).length;
-  const latestCurrencyUpdate=storedCurrencyRates
-    .map(rate=>new Date(rate.createdAt||0))
-    .filter(date=>!Number.isNaN(date.getTime()))
-    .sort((a,b)=>b-a)[0];
 
-  return <div className="rates-page-shell">
-    <section className="rates-page-hero">
+  return <>
+    <h2>العملات وأسعار الصرف والذهب</h2>
+
+    <div className="card rate-legend">
+      <span className="legend-up">↑ ارتفاع</span>
+      <span className="legend-down">↓ انخفاض</span>
+      <span className="legend-same">→ ثابت</span>
+      <span className="legend-new">● سعر جديد</span>
+    </div>
+
+    <div className="card auto-rate-bar">
       <div>
-        <span className="rates-page-kicker">ALABOUD RATE CENTER</span>
-        <h2>نشرة أسعار العملات والذهب</h2>
-        <p>واجهة موحّدة مع لوحة التحكم لعرض أسعار الشراء والبيع والحركة وآخر تحديث.</p>
+        <strong>التحديث التلقائي للعملات</strong>
+        <p>العملات والليرة السورية وأسعار الذهب تتحدث تلقائيًا كل ساعة. يبقى آخر سعر محفوظ إذا تعذر أحد المصادر.</p>
       </div>
-      <button type="button" className="rates-refresh-button" onClick={refresh} disabled={refreshing}>
-        <span>{refreshing?"◌":"↻"}</span>
-        {refreshing?"جاري التحديث...":"تحديث الأسعار الآن"}
+      <button type="button" onClick={refresh} disabled={refreshing}>
+        {refreshing?"جاري التحديث...":"تحديث أسعار العملات الآن"}
       </button>
-    </section>
+    </div>
 
-    <section className="rates-summary-strip">
-      <div><span>العملات المعروضة</span><strong>{bulletinRates.length}</strong></div>
-      <div><span>أسعار تلقائية</span><strong>{automaticCount}</strong></div>
-      <div><span>العملة الأساسية</span><strong>CAD 🇨🇦</strong></div>
-      <div><span>آخر تحديث</span><strong>{latestCurrencyUpdate?latestCurrencyUpdate.toLocaleString("ar-CA",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}):"بانتظار التحديث"}</strong></div>
-    </section>
+    {message&&<div className="card rate-message">{message}</div>}
 
-    {message&&<div className="card rate-message rates-page-message">{message}</div>}
-
-    <section className="rates-bulletin-section panel-dark">
-      <div className="section-heading rates-section-heading">
-        <div><h3>نشرة أسعار الصرف</h3><p>الدولار الكندي ظاهر دائمًا كعملة أساسية بقيمة 1.00.</p></div>
-        <div className="rate-legend rates-inline-legend">
-          <span className="legend-up">▲ صعود</span>
-          <span className="legend-down">▼ نزول</span>
-          <span className="legend-same">→ ثابت</span>
-          <span className="legend-new">● جديد</span>
-        </div>
-      </div>
-      <div className="rates-board-grid">
-        {bulletinRates.map(rate=><RateBulletinCard
-          key={rate.id||`${rate.baseCurrency}-${rate.quoteCurrency}`}
-          rate={rate}
-          history={history}
-        />)}
-      </div>
-    </section>
-
-    <section className="rates-entry-grid rates-modern-entry-grid">
-      <form className="card form rates-entry-card" onSubmit={add}>
-        <div className="rates-entry-title"><span>💱</span><div><h3>إضافة سعر عملة</h3><p>أدخل سعرًا يدويًا وسيظهر مباشرة في النشرة ولوحة التحكم.</p></div></div>
-        <label>العملة الأساسية</label>
+    <div className="rates-entry-grid">
+      <form className="card form" onSubmit={add}>
+        <h3>💱 إضافة سعر عملة</h3>
         <select value={f.baseCurrency} onChange={e=>setF({...f,baseCurrency:e.target.value})}>
-          {["CAD","USD","EUR","GBP","AED","TRY","SYP"].map(x=><option key={x}>{x} — {RATE_CURRENCY_NAMES[x]}</option>)}
+          {["CAD","USD","EUR","SYP","AED","GBP","TRY"].map(x=><option key={x}>{x}</option>)}
         </select>
-        <label>العملة المقابلة</label>
         <select value={f.quoteCurrency} onChange={e=>setF({...f,quoteCurrency:e.target.value})}>
-          {["CAD","USD","EUR","GBP","AED","TRY","SYP"].map(x=><option key={x}>{x} — {RATE_CURRENCY_NAMES[x]}</option>)}
+          {["USD","CAD","EUR","SYP","AED","GBP","TRY"].map(x=><option key={x}>{x}</option>)}
         </select>
-        <div className="rates-two-fields">
-          <input type="number" step=".000001" value={f.buyRate} onChange={e=>setF({...f,buyRate:e.target.value})} placeholder="سعر الشراء" required/>
-          <input type="number" step=".000001" value={f.sellRate} onChange={e=>setF({...f,sellRate:e.target.value})} placeholder="سعر البيع" required/>
-        </div>
+        <input type="number" step=".000001" value={f.buyRate} onChange={e=>setF({...f,buyRate:e.target.value})} placeholder="سعر الشراء" required/>
+        <input type="number" step=".000001" value={f.sellRate} onChange={e=>setF({...f,sellRate:e.target.value})} placeholder="سعر البيع" required/>
         <input value={f.notes} onChange={e=>setF({...f,notes:e.target.value})} placeholder="ملاحظات"/>
         <button>حفظ سعر العملة</button>
       </form>
 
-      <form className="card form gold-rate-form rates-entry-card" onSubmit={addGold}>
-        <div className="rates-entry-title"><span>🪙</span><div><h3>إضافة سعر الذهب للغرام</h3><p>سجّل سعر الشراء والبيع حسب العيار والعملة.</p></div></div>
-        <label>عيار الذهب</label>
+      <form className="card form gold-rate-form" onSubmit={addGold}>
+        <h3>🪙 إضافة سعر الذهب للغرام</h3>
         <select value={goldForm.baseCurrency} onChange={e=>setGoldForm({...goldForm,baseCurrency:e.target.value})}>
           <option value="XAU24">ذهب 24 قيراط</option>
           <option value="XAU22">ذهب 22 قيراط</option>
           <option value="XAU21">ذهب 21 قيراط</option>
           <option value="XAU18">ذهب 18 قيراط</option>
         </select>
-        <label>العملة</label>
         <select value={goldForm.quoteCurrency} onChange={e=>setGoldForm({...goldForm,quoteCurrency:e.target.value})}>
-          <option value="CAD">CAD — الدولار الكندي 🇨🇦</option>
-          <option value="USD">USD — الدولار الأمريكي 🇺🇸</option>
-          <option value="SYP">SYP — الليرة السورية 🇸🇾</option>
+          <option value="CAD">CAD 🇨🇦</option>
+          <option value="USD">USD 🇺🇸</option>
+          <option value="SYP">SYP 🇸🇾</option>
         </select>
-        <div className="rates-two-fields">
-          <input type="number" step=".01" value={goldForm.buyRate} onChange={e=>setGoldForm({...goldForm,buyRate:e.target.value})} placeholder="سعر شراء الغرام" required/>
-          <input type="number" step=".01" value={goldForm.sellRate} onChange={e=>setGoldForm({...goldForm,sellRate:e.target.value})} placeholder="سعر بيع الغرام" required/>
-        </div>
+        <input type="number" step=".01" value={goldForm.buyRate} onChange={e=>setGoldForm({...goldForm,buyRate:e.target.value})} placeholder="سعر شراء الغرام" required/>
+        <input type="number" step=".01" value={goldForm.sellRate} onChange={e=>setGoldForm({...goldForm,sellRate:e.target.value})} placeholder="سعر بيع الغرام" required/>
         <input value={goldForm.notes} onChange={e=>setGoldForm({...goldForm,notes:e.target.value})} placeholder="ملاحظات"/>
         <button>حفظ سعر الذهب</button>
       </form>
-    </section>
+    </div>
 
-    <div className="card tablewrap currency-rates-table rates-modern-table">
-      <h3>💱 تفاصيل أسعار العملات</h3>
+    <div className="card tablewrap currency-rates-table">
+      <h3>💱 أسعار العملات</h3>
       <table>
         <thead><tr><th>من</th><th>إلى</th><th>شراء</th><th>بيع</th><th>الحركة</th><th>المصدر</th><th>آخر تحديث</th></tr></thead>
-        <tbody>{visibleCurrencyRates.length?visibleCurrencyRates.map(r=>{
+        <tbody>{currencyRates.length?currencyRates.map(r=>{
           const trend=trendFor(r);
           return <tr key={r.id} className={`rate-row rate-${trend.type} ${r.baseCurrency==="SYP"||r.quoteCurrency==="SYP"?"syp-highlight":""}`}>
             <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.baseCurrency}/>{r.baseCurrency}</span></td>
             <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.quoteCurrency}/>{r.quoteCurrency}</span></td>
-            <td className="buy-rate">{r.sypPlaceholder?"أدخل السعر":formatRateValue(r.buyRate)}</td>
-            <td className="sell-rate"><strong>{r.sypPlaceholder?"أدخل السعر":formatRateValue(r.sellRate)}</strong></td>
+            <td className="buy-rate">{r.sypPlaceholder?"أدخل السعر":Number(r.buyRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</td>
+            <td className="sell-rate"><strong>{r.sypPlaceholder?"أدخل السعر":Number(r.sellRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</strong></td>
             <td><span className={`trend trend-${r.sypPlaceholder?"new":trend.type}`}>{r.sypPlaceholder?"● بانتظار السعر":`${trend.symbol} ${trend.label}`}</span></td>
-            <td><span className={`source-badge ${["FRANKFURTER","EXCHANGE_RATE_API","GOLD_API"].includes(r.source)?"auto":"manual"}`}>{r.sypPlaceholder?"سوري":rateSourceLabel(r.source)}</span></td>
+            <td><span className={`source-badge ${["FRANKFURTER","EXCHANGE_RATE_API","GOLD_API"].includes(r.source)?"auto":"manual"}`}>{r.sypPlaceholder?"سوري":r.source==="FRANKFURTER"?"تلقائي":"يدوي"}</span></td>
             <td>{new Date(r.createdAt).toLocaleString("ar-CA")}</td>
           </tr>
         }):<tr><td colSpan="7">لا توجد أسعار عملات مسجلة.</td></tr>}</tbody>
       </table>
     </div>
 
-    <div className="card tablewrap gold-rates-table rates-modern-table">
+    <div className="card tablewrap gold-rates-table">
       <h3>🪙 أسعار الذهب للغرام</h3>
       <table>
         <thead><tr><th>العيار</th><th>العملة</th><th>شراء الغرام</th><th>بيع الغرام</th><th>الحركة</th><th>آخر تحديث</th></tr></thead>
@@ -2457,21 +2303,21 @@ function ExchangeRates(){
       </table>
     </div>
 
-    <div className="card tablewrap rates-modern-table rates-history-table">
+    <div className="card tablewrap">
       <h3>سجل تغييرات الأسعار</h3>
       <table>
         <thead><tr><th>التاريخ</th><th>الزوج / العيار</th><th>شراء</th><th>بيع</th><th>المصدر</th><th>ملاحظات</th></tr></thead>
         <tbody>{history.map(r=><tr key={r.id}>
           <td>{new Date(r.createdAt).toLocaleString("ar-CA")}</td>
           <td>{isGoldRate(r)?goldLabel(r.baseCurrency):`${r.baseCurrency}/${r.quoteCurrency}`}</td>
-          <td>{formatRateValue(r.buyRate)}</td>
-          <td>{formatRateValue(r.sellRate)}</td>
-          <td>{rateSourceLabel(r.source)}</td>
+          <td>{Number(r.buyRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</td>
+          <td>{Number(r.sellRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</td>
+          <td>{r.source==="FRANKFURTER"?"تلقائي":r.source==="EXCHANGE_RATE_API"?"تلقائي SYP":r.source==="GOLD_API"?"تلقائي ذهب":"يدوي"}</td>
           <td>{r.notes||"-"}</td>
         </tr>)}</tbody>
       </table>
     </div>
-  </div>;
+  </>;
 }
 
 
@@ -2495,12 +2341,7 @@ function GeneralDebts(){
       const {data}=await api.get("/general-debts",{params:{type:filter}});
       setData({
         rows:Array.isArray(data?.rows)?data.rows:[],
-        totals:data?.totals||{
-          receivable:0,manualReceivable:0,transferReceivable:0,payable:0,net:0,
-          receivableByCurrency:{CAD:0,USD:0,EUR:0,SYP:0},
-          payableByCurrency:{CAD:0,USD:0,EUR:0,SYP:0},
-          netByCurrency:{CAD:0,USD:0,EUR:0,SYP:0}
-        }
+        totals:data?.totals||{receivable:0,payable:0,net:0}
       });
     }catch(error){
       setMessage(error.response?.data?.message||"تعذر تحميل الديون");
@@ -2556,37 +2397,19 @@ function GeneralDebts(){
   return <>
     <h2>الدَّين العام</h2>
 
-    <div className="debt-currency-summary-grid">
-      {[{
-        code:"CAD",label:"الدولار الكندي",flag:"🇨🇦"
-      },{
-        code:"USD",label:"الدولار الأمريكي",flag:"🇺🇸"
-      },{
-        code:"SYP",label:"الليرة السورية",flag:"🇸🇾"
-      },{
-        code:"EUR",label:"اليورو",flag:"🇪🇺"
-      }].map(({code,label,flag})=>{
-        const receivable=Number(data.totals.receivableByCurrency?.[code]||0);
-        const payable=Number(data.totals.payableByCurrency?.[code]||0);
-        const net=Number(data.totals.netByCurrency?.[code]||0);
-        return <article className={`card debt-currency-card debt-currency-${code.toLowerCase()}`} key={code}>
-          <div className="debt-currency-title">
-            <span className="debt-currency-flag">{flag}</span>
-            <div><strong>{label}</strong><small>{code}</small></div>
-          </div>
-          <div className="debt-currency-main">
-            <span>دين لنا</span>
-            <strong>{money(receivable)} {code}</strong>
-          </div>
-          {code==="CAD"&&<small className="debt-transfer-total">
-            مجموع دين الحوالات: {money(data.totals.transferReceivable||0)} CAD
-          </small>}
-          <div className="debt-currency-details">
-            <span>دين علينا: <b>{money(payable)} {code}</b></span>
-            <span>الصافي: <b>{money(net)} {code}</b></span>
-          </div>
-        </article>;
-      })}
+    <div className="stats">
+      <div className="card receivable-card">
+        <span>دين لنا</span>
+        <strong>{money(data.totals.receivable)}</strong>
+      </div>
+      <div className="card payable-card">
+        <span>دين علينا</span>
+        <strong>{money(data.totals.payable)}</strong>
+      </div>
+      <div className="card final">
+        <span>صافي الديون</span>
+        <strong>{money(data.totals.net)}</strong>
+      </div>
     </div>
 
     <div className="card debt-tabs">
@@ -3262,7 +3085,7 @@ function MonthlyReport(){
   </>;
 }
 
-function NotificationSettings({embedded=false}){
+function NotificationSettings(){
   const [settings,setSettings]=useState({overdueDays:7,lowCashLimit:5000,whatsappTemplate:""});
   const [message,setMessage]=useState("");
 
@@ -3281,11 +3104,10 @@ function NotificationSettings({embedded=false}){
     }
   }
 
-  return <div className={embedded?"settings-alerts-embedded":"notification-settings-page"}>
-    {!embedded&&<h2>إعدادات التنبيهات وواتساب</h2>}
-    {embedded&&<div className="settings-card-title"><span>🔔</span><h3>إعدادات التنبيهات وواتساب</h3></div>}
+  return <>
+    <h2>إعدادات التنبيهات وواتساب</h2>
     {message&&<div className="card rate-message">{message}</div>}
-    <form className={embedded?"settings-form-modern":"card form settings-form"} onSubmit={save}>
+    <form className="card form settings-form" onSubmit={save}>
       <label>بدء تنبيه التأخير بعد عدد الأيام</label>
       <input type="number" min="1" max="365" value={settings.overdueDays}
         onChange={e=>setSettings({...settings,overdueDays:e.target.value})}/>
@@ -3298,11 +3120,11 @@ function NotificationSettings({embedded=false}){
         placeholder="يمكن استخدام: {name} {balance} {days}"/>
       <button>حفظ الإعدادات</button>
     </form>
-    <div className={embedded?"settings-help settings-alert-note":"card"}>
+    <div className="card">
       <strong>ملاحظة:</strong>
       <p>زر واتساب يفتح الرسالة جاهزة للإرسال. الإرسال التلقائي دون ضغط يحتاج ربط WhatsApp Business API رسمي.</p>
     </div>
-  </div>;
+  </>;
 }
 
 
@@ -3315,7 +3137,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:APP_VERSION});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.58 Final"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3408,7 +3230,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:APP_VERSION
+        version:"v15.3.58 Final"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3450,7 +3272,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">{APP_VERSION}</span>
+      <span className="settings-version">v15.3.58 Final</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3526,12 +3348,8 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText(APP_VERSION).then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.58 Final").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
-      </article>
-
-      <article className="settings-card settings-alerts-card">
-        <NotificationSettings embedded/>
       </article>
 
       <article className="settings-card settings-updates-card">
@@ -3627,8 +3445,10 @@ export default function App(){
     content=<PartnerProfile id={partnerId} back={()=>setPartnerId(null)}/>;
   }else if(page==="dashboard"){
     content=<Dashboard navigate={navigate}/>;
-  }else if(page==="customers"||page==="overdue-customers"){
-    content=<Customers open={setCustomerId} onStatement={setStatementCustomerId}/>;
+  }else if(page==="customers"){
+    content=<Customers open={setCustomerId}/>;
+  }else if(page==="overdue-customers"){
+    content=<OverdueCustomers openCustomer={setCustomerId} onStatement={setStatementCustomerId} navigateCustomers={()=>navigate("customers")}/>;
   }else if(page==="partners"){
     content=<Partners open={setPartnerId}/>;
   }else if(page==="transactions"){
@@ -3643,8 +3463,9 @@ export default function App(){
     content=<CapitalOverview/>;
   }else if(page==="monthly-report"){
     content=<MonthlyReport/>;
+  }else if(page==="notification-settings"){
+    content=<NotificationSettings/>;
   }else if(page==="settings"){
-
     content=<SettingsPanel/>;
   }else if(page==="expenses"){
     content=<Simple type="expenses"/>;
@@ -3661,7 +3482,8 @@ export default function App(){
 
   const menu=[
     ["dashboard","⌂ القائمة الرئيسية"],
-    ["customers",`👥 العملاء${overdueCount?` (${overdueCount} متأخر)`:""}`],
+    ["customers","👥 العملاء"],
+    ["overdue-customers",`⏰ العملاء المتأخرون${overdueCount?` (${overdueCount})`:""}`],
     ["partners","🏢 الموردون والشركات"],
     ["transactions","⇄ الحوالات"],
     ["profits","📈 الأرباح"],
@@ -3669,7 +3491,8 @@ export default function App(){
     ["debts","📒 الدَّين العام"],
     ["capital-overview","💰 رأس المال الكلي وحركة رأس المال"],
     ["monthly-report","📊 التقارير الشهرية"],
-    ["settings","⚙️ الإعدادات والتنبيهات"],
+    ["notification-settings","🔔 إعدادات التنبيهات"],
+    ["settings","⚙️ الإعدادات"],
     ["expenses","🧾 المصروفات"]
   ];
 
@@ -3678,13 +3501,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center">
-        <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
-        <div className="mobile-brand-copy">
-          <strong>{companyBrand.name}</strong>
-          <small>{APP_VERSION}</small>
-        </div>
-      </div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/><small>v15.3.58 Final</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -3698,7 +3515,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>{APP_VERSION}</small>
+          <small>v15.3.58 Final Mobile</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

@@ -132,7 +132,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.66",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.4.0",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -426,35 +426,11 @@ app.get("/api/customer-alerts", auth, (_req,res)=>{
         })
         .sort((a,b)=>String(b.paymentDate||b.createdAt).localeCompare(String(a.paymentDate||a.createdAt)));
       const latestAction=latestActionByCustomer.get(customer.id)||null;
-
-      const customerTransactions=(Array.isArray(store.transactions)?store.transactions:[])
-        .filter(item=>item?.customerId===customer.id&&!item.isDeleted&&item.status!=="CANCELLED")
-        .map(transaction=>{
-          const paid=payments
-            .filter(payment=>payment?.transactionId===transaction.id&&!payment.isDeleted)
-            .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
-          return {
-            transaction,
-            remaining:Math.max(safeNumber(transaction.totalCustomerDue)-paid,0)
-          };
-        })
-        .filter(item=>item.remaining>0.0001)
-        .sort((x,y)=>String(y.transaction.transferDate||y.transaction.createdAt||"")
-          .localeCompare(String(x.transaction.transferDate||x.transaction.createdAt||"")));
-
-      const latestUnpaid=customerTransactions[0]||null;
-
       return {
         ...summary,
         lastPaymentDate:customerPayments[0]
           ? String(customerPayments[0].paymentDate||customerPayments[0].createdAt).slice(0,10)
           : null,
-        lastTransferNumber:latestUnpaid?.transaction?.number||null,
-        lastTransferDate:latestUnpaid
-          ? String(latestUnpaid.transaction.transferDate||latestUnpaid.transaction.createdAt||"").slice(0,10)
-          : null,
-        lastTransferAmount:latestUnpaid?+safeNumber(latestUnpaid.transaction.totalCustomerDue).toFixed(2):0,
-        lastTransferRemaining:latestUnpaid?+safeNumber(latestUnpaid.remaining).toFixed(2):0,
         latestAction,
         promiseDate:latestAction?.promiseDate||null,
         expectedAmount:latestAction?.expectedAmount??null,
@@ -735,19 +711,7 @@ app.get("/api/transactions", auth, (_req,res)=>{
   res.json(
     s.transactions
       .filter(t=>!t.isDeleted)
-      .map(t=>{
-        const paidAmount=s.payments
-          .filter(payment=>payment.transactionId===t.id&&!payment.isDeleted)
-          .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
-        const remaining=Math.max(safeNumber(t.totalCustomerDue)-paidAmount,0);
-        return {
-          ...t,
-          customerName:s.customers.find(c=>c.id===t.customerId)?.name||"-",
-          paidAmount:+paidAmount.toFixed(2),
-          remaining:+remaining.toFixed(2),
-          paymentStatus:remaining<=0.001?"PAID":"UNPAID"
-        };
-      })
+      .map(t=>({...t,customerName:s.customers.find(c=>c.id===t.customerId)?.name||"-"}))
       .reverse()
   );
 });
@@ -763,7 +727,6 @@ app.post("/api/transactions", auth, (req,res)=>{
     rateSource="manual",
     rateUpdatedAt=null,
     status="COMPLETED",
-    paymentStatus="UNPAID",
     transferDate=""
   }=req.body||{};
 
@@ -807,41 +770,15 @@ app.post("/api/transactions", auth, (req,res)=>{
       createdBy:req.user.id
     };
     s.transactions.push(t);
-    const normalizedPaymentStatus=String(paymentStatus||"UNPAID").toUpperCase();
-
-    if(normalizedPaymentStatus==="PAID"){
-      s.payments.push({
-        id:id(),
-        transactionId:t.id,
-        customerId:t.customerId,
-        amount:t.totalCustomerDue,
-        method:"CASH",
-        notes:"تم تسجيل الحوالة كمدفوعة عند الإنشاء",
-        reference:"",
-        paymentDate:t.transferDate,
-        date:now(),
-        receivedBy:req.user.id,
-        isDeleted:false,
-        allocationMode:"TRANSFER_INITIAL_FULL"
-      });
-    }
-
     audit(s,req.user.id,"CREATE","TRANSACTION",t.id,{
       currency:t.currency,
       costRate:t.costRate,
       finalRate:t.finalRate,
       rateSource:t.rateSource,
       totalCustomerDue:t.totalCustomerDue,
-      totalProfit:t.totalProfit,
-      paymentStatus:normalizedPaymentStatus
+      totalProfit:t.totalProfit
     });
-
-    return {
-      ...t,
-      paidAmount:normalizedPaymentStatus==="PAID"?t.totalCustomerDue:0,
-      remaining:normalizedPaymentStatus==="PAID"?0:t.totalCustomerDue,
-      paymentStatus:normalizedPaymentStatus==="PAID"?"PAID":"UNPAID"
-    };
+    return t;
   });
 
   res.status(201).json(tx);
@@ -1077,9 +1014,8 @@ app.delete("/api/payments/:id", auth, (req,res)=>{
 
 
 const AUTO_RATE_PAIRS = [
-  ["CAD","USD"], ["USD","CAD"],
-  ["EUR","CAD"], ["GBP","CAD"], ["AED","CAD"], ["TRY","CAD"],
-  ["USD","AED"], ["AED","USD"], ["EUR","USD"], ["USD","EUR"], ["GBP","USD"], ["USD","GBP"]
+  ["CAD","USD"], ["USD","CAD"], ["USD","AED"], ["AED","USD"],
+  ["EUR","USD"], ["USD","EUR"], ["GBP","USD"], ["USD","GBP"]
 ];
 
 const TROY_OUNCE_GRAMS = 31.1034768;
@@ -1093,7 +1029,7 @@ const GOLD_KARATS = [
 async function fetchOfficialRate(baseCurrency, quoteCurrency) {
   const url = `https://api.frankfurter.dev/v2/rate/${encodeURIComponent(baseCurrency)}/${encodeURIComponent(quoteCurrency)}`;
   const response = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.66" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.58" }
   });
   if (!response.ok) throw new Error(`Rate provider returned ${response.status}`);
   const data = await response.json();
@@ -1104,7 +1040,7 @@ async function fetchOfficialRate(baseCurrency, quoteCurrency) {
 
 async function fetchSyrianPoundRate() {
   const response = await fetch("https://open.er-api.com/v6/latest/USD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.66" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.58" }
   });
   if (!response.ok) throw new Error(`SYP provider returned ${response.status}`);
   const data = await response.json();
@@ -1120,7 +1056,7 @@ async function fetchSyrianPoundRate() {
 
 async function fetchGoldPriceCad() {
   const response = await fetch("https://api.gold-api.com/price/XAU/CAD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.66" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.58" }
   });
   if (!response.ok) throw new Error(`Gold provider returned ${response.status}`);
   const data = await response.json();
@@ -1159,7 +1095,6 @@ function saveAutomaticRate({baseCurrency,quoteCurrency,rate,source,notes,sourceD
 
 async function refreshAutomaticRates(userId="SYSTEM") {
   const results = [];
-  const refreshedRates = new Map();
 
   for (const [baseCurrency, quoteCurrency] of AUTO_RATE_PAIRS) {
     try {
@@ -1173,7 +1108,6 @@ async function refreshAutomaticRates(userId="SYSTEM") {
         sourceDate:official.date,
         userId
       });
-      refreshedRates.set(`${baseCurrency}/${quoteCurrency}`, saved.buyRate);
       results.push({ok:true, pair:`${baseCurrency}/${quoteCurrency}`, rate:saved.buyRate, source:"FRANKFURTER"});
     } catch (error) {
       results.push({ok:false, pair:`${baseCurrency}/${quoteCurrency}`, error:error.message});
@@ -1192,21 +1126,6 @@ async function refreshAutomaticRates(userId="SYSTEM") {
       userId
     });
     results.push({ok:true,pair:"USD/SYP",rate:saved.buyRate,source:"EXCHANGE_RATE_API"});
-
-    const usdCadRate=Number(refreshedRates.get("USD/CAD"));
-    if(Number.isFinite(usdCadRate)&&usdCadRate>0){
-      const sypCadRate=+(usdCadRate/syp.rate).toFixed(8);
-      const sypCadSaved=saveAutomaticRate({
-        baseCurrency:"SYP",
-        quoteCurrency:"CAD",
-        rate:sypCadRate,
-        source:"EXCHANGE_RATE_API",
-        notes:"سعر تلقائي مشتق لليرة السورية مقابل الدولار الكندي",
-        sourceDate:syp.updatedAt,
-        userId
-      });
-      results.push({ok:true,pair:"SYP/CAD",rate:sypCadSaved.buyRate,source:"EXCHANGE_RATE_API"});
-    }
   } catch (error) {
     results.push({ok:false,pair:"USD/SYP",error:error.message});
   }
@@ -1382,80 +1301,17 @@ app.get("/api/general-debts", auth, (req,res)=>{
     })
     .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
 
-  // إجمالي الديون المسجلة يدويًا يُحسب من جميع السجلات، حتى عند استخدام تبويب التصفية.
-  const allDebtRows = debts.map((debt)=>{
-    const paid = payments
-      .filter((payment)=>payment.debtId===debt.id)
-      .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
-    return {...debt, remaining:Math.max(safeNumber(debt.amount)-paid,0)};
-  });
-
-  const supportedDebtCurrencies = ["CAD","USD","EUR","SYP"];
-  const emptyCurrencyTotals = ()=>Object.fromEntries(
-    supportedDebtCurrencies.map((currency)=>[currency,0])
-  );
-  const manualReceivableByCurrency = emptyCurrencyTotals();
-  const payableByCurrency = emptyCurrencyTotals();
-
-  allDebtRows.forEach((debt)=>{
-    const currency = String(debt.currency || "CAD").toUpperCase();
-    if (!supportedDebtCurrencies.includes(currency)) return;
-    if (debt.type === "RECEIVABLE") {
-      manualReceivableByCurrency[currency] += safeNumber(debt.remaining);
-    } else if (debt.type === "PAYABLE") {
-      payableByCurrency[currency] += safeNumber(debt.remaining);
-    }
-  });
-
-  const manualReceivable = Object.values(manualReceivableByCurrency)
-    .reduce((sum,value)=>sum+safeNumber(value),0);
-  const payable = Object.values(payableByCurrency)
-    .reduce((sum,value)=>sum+safeNumber(value),0);
-
-  // الحوالات غير المدفوعة أو المدفوعة جزئيًا تدخل تلقائيًا ضمن «دين لنا».
-  const transferReceivable = (Array.isArray(store.transactions) ? store.transactions : [])
-    .filter((transaction)=>!transaction.isDeleted && transaction.status!=="CANCELLED")
-    .reduce((sum,transaction)=>{
-      const paidAmount = (Array.isArray(store.payments) ? store.payments : [])
-        .filter((payment)=>payment.transactionId===transaction.id && !payment.isDeleted)
-        .reduce((paymentSum,payment)=>paymentSum+safeNumber(payment.amount),0);
-      const remaining = Math.max(safeNumber(transaction.totalCustomerDue)-paidAmount,0);
-      return sum+remaining;
-    },0);
-
-  // دين الحوالات محسوب بالدولار الكندي، لذلك يُضاف فقط إلى بطاقة CAD.
-  const receivableByCurrency = {
-    ...manualReceivableByCurrency,
-    CAD: manualReceivableByCurrency.CAD + transferReceivable,
+  const totals = {
+    receivable: rows.filter((x)=>x.type==="RECEIVABLE").reduce((s,x)=>s+safeNumber(x.remaining),0),
+    payable: rows.filter((x)=>x.type==="PAYABLE").reduce((s,x)=>s+safeNumber(x.remaining),0),
   };
-  const netByCurrency = Object.fromEntries(
-    supportedDebtCurrencies.map((currency)=>[
-      currency,
-      safeNumber(receivableByCurrency[currency]) - safeNumber(payableByCurrency[currency])
-    ])
-  );
-  const receivable = Object.values(receivableByCurrency)
-    .reduce((sum,value)=>sum+safeNumber(value),0);
-
-  const roundedCurrencyMap = (values)=>Object.fromEntries(
-    supportedDebtCurrencies.map((currency)=>[
-      currency,
-      +safeNumber(values[currency]).toFixed(2)
-    ])
-  );
 
   res.json({
     rows,
     totals:{
-      receivable:+receivable.toFixed(2),
-      manualReceivable:+manualReceivable.toFixed(2),
-      transferReceivable:+transferReceivable.toFixed(2),
-      payable:+payable.toFixed(2),
-      net:+(receivable-payable).toFixed(2),
-      receivableByCurrency:roundedCurrencyMap(receivableByCurrency),
-      manualReceivableByCurrency:roundedCurrencyMap(manualReceivableByCurrency),
-      payableByCurrency:roundedCurrencyMap(payableByCurrency),
-      netByCurrency:roundedCurrencyMap(netByCurrency),
+      receivable:+totals.receivable.toFixed(2),
+      payable:+totals.payable.toFixed(2),
+      net:+(totals.receivable-totals.payable).toFixed(2),
     }
   });
 });
@@ -2118,7 +1974,7 @@ async function startServer(){
   await initStore();
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v15.3.66 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v15.4.0 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{

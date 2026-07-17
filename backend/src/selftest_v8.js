@@ -25,17 +25,13 @@ setTimeout(async()=>{
   try{
     let r=await req("POST","/api/auth/login",{email:"admin@alaboud.local",password:"Admin123!"});
     ok(r.status===200,"login",r);const token=r.body.token;
-    r=await req("POST","/api/exchange-rates",{baseCurrency:"CAD",quoteCurrency:"USD",buyRate:0.73,sellRate:0.74,notes:"selftest"},token);
-    ok(r.status===201,"create exchange rate",r);
-    r=await req("GET","/api/exchange-rates",null,token);
-    ok(r.status===200&&Array.isArray(r.body)&&r.body.some(x=>x.baseCurrency==="CAD"&&x.quoteCurrency==="USD"),"exchange rate list",r);
     r=await req("POST","/api/customers",{name:"عميل v8"},token);ok(r.status===201,"customer",r);const customerId=r.body.id;
     r=await req("POST","/api/transactions",{customerId,amount:1000,costRate:1.35,finalRate:1.38,transferFee:15,transferDate:"2026-07-13"},token);
     ok(r.status===201,"transaction",r);const txId=r.body.id;
     r=await req("POST",`/api/transactions/${txId}/payments`,{amount:300,paymentDate:"2026-07-14",method:"BANK",reference:"R1"},token);
     ok(r.status===201,"payment",r);const paymentId=r.body.id;
     r=await req("PATCH",`/api/payments/${paymentId}`,{amount:350,notes:"updated"},token);ok(r.status===200,"edit payment",r);
-    r=await req("PATCH",`/api/transactions/${txId}`,{amount:1100,transferFee:20},token);ok(r.status===200&&r.body.totalCustomerDue===1538,"edit transaction",r);
+    r=await req("PATCH",`/api/transactions/${txId}`,{amount:1100,transferFee:20},token);ok(r.status===200&&r.body.totalCustomerDue===1120,"edit transaction",r);
     r=await req("GET",`/api/customers/${customerId}`,null,token);ok(r.status===200&&r.body.payments.length===1,"customer profile",r);
     r=await req("DELETE",`/api/payments/${paymentId}`,null,token);ok(r.status===200,"delete payment",r);
     r=await req("DELETE",`/api/transactions/${txId}`,null,token);ok(r.status===200,"delete transaction",r);

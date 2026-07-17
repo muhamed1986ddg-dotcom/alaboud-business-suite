@@ -1,3 +1,3 @@
-# ALABOUD Frontend v15.3.64 Price Bulletin
+# ALABOUD Android v15.0 Enterprise Live Rates
 
-واجهة الأسعار الموحدة مع لوحة التحكم وبطاقة CAD الأساسية.
+يعرض لوحة أسعار الصرف الاحترافية الجديدة.
