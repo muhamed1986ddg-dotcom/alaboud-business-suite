@@ -4279,3 +4279,22 @@ body.app-language-en aside{
     flex:0 0 42px !important;
   }
 }
+
+
+/* v16.0.5 — Lower the complete mobile menu so the logo is fully visible */
+@media screen and (max-width:800px){
+  .app.mobile-menu-view aside{
+    padding-top:34px !important;
+    scroll-padding-top:34px !important;
+  }
+
+  .app.mobile-menu-view .mobile-menu-heading{
+    top:0 !important;
+    margin-top:0 !important;
+    flex:0 0 82px !important;
+  }
+
+  .app.mobile-menu-view aside > .sidebar-logout-bottom{
+    margin-top:4px !important;
+  }
+}
