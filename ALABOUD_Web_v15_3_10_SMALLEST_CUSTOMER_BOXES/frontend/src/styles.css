@@ -3039,3 +3039,55 @@ aside button.active{
     font-size:15px !important;
   }
 }
+
+/* v16.0.4 — Full logo at top, menu pushed below it, logout directly after menu */
+@media (max-width: 800px) {
+  .app.mobile-menu-view aside {
+    justify-content: flex-start !important;
+    padding-top: 0 !important;
+    scroll-padding-top: 0 !important;
+  }
+
+  .app.mobile-menu-view .mobile-menu-heading {
+    position: relative !important;
+    top: auto !important;
+    height: auto !important;
+    min-height: calc(112px + env(safe-area-inset-top, 0px)) !important;
+    margin: 0 0 10px !important;
+    padding: calc(14px + env(safe-area-inset-top, 0px)) 0 10px !important;
+    overflow: visible !important;
+    flex: 0 0 auto !important;
+  }
+
+  .app.mobile-menu-view .mobile-menu-heading .mobile-logo {
+    width: 86px !important;
+    height: 86px !important;
+    min-width: 86px !important;
+    flex: 0 0 86px !important;
+    object-fit: contain !important;
+    background: #090909 !important;
+  }
+
+  .app.mobile-menu-view .mobile-menu-heading button {
+    top: calc(18px + env(safe-area-inset-top, 0px)) !important;
+    left: 6px !important;
+  }
+
+  .app.mobile-menu-view .sidebar-account-box {
+    flex: 0 0 auto !important;
+    margin: 0 0 8px !important;
+    padding: 10px 12px !important;
+  }
+
+  .app.mobile-menu-view aside > button {
+    flex: 0 0 auto !important;
+  }
+
+  .app.mobile-menu-view aside > button.logout-menu-bottom {
+    margin: 4px 0 0 !important;
+    min-height: 44px !important;
+    color: #fff !important;
+    background: linear-gradient(135deg, #7f1d1d, #b91c1c) !important;
+    border-color: rgba(254, 202, 202, .55) !important;
+  }
+}

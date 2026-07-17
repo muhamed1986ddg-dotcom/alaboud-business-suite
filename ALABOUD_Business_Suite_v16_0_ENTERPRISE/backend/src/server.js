@@ -140,7 +140,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"16.0.0",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"16.0.7",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -164,7 +164,7 @@ app.get("/api/auth/session",auth,(req,res)=>{
   }
 
   res.json({
-    version:"16.0.0",
+    version:"16.0.7",
     user:{
       id:user.id,
       name:user.name,
@@ -1103,7 +1103,7 @@ const GOLD_KARATS = [
 async function fetchOfficialRate(baseCurrency, quoteCurrency) {
   const url = `https://api.frankfurter.dev/v2/rate/${encodeURIComponent(baseCurrency)}/${encodeURIComponent(quoteCurrency)}`;
   const response = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/16.0.0" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/16.0.7" }
   });
   if (!response.ok) throw new Error(`Rate provider returned ${response.status}`);
   const data = await response.json();
@@ -1114,7 +1114,7 @@ async function fetchOfficialRate(baseCurrency, quoteCurrency) {
 
 async function fetchSyrianPoundRate() {
   const response = await fetch("https://open.er-api.com/v6/latest/USD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/16.0.0" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/16.0.7" }
   });
   if (!response.ok) throw new Error(`SYP provider returned ${response.status}`);
   const data = await response.json();
@@ -1130,7 +1130,7 @@ async function fetchSyrianPoundRate() {
 
 async function fetchGoldPriceCad() {
   const response = await fetch("https://api.gold-api.com/price/XAU/CAD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/16.0.0" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/16.0.7" }
   });
   if (!response.ok) throw new Error(`Gold provider returned ${response.status}`);
   const data = await response.json();
@@ -1350,43 +1350,94 @@ app.post("/api/exchange-rates", auth, (req,res)=>{
 app.get("/api/general-debts", auth, (req,res)=>{
   const store = readStore();
   const debts = Array.isArray(store.generalDebts) ? store.generalDebts : [];
-  const payments = Array.isArray(store.generalDebtPayments) ? store.generalDebtPayments : [];
+  const debtPayments = Array.isArray(store.generalDebtPayments) ? store.generalDebtPayments : [];
+  const transactions = (Array.isArray(store.transactions) ? store.transactions : [])
+    .filter((item)=>item && !item.isDeleted && item.status!=="CANCELLED");
+  const payments = (Array.isArray(store.payments) ? store.payments : [])
+    .filter((item)=>item && !item.isDeleted);
+  const customers = Array.isArray(store.customers) ? store.customers : [];
   const type = String(req.query.type || "");
 
-  const rows = debts
-    .filter((debt)=>!type || debt.type===type)
-    .map((debt)=>{
-      const paid = payments
-        .filter((payment)=>payment.debtId===debt.id)
-        .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
-      const amount = safeNumber(debt.amount);
-      const remaining = Math.max(amount-paid,0);
-      let status = debt.status || "OPEN";
-      if (remaining <= 0) status = "PAID";
-      else if (paid > 0) status = "PARTIAL";
-      else if (debt.dueDate && debt.dueDate < new Date().toISOString().slice(0,10)) status = "OVERDUE";
+  const manualRows = debts.map((debt)=>{
+    const paid = debtPayments
+      .filter((payment)=>payment.debtId===debt.id)
+      .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
+    const amount = safeNumber(debt.amount);
+    const remaining = Math.max(amount-paid,0);
+    let status = debt.status || "OPEN";
+    if (remaining <= 0) status = "PAID";
+    else if (paid > 0) status = "PARTIAL";
+    else if (debt.dueDate && debt.dueDate < new Date().toISOString().slice(0,10)) status = "OVERDUE";
 
-      return {
-        ...debt,
-        paid:+paid.toFixed(2),
-        remaining:+remaining.toFixed(2),
-        status,
-      };
-    })
+    return {
+      ...debt,
+      source:"MANUAL",
+      paid:+paid.toFixed(2),
+      remaining:+remaining.toFixed(2),
+      status,
+    };
+  });
+
+  const paidByTransaction = new Map();
+  for (const payment of payments) {
+    paidByTransaction.set(
+      payment.transactionId,
+      safeNumber(paidByTransaction.get(payment.transactionId)) + safeNumber(payment.amount)
+    );
+  }
+
+  const transferRows = transactions.map((transaction)=>{
+    const amount = safeNumber(transaction.totalCustomerDue, transaction.amount);
+    const paid = safeNumber(paidByTransaction.get(transaction.id));
+    const remaining = Math.max(amount-paid,0);
+    if (remaining <= 0.001) return null;
+    const customer = customers.find((item)=>item.id===transaction.customerId);
+    const transferDate = String(transaction.transferDate || transaction.createdAt || "").slice(0,10);
+    return {
+      id:`TRANSFER:${transaction.id}`,
+      type:"RECEIVABLE",
+      partyName:customer?.name || "عميل بدون اسم",
+      amount:+amount.toFixed(2),
+      currency:"CAD",
+      dueDate:transferDate,
+      description:`حوالة غير مدفوعة ${transaction.number || ""}`.trim(),
+      reference:transaction.number || "",
+      status:paid>0?"PARTIAL":"OPEN",
+      source:"TRANSFER",
+      transactionId:transaction.id,
+      customerId:transaction.customerId,
+      createdAt:transaction.createdAt || transaction.transferDate || now(),
+      paid:+paid.toFixed(2),
+      remaining:+remaining.toFixed(2),
+    };
+  }).filter(Boolean);
+
+  const rows = [...manualRows, ...transferRows]
+    .filter((debt)=>!type || debt.type===type)
     .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
 
-  const totals = {
-    receivable: rows.filter((x)=>x.type==="RECEIVABLE").reduce((s,x)=>s+safeNumber(x.remaining),0),
-    payable: rows.filter((x)=>x.type==="PAYABLE").reduce((s,x)=>s+safeNumber(x.remaining),0),
-  };
+  const totalsByCurrency = {};
+  for (const row of rows) {
+    const currency = String(row.currency || "CAD").toUpperCase();
+    if (!totalsByCurrency[currency]) totalsByCurrency[currency] = {receivable:0,payable:0,net:0};
+    if (row.type==="RECEIVABLE") totalsByCurrency[currency].receivable += safeNumber(row.remaining);
+    if (row.type==="PAYABLE") totalsByCurrency[currency].payable += safeNumber(row.remaining);
+    totalsByCurrency[currency].net = totalsByCurrency[currency].receivable - totalsByCurrency[currency].payable;
+  }
+  for (const currency of Object.keys(totalsByCurrency)) {
+    totalsByCurrency[currency] = {
+      receivable:+totalsByCurrency[currency].receivable.toFixed(2),
+      payable:+totalsByCurrency[currency].payable.toFixed(2),
+      net:+totalsByCurrency[currency].net.toFixed(2),
+    };
+  }
 
+  const cadTotals = totalsByCurrency.CAD || {receivable:0,payable:0,net:0};
   res.json({
     rows,
-    totals:{
-      receivable:+totals.receivable.toFixed(2),
-      payable:+totals.payable.toFixed(2),
-      net:+(totals.receivable-totals.payable).toFixed(2),
-    }
+    totals:cadTotals,
+    totalsByCurrency,
+    automaticTransferDebts:transferRows.length
   });
 });
 
@@ -1402,12 +1453,17 @@ app.post("/api/general-debts", auth, (req,res)=>{
   } = req.body || {};
 
   const numericAmount = Number(amount);
+  const normalizedCurrency = String(currency || "CAD").toUpperCase();
+  const supportedDebtCurrencies = ["CAD","USD","EUR","SYP","TRY","SAR","AED","GBP"];
 
   if (!["RECEIVABLE","PAYABLE"].includes(type)) {
     return res.status(400).json({message:"نوع الدين غير صحيح"});
   }
   if (!partyName || !Number.isFinite(numericAmount) || numericAmount <= 0) {
     return res.status(400).json({message:"أدخل اسم الجهة ومبلغًا صحيحًا"});
+  }
+  if (!supportedDebtCurrencies.includes(normalizedCurrency)) {
+    return res.status(400).json({message:"عملة الدين غير مدعومة"});
   }
 
   const debt = mutate((store)=>{
@@ -1416,7 +1472,7 @@ app.post("/api/general-debts", auth, (req,res)=>{
       type,
       partyName:String(partyName),
       amount:numericAmount,
-      currency:String(currency || "CAD").toUpperCase(),
+      currency:normalizedCurrency,
       dueDate:dueDate || "",
       description,
       reference,
@@ -2049,7 +2105,7 @@ async function startServer(){
   await initStore();
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v16.0.0 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v16.0.7 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{

@@ -288,7 +288,7 @@ function Dashboard({navigate}){
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v16.0.5 Enterprise <span>● متصل</span></p></div>
+        <div><h2>شركة العبود التجارية</h2><p>v16.0.7 Enterprise <span>● متصل</span></p></div>
       </div>
       <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
@@ -659,6 +659,74 @@ function Customers({open}){
     return false;
   }
 
+  function showImageShareOptions(blob,file,title="صورة كشف حساب العميل"){
+    const objectUrl=URL.createObjectURL(blob);
+    const overlay=document.createElement("div");
+    overlay.setAttribute("role","dialog");
+    overlay.setAttribute("aria-modal","true");
+    overlay.style.cssText="position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;padding:18px;direction:rtl";
+
+    const card=document.createElement("div");
+    card.style.cssText="width:min(520px,100%);max-height:94vh;overflow:auto;background:#0b1118;border:1px solid #9b7425;border-radius:22px;padding:16px;box-shadow:0 20px 60px rgba(0,0,0,.55);color:#fff";
+
+    const heading=document.createElement("h3");
+    heading.textContent="خيارات إرسال الصورة";
+    heading.style.cssText="margin:0 0 12px;text-align:center;color:#f1c84b;font-size:22px";
+
+    const preview=document.createElement("img");
+    preview.src=objectUrl;
+    preview.alt=title;
+    preview.style.cssText="display:block;width:100%;max-height:55vh;object-fit:contain;background:#05080b;border-radius:14px;border:1px solid #2d3742";
+
+    const actions=document.createElement("div");
+    actions.style.cssText="display:grid;gap:10px;margin-top:14px";
+
+    const makeButton=(label,background="#17202a")=>{
+      const button=document.createElement("button");
+      button.type="button";
+      button.textContent=label;
+      button.style.cssText=`width:100%;border:1px solid #9b7425;border-radius:13px;padding:14px 12px;background:${background};color:#fff;font-size:17px;font-weight:800;cursor:pointer`;
+      return button;
+    };
+
+    const shareButton=makeButton("📤 مشاركة الصورة إلى واتساب أو أي تطبيق","#176b3a");
+    const downloadButton=makeButton("⬇️ حفظ الصورة في الهاتف");
+    const openButton=makeButton("🖼️ فتح الصورة بالحجم الكامل");
+    const closeButton=makeButton("✖ إغلاق","#702b2b");
+
+    const cleanup=()=>{
+      overlay.remove();
+      setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);
+    };
+
+    shareButton.onclick=async()=>{
+      try{
+        if(await openAndroidShareSheet(blob,file,title))return;
+        alert("المتصفح الحالي لا يدعم إرسال ملف الصورة مباشرة. جرّب فتح الموقع في Chrome أو ثبّت التطبيق على الشاشة الرئيسية، أو استخدم زر حفظ الصورة ثم أرسلها من واتساب.");
+      }catch(error){
+        if(error?.name!=="AbortError")alert(error?.message||"تعذر فتح خيارات المشاركة");
+      }
+    };
+
+    downloadButton.onclick=()=>{
+      const link=document.createElement("a");
+      link.href=objectUrl;
+      link.download=file.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    };
+
+    openButton.onclick=()=>window.open(objectUrl,"_blank");
+    closeButton.onclick=cleanup;
+    overlay.onclick=event=>{if(event.target===overlay)cleanup();};
+
+    actions.append(shareButton,downloadButton,openButton,closeButton);
+    card.append(heading,preview,actions);
+    overlay.append(card);
+    document.body.append(overlay);
+  }
+
   function createStatementImage(data,customer){
     const rows=Array.isArray(data.transactions)?data.transactions:[];
     const width=1080,rowHeight=82;
@@ -710,26 +778,7 @@ function Customers({open}){
       const blob=await createStatementImage(data,customer);
       const safe=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safe}.png`,{type:"image/png"});
-      try{
-        if(await openAndroidShareSheet(blob,file,"كشف حساب العميل"))return;
-      }catch(shareError){
-        if(shareError?.name==="AbortError")return;
-        console.warn("Native file share failed",shareError);
-      }
-
-      const url=URL.createObjectURL(blob);
-      const preview=window.open(url,"_blank");
-      if(!preview){
-        const link=document.createElement("a");
-        link.href=url;
-        link.download=file.name;
-        link.target="_blank";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      }
-      setTimeout(()=>URL.revokeObjectURL(url),60000);
-      setError("تم فتح صورة كشف الحساب. اضغط مشاركة واختر واتساب.");
+      showImageShareOptions(blob,file,"كشف حساب العميل");
     }catch(e){
       if(e?.name==="AbortError")return;
       setError(e.response?.data?.message||e.message||"تعذر إنشاء صورة كشف الحساب");
@@ -1428,24 +1477,7 @@ function Customer({id,back,onStatement}){
       const safeName=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safeName}.png`,{type:"image/png"});
 
-      try{
-        if(await openAndroidShareSheet(blob,file,"كشف حساب العميل"))return;
-      }catch(shareError){
-        if(shareError?.name==="AbortError")return;
-        console.warn("Native file share failed",shareError);
-      }
-
-      const url=URL.createObjectURL(blob);
-      const preview=window.open(url,"_blank");
-      if(!preview){
-        const link=document.createElement("a");
-        link.href=url;
-        link.download=file.name;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-      }
-      setTimeout(()=>URL.revokeObjectURL(url),60000);
+      showImageShareOptions(blob,file,"كشف حساب العميل");
     }catch(error){
       setError(error.response?.data?.message||error.message||"تعذر مشاركة صورة كشف الحساب");
     }
@@ -2388,7 +2420,7 @@ function ExchangeRates(){
 
 
 function GeneralDebts(){
-  const [data,setData]=useState({rows:[],totals:{receivable:0,payable:0,net:0}});
+  const [data,setData]=useState({rows:[],totals:{receivable:0,payable:0,net:0},totalsByCurrency:{}});
   const [filter,setFilter]=useState("");
   const [message,setMessage]=useState("");
   const [payment,setPayment]=useState({debtId:"",amount:"",paymentDate:"",notes:""});
@@ -2407,7 +2439,9 @@ function GeneralDebts(){
       const {data}=await api.get("/general-debts",{params:{type:filter}});
       setData({
         rows:Array.isArray(data?.rows)?data.rows:[],
-        totals:data?.totals||{receivable:0,payable:0,net:0}
+        totals:data?.totals||{receivable:0,payable:0,net:0},
+        totalsByCurrency:data?.totalsByCurrency||{},
+        automaticTransferDebts:Number(data?.automaticTransferDebts||0)
       });
     }catch(error){
       setMessage(error.response?.data?.message||"تعذر تحميل الديون");
@@ -2451,7 +2485,7 @@ function GeneralDebts(){
     }
   }
 
-  const openDebts=data.rows.filter(item=>Number(item.remaining||0)>0);
+  const openDebts=data.rows.filter(item=>item.source!=="TRANSFER"&&Number(item.remaining||0)>0);
 
   const statusLabel={
     OPEN:"مفتوح",
@@ -2460,23 +2494,46 @@ function GeneralDebts(){
     OVERDUE:"متأخر"
   };
 
+  const debtCurrencies=[
+    {code:"CAD",label:"الدولار الكندي",flag:"🇨🇦"},
+    {code:"USD",label:"الدولار الأمريكي",flag:"🇺🇸"},
+    {code:"EUR",label:"اليورو",flag:"🇪🇺"},
+    {code:"SYP",label:"الليرة السورية",flag:"🇸🇾"},
+    {code:"TRY",label:"الليرة التركية",flag:"🇹🇷"},
+    {code:"SAR",label:"الريال السعودي",flag:"🇸🇦"},
+    {code:"AED",label:"الدرهم الإماراتي",flag:"🇦🇪"},
+    {code:"GBP",label:"الجنيه الإسترليني",flag:"🇬🇧"}
+  ];
+  const currencyMeta=code=>debtCurrencies.find(item=>item.code===code)||{code,label:code,flag:"💱"};
+  const currencyTotals=Object.entries(data.totalsByCurrency||{});
+
   return <>
     <h2>الدَّين العام</h2>
 
     <div className="stats">
       <div className="card receivable-card">
-        <span>دين لنا</span>
-        <strong>{money(data.totals.receivable)}</strong>
+        <span>دين لنا بالدولار الكندي</span>
+        <strong>{money(data.totals.receivable)} CAD</strong>
+        <small>يشمل الحوالات غير المدفوعة تلقائيًا</small>
       </div>
       <div className="card payable-card">
-        <span>دين علينا</span>
-        <strong>{money(data.totals.payable)}</strong>
+        <span>دين علينا بالدولار الكندي</span>
+        <strong>{money(data.totals.payable)} CAD</strong>
       </div>
       <div className="card final">
-        <span>صافي الديون</span>
-        <strong>{money(data.totals.net)}</strong>
+        <span>صافي الديون بالدولار الكندي</span>
+        <strong>{money(data.totals.net)} CAD</strong>
       </div>
     </div>
+
+    {currencyTotals.length>0&&<div className="debt-currency-totals">
+      {currencyTotals.map(([code,total])=>{const meta=currencyMeta(code);return <div className="card debt-currency-total" key={code}>
+        <strong>{meta.flag} {meta.label}</strong>
+        <span>لنا: {money(total.receivable)} {code}</span>
+        <span>علينا: {money(total.payable)} {code}</span>
+        <span>الصافي: {money(total.net)} {code}</span>
+      </div>})}
+    </div>}
 
     <div className="card debt-tabs">
       <button type="button" onClick={()=>setFilter("")}>الكل</button>
@@ -2510,8 +2567,8 @@ function GeneralDebts(){
       />
 
       <select value={form.currency} onChange={e=>setForm({...form,currency:e.target.value})}>
-        {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=>
-          <option key={currency}>{currency}</option>
+        {debtCurrencies.map(currency=>
+          <option key={currency.code} value={currency.code}>{currency.flag} {currency.label} ({currency.code})</option>
         )}
       </select>
 
@@ -2535,6 +2592,10 @@ function GeneralDebts(){
 
       <button>حفظ الدين</button>
     </form>
+
+    <div className="card debt-auto-note">
+      الحوالات التي حالتها «غير مدفوع» تظهر تلقائيًا ضمن «دين لنا» بعملة CAD، وتُخصم تلقائيًا عند تسجيل دفعة للعميل.
+    </div>
 
     {openDebts.length>0&&
       <form className="card form" onSubmit={addPayment}>
@@ -2590,6 +2651,7 @@ function GeneralDebts(){
             <th>الاستحقاق</th>
             <th>الحالة</th>
             <th>المرجع</th>
+            <th>المصدر</th>
           </tr>
         </thead>
         <tbody>
@@ -2609,9 +2671,10 @@ function GeneralDebts(){
                 <td>{item.dueDate||"-"}</td>
                 <td>{statusLabel[item.status]||item.status}</td>
                 <td>{item.reference||"-"}</td>
+                <td>{item.source==="TRANSFER"?"حوالة غير مدفوعة تلقائيًا":"دين مضاف يدويًا"}</td>
               </tr>
             )
-            :<tr><td colSpan="9">لا توجد ديون مسجلة.</td></tr>
+            :<tr><td colSpan="10">لا توجد ديون مسجلة.</td></tr>
           }
         </tbody>
       </table>
@@ -3203,7 +3266,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v16.0.5 Enterprise"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v16.0.7 Enterprise"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3296,7 +3359,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v16.0.5 Enterprise"
+        version:"v16.0.7 Enterprise"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3338,7 +3401,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v16.0.5 Enterprise</span>
+      <span className="settings-version">v16.0.7 Enterprise</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3419,7 +3482,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v16.0.5 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v16.0.7 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3599,7 +3662,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v16.0.5 Enterprise</small>
+          <small>v16.0.7 Enterprise</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3615,7 +3678,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v16.0.5 Enterprise</small>
+          <small>v16.0.7 Enterprise</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

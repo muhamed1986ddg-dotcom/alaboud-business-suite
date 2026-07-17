@@ -2315,7 +2315,7 @@ export default function App(){
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
       </button>
-      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v13.3 Final</small></div>
+      <div className="mobile-brand-center"><img className="mobile-header-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><small>v16.0.4 Enterprise</small></div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
         <span className="mobile-header-icon">⌂</span><span>الرئيسية</span>
       </button>
@@ -2329,15 +2329,15 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>شركة العبود التجارية</strong>
-          <small>v13.3 Final Mobile</small>
+          <small>v16.0.4 Enterprise</small>
         </div>
-        <button className="logout-top" onClick={()=>setLogoutConfirm(true)}>🚪 تسجيل الخروج</button>
       </div>
       {menu.map(([key,label])=><button
         key={key}
         className={page===key&&!customerId&&!invoiceId&&!statementCustomerId&&!partnerId?"active":""}
         onClick={()=>navigate(key)}
       >{label}</button>)}
+      <button className="logout logout-menu-bottom no-print" onClick={()=>setLogoutConfirm(true)}>🚪 تسجيل الخروج</button>
       {logoutConfirm&&<div className="logout-confirm-overlay no-print" onClick={()=>setLogoutConfirm(false)}>
         <div className="logout-confirm-card" onClick={e=>e.stopPropagation()}>
           <h3>تسجيل الخروج</h3>
