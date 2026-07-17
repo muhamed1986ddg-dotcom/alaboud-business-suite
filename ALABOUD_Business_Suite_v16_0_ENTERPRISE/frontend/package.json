@@ -1,6 +1,6 @@
 {
   "name": "alaboud-stable-frontend",
-  "version": "16.0.10",
+  "version": "16.0.11",
   "private": true,
   "type": "module",
   "scripts": {

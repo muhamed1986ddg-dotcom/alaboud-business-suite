@@ -92,7 +92,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/16.0.10"
+            userAgentString = "$userAgentString AlAboudMobile/16.0.11"
         }
 
         CookieManager.getInstance().apply {
@@ -557,7 +557,7 @@ class MainActivity : AppCompatActivity() {
                 if (base64Data.isBlank()) throw IllegalArgumentException("Invalid image data")
                 val bytes = Base64.decode(base64Data, Base64.DEFAULT)
                 val shareDir = File(activity.cacheDir, "shared_statements").apply { mkdirs() }
-                val safeName = fileName.replace(Regex("[^\p{L}\p{N}._-]"), "-")
+                val safeName = fileName.replace(Regex("""[^\p{L}\p{N}._-]"""), "-")
                 val imageFile = File(shareDir, if (safeName.endsWith(".png")) safeName else "$safeName.png")
                 imageFile.writeBytes(bytes)
                 val contentUri = FileProvider.getUriForFile(
