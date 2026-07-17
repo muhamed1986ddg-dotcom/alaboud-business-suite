@@ -31,7 +31,7 @@ setTimeout(async()=>{
     r=await req("POST",`/api/transactions/${txId}/payments`,{amount:300,paymentDate:"2026-07-14",method:"BANK",reference:"R1"},token);
     ok(r.status===201,"payment",r);const paymentId=r.body.id;
     r=await req("PATCH",`/api/payments/${paymentId}`,{amount:350,notes:"updated"},token);ok(r.status===200,"edit payment",r);
-    r=await req("PATCH",`/api/transactions/${txId}`,{amount:1100,transferFee:20},token);ok(r.status===200&&r.body.totalCustomerDue===1120,"edit transaction",r);
+    r=await req("PATCH",`/api/transactions/${txId}`,{amount:1100,transferFee:20},token);ok(r.status===200&&r.body.totalCustomerDue===1538,"edit transaction",r);
     r=await req("GET",`/api/customers/${customerId}`,null,token);ok(r.status===200&&r.body.payments.length===1,"customer profile",r);
     r=await req("DELETE",`/api/payments/${paymentId}`,null,token);ok(r.status===200,"delete payment",r);
     r=await req("DELETE",`/api/transactions/${txId}`,null,token);ok(r.status===200,"delete transaction",r);

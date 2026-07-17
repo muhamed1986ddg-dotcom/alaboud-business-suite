@@ -118,7 +118,7 @@ const APP_EN_TRANSLATIONS={
   "لا توجد حوالات.":"No transfers.","لا توجد حوالات في هذا الشهر.":"No transfers this month.",
   "العميل":"Customer","التاريخ":"Date","الرقم":"Number","الأجور":"Fees","الربح":"Profit",
   "تفاصيل حوالات الشهر":"Monthly Transfer Details","أكثر العملاء تعاملًا خلال الشهر":"Top Customers This Month",
-  "إجمالي الحوالات":"Total Transfers","جاري التحميل...":"Loading...","حدث خطأ في الصفحة":"Page Error",
+  "جاري التحميل...":"Loading...","حدث خطأ في الصفحة":"Page Error",
   "إعادة تحميل البرنامج":"Reload Application"
 };
 
@@ -288,7 +288,7 @@ function Dashboard({navigate}){
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v15.3.77 Live Data Sync <span>● متصل</span></p></div>
+        <div><h2>شركة العبود التجارية</h2><p>v15.5.0 Live Data Sync <span>● متصل</span></p></div>
       </div>
       <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
@@ -424,8 +424,7 @@ function Customers({open}){
     transferDate:new Date().toISOString().slice(0,10),
     rateMode:"auto",
     rateSource:"exchange-rates",
-    rateUpdatedAt:null,
-    paymentStatus:"UNPAID"
+    rateUpdatedAt:null
   });
   const [selectedRateMeta,setSelectedRateMeta]=useState(null);
 
@@ -564,16 +563,6 @@ function Customers({open}){
         rateSource:transferForm.rateMode==="auto"?"exchange-rates":"manual",
         rateUpdatedAt:transferForm.rateUpdatedAt||selectedRateMeta?.createdAt||null
       });
-
-      const createdTransaction=transactionResponse.data;
-      if(transferForm.paymentStatus==="PAID"&&createdTransaction?.id&&Number(createdTransaction.totalCustomerDue)>0){
-        await api.post(`/transactions/${createdTransaction.id}/payments`,{
-          amount:Number(createdTransaction.totalCustomerDue),
-          paymentDate:transferForm.transferDate||new Date().toISOString().slice(0,10),
-          method:"CASH",
-          notes:"تم تسجيل الحوالة كمدفوعة عند الإنشاء"
-        });
-      }
 
       setTransferForm({
         customerId:"",
@@ -3157,7 +3146,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.3.77 Live Data Sync"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v15.5.0 Live Data Sync"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3250,7 +3239,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v15.3.77 Live Data Sync"
+        version:"v15.5.0 Live Data Sync"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3292,7 +3281,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v15.3.77 Live Data Sync</span>
+      <span className="settings-version">v15.5.0 Live Data Sync</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3368,7 +3357,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.3.77 Live Data Sync").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v15.5.0 Live Data Sync").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3389,7 +3378,7 @@ function SettingsPanel(){
 
 function Simple({type}){const[list,setList]=useState([]),[title,setTitle]=useState(""),[amount,setAmount]=useState(""),[move,setMove]=useState("IN");const endpoint=type==="expenses"?"/expenses":"/capital";const load=()=>api.get(endpoint).then(r=>setList(r.data));useEffect(()=>{load();},[type]);async function add(e){e.preventDefault();await api.post(endpoint,type==="expenses"?{title,amount}:{type:move,amount,description:title});setTitle("");setAmount("");load();}return <><h2>{type==="expenses"?"المصروفات":"رأس المال"}</h2><form className="card form" onSubmit={add}>{type==="capital"&&<select value={move} onChange={e=>setMove(e.target.value)}><option value="IN">زيادة</option><option value="OUT">سحب</option></select>}<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="الوصف" required/><input type="number" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="المبلغ" required/><button>حفظ</button></form><div className="card tablewrap"><table><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.title||x.description}</td><td>{x.type||x.category}</td><td>{money(x.amount)}</td></tr>)}</tbody></table></div></>}
 export default function App(){
-  const sessionFixVersion="15.3.77";
+  const sessionFixVersion="15.5.0";
   const savedSessionFix=localStorage.getItem("alaboud_session_fix_version");
 
   if(savedSessionFix!==sessionFixVersion){
@@ -3540,7 +3529,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.77 Live Data Sync</small>
+          <small>v15.5.0 Live Data Sync</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3556,7 +3545,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v15.3.77 Live Data Sync</small>
+          <small>v15.5.0 Live Data Sync</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
