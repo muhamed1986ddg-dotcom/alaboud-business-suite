@@ -92,7 +92,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/14.0"
+            userAgentString = "$userAgentString AlAboudMobile/16.0.10"
         }
 
         CookieManager.getInstance().apply {
@@ -543,6 +543,15 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun shareImageToWhatsApp(dataUrl: String, fileName: String) {
+            shareImageInternal(dataUrl, fileName, "صورة كشف حساب العميل")
+        }
+
+        @JavascriptInterface
+        fun shareImage(dataUrl: String, fileName: String, title: String) {
+            shareImageInternal(dataUrl, fileName, title)
+        }
+
+        private fun shareImageInternal(dataUrl: String, fileName: String, title: String) {
             try {
                 val base64Data = dataUrl.substringAfter("base64,", "")
                 if (base64Data.isBlank()) throw IllegalArgumentException("Invalid image data")
@@ -561,9 +570,9 @@ class MainActivity : AppCompatActivity() {
                     val baseIntent = Intent(Intent.ACTION_SEND).apply {
                         type = "image/png"
                         putExtra(Intent.EXTRA_STREAM, contentUri)
-                        putExtra(Intent.EXTRA_SUBJECT, "صورة كشف حساب العميل")
+                        putExtra(Intent.EXTRA_SUBJECT, title)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        clipData = android.content.ClipData.newRawUri("كشف حساب العميل", contentUri)
+                        clipData = android.content.ClipData.newRawUri(title, contentUri)
                     }
 
                     try {
@@ -581,7 +590,7 @@ class MainActivity : AppCompatActivity() {
 
                         val chooserIntent = Intent.createChooser(
                             baseIntent,
-                            "إرسال صورة كشف الحساب"
+                            title
                         ).apply {
                             if (initialIntents.isNotEmpty()) {
                                 putExtra(Intent.EXTRA_INITIAL_INTENTS, initialIntents.toTypedArray())
