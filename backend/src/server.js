@@ -12,14 +12,6 @@ const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: "1mb" }));
 
-app.use("/api",(_req,res,next)=>{
-  res.setHeader("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
-  res.setHeader("Pragma","no-cache");
-  res.setHeader("Expires","0");
-  res.setHeader("Surrogate-Control","no-store");
-  next();
-});
-
 function seedAdmin(){
   mutate((store)=>{
     let company=store.companies.find(item=>item.slug==="alaboud-primary");
@@ -140,7 +132,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.78",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"15.3.58",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -152,33 +144,6 @@ app.post("/api/auth/login",(req,res)=>{
   if(!company)return res.status(403).json({message:"Company account is inactive"});
   const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId},JWT_SECRET,{expiresIn:"30d"});
   res.json({token,user:{id:user.id,name:user.name,email:user.email,role:user.role,companyId:user.companyId,companyName:company.name}});
-});
-
-app.get("/api/auth/session",auth,(req,res)=>{
-  const store=readStore();
-  const user=store.users.find(item=>item.id===req.user.id&&item.active);
-  const company=store.companies.find(item=>item.id===req.user.companyId&&item.active);
-
-  if(!user||!company){
-    return res.status(401).json({message:"الجلسة غير صالحة، يرجى تسجيل الدخول مجددًا"});
-  }
-
-  res.json({
-    version:"15.3.78",
-    user:{
-      id:user.id,
-      name:user.name,
-      email:user.email,
-      role:user.role,
-      companyId:company.id,
-      companyName:company.name
-    },
-    liveData:{
-      customers:(store.customers||[]).filter(item=>!item.isDeleted).length,
-      transactions:(store.transactions||[]).filter(item=>!item.isDeleted).length,
-      payments:(store.payments||[]).filter(item=>!item.isDeleted).length
-    }
-  });
 });
 
 app.post("/api/auth/register-company",(req,res)=>{
@@ -746,19 +711,7 @@ app.get("/api/transactions", auth, (_req,res)=>{
   res.json(
     s.transactions
       .filter(t=>!t.isDeleted)
-      .map(t=>{
-        const paidAmount=s.payments
-          .filter(payment=>payment.transactionId===t.id&&!payment.isDeleted)
-          .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
-        const remaining=Math.max(safeNumber(t.totalCustomerDue)-paidAmount,0);
-        return {
-          ...t,
-          customerName:s.customers.find(c=>c.id===t.customerId)?.name||"-",
-          paidAmount:+paidAmount.toFixed(2),
-          remaining:+remaining.toFixed(2),
-          paymentStatus:remaining<=0.001?"PAID":"UNPAID"
-        };
-      })
+      .map(t=>({...t,customerName:s.customers.find(c=>c.id===t.customerId)?.name||"-"}))
       .reverse()
   );
 });
@@ -774,7 +727,6 @@ app.post("/api/transactions", auth, (req,res)=>{
     rateSource="manual",
     rateUpdatedAt=null,
     status="COMPLETED",
-    paymentStatus="UNPAID",
     transferDate=""
   }=req.body||{};
 
@@ -818,41 +770,15 @@ app.post("/api/transactions", auth, (req,res)=>{
       createdBy:req.user.id
     };
     s.transactions.push(t);
-
-    const normalizedPaymentStatus=String(paymentStatus||"UNPAID").toUpperCase();
-    if(normalizedPaymentStatus==="PAID"){
-      s.payments.push({
-        id:id(),
-        transactionId:t.id,
-        customerId:t.customerId,
-        amount:t.totalCustomerDue,
-        method:"CASH",
-        notes:"تم تسجيل الحوالة كمدفوعة عند الإنشاء",
-        reference:"",
-        paymentDate:t.transferDate,
-        date:now(),
-        receivedBy:req.user.id,
-        isDeleted:false,
-        allocationMode:"TRANSFER_INITIAL_FULL"
-      });
-    }
-
     audit(s,req.user.id,"CREATE","TRANSACTION",t.id,{
       currency:t.currency,
       costRate:t.costRate,
       finalRate:t.finalRate,
       rateSource:t.rateSource,
       totalCustomerDue:t.totalCustomerDue,
-      totalProfit:t.totalProfit,
-      paymentStatus:normalizedPaymentStatus
+      totalProfit:t.totalProfit
     });
-
-    return {
-      ...t,
-      paidAmount:normalizedPaymentStatus==="PAID"?t.totalCustomerDue:0,
-      remaining:normalizedPaymentStatus==="PAID"?0:t.totalCustomerDue,
-      paymentStatus:normalizedPaymentStatus==="PAID"?"PAID":"UNPAID"
-    };
+    return t;
   });
 
   res.status(201).json(tx);
@@ -1103,7 +1029,7 @@ const GOLD_KARATS = [
 async function fetchOfficialRate(baseCurrency, quoteCurrency) {
   const url = `https://api.frankfurter.dev/v2/rate/${encodeURIComponent(baseCurrency)}/${encodeURIComponent(quoteCurrency)}`;
   const response = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.78" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.58" }
   });
   if (!response.ok) throw new Error(`Rate provider returned ${response.status}`);
   const data = await response.json();
@@ -1114,7 +1040,7 @@ async function fetchOfficialRate(baseCurrency, quoteCurrency) {
 
 async function fetchSyrianPoundRate() {
   const response = await fetch("https://open.er-api.com/v6/latest/USD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.78" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.58" }
   });
   if (!response.ok) throw new Error(`SYP provider returned ${response.status}`);
   const data = await response.json();
@@ -1130,7 +1056,7 @@ async function fetchSyrianPoundRate() {
 
 async function fetchGoldPriceCad() {
   const response = await fetch("https://api.gold-api.com/price/XAU/CAD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.78" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/15.3.58" }
   });
   if (!response.ok) throw new Error(`Gold provider returned ${response.status}`);
   const data = await response.json();
@@ -2032,7 +1958,6 @@ app.get("/", (_req, res) => {
 app.use((req, res, next) => {
   if (req.path.startsWith("/api/")) return next();
   if (!fs.existsSync(indexFile)) return res.status(404).send("Not Found");
-  res.setHeader("Cache-Control","no-store, no-cache, must-revalidate");
   return res.sendFile(indexFile);
 });
 
@@ -2049,7 +1974,7 @@ async function startServer(){
   await initStore();
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v15.3.78 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v15.3.58 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{
