@@ -4302,4 +4302,9 @@ body.app-language-en aside{
 
 /* v16.0.7 — General debts: automatic unpaid transfers and multi-currency totals */
 .debt-currency-totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:12px 0}.debt-currency-total{display:flex;flex-direction:column;gap:7px}.debt-currency-total strong{font-size:1rem}.debt-currency-total span{font-weight:700}.debt-auto-note{border-inline-start:4px solid #d4af37;line-height:1.8}.receivable-card small{display:block;margin-top:6px;opacity:.78}
-.premium-dashboard>.premium-kpis,.premium-dashboard>.dashboard-pro-analysis,.premium-dashboard>.premium-quick,.premium-dashboard>.premium-alert-strip{display:none!important}.premium-dashboard>.premium-grid{grid-template-columns:1fr!important}.premium-dashboard>.premium-grid>.premium-recent{display:none!important}.premium-dashboard .dashboard-rate-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+
+/* v16.0.14: backup inside settings and statement image save */
+.settings-backup-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:14px 0}
+.settings-restore-button,.statement-save-image-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid rgba(216,163,63,.55);background:rgba(216,163,63,.10);color:inherit;border-radius:12px;padding:11px 16px;cursor:pointer;font-weight:700}
+.settings-restore-button input{display:none}
+.statement-save-image-button{width:100%;margin-top:8px}

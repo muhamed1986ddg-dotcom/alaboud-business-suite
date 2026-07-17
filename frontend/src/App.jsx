@@ -118,7 +118,7 @@ const APP_EN_TRANSLATIONS={
   "لا توجد حوالات.":"No transfers.","لا توجد حوالات في هذا الشهر.":"No transfers this month.",
   "العميل":"Customer","التاريخ":"Date","الرقم":"Number","الأجور":"Fees","الربح":"Profit",
   "تفاصيل حوالات الشهر":"Monthly Transfer Details","أكثر العملاء تعاملًا خلال الشهر":"Top Customers This Month",
-  "إجمالي الحوالات":"Total Transfers","جاري التحميل...":"Loading...","حدث خطأ في الصفحة":"Page Error",
+  "جاري التحميل...":"Loading...","حدث خطأ في الصفحة":"Page Error",
   "إعادة تحميل البرنامج":"Reload Application"
 };
 
@@ -241,7 +241,6 @@ function Login({onLogin}){
   </div>
 }
 function Dashboard({navigate}){
-  const dashboardCurrencies=["USD","CAD","EUR","TRY","SYP","SAR","JOD"];
   const [data,setData]=useState(null);
   const [noticeData,setNoticeData]=useState({count:0,overdueCount:0,overdueTotal:0,notifications:[]});
   const [recent,setRecent]=useState([]);
@@ -267,7 +266,16 @@ function Dashboard({navigate}){
         const rows=Array.isArray(transactionsResponse.data)?transactionsResponse.data:[];
         setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
         const rateRows=Array.isArray(ratesResponse.data)?ratesResponse.data:[];
-        setDashboardRates(rateRows.slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))));
+        const dashboardCurrencyOrder=["USD","CAD","EUR","TRY","SYP","SAR","JOD"];
+        const latestByCurrency=new Map();
+        rateRows
+          .filter(rate=>dashboardCurrencyOrder.includes(String(rate.baseCurrency||"").toUpperCase()))
+          .sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")))
+          .forEach(rate=>{
+            const code=String(rate.baseCurrency||"").toUpperCase();
+            if(!latestByCurrency.has(code))latestByCurrency.set(code,rate);
+          });
+        setDashboardRates(dashboardCurrencyOrder.map(code=>latestByCurrency.get(code)).filter(Boolean));
         setDashboardRateHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
       }catch{}
     };
@@ -277,7 +285,6 @@ function Dashboard({navigate}){
   },[]);
 
   if(!data)return <div className="premium-loading">جاري تحميل لوحة التحكم…</div>;
-  const latest=new Map();for(const r of dashboardRates){const c=String(r.baseCurrency||"").toUpperCase();if(dashboardCurrencies.includes(c)&&!latest.has(c))latest.set(c,r)}const displayRates=dashboardCurrencies.map(c=>c==="CAD"?{id:c,baseCurrency:c,quoteCurrency:c,buyRate:1,sellRate:1}:(latest.get(c)||{id:c,baseCurrency:c,quoteCurrency:"CAD",missing:true}));
 
   const kpis=[
     {label:"إجمالي الحوالات",value:data.todayTransactions||0,icon:"💱",tone:"green",note:"حوالات اليوم"},
@@ -328,7 +335,7 @@ function Dashboard({navigate}){
           <button onClick={()=>navigate("rates")}>عرض الكل</button>
         </div>
         <div className="dashboard-rate-list">
-          {displayRates.map(rate=><button
+          {dashboardRates.length?dashboardRates.map(rate=><button
             className="dashboard-rate-row"
             key={rate.id||`${rate.baseCurrency}-${rate.quoteCurrency}`}
             onClick={()=>navigate("rates")}
@@ -341,10 +348,11 @@ function Dashboard({navigate}){
                   <span>{rate.baseCurrency}/{rate.quoteCurrency}</span>
                   <span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol}</span>
                 </strong>
-                <span>شراء <b>{rate.missing?"—":Number(rate.buyRate||0).toFixed(4)}</b></span><span>بيع <b>{rate.missing?"—":Number(rate.sellRate||0).toFixed(4)}</b></span>
+                <span>شراء <b>{Number(rate.buyRate||0).toFixed(4)}</b></span>
+                <span>بيع <b>{Number(rate.sellRate||0).toFixed(4)}</b></span>
               </>;
             })()}
-          </button>)}
+          </button>):<p className="empty-state">لا توجد أسعار صرف مسجلة.</p>}
         </div>
       </div>
     </section>
@@ -360,7 +368,7 @@ function Dashboard({navigate}){
         <div className="dashboard-pro-legend"><span>● إجمالي الحوالات (CAD)</span><span>● إجمالي الأرباح</span></div>
       </div>
       <div className="dashboard-pro-finance panel-dark">
-        <div className="section-heading"><h3>حركة رأس المال</h3><button onClick={()=>navigate("capital")}>عرض الكل</button></div>
+        <div className="section-heading"><h3>⚖️ الميزانية</h3><button onClick={()=>navigate("capital-overview")}>عرض الكل</button></div>
         <p><span>الرصيد الحالي</span><strong>{cad(data.capital||0)}</strong></p>
         <p><span>الذمم المستحقة</span><strong>{cad(data.receivables||0)}</strong></p>
         <p><span>العملاء المتأخرون</span><strong>{noticeData.overdueCount||0}</strong></p>
@@ -1297,7 +1305,7 @@ function Customer({id,back,onStatement}){
     }
   }
 
-  async function shareCustomerStatement(mode="share"){
+  async function shareCustomerStatement(action="share"){
     try{
       const response=await api.get(`/customers/${id}/statement`);
       const statement=response.data||{};
@@ -1407,7 +1415,19 @@ function Customer({id,back,onStatement}){
 
       const safeName=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safeName}.png`,{type:"image/png"});
-      if(mode==="save"){const u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=file.name;a.click();URL.revokeObjectURL(u);return}if(window.AlAboudNative?.shareImageToWhatsApp){window.AlAboudNative.shareImageToWhatsApp(canvas.toDataURL("image/png"),file.name);return}
+
+      if(action==="save"){
+        const saveUrl=URL.createObjectURL(blob);
+        const saveLink=document.createElement("a");
+        saveLink.href=saveUrl;
+        saveLink.download=file.name;
+        document.body.appendChild(saveLink);
+        saveLink.click();
+        saveLink.remove();
+        setTimeout(()=>URL.revokeObjectURL(saveUrl),30000);
+        setError("تم حفظ صورة كشف الحساب");
+        return;
+      }
 
       if(navigator.share){
         try{
@@ -1489,7 +1509,8 @@ function Customer({id,back,onStatement}){
       <button onClick={back}>رجوع</button>
       <button onClick={()=>onStatement(id)}>كشف حساب العميل</button>
       <button className="whatsapp-text-button" onClick={shareCustomerStatementText}>💬 إرسال رسالة نصية عبر واتساب</button>
-      <button className="whatsapp-image-button" onClick={()=>shareCustomerStatement("share")}>📤 مشاركة صورة كشف الحساب</button><button onClick={()=>shareCustomerStatement("save")}>💾 حفظ الصورة</button>
+      <button className="whatsapp-image-button" onClick={()=>shareCustomerStatement("share")}>📤 مشاركة صورة كشف الحساب</button>
+      <button className="statement-save-image-button" onClick={()=>shareCustomerStatement("save")}>💾 حفظ الصورة</button>
     </div>
 
     <h2>{customer.name||"العميل"}</h2>
@@ -2425,7 +2446,7 @@ function GeneralDebts(){
     if(!payment.debtId||!payment.amount)return;
     setMessage("");
     try{
-      if(String(payment.debtId).startsWith("TRANSFER:"))await api.post(`/transactions/${String(payment.debtId).slice(9)}/payments`,payment);else await api.post(`/general-debts/${payment.debtId}/payments`,payment);
+      await api.post(`/general-debts/${payment.debtId}/payments`,payment);
       setPayment({debtId:"",amount:"",paymentDate:"",notes:""});
       setMessage("تم تسجيل الدفعة");
       await load();
@@ -2911,7 +2932,7 @@ function CapitalOverview(){
 
   return <>
     <div className="page-title-row">
-      <h2>💰 الميزانية وحركة رأس المال</h2>
+      <h2>⚖️ الميزانية</h2>
       <button className="no-print" onClick={()=>window.print()}>طباعة التقرير</button>
     </div>
 
@@ -3191,6 +3212,8 @@ function SettingsPanel(){
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
   const [companySaving,setCompanySaving]=useState(false);
+  const [backupBusy,setBackupBusy]=useState(false);
+  const [lastBackupAt,setLastBackupAt]=useState(localStorage.getItem("alaboud_last_backup_at")||"");
 
   useEffect(()=>{
     api.get("/company-profile").then(({data})=>setCompanyProfile(data)).catch(()=>{});
@@ -3286,7 +3309,40 @@ function SettingsPanel(){
     }
   }
 
-  async function downloadBackup(){const r=await api.get("/settings/backup",{responseType:"blob"});const u=URL.createObjectURL(r.data),a=document.createElement("a");a.href=u;a.download="alaboud-backup.json";a.click();URL.revokeObjectURL(u)}async function restoreBackup(e){const f=e.target.files?.[0];if(f&&confirm("استبدال البيانات الحالية؟"))await api.post("/settings/restore",JSON.parse(await f.text()))}
+  async function downloadBackup(){
+    setBackupBusy(true);setMessage("");
+    try{
+      const response=await api.get("/backup",{responseType:"blob"});
+      const blob=new Blob([response.data],{type:"application/json"});
+      const url=URL.createObjectURL(blob);
+      const link=document.createElement("a");
+      const stamp=new Date().toISOString().replace(/[:.]/g,"-");
+      link.href=url;link.download=`alaboud-backup-${stamp}.json`;
+      document.body.appendChild(link);link.click();link.remove();
+      URL.revokeObjectURL(url);
+      const savedAt=new Date().toISOString();
+      localStorage.setItem("alaboud_last_backup_at",savedAt);
+      setLastBackupAt(savedAt);
+      setMessage("تم إنشاء وتنزيل النسخة الاحتياطية بنجاح");
+    }catch(error){setMessage(error.response?.data?.message||"تعذر إنشاء النسخة الاحتياطية")}
+    finally{setBackupBusy(false)}
+  }
+
+  async function restoreBackup(event){
+    const file=event.target.files?.[0];
+    event.target.value="";
+    if(!file)return;
+    if(!window.confirm("سيتم استبدال بيانات هذه الشركة بمحتوى النسخة الاحتياطية. هل تريد المتابعة؟"))return;
+    setBackupBusy(true);setMessage("");
+    try{
+      const payload=JSON.parse(await file.text());
+      const response=await api.post("/backup/restore",payload);
+      setMessage(response.data?.message||"تمت استعادة النسخة الاحتياطية بنجاح");
+      setTimeout(()=>window.location.reload(),900);
+    }catch(error){setMessage(error.response?.data?.message||error.message||"تعذر استعادة النسخة الاحتياطية")}
+    finally{setBackupBusy(false)}
+  }
+
   const labels=language==="ar"
     ?{
       title:"الإعدادات",
@@ -3328,6 +3384,18 @@ function SettingsPanel(){
     {message&&<div className="card settings-message">{message}</div>}
 
     <div className="settings-grid">
+      <article className="settings-card settings-backup-card">
+        <div className="settings-card-title"><span>💾</span><h3>النسخ الاحتياطي</h3></div>
+        <p className="settings-help">تنزيل نسخة كاملة من بيانات شركتك أو استعادتها لاحقًا.</p>
+        <div className="settings-backup-actions">
+          <button type="button" className="settings-primary-button" onClick={downloadBackup} disabled={backupBusy}>{backupBusy?"جاري التنفيذ...":"إنشاء نسخة احتياطية"}</button>
+          <label className="settings-restore-button">استعادة نسخة احتياطية
+            <input type="file" accept="application/json,.json" onChange={restoreBackup} disabled={backupBusy}/>
+          </label>
+        </div>
+        <small>آخر نسخة: {lastBackupAt?new Date(lastBackupAt).toLocaleString("ar-CA"):"لم يتم إنشاء نسخة بعد"}</small>
+      </article>
+
       <article className="settings-card">
         <div className="settings-card-title"><span>🌐</span><h3>{labels.language}</h3></div>
         <div className="settings-choice-grid">
@@ -3354,7 +3422,6 @@ function SettingsPanel(){
         <div className="settings-card-title"><span>🔔</span><h3>إعدادات التنبيهات وواتساب</h3></div>
         <NotificationSettings embedded />
       </article>
-      <article className="settings-card"><h3>🗄️ النسخ الاحتياطي</h3><button type="button" onClick={downloadBackup}>حفظ نسخة</button><label className="company-logo-upload">استعادة<input type="file" accept=".json" onChange={restoreBackup}/></label></article>
 
       <article className="settings-card company-branding-settings">
         <div className="settings-card-title"><span>🏢</span><h3>معلومات وهوية الشركة</h3></div>
@@ -3560,7 +3627,7 @@ export default function App(){
     ["profits","📈 الأرباح"],
     ["rates","💱 العملات وأسعار الصرف"],
     ["debts","📒 الدَّين العام"],
-    ["capital-overview","💰 الميزانية وحركة رأس المال"],
+    ["capital-overview","⚖️ الميزانية"],
     ["monthly-report","📊 التقارير الشهرية"],
     ["settings","⚙️ الإعدادات والتنبيهات"]
   ];

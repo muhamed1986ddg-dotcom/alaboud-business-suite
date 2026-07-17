@@ -4,13 +4,13 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const path = require("path");
 const fs = require("fs");
-const { readStore, mutate, id, now, runWithTenant, replaceTenantData, initStore } = require("./store");
+const { readStore, mutate, id, now, runWithTenant, initStore } = require("./store");
 
 const PORT = Number(process.env.PORT || 5000);
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
 const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "20mb" }));
 
 app.use("/api",(_req,res,next)=>{
   res.setHeader("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -140,9 +140,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"16.0.14",channel:"enterprise",cloud:true}));
-app.get("/api/settings/backup",auth,(req,res)=>{const s=readStore();res.json({format:"alaboud-business-suite-backup",version:"16.0.14",createdAt:now(),...Object.fromEntries(["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","notificationActions","auditLogs"].map(k=>[k,[...s[k]]])),notificationSettings:{...s.notificationSettings}})});
-app.post("/api/settings/restore",auth,(req,res)=>{if(req.user.role!=="ADMIN")return res.status(403).json({message:"للمسؤول فقط"});if(req.body?.format!=="alaboud-business-suite-backup")return res.status(400).json({message:"ملف غير صالح"});replaceTenantData(req.user.companyId,req.body);res.json({message:"تمت الاستعادة بنجاح"})});
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"16.0.7",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -2064,6 +2062,55 @@ const indexFile = path.join(publicDir, "index.html");
 if (!fs.existsSync(indexFile)) {
   console.error("Frontend files are missing. Run: npm run render-build");
 }
+
+
+const BACKUP_ARRAYS=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","notificationActions"];
+
+app.get("/api/backup", auth, (req,res)=>{
+  const store=readStore();
+  const company=(store.companies||[]).find(item=>item.id===req.user.companyId);
+  const data={};
+  for(const key of BACKUP_ARRAYS)data[key]=Array.from(store[key]||[]).map(item=>({...item}));
+  data.notificationSettings={...(store.notificationSettings||{})};
+  const payload={
+    format:"ALABOUD_BACKUP",
+    version:"16.0.14",
+    createdAt:now(),
+    company:{id:req.user.companyId,name:company?.name||""},
+    data
+  };
+  const filename=`alaboud-backup-${new Date().toISOString().replace(/[:.]/g,"-")}.json`;
+  res.setHeader("Content-Type","application/json; charset=utf-8");
+  res.setHeader("Content-Disposition",`attachment; filename="${filename}"`);
+  res.send(JSON.stringify(payload,null,2));
+});
+
+app.post("/api/backup/restore", auth, (req,res)=>{
+  try{
+    const payload=req.body||{};
+    if(payload.format!=="ALABOUD_BACKUP"||!payload.data||typeof payload.data!=="object"){
+      return res.status(400).json({message:"ملف النسخة الاحتياطية غير صالح"});
+    }
+    mutate(store=>{
+      for(const key of BACKUP_ARRAYS){
+        const existing=Array.from(store[key]||[]);
+        for(const item of existing)item.companyId=`RESTORED_OLD_${req.user.companyId}`;
+        const rows=Array.isArray(payload.data[key])?payload.data[key]:[];
+        for(const row of rows){
+          const clean={...row};delete clean.companyId;
+          store[key].push(clean);
+        }
+      }
+      if(payload.data.notificationSettings&&typeof payload.data.notificationSettings==="object"){
+        store.notificationSettings={...payload.data.notificationSettings};
+      }
+      audit(store,req.user.id,"RESTORE","BACKUP",id(),{sourceVersion:payload.version||"unknown",createdAt:payload.createdAt||null});
+    });
+    res.json({message:"تمت استعادة النسخة الاحتياطية بنجاح"});
+  }catch(error){
+    res.status(400).json({message:error.message||"تعذر استعادة النسخة الاحتياطية"});
+  }
+});
 
 app.use(express.static(publicDir, {
   index: "index.html",
