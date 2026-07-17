@@ -1429,12 +1429,26 @@ function Customer({id,back,onStatement}){
         return;
       }
 
-      if(navigator.share){
+      // داخل تطبيق أندرويد استخدم الجسر الأصلي لفتح نافذة المشاركة مباشرة.
+      // WebView لا يدعم navigator.share مع الملفات بشكل موثوق على جميع الأجهزة.
+      if(window.AlAboudNative?.shareImageToWhatsApp){
+        const dataUrl=await new Promise((resolve,reject)=>{
+          const reader=new FileReader();
+          reader.onload=()=>resolve(String(reader.result||""));
+          reader.onerror=()=>reject(new Error("تعذر تجهيز الصورة للمشاركة"));
+          reader.readAsDataURL(blob);
+        });
+        window.AlAboudNative.shareImageToWhatsApp(dataUrl,file.name);
+        return;
+      }
+
+      if(navigator.share && (!navigator.canShare || navigator.canShare({files:[file]}))){
         try{
           await navigator.share({files:[file],title:"كشف حساب العميل"});
           return;
         }catch(shareError){
           if(shareError?.name==="AbortError")return;
+          console.warn("Native file share failed",shareError);
         }
       }
 
