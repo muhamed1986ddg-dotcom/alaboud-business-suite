@@ -4261,3 +4261,21 @@ body.app-language-en aside{
 .currency-with-flag{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
 .currency-with-flag small{opacity:.7;font-size:.75rem}
 @media (max-width:800px){.home-return-bottom{margin:18px 0 100px}.home-return-button{width:100%;min-height:52px}}
+
+/* v16.0.2 — Mobile menu: remove the blank gap and always keep logout directly under settings */
+@media screen and (max-width:800px){
+  .app.mobile-menu-view aside{
+    justify-content:flex-start !important;
+    min-height:100dvh !important;
+    height:100dvh !important;
+    overflow-y:auto !important;
+    overscroll-behavior:contain !important;
+    scroll-behavior:auto !important;
+  }
+
+  .app.mobile-menu-view aside > .sidebar-logout-bottom{
+    margin-top:4px !important;
+    margin-bottom:8px !important;
+    flex:0 0 42px !important;
+  }
+}

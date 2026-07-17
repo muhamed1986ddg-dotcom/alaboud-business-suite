@@ -15,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.JavascriptInterface
@@ -32,8 +33,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.FileProvider
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.json.JSONObject
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -537,6 +540,90 @@ class MainActivity : AppCompatActivity() {
     }
 
     class NativeBridge(private val activity: MainActivity) {
+
+        @JavascriptInterface
+        fun shareImageToWhatsApp(dataUrl: String, fileName: String) {
+            try {
+                val base64Data = dataUrl.substringAfter("base64,", "")
+                if (base64Data.isBlank()) throw IllegalArgumentException("Invalid image data")
+                val bytes = Base64.decode(base64Data, Base64.DEFAULT)
+                val shareDir = File(activity.cacheDir, "shared_statements").apply { mkdirs() }
+                val safeName = fileName.replace(Regex("[^\p{L}\p{N}._-]"), "-")
+                val imageFile = File(shareDir, if (safeName.endsWith(".png")) safeName else "$safeName.png")
+                imageFile.writeBytes(bytes)
+                val contentUri = FileProvider.getUriForFile(
+                    activity,
+                    "${activity.packageName}.fileprovider",
+                    imageFile
+                )
+
+                activity.runOnUiThread {
+                    val baseIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "image/png"
+                        putExtra(Intent.EXTRA_STREAM, contentUri)
+                        putExtra(Intent.EXTRA_SUBJECT, "صورة كشف حساب العميل")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        clipData = android.content.ClipData.newRawUri("كشف حساب العميل", contentUri)
+                    }
+
+                    try {
+                        val initialIntents = mutableListOf<Intent>()
+                        listOf("com.whatsapp", "com.whatsapp.w4b").forEach { packageName ->
+                            if (isPackageInstalled(packageName)) {
+                                initialIntents += Intent(baseIntent).apply {
+                                    `package` = packageName
+                                }
+                            }
+                        }
+
+                        grantUriPermissionForShare(baseIntent, contentUri)
+                        initialIntents.forEach { grantUriPermissionForShare(it, contentUri) }
+
+                        val chooserIntent = Intent.createChooser(
+                            baseIntent,
+                            "إرسال صورة كشف الحساب"
+                        ).apply {
+                            if (initialIntents.isNotEmpty()) {
+                                putExtra(Intent.EXTRA_INITIAL_INTENTS, initialIntents.toTypedArray())
+                            }
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+
+                        activity.startActivity(chooserIntent)
+                    } catch (_: Exception) {
+                        Toast.makeText(activity, "تعذر فتح نافذة المشاركة", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (_: Exception) {
+                activity.runOnUiThread {
+                    Toast.makeText(activity, "تعذر تجهيز صورة كشف الحساب للمشاركة", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
+        private fun isPackageInstalled(packageName: String): Boolean {
+            return try {
+                activity.packageManager.getPackageInfo(packageName, 0)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        private fun grantUriPermissionForShare(intent: Intent, uri: Uri) {
+            val matches = activity.packageManager.queryIntentActivities(
+                intent,
+                PackageManager.MATCH_DEFAULT_ONLY
+            )
+            matches.forEach { resolveInfo ->
+                activity.grantUriPermission(
+                    resolveInfo.activityInfo.packageName,
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+        }
+
         @JavascriptInterface
         fun showOverdueNotification(payload: String) {
             try {
