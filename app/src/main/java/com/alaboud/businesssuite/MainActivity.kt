@@ -15,7 +15,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
-import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.JavascriptInterface
@@ -33,13 +32,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.FileProvider
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.json.JSONObject
-import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -57,7 +51,6 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContentView(R.layout.activity_main)
 
         createNotificationChannel()
@@ -65,15 +58,6 @@ class MainActivity : AppCompatActivity() {
 
         refreshLayout = findViewById(R.id.refreshLayout)
         webView = findViewById(R.id.webView)
-
-        // Android 15 draws apps edge-to-edge. Keep the WebView below the status bar
-        // so the home, close and menu buttons never overlap system icons.
-        ViewCompat.setOnApplyWindowInsetsListener(refreshLayout) { view, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
-            view.setPadding(0, systemBars.top, 0, 0)
-            insets
-        }
-        ViewCompat.requestApplyInsets(refreshLayout)
 
         configureWebView()
         configureDownloads()
@@ -105,7 +89,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/15.3.73"
+            userAgentString = "$userAgentString AlAboudMobile/14.0"
         }
 
         CookieManager.getInstance().apply {
@@ -249,7 +233,7 @@ class MainActivity : AppCompatActivity() {
                       z-index: 2147483001 !important;
                       overflow-y: auto !important;
                       transition: right .25s ease !important;
-                      padding-top: 118px !important;
+                      padding-top: 76px !important;
                       box-shadow: -10px 0 30px rgba(0,0,0,.35) !important;
                     }
                     .app > aside.alaboud-menu-open { right: 0 !important; }
@@ -257,7 +241,7 @@ class MainActivity : AppCompatActivity() {
                       width: 100% !important;
                       max-width: 100% !important;
                       margin: 0 !important;
-                      padding: 118px 12px 24px !important;
+                      padding: 72px 12px 20px !important;
                       box-sizing: border-box !important;
                     }
                     .app > aside h1 { display:none !important; }
@@ -266,7 +250,7 @@ class MainActivity : AppCompatActivity() {
                       width:calc(100% - 20px) !important;
                       margin:7px 10px !important;
                       min-height:46px !important;
-                      border-radius:15px !important;
+                      border-radius:12px !important;
                     }
                     .app > aside button.alaboud-active-page {
                       background: linear-gradient(135deg,#d4af37,#f4d675) !important;
@@ -283,14 +267,14 @@ class MainActivity : AppCompatActivity() {
                     #alaboud-mobile-header {
                       display:flex !important;
                       position:fixed !important;
-                      top:max(calc(env(safe-area-inset-top, 0px) + 12px), 40px) !important;
+                      top:0 !important;
                       left:0 !important;
                       right:0 !important;
-                      height:66px !important;
+                      height:60px !important;
                       z-index:2147483003 !important;
                       align-items:center !important;
                       justify-content:space-between !important;
-                      padding:0 18px !important;
+                      padding:0 14px !important;
                       background:linear-gradient(135deg,#050505,#171717) !important;
                       color:#d4af37 !important;
                       border-bottom:1px solid rgba(212,175,55,.5) !important;
@@ -301,8 +285,8 @@ class MainActivity : AppCompatActivity() {
                       border:1px solid rgba(212,175,55,.7) !important;
                       background:#111 !important;
                       color:#f4d675 !important;
-                      width:48px !important;
-                      height:48px !important;
+                      width:43px !important;
+                      height:43px !important;
                       padding:0 !important;
                       border-radius:12px !important;
                       font-size:25px !important;
@@ -362,7 +346,7 @@ class MainActivity : AppCompatActivity() {
                   if (button && !button.classList.contains('logout')) {
                     button.classList.add('alaboud-active-page');
                     var title = button.textContent.trim();
-                    document.getElementById('alaboud-mobile-title').textContent = title === '✕' ? 'القائمة الرئيسية' : title;
+                    document.getElementById('alaboud-mobile-title').textContent = title;
                   }
                 }
 
@@ -384,13 +368,12 @@ class MainActivity : AppCompatActivity() {
                 aside.addEventListener('click', function (event) {
                   var button = event.target.closest('button');
                   if (!button) return;
-                  if (button.closest('.mobile-menu-heading')) { closeMenu(); return; }
                   markActive(button);
                   setTimeout(closeMenu, 80);
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 });
 
-                var firstButton = aside.querySelector(':scope > button:not(.logout-top):not(.sidebar-logout-bottom)');
+                var firstButton = aside.querySelector('button:not(.logout)');
                 if (firstButton) markActive(firstButton);
 
                 // Close the menu after browser back/forward navigation.
@@ -554,50 +537,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     class NativeBridge(private val activity: MainActivity) {
-
-        @JavascriptInterface
-        fun shareImageToWhatsApp(dataUrl: String, fileName: String) {
-            try {
-                val base64Data = dataUrl.substringAfter("base64,", "")
-                if (base64Data.isBlank()) throw IllegalArgumentException("Invalid image data")
-                val bytes = Base64.decode(base64Data, Base64.DEFAULT)
-                val shareDir = File(activity.cacheDir, "shared_statements").apply { mkdirs() }
-                val safeName = fileName.replace(Regex("[^\\p{L}\\p{N}._-]"), "-")
-                val imageFile = File(shareDir, if (safeName.endsWith(".png")) safeName else "$safeName.png")
-                imageFile.writeBytes(bytes)
-                val contentUri = FileProvider.getUriForFile(
-                    activity,
-                    "${activity.packageName}.fileprovider",
-                    imageFile
-                )
-
-                activity.runOnUiThread {
-                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                        type = "image/png"
-                        putExtra(Intent.EXTRA_STREAM, contentUri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        clipData = android.content.ClipData.newRawUri("كشف حساب العميل", contentUri)
-                    }
-                    try {
-                        sendIntent.setPackage("com.whatsapp")
-                        activity.startActivity(sendIntent)
-                    } catch (_: ActivityNotFoundException) {
-                        try {
-                            sendIntent.setPackage("com.whatsapp.w4b")
-                            activity.startActivity(sendIntent)
-                        } catch (_: ActivityNotFoundException) {
-                            sendIntent.setPackage(null)
-                            activity.startActivity(Intent.createChooser(sendIntent, "إرسال صورة كشف الحساب"))
-                        }
-                    }
-                }
-            } catch (_: Exception) {
-                activity.runOnUiThread {
-                    Toast.makeText(activity, "تعذر فتح واتساب لإرسال الصورة", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-
         @JavascriptInterface
         fun showOverdueNotification(payload: String) {
             try {
