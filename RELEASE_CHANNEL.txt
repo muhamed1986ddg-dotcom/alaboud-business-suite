@@ -1,3 +1,2 @@
-Version: 13.0.0-alpha.1
-Channel: Enterprise Alpha
-Production ready: NO
+v16.0 Enterprise
+Preserve all existing features and legacy additions.

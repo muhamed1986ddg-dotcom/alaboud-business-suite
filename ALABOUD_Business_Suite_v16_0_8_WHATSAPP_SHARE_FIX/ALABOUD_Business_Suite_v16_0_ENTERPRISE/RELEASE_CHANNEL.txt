@@ -1,2 +1,0 @@
-v16.0 Enterprise
-Preserve all existing features and legacy additions.

@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const path = require("path");
 const fs = require("fs");
-const { readStore, mutate, id, now } = require("./store");
+const { readStore, mutate, id, now, runWithTenant, initStore } = require("./store");
 
 const PORT = Number(process.env.PORT || 5000);
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
@@ -12,20 +12,52 @@ const app = express();
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: "1mb" }));
 
-function seedAdmin() {
-  mutate((store) => {
-    if (!store.users.some((u) => u.email === "admin@alaboud.local")) {
-      store.users.push({ id: id(), name: "System Administrator", email: "admin@alaboud.local", passwordHash: bcrypt.hashSync("Admin123!", 12), role: "ADMIN", active: true, createdAt: now() });
+app.use("/api",(_req,res,next)=>{
+  res.setHeader("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma","no-cache");
+  res.setHeader("Expires","0");
+  res.setHeader("Surrogate-Control","no-store");
+  next();
+});
+
+function seedAdmin(){
+  mutate((store)=>{
+    let company=store.companies.find(item=>item.slug==="alaboud-primary");
+    if(!company){
+      company={id:id(),name:"شركة العبود التجارية",slug:"alaboud-primary",phone:"",active:true,createdAt:now()};
+      store.companies.push(company);
+    }
+
+    let admin=store.users.find(user=>user.email==="admin@alaboud.local");
+    if(!admin){
+      admin={id:id(),companyId:company.id,name:"System Administrator",email:"admin@alaboud.local",passwordHash:bcrypt.hashSync("Admin123!",12),role:"ADMIN",active:true,createdAt:now()};
+      store.users.push(admin);
+    }else if(!admin.companyId){
+      admin.companyId=company.id;
+    }
+
+    const tenantArrays=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","notificationActions","auditLogs"];
+    for(const key of tenantArrays){
+      for(const item of store[key]||[]){
+        if(item&&!item.companyId)item.companyId=company.id;
+      }
+    }
+    if(!store.companySettings[company.id]){
+      store.companySettings[company.id]={...(store.notificationSettings||{}),overdueDays:store.notificationSettings?.overdueDays||7,lowCashLimit:store.notificationSettings?.lowCashLimit||5000,whatsappTemplate:store.notificationSettings?.whatsappTemplate||""};
     }
   });
 }
-seedAdmin();
 
-function auth(req, res, next) {
-  const h = req.headers.authorization || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7) : "";
-  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
-  catch { res.status(401).json({ message: "Authentication required" }); }
+function auth(req,res,next){
+  const h=req.headers.authorization||"";
+  const token=h.startsWith("Bearer ")?h.slice(7):"";
+  try{
+    req.user=jwt.verify(token,JWT_SECRET);
+    if(!req.user.companyId)return res.status(401).json({message:"Company account required"});
+    runWithTenant(req.user.companyId,()=>next());
+  }catch{
+    res.status(401).json({message:"Authentication required"});
+  }
 }
 
 function audit(store, userId, action, entityType, entityId, details = {}) {
@@ -56,8 +88,11 @@ function customerSummary(store, c) {
     );
   }
 
-  let total = 0;
-  let paid = 0;
+  const oldBalance = Math.max(safeNumber(c.oldBalance), 0);
+  const oldBalancePaid = Math.min(Math.max(safeNumber(c.oldBalancePaid), 0), oldBalance);
+
+  let total = oldBalance;
+  let paid = oldBalancePaid;
   let oldestUnpaidDate = "";
   let overdueTransactions = 0;
   const today = new Date();
@@ -91,6 +126,9 @@ function customerSummary(store, c) {
   return {
     ...c,
     name: String(c?.name || "عميل بدون اسم"),
+    oldBalance:+oldBalance.toFixed(2),
+    oldBalancePaid:+oldBalancePaid.toFixed(2),
+    oldBalanceRemaining:+Math.max(oldBalance-oldBalancePaid,0).toFixed(2),
     totalTransactions: +total.toFixed(2),
     totalPaid: +paid.toFixed(2),
     finalBalance: +outstanding.toFixed(2),
@@ -102,15 +140,168 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"13.3.0",channel:"enterprise-alpha",cloud:true}));
-app.post("/api/auth/login", (req,res)=>{
-  const { email, password } = req.body || {};
-  const store = readStore();
-  const user = store.users.find((u)=>u.email.toLowerCase()===String(email||"").toLowerCase() && u.active);
-  if (!user || !bcrypt.compareSync(String(password||""), user.passwordHash)) return res.status(401).json({message:"Invalid credentials"});
-  const token = jwt.sign({id:user.id,name:user.name,role:user.role},JWT_SECRET,{expiresIn:"12h"});
-  res.json({token,user:{id:user.id,name:user.name,email:user.email,role:user.role}});
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"16.0.7",channel:"enterprise-alpha",cloud:true}));
+app.post("/api/auth/login",(req,res)=>{
+  const {email,password}=req.body||{};
+  const store=readStore();
+  const user=store.users.find(u=>u.email.toLowerCase()===String(email||"").toLowerCase()&&u.active);
+  if(!user||!bcrypt.compareSync(String(password||""),user.passwordHash)){
+    return res.status(401).json({message:"Invalid credentials"});
+  }
+  const company=store.companies.find(item=>item.id===user.companyId&&item.active);
+  if(!company)return res.status(403).json({message:"Company account is inactive"});
+  const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId},JWT_SECRET,{expiresIn:"30d"});
+  res.json({token,user:{id:user.id,name:user.name,email:user.email,role:user.role,companyId:user.companyId,companyName:company.name}});
 });
+
+app.get("/api/auth/session",auth,(req,res)=>{
+  const store=readStore();
+  const user=store.users.find(item=>item.id===req.user.id&&item.active);
+  const company=store.companies.find(item=>item.id===req.user.companyId&&item.active);
+
+  if(!user||!company){
+    return res.status(401).json({message:"الجلسة غير صالحة، يرجى تسجيل الدخول مجددًا"});
+  }
+
+  res.json({
+    version:"16.0.7",
+    user:{
+      id:user.id,
+      name:user.name,
+      email:user.email,
+      role:user.role,
+      companyId:company.id,
+      companyName:company.name
+    },
+    liveData:{
+      customers:(store.customers||[]).filter(item=>!item.isDeleted).length,
+      transactions:(store.transactions||[]).filter(item=>!item.isDeleted).length,
+      payments:(store.payments||[]).filter(item=>!item.isDeleted).length
+    }
+  });
+});
+
+app.post("/api/auth/register-company",(req,res)=>{
+  const ownerName=String(req.body?.ownerName||"").trim();
+  const companyName=String(req.body?.companyName||"").trim();
+  const email=String(req.body?.email||"").trim().toLowerCase();
+  const phone=String(req.body?.phone||"").trim();
+  const password=String(req.body?.password||"");
+  if(!ownerName||!companyName||!email.includes("@")){
+    return res.status(400).json({message:"الاسم واسم الشركة والبريد الإلكتروني مطلوبة"});
+  }
+  if(password.length<8)return res.status(400).json({message:"كلمة المرور يجب أن تكون 8 أحرف على الأقل"});
+
+  try{
+    const result=mutate(store=>{
+      if(store.users.some(user=>String(user.email||"").toLowerCase()===email))throw new Error("البريد الإلكتروني مستخدم مسبقًا");
+      const company={id:id(),name:companyName,phone,active:true,createdAt:now()};
+      const user={id:id(),companyId:company.id,name:ownerName,email,passwordHash:bcrypt.hashSync(password,12),role:"ADMIN",active:true,createdAt:now()};
+      store.companies.push(company);
+      store.users.push(user);
+      store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
+      return {company,user};
+    });
+    const token=jwt.sign({id:result.user.id,name:result.user.name,role:result.user.role,companyId:result.company.id},JWT_SECRET,{expiresIn:"30d"});
+    res.status(201).json({token,user:{id:result.user.id,name:result.user.name,email:result.user.email,role:result.user.role,companyId:result.company.id,companyName:result.company.name}});
+  }catch(error){
+    res.status(400).json({message:error.message||"تعذر إنشاء حساب الشركة"});
+  }
+});
+
+app.post("/api/auth/change-password", auth, (req,res)=>{
+  const currentPassword=String(req.body?.currentPassword||"");
+  const newPassword=String(req.body?.newPassword||"");
+  if(newPassword.length<8){
+    return res.status(400).json({message:"كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل"});
+  }
+
+  try{
+    mutate((store)=>{
+      const user=store.users.find(item=>item.id===req.user.id&&item.active);
+      if(!user)throw new Error("الحساب غير موجود");
+      if(!bcrypt.compareSync(currentPassword,user.passwordHash)){
+        throw new Error("كلمة المرور الحالية غير صحيحة");
+      }
+      user.passwordHash=bcrypt.hashSync(newPassword,12);
+      user.updatedAt=now();
+      audit(store,req.user.id,"UPDATE","USER_PASSWORD",user.id,{});
+    });
+    res.json({message:"تم تغيير كلمة المرور بنجاح"});
+  }catch(error){
+    res.status(400).json({message:error.message||"تعذر تغيير كلمة المرور"});
+  }
+});
+
+app.get("/api/company-profile", auth, (req,res)=>{
+  const store=readStore();
+  const company=store.companies.find(item=>item.id===req.user.companyId);
+  if(!company)return res.status(404).json({message:"الشركة غير موجودة"});
+  res.json({id:company.id,name:company.name,phone:company.phone||"",logoDataUrl:company.logoDataUrl||""});
+});
+
+app.patch("/api/company-profile", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"تعديل هوية الشركة متاح للمسؤول الكامل فقط"});
+  const name=String(req.body?.name||"").trim();
+  const phone=String(req.body?.phone||"").trim();
+  const logoDataUrl=String(req.body?.logoDataUrl||"");
+  if(!name)return res.status(400).json({message:"اسم الشركة مطلوب"});
+  if(logoDataUrl && !/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(logoDataUrl)){
+    return res.status(400).json({message:"صيغة الشعار غير مدعومة"});
+  }
+  if(logoDataUrl.length>1500000)return res.status(400).json({message:"حجم الشعار كبير جدًا"});
+  const company=mutate(store=>{
+    const item=store.companies.find(company=>company.id===req.user.companyId);
+    if(!item)throw new Error("الشركة غير موجودة");
+    item.name=name; item.phone=phone; item.logoDataUrl=logoDataUrl; item.updatedAt=now();
+    return {id:item.id,name:item.name,phone:item.phone||"",logoDataUrl:item.logoDataUrl||""};
+  });
+  res.json(company);
+});
+
+app.post("/api/users", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN"){
+    return res.status(403).json({message:"إنشاء الحسابات متاح للمدير فقط"});
+  }
+
+  const name=String(req.body?.name||"").trim();
+  const email=String(req.body?.email||"").trim().toLowerCase();
+  const password=String(req.body?.password||"");
+  const role=["ADMIN","MANAGER","USER"].includes(String(req.body?.role||"").toUpperCase())
+    ? String(req.body.role).toUpperCase()
+    : "USER";
+
+  if(!name||!email||!email.includes("@")){
+    return res.status(400).json({message:"الاسم والبريد الإلكتروني مطلوبان"});
+  }
+  if(password.length<8){
+    return res.status(400).json({message:"كلمة المرور يجب أن تكون 8 أحرف على الأقل"});
+  }
+
+  try{
+    const created=mutate((store)=>{
+      if(store.users.some(item=>String(item.email||"").toLowerCase()===email)){
+        throw new Error("البريد الإلكتروني مستخدم مسبقًا");
+      }
+      const user={
+        id:id(),
+        name,
+        email,
+        passwordHash:bcrypt.hashSync(password,12),
+        role,
+        active:true,
+        createdAt:now()
+      };
+      store.users.push(user);
+      audit(store,req.user.id,"CREATE","USER",user.id,{name,email,role});
+      return {id:user.id,name:user.name,email:user.email,role:user.role,active:user.active};
+    });
+    res.status(201).json(created);
+  }catch(error){
+    res.status(400).json({message:error.message||"تعذر إنشاء الحساب"});
+  }
+});
+
 
 app.get("/api/dashboard", auth, (_req,res)=>{
   const s = readStore();
@@ -467,9 +658,9 @@ app.get("/api/monthly-report", auth, (req,res)=>{
 
 app.get("/api/customers", auth, (_req,res)=>{ const s=readStore(); res.json(s.customers.map(c=>customerSummary(s,c)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))); });
 app.post("/api/customers", auth, (req,res)=>{
-  const {name,phone="",email="",identityNumber="",notes=""}=req.body||{};
+  const {name,phone="",email="",identityNumber="",notes="",oldBalance=0}=req.body||{};
   if(!String(name).trim()) return res.status(400).json({message:"Customer name is required"});
-  const customer=mutate((s)=>{const c={id:id(),name:String(name).trim(),phone,email,identityNumber,notes,createdAt:now()};s.customers.push(c);audit(s,req.user.id,"CREATE","CUSTOMER",c.id);return c;});
+  const customer=mutate((s)=>{const c={id:id(),name:String(name).trim(),phone,email,identityNumber,notes,oldBalance:+Math.max(safeNumber(oldBalance),0).toFixed(2),oldBalancePaid:0,createdAt:now()};s.customers.push(c);audit(s,req.user.id,"CREATE","CUSTOMER",c.id);return c;});
   res.status(201).json(customer);
 });
 
@@ -481,13 +672,15 @@ app.patch("/api/customers/:id", auth, (req,res)=>{
       if(!customer)return null;
 
       const oldData={...customer};
-      const allowed=["name","phone","email","address","notes"];
+      const allowed=["name","phone","email","address","notes","oldBalance"];
       for(const key of allowed){
         if(req.body[key]!==undefined)customer[key]=req.body[key];
       }
       if(!String(customer.name||"").trim()){
         throw new Error("اسم العميل مطلوب");
       }
+      customer.oldBalance=+Math.max(safeNumber(customer.oldBalance),0).toFixed(2);
+      customer.oldBalancePaid=+Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),customer.oldBalance).toFixed(2);
       customer.updatedAt=now();
       customer.updatedBy=req.user.id;
       audit(store,req.user.id,"UPDATE","CUSTOMER",customer.id,{oldData,newData:{...customer}});
@@ -553,7 +746,19 @@ app.get("/api/transactions", auth, (_req,res)=>{
   res.json(
     s.transactions
       .filter(t=>!t.isDeleted)
-      .map(t=>({...t,customerName:s.customers.find(c=>c.id===t.customerId)?.name||"-"}))
+      .map(t=>{
+        const paidAmount=s.payments
+          .filter(payment=>payment.transactionId===t.id&&!payment.isDeleted)
+          .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
+        const remaining=Math.max(safeNumber(t.totalCustomerDue)-paidAmount,0);
+        return {
+          ...t,
+          customerName:s.customers.find(c=>c.id===t.customerId)?.name||"-",
+          paidAmount:+paidAmount.toFixed(2),
+          remaining:+remaining.toFixed(2),
+          paymentStatus:remaining<=0.001?"PAID":"UNPAID"
+        };
+      })
       .reverse()
   );
 });
@@ -569,6 +774,7 @@ app.post("/api/transactions", auth, (req,res)=>{
     rateSource="manual",
     rateUpdatedAt=null,
     status="COMPLETED",
+    paymentStatus="UNPAID",
     transferDate=""
   }=req.body||{};
 
@@ -612,19 +818,125 @@ app.post("/api/transactions", auth, (req,res)=>{
       createdBy:req.user.id
     };
     s.transactions.push(t);
+
+    const normalizedPaymentStatus=String(paymentStatus||"UNPAID").toUpperCase();
+    if(normalizedPaymentStatus==="PAID"){
+      s.payments.push({
+        id:id(),
+        transactionId:t.id,
+        customerId:t.customerId,
+        amount:t.totalCustomerDue,
+        method:"CASH",
+        notes:"تم تسجيل الحوالة كمدفوعة عند الإنشاء",
+        reference:"",
+        paymentDate:t.transferDate,
+        date:now(),
+        receivedBy:req.user.id,
+        isDeleted:false,
+        allocationMode:"TRANSFER_INITIAL_FULL"
+      });
+    }
+
     audit(s,req.user.id,"CREATE","TRANSACTION",t.id,{
       currency:t.currency,
       costRate:t.costRate,
       finalRate:t.finalRate,
       rateSource:t.rateSource,
       totalCustomerDue:t.totalCustomerDue,
-      totalProfit:t.totalProfit
+      totalProfit:t.totalProfit,
+      paymentStatus:normalizedPaymentStatus
     });
-    return t;
+
+    return {
+      ...t,
+      paidAmount:normalizedPaymentStatus==="PAID"?t.totalCustomerDue:0,
+      remaining:normalizedPaymentStatus==="PAID"?0:t.totalCustomerDue,
+      paymentStatus:normalizedPaymentStatus==="PAID"?"PAID":"UNPAID"
+    };
   });
 
   res.status(201).json(tx);
 });
+
+app.post("/api/customers/:id/payments", auth, (req,res)=>{
+  try{
+    const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{};
+    const requested=Number(amount);
+    if(!Number.isFinite(requested)||requested<=0){
+      return res.status(400).json({message:"مبلغ الدفعة غير صحيح"});
+    }
+
+    const result=mutate((store)=>{
+      const customer=store.customers.find(item=>item.id===req.params.id);
+      if(!customer)throw new Error("العميل غير موجود");
+
+      const rows=store.transactions
+        .filter(item=>item.customerId===customer.id&&!item.isDeleted&&item.status!=="CANCELLED")
+        .sort((a,b)=>String(a.transferDate||a.createdAt||"").localeCompare(String(b.transferDate||b.createdAt||"")))
+        .map(transaction=>{
+          const paid=store.payments
+            .filter(payment=>payment.transactionId===transaction.id&&!payment.isDeleted)
+            .reduce((sum,payment)=>sum+Number(payment.amount||0),0);
+          return {transaction,remaining:Math.max(Number(transaction.totalCustomerDue||0)-paid,0)};
+        })
+        .filter(row=>row.remaining>0.0001);
+
+      const totalRemaining=rows.reduce((sum,row)=>sum+row.remaining,0);
+      const oldBalance=Math.max(safeNumber(customer.oldBalance),0);
+      const oldBalancePaid=Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),oldBalance);
+      const oldBalanceRemaining=Math.max(oldBalance-oldBalancePaid,0);
+      const grandRemaining=totalRemaining+oldBalanceRemaining;
+
+      if(grandRemaining<=0)throw new Error("لا يوجد رصيد مستحق على العميل");
+      if(requested>grandRemaining+0.001){
+        throw new Error(`الدفعة أكبر من الرصيد المتبقي (${grandRemaining.toFixed(2)} CAD)`);
+      }
+
+      let left=requested;
+      const allocations=[];
+      let oldBalanceAllocation=0;
+      if(oldBalanceRemaining>0&&left>0.0001){
+        oldBalanceAllocation=Math.min(left,oldBalanceRemaining);
+        customer.oldBalancePaid=+(oldBalancePaid+oldBalanceAllocation).toFixed(2);
+        left-=oldBalanceAllocation;
+      }
+      for(const row of rows){
+        if(left<=0.0001)break;
+        const allocated=Math.min(left,row.remaining);
+        const payment={
+          id:id(),
+          transactionId:row.transaction.id,
+          customerId:customer.id,
+          amount:+allocated.toFixed(2),
+          method,
+          notes,
+          reference,
+          paymentDate:paymentDate||new Date().toISOString().slice(0,10),
+          date:now(),
+          receivedBy:req.user.id,
+          isDeleted:false,
+          allocationMode:"CUSTOMER_AUTO"
+        };
+        store.payments.push(payment);
+        allocations.push(payment);
+        left-=allocated;
+      }
+
+      audit(store,req.user.id,"PAYMENT","CUSTOMER",customer.id,{
+        amount:+requested.toFixed(2),
+        oldBalanceAllocation:+oldBalanceAllocation.toFixed(2),
+        allocations:allocations.map(item=>({transactionId:item.transactionId,amount:item.amount}))
+      });
+
+      return {customerId:customer.id,amount:+requested.toFixed(2),oldBalanceAllocation:+oldBalanceAllocation.toFixed(2),allocations};
+    });
+
+    res.status(201).json(result);
+  }catch(error){
+    res.status(400).json({message:error.message||"تعذر إضافة الدفعة"});
+  }
+});
+
 app.post("/api/transactions/:id/payments", auth, (req,res)=>{
   const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{}; const n=Number(amount); if(!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid amount"});
   const payment=mutate((s)=>{const t=s.transactions.find(x=>x.id===req.params.id);if(!t)throw new Error("Transaction not found");const already=s.payments.filter(p=>p.transactionId===t.id).reduce((a,p)=>a+Number(p.amount),0);if(already+n>Number(t.totalCustomerDue)+0.001)throw new Error("Payment exceeds remaining balance");const p={
@@ -780,52 +1092,140 @@ const AUTO_RATE_PAIRS = [
   ["EUR","USD"], ["USD","EUR"], ["GBP","USD"], ["USD","GBP"]
 ];
 
+const TROY_OUNCE_GRAMS = 31.1034768;
+const GOLD_KARATS = [
+  ["XAU24", 24/24],
+  ["XAU22", 22/24],
+  ["XAU21", 21/24],
+  ["XAU18", 18/24]
+];
+
 async function fetchOfficialRate(baseCurrency, quoteCurrency) {
   const url = `https://api.frankfurter.dev/v2/rate/${encodeURIComponent(baseCurrency)}/${encodeURIComponent(quoteCurrency)}`;
   const response = await fetch(url, {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/6.3" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/16.0.7" }
   });
-  if (!response.ok) {
-    throw new Error(`Rate provider returned ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`Rate provider returned ${response.status}`);
   const data = await response.json();
   const rate = Number(data.rate);
-  if (!Number.isFinite(rate) || rate <= 0) {
-    throw new Error("Invalid rate received");
-  }
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error("Invalid rate received");
   return { rate, date: data.date || new Date().toISOString().slice(0,10) };
+}
+
+async function fetchSyrianPoundRate() {
+  const response = await fetch("https://open.er-api.com/v6/latest/USD", {
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/16.0.7" }
+  });
+  if (!response.ok) throw new Error(`SYP provider returned ${response.status}`);
+  const data = await response.json();
+  if (data.result !== "success") throw new Error(data["error-type"] || "SYP provider failed");
+  const rate = Number(data.rates?.SYP);
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error("SYP rate is unavailable");
+  return {
+    rate,
+    updatedAt:data.time_last_update_utc || new Date().toISOString(),
+    nextUpdate:data.time_next_update_utc || null
+  };
+}
+
+async function fetchGoldPriceCad() {
+  const response = await fetch("https://api.gold-api.com/price/XAU/CAD", {
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/16.0.7" }
+  });
+  if (!response.ok) throw new Error(`Gold provider returned ${response.status}`);
+  const data = await response.json();
+  const pricePerOunceCad = Number(data.price);
+  if (!Number.isFinite(pricePerOunceCad) || pricePerOunceCad <= 0) {
+    throw new Error("Gold price is unavailable");
+  }
+  return {
+    pricePerOunceCad,
+    updatedAt:data.updatedAt || new Date().toISOString()
+  };
+}
+
+function saveAutomaticRate({baseCurrency,quoteCurrency,rate,source,notes,sourceDate,userId}) {
+  return mutate((store)=>{
+    const x = {
+      id:id(),
+      baseCurrency,
+      quoteCurrency,
+      buyRate:rate,
+      sellRate:rate,
+      notes,
+      source,
+      sourceDate:sourceDate || new Date().toISOString(),
+      isAutomatic:true,
+      createdAt:now(),
+      createdBy:userId
+    };
+    store.exchangeRates.push(x);
+    audit(store,userId,"AUTO_REFRESH","EXCHANGE_RATE",x.id,{
+      baseCurrency,quoteCurrency,rate,source
+    });
+    return x;
+  });
 }
 
 async function refreshAutomaticRates(userId="SYSTEM") {
   const results = [];
+
   for (const [baseCurrency, quoteCurrency] of AUTO_RATE_PAIRS) {
     try {
       const official = await fetchOfficialRate(baseCurrency, quoteCurrency);
-      const saved = mutate((s)=>{
-        const x = {
-          id:id(),
-          baseCurrency,
-          quoteCurrency,
-          buyRate: official.rate,
-          sellRate: official.rate,
-          notes:"تحديث تلقائي من مصدر أسعار البنوك المركزية",
-          source:"FRANKFURTER",
-          sourceDate:official.date,
-          isAutomatic:true,
-          createdAt:now(),
-          createdBy:userId
-        };
-        s.exchangeRates.push(x);
-        audit(s,userId,"AUTO_REFRESH","EXCHANGE_RATE",x.id,{
-          baseCurrency,quoteCurrency,rate:official.rate,source:"FRANKFURTER"
-        });
-        return x;
+      const saved = saveAutomaticRate({
+        baseCurrency,
+        quoteCurrency,
+        rate:official.rate,
+        source:"FRANKFURTER",
+        notes:"تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+        sourceDate:official.date,
+        userId
       });
-      results.push({ok:true, pair:`${baseCurrency}/${quoteCurrency}`, rate:saved.buyRate});
+      results.push({ok:true, pair:`${baseCurrency}/${quoteCurrency}`, rate:saved.buyRate, source:"FRANKFURTER"});
     } catch (error) {
       results.push({ok:false, pair:`${baseCurrency}/${quoteCurrency}`, error:error.message});
     }
   }
+
+  try {
+    const syp = await fetchSyrianPoundRate();
+    const saved = saveAutomaticRate({
+      baseCurrency:"USD",
+      quoteCurrency:"SYP",
+      rate:syp.rate,
+      source:"EXCHANGE_RATE_API",
+      notes:"تحديث تلقائي لسعر USD/SYP من ExchangeRate-API",
+      sourceDate:syp.updatedAt,
+      userId
+    });
+    results.push({ok:true,pair:"USD/SYP",rate:saved.buyRate,source:"EXCHANGE_RATE_API"});
+  } catch (error) {
+    results.push({ok:false,pair:"USD/SYP",error:error.message});
+  }
+
+  try {
+    const gold = await fetchGoldPriceCad();
+    const pureGramCad = gold.pricePerOunceCad / TROY_OUNCE_GRAMS;
+    for (const [baseCurrency, purity] of GOLD_KARATS) {
+      const gramRate = +(pureGramCad * purity).toFixed(4);
+      const saved = saveAutomaticRate({
+        baseCurrency,
+        quoteCurrency:"CAD",
+        rate:gramRate,
+        source:"GOLD_API",
+        notes:`سعر غرام الذهب التلقائي — ${baseCurrency.replace("XAU","")} قيراط`,
+        sourceDate:gold.updatedAt,
+        userId
+      });
+      results.push({ok:true,pair:`${baseCurrency}/CAD`,rate:saved.buyRate,source:"GOLD_API"});
+    }
+  } catch (error) {
+    for (const [baseCurrency] of GOLD_KARATS) {
+      results.push({ok:false,pair:`${baseCurrency}/CAD`,error:error.message});
+    }
+  }
+
   return results;
 }
 
@@ -890,7 +1290,7 @@ app.post("/api/exchange-rates/refresh", auth, async (req,res)=>{
     const results = await refreshAutomaticRates(req.user.id);
     const successCount = results.filter(x=>x.ok).length;
     res.json({
-      message:`تم تحديث ${successCount} من ${results.length} أزواج تلقائية. سعر SYP يُحدّث يدويًا لضمان الدقة.`,
+      message:`تم تحديث ${successCount} من ${results.length} أسعار تلقائية، بما فيها الليرة السورية والذهب عند توفر المصدر.`,
       successCount,
       total:results.length,
       updatedAt:now(),
@@ -950,43 +1350,94 @@ app.post("/api/exchange-rates", auth, (req,res)=>{
 app.get("/api/general-debts", auth, (req,res)=>{
   const store = readStore();
   const debts = Array.isArray(store.generalDebts) ? store.generalDebts : [];
-  const payments = Array.isArray(store.generalDebtPayments) ? store.generalDebtPayments : [];
+  const debtPayments = Array.isArray(store.generalDebtPayments) ? store.generalDebtPayments : [];
+  const transactions = (Array.isArray(store.transactions) ? store.transactions : [])
+    .filter((item)=>item && !item.isDeleted && item.status!=="CANCELLED");
+  const payments = (Array.isArray(store.payments) ? store.payments : [])
+    .filter((item)=>item && !item.isDeleted);
+  const customers = Array.isArray(store.customers) ? store.customers : [];
   const type = String(req.query.type || "");
 
-  const rows = debts
-    .filter((debt)=>!type || debt.type===type)
-    .map((debt)=>{
-      const paid = payments
-        .filter((payment)=>payment.debtId===debt.id)
-        .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
-      const amount = safeNumber(debt.amount);
-      const remaining = Math.max(amount-paid,0);
-      let status = debt.status || "OPEN";
-      if (remaining <= 0) status = "PAID";
-      else if (paid > 0) status = "PARTIAL";
-      else if (debt.dueDate && debt.dueDate < new Date().toISOString().slice(0,10)) status = "OVERDUE";
+  const manualRows = debts.map((debt)=>{
+    const paid = debtPayments
+      .filter((payment)=>payment.debtId===debt.id)
+      .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
+    const amount = safeNumber(debt.amount);
+    const remaining = Math.max(amount-paid,0);
+    let status = debt.status || "OPEN";
+    if (remaining <= 0) status = "PAID";
+    else if (paid > 0) status = "PARTIAL";
+    else if (debt.dueDate && debt.dueDate < new Date().toISOString().slice(0,10)) status = "OVERDUE";
 
-      return {
-        ...debt,
-        paid:+paid.toFixed(2),
-        remaining:+remaining.toFixed(2),
-        status,
-      };
-    })
+    return {
+      ...debt,
+      source:"MANUAL",
+      paid:+paid.toFixed(2),
+      remaining:+remaining.toFixed(2),
+      status,
+    };
+  });
+
+  const paidByTransaction = new Map();
+  for (const payment of payments) {
+    paidByTransaction.set(
+      payment.transactionId,
+      safeNumber(paidByTransaction.get(payment.transactionId)) + safeNumber(payment.amount)
+    );
+  }
+
+  const transferRows = transactions.map((transaction)=>{
+    const amount = safeNumber(transaction.totalCustomerDue, transaction.amount);
+    const paid = safeNumber(paidByTransaction.get(transaction.id));
+    const remaining = Math.max(amount-paid,0);
+    if (remaining <= 0.001) return null;
+    const customer = customers.find((item)=>item.id===transaction.customerId);
+    const transferDate = String(transaction.transferDate || transaction.createdAt || "").slice(0,10);
+    return {
+      id:`TRANSFER:${transaction.id}`,
+      type:"RECEIVABLE",
+      partyName:customer?.name || "عميل بدون اسم",
+      amount:+amount.toFixed(2),
+      currency:"CAD",
+      dueDate:transferDate,
+      description:`حوالة غير مدفوعة ${transaction.number || ""}`.trim(),
+      reference:transaction.number || "",
+      status:paid>0?"PARTIAL":"OPEN",
+      source:"TRANSFER",
+      transactionId:transaction.id,
+      customerId:transaction.customerId,
+      createdAt:transaction.createdAt || transaction.transferDate || now(),
+      paid:+paid.toFixed(2),
+      remaining:+remaining.toFixed(2),
+    };
+  }).filter(Boolean);
+
+  const rows = [...manualRows, ...transferRows]
+    .filter((debt)=>!type || debt.type===type)
     .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
 
-  const totals = {
-    receivable: rows.filter((x)=>x.type==="RECEIVABLE").reduce((s,x)=>s+safeNumber(x.remaining),0),
-    payable: rows.filter((x)=>x.type==="PAYABLE").reduce((s,x)=>s+safeNumber(x.remaining),0),
-  };
+  const totalsByCurrency = {};
+  for (const row of rows) {
+    const currency = String(row.currency || "CAD").toUpperCase();
+    if (!totalsByCurrency[currency]) totalsByCurrency[currency] = {receivable:0,payable:0,net:0};
+    if (row.type==="RECEIVABLE") totalsByCurrency[currency].receivable += safeNumber(row.remaining);
+    if (row.type==="PAYABLE") totalsByCurrency[currency].payable += safeNumber(row.remaining);
+    totalsByCurrency[currency].net = totalsByCurrency[currency].receivable - totalsByCurrency[currency].payable;
+  }
+  for (const currency of Object.keys(totalsByCurrency)) {
+    totalsByCurrency[currency] = {
+      receivable:+totalsByCurrency[currency].receivable.toFixed(2),
+      payable:+totalsByCurrency[currency].payable.toFixed(2),
+      net:+totalsByCurrency[currency].net.toFixed(2),
+    };
+  }
 
+  const cadTotals = totalsByCurrency.CAD || {receivable:0,payable:0,net:0};
   res.json({
     rows,
-    totals:{
-      receivable:+totals.receivable.toFixed(2),
-      payable:+totals.payable.toFixed(2),
-      net:+(totals.receivable-totals.payable).toFixed(2),
-    }
+    totals:cadTotals,
+    totalsByCurrency,
+    automaticTransferDebts:transferRows.length
   });
 });
 
@@ -1002,12 +1453,17 @@ app.post("/api/general-debts", auth, (req,res)=>{
   } = req.body || {};
 
   const numericAmount = Number(amount);
+  const normalizedCurrency = String(currency || "CAD").toUpperCase();
+  const supportedDebtCurrencies = ["CAD","USD","EUR","SYP","TRY","SAR","AED","GBP"];
 
   if (!["RECEIVABLE","PAYABLE"].includes(type)) {
     return res.status(400).json({message:"نوع الدين غير صحيح"});
   }
   if (!partyName || !Number.isFinite(numericAmount) || numericAmount <= 0) {
     return res.status(400).json({message:"أدخل اسم الجهة ومبلغًا صحيحًا"});
+  }
+  if (!supportedDebtCurrencies.includes(normalizedCurrency)) {
+    return res.status(400).json({message:"عملة الدين غير مدعومة"});
   }
 
   const debt = mutate((store)=>{
@@ -1016,7 +1472,7 @@ app.post("/api/general-debts", auth, (req,res)=>{
       type,
       partyName:String(partyName),
       amount:numericAmount,
-      currency:String(currency || "CAD").toUpperCase(),
+      currency:normalizedCurrency,
       dueDate:dueDate || "",
       description,
       reference,
@@ -1177,6 +1633,8 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
           number:transaction.number||transaction.id,
           transferDate:date,
           usdAmount:+usdAmount.toFixed(2),
+          customerRate:+finalRate.toFixed(6),
+          formulaResultCad:+(usdAmount*finalRate).toFixed(2),
           costCad:+costCad.toFixed(2),
           totalCad:+totalCad.toFixed(2),
           paid:+paid.toFixed(2),
@@ -1188,29 +1646,37 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
       })
       .sort((a,b)=>String(a.transferDate).localeCompare(String(b.transferDate)));
 
+    const oldBalance=Math.max(safeNumber(customer.oldBalance),0);
+    const oldBalancePaid=Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),oldBalance);
+    const oldBalanceRemaining=Math.max(oldBalance-oldBalancePaid,0);
+
     const totals=transactions.reduce((acc,item)=>{
       acc.usdAmount+=safeNumber(item.usdAmount);
       acc.costCad+=safeNumber(item.costCad);
       acc.totalCad+=safeNumber(item.totalCad);
+      acc.formulaResultCad+=safeNumber(item.formulaResultCad);
       acc.paid+=safeNumber(item.paid);
       acc.remaining+=safeNumber(item.remaining);
       return acc;
-    },{usdAmount:0,costCad:0,totalCad:0,paid:0,remaining:0});
+    },{usdAmount:0,costCad:0,totalCad:0,formulaResultCad:0,paid:0,remaining:0});
 
     const lastActivity=transactions.length
       ? transactions[transactions.length-1].transferDate
       : null;
 
     res.json({
-      company:{
-        name:"شركة العبود للتجارة",
-        nameEn:"AlAboud Trading Company"
-      },
+      company:(()=>{
+        const company=(Array.isArray(store.companies)?store.companies:[]).find(item=>item.id===req.user.companyId);
+        return {name:company?.name||"شركة العبود للتجارة",nameEn:"",logoDataUrl:company?.logoDataUrl||""};
+      })(),
       customer:{
         ...customer,
-        totalTransactions:+totals.totalCad.toFixed(2),
-        totalPaid:+totals.paid.toFixed(2),
-        finalBalance:+totals.remaining.toFixed(2)
+        oldBalance:+oldBalance.toFixed(2),
+        oldBalancePaid:+oldBalancePaid.toFixed(2),
+        oldBalanceRemaining:+oldBalanceRemaining.toFixed(2),
+        totalTransactions:+(totals.totalCad+oldBalance).toFixed(2),
+        totalPaid:+(totals.paid+oldBalancePaid).toFixed(2),
+        finalBalance:+(totals.remaining+oldBalanceRemaining).toFixed(2)
       },
       from:from||null,
       to:to||null,
@@ -1221,8 +1687,12 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
         usdAmount:+totals.usdAmount.toFixed(2),
         costCad:+totals.costCad.toFixed(2),
         totalCad:+totals.totalCad.toFixed(2),
-        paid:+totals.paid.toFixed(2),
-        remaining:+totals.remaining.toFixed(2)
+        formulaResultCad:+totals.formulaResultCad.toFixed(2),
+        oldBalance:+oldBalance.toFixed(2),
+        oldBalancePaid:+oldBalancePaid.toFixed(2),
+        oldBalanceRemaining:+oldBalanceRemaining.toFixed(2),
+        paid:+(totals.paid+oldBalancePaid).toFixed(2),
+        remaining:+(totals.remaining+oldBalanceRemaining).toFixed(2)
       }
     });
   }catch(error){
@@ -1551,6 +2021,41 @@ app.post("/api/expenses", auth, (req,res)=>{const {title,amount,currency="CAD",c
 app.get("/api/capital", auth, (_req,res)=>res.json(readStore().capitalMovements.slice().reverse()));
 app.post("/api/capital", auth, (req,res)=>{const {type="IN",amount,currency="CAD",description="",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount);if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid capital movement"});const m=mutate(s=>{const x={id:id(),type,amount:+n.toFixed(2),currency,description,date,createdAt:now(),createdBy:req.user.id};s.capitalMovements.push(x);audit(s,req.user.id,"CREATE","CAPITAL",x.id);return x;});res.status(201).json(m);});
 
+app.patch("/api/capital/:id", auth, (req,res)=>{
+  const {type,amount,currency,description,date}=req.body||{};
+  const n=Number(amount);
+  if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0){
+    return res.status(400).json({message:"بيانات حركة رأس المال غير صحيحة"});
+  }
+  const updated=mutate(store=>{
+    const item=store.capitalMovements.find(entry=>entry.id===req.params.id);
+    if(!item)return null;
+    item.type=type;
+    item.amount=+n.toFixed(2);
+    item.currency=String(currency||"CAD").toUpperCase();
+    item.description=String(description||"");
+    item.date=date||new Date().toISOString().slice(0,10);
+    item.updatedAt=now();
+    item.updatedBy=req.user.id;
+    audit(store,req.user.id,"UPDATE","CAPITAL",item.id,{type:item.type,amount:item.amount});
+    return item;
+  });
+  if(!updated)return res.status(404).json({message:"حركة رأس المال غير موجودة"});
+  res.json(updated);
+});
+
+app.delete("/api/capital/:id", auth, (req,res)=>{
+  const removed=mutate(store=>{
+    const index=store.capitalMovements.findIndex(entry=>entry.id===req.params.id);
+    if(index<0)return null;
+    const [item]=store.capitalMovements.splice(index,1);
+    audit(store,req.user.id,"DELETE","CAPITAL",item.id,{type:item.type,amount:item.amount});
+    return item;
+  });
+  if(!removed)return res.status(404).json({message:"حركة رأس المال غير موجودة"});
+  res.json({message:"تم حذف حركة رأس المال",id:removed.id});
+});
+
 const publicDir = path.resolve(__dirname, "../public");
 const indexFile = path.join(publicDir, "index.html");
 
@@ -1560,7 +2065,17 @@ if (!fs.existsSync(indexFile)) {
 
 app.use(express.static(publicDir, {
   index: "index.html",
-  maxAge: process.env.NODE_ENV === "production" ? "1h" : 0
+  maxAge: 0,
+  etag: true,
+  setHeaders(res, filePath){
+    if(filePath.endsWith("index.html")){
+      res.setHeader("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.setHeader("Pragma","no-cache");
+      res.setHeader("Expires","0");
+    }else{
+      res.setHeader("Cache-Control","no-cache");
+    }
+  }
 }));
 
 app.get("/", (_req, res) => {
@@ -1573,6 +2088,7 @@ app.get("/", (_req, res) => {
 app.use((req, res, next) => {
   if (req.path.startsWith("/api/")) return next();
   if (!fs.existsSync(indexFile)) return res.status(404).send("Not Found");
+  res.setHeader("Cache-Control","no-store, no-cache, must-revalidate");
   return res.sendFile(indexFile);
 });
 
@@ -1585,7 +2101,28 @@ app.use((err,_req,res,_next)=>{
   res.status(400).json({message:err.message||"Request failed"});
 });
 
-app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v8.1 running on port ${PORT}`);
+async function startServer(){
+  await initStore();
+  seedAdmin();
+  app.listen(PORT,"0.0.0.0",()=>{
+  console.log(`AlAboud Enterprise Cloud v16.0.7 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
+
+  const runHourlyRateRefresh=async()=>{
+    try{
+      const results=await refreshAutomaticRates("SYSTEM_HOURLY");
+      const successCount=results.filter(item=>item.ok).length;
+      console.log(`Hourly exchange-rate refresh: ${successCount}/${results.length} updated`);
+    }catch(error){
+      console.error("Hourly exchange-rate refresh failed:",error.message);
+    }
+  };
+
+  setTimeout(runHourlyRateRefresh,60*1000);
+  setInterval(runHourlyRateRefresh,60*60*1000);
+  });
+}
+startServer().catch(error=>{
+  console.error("Server startup failed:",error);
+  process.exit(1);
 });
