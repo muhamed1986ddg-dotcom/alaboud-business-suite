@@ -29,6 +29,11 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
@@ -92,7 +97,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/16.0.18"
+            userAgentString = "$userAgentString AlAboudMobile/18.1.0"
         }
 
         CookieManager.getInstance().apply {
@@ -539,7 +544,64 @@ class MainActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState)
     }
 
+    private fun securePreferences() = EncryptedSharedPreferences.create(
+        this,
+        "alaboud_secure_auth",
+        MasterKey.Builder(this).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
+
+    private fun saveBiometricCredential(token: String, userJson: String) {
+        securePreferences().edit().putString("biometric_token", token).putString("biometric_user", userJson).apply()
+    }
+
+    private fun requestBiometricLogin() {
+        val token = securePreferences().getString("biometric_token", null)
+        if (token.isNullOrBlank()) {
+            Toast.makeText(this, "سجّل الدخول مرة واحدة بكلمة المرور لتفعيل البصمة", Toast.LENGTH_LONG).show()
+            return
+        }
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        val manager = BiometricManager.from(this)
+        if (manager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
+            Toast.makeText(this, "البصمة أو قفل الجهاز غير متاح", Toast.LENGTH_LONG).show()
+            return
+        }
+        val prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                super.onAuthenticationSucceeded(result)
+                val escaped = JSONObject.quote(token)
+                webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('alaboud-biometric-token',{detail:{token:$escaped}}));", null)
+            }
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                super.onAuthenticationError(errorCode, errString)
+                if (errorCode != BiometricPrompt.ERROR_USER_CANCELED && errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+                    Toast.makeText(this@MainActivity, errString, Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("الدخول الآمن")
+            .setSubtitle("استخدم البصمة أو الوجه أو رمز قفل الهاتف")
+            .setAllowedAuthenticators(authenticators)
+            .build()
+        prompt.authenticate(info)
+    }
+
     class NativeBridge(private val activity: MainActivity) {
+
+        @JavascriptInterface
+        fun saveBiometricToken(token: String, userJson: String) {
+            activity.runOnUiThread {
+                activity.saveBiometricCredential(token, userJson)
+            }
+        }
+
+        @JavascriptInterface
+        fun requestBiometricLogin() {
+            activity.runOnUiThread { activity.requestBiometricLogin() }
+        }
 
         @JavascriptInterface
         fun shareImageToWhatsApp(dataUrl: String, fileName: String) {

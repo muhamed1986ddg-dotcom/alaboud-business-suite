@@ -77,6 +77,29 @@ function audit(store, userId, action, entityType, entityId, details = {}) {
   entry.integrityHash=sha256(JSON.stringify(entry)); logs.push(entry); store.auditLogs=logs;
 }
 
+
+function base32Encode(buffer){
+  const alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"; let bits="",out="";
+  for(const byte of buffer) bits+=byte.toString(2).padStart(8,"0");
+  for(let i=0;i<bits.length;i+=5){const chunk=bits.slice(i,i+5).padEnd(5,"0");out+=alphabet[parseInt(chunk,2)];}
+  return out;
+}
+function base32Decode(value){
+  const alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"; let bits="";
+  for(const ch of String(value||"").replace(/=+$/g,"").toUpperCase()){const i=alphabet.indexOf(ch);if(i>=0)bits+=i.toString(2).padStart(5,"0");}
+  const bytes=[]; for(let i=0;i+8<=bits.length;i+=8)bytes.push(parseInt(bits.slice(i,i+8),2)); return Buffer.from(bytes);
+}
+function totp(secret,time=Date.now(),step=30){
+  const counter=Math.floor(time/1000/step); const msg=Buffer.alloc(8); msg.writeBigUInt64BE(BigInt(counter));
+  const digest=crypto.createHmac("sha1",base32Decode(secret)).update(msg).digest(); const off=digest[digest.length-1]&15;
+  const code=((digest.readUInt32BE(off)&0x7fffffff)%1000000).toString().padStart(6,"0"); return code;
+}
+function verifyTotp(secret,code){const clean=String(code||"").replace(/\D/g,""); if(clean.length!==6)return false; for(let w=-1;w<=1;w++)if(totp(secret,Date.now()+w*30000)===clean)return true; return false;}
+function issueSession(user,company){
+  const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId,jti:crypto.randomUUID()},JWT_SECRET,{expiresIn:"12h",issuer:"alaboud-business-suite",audience:"alaboud-client"});
+  return {token,user:{id:user.id,name:user.name,email:user.email,role:user.role,companyId:user.companyId,companyName:company.name,mustChangePassword:Boolean(user.mustChangePassword),twoFactorEnabled:Boolean(user.twoFactorEnabled)}};
+}
+
 function safeNumber(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -174,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.0.0",channel:"fortress-security",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.1.0",channel:"2fa-biometric-security",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -182,10 +205,42 @@ app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const valid=user&&(isScryptHash(user.passwordHash)?verifyPassword(password,user.passwordHash):bcrypt.compareSync(password,user.passwordHash));
   if(!valid){ mutate(root=>{const u=root.users.find(x=>String(x.email||"").toLowerCase()===email); if(u){u.failedLoginAttempts=(u.failedLoginAttempts||0)+1; if(u.failedLoginAttempts>=5){u.lockedUntil=new Date(Date.now()+15*60*1000).toISOString();u.failedLoginAttempts=0;} audit(root,u.id,"LOGIN_FAILED","AUTH",u.id,{ip:req.ip,requestId:req.requestId});}}); return res.status(401).json({message:"بيانات الدخول غير صحيحة"}); }
   const company=store.companies.find(item=>item.id===user.companyId&&item.active); if(!company)return res.status(403).json({message:"Company account is inactive"});
-  const installationId=String(req.headers["x-installation-id"]||req.body?.installationId||"").trim();
-  try{ mutate(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;if(!isScryptHash(u.passwordHash))u.passwordHash=hashPassword(password); let device=(root.devices||[]).find(item=>item.companyId===u.companyId&&item.installationId===installationId); if(installationId){if(!device){device={id:id(),companyId:u.companyId,installationId,deviceName:String(req.headers["x-device-name"]||"جهاز جديد").slice(0,120),platform:String(req.headers["x-device-platform"]||"Web").slice(0,80),appVersion:String(req.headers["x-alaboud-client-version"]||"18.0.0").slice(0,30),active:true,firstSeenAt:now(),lastSeenAt:now(),lastUserId:u.id};root.devices.push(device);}else if(device.active===false)throw new Error("هذا الجهاز معطل من لوحة الإدارة");else{device.lastSeenAt=now();device.lastUserId=u.id;}}u.lastLoginAt=now();audit(root,u.id,"LOGIN_SUCCESS","AUTH",u.id,{ip:req.ip,installationId,requestId:req.requestId});}); }catch(e){return res.status(403).json({message:e.message});}
-  const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId,jti:crypto.randomUUID()},JWT_SECRET,{expiresIn:"12h",issuer:"alaboud-business-suite",audience:"alaboud-client"});
-  res.json({token,user:{id:user.id,name:user.name,email:user.email,role:user.role,companyId:user.companyId,companyName:company.name,mustChangePassword:Boolean(user.mustChangePassword)}});
+  if(user.twoFactorEnabled){
+    const challenge=jwt.sign({id:user.id,companyId:user.companyId,purpose:"2fa"},JWT_SECRET,{expiresIn:"5m",issuer:"alaboud-business-suite",audience:"alaboud-2fa"});
+    return res.json({twoFactorRequired:true,challenge});
+  }
+  mutate(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;if(!isScryptHash(u.passwordHash))u.passwordHash=hashPassword(password);u.lastLoginAt=now();audit(root,u.id,"LOGIN_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
+  res.json(issueSession(user,company));
+});
+
+app.post("/api/auth/2fa/verify",rateLimit("2fa",10,10*60*1000),(req,res)=>{
+  try{
+    const payload=jwt.verify(String(req.body?.challenge||""),JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-2fa",algorithms:["HS256"]});
+    if(payload.purpose!=="2fa")throw new Error("invalid");
+    const store=readStore(); const user=store.users.find(u=>u.id===payload.id&&u.active); const company=store.companies.find(c=>c.id===payload.companyId&&c.active);
+    if(!user||!company||!user.twoFactorSecret||!verifyTotp(user.twoFactorSecret,req.body?.code))return res.status(401).json({message:"رمز التحقق غير صحيح"});
+    mutate(root=>{const u=root.users.find(x=>x.id===user.id);u.lastLoginAt=now();audit(root,u.id,"LOGIN_2FA_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
+    res.json(issueSession(user,company));
+  }catch{return res.status(401).json({message:"انتهت صلاحية التحقق، أعد تسجيل الدخول"});}
+});
+
+app.post("/api/auth/2fa/setup",auth,(req,res)=>{
+  const secret=base32Encode(crypto.randomBytes(20));
+  mutate(store=>{const u=store.users.find(x=>x.id===req.user.id);u.twoFactorPendingSecret=secret;audit(store,u.id,"2FA_SETUP_STARTED","AUTH",u.id);});
+  const label=encodeURIComponent(`ALABOUD:${req.user.name||req.user.id}`);
+  res.json({secret,otpauth:`otpauth://totp/${label}?secret=${secret}&issuer=ALABOUD%20Business%20Suite&digits=6&period=30`});
+});
+app.post("/api/auth/2fa/enable",auth,(req,res)=>{
+  let ok=false; mutate(store=>{const u=store.users.find(x=>x.id===req.user.id);if(u?.twoFactorPendingSecret&&verifyTotp(u.twoFactorPendingSecret,req.body?.code)){u.twoFactorSecret=u.twoFactorPendingSecret;delete u.twoFactorPendingSecret;u.twoFactorEnabled=true;ok=true;audit(store,u.id,"2FA_ENABLED","AUTH",u.id);}});
+  if(!ok)return res.status(400).json({message:"رمز التحقق غير صحيح"});res.json({message:"تم تفعيل التحقق بخطوتين"});
+});
+app.post("/api/auth/2fa/disable",auth,(req,res)=>{mutate(store=>{const u=store.users.find(x=>x.id===req.user.id);u.twoFactorEnabled=false;delete u.twoFactorSecret;delete u.twoFactorPendingSecret;audit(store,u.id,"2FA_DISABLED","AUTH",u.id);});res.json({message:"تم تعطيل التحقق بخطوتين"});});
+
+app.post("/api/auth/biometric-token",auth,(req,res)=>{
+  const token=jwt.sign({id:req.user.id,companyId:req.user.companyId,purpose:"biometric"},JWT_SECRET,{expiresIn:"30d",issuer:"alaboud-business-suite",audience:"alaboud-biometric"});res.json({token});
+});
+app.post("/api/auth/biometric-login",rateLimit("biometric",20,15*60*1000),(req,res)=>{
+  try{const p=jwt.verify(String(req.body?.token||""),JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-biometric",algorithms:["HS256"]});if(p.purpose!=="biometric")throw new Error();const store=readStore();const user=store.users.find(u=>u.id===p.id&&u.active);const company=store.companies.find(c=>c.id===p.companyId&&c.active);if(!user||!company)throw new Error();res.json(issueSession(user,company));}catch{return res.status(401).json({message:"انتهت صلاحية الدخول بالبصمة"});}
 });
 
 app.get("/api/auth/session",auth,(req,res)=>{

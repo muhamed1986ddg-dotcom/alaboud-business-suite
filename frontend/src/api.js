@@ -15,17 +15,11 @@ api.interceptors.request.use(config=>{
   if(token)config.headers.Authorization=`Bearer ${token}`;
 
   let installationId=localStorage.getItem("alaboud_installation_id");
-  if(!installationId){
-    const randomUUID=typeof globalThis.crypto!=="undefined"&&typeof globalThis.crypto.randomUUID==="function"
-      ? globalThis.crypto.randomUUID()
-      : `inst-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    installationId=randomUUID;
-    localStorage.setItem("alaboud_installation_id",installationId);
-  }
+  if(!installationId){installationId=(crypto?.randomUUID?.()||`inst-${Date.now()}-${Math.random().toString(36).slice(2)}`);localStorage.setItem("alaboud_installation_id",installationId)}
   config.headers["X-Installation-ID"]=installationId;
-  config.headers["X-Device-Name"]=(typeof navigator!=="undefined"&&(navigator.userAgentData?.platform||navigator.platform))||"Web Device";
-  config.headers["X-Device-Platform"]=(typeof navigator!=="undefined"&&navigator.userAgent)||"Web";
-  config.headers["X-Alaboud-Client-Version"]="18.0.1";
+  config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
+  config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
+  config.headers["X-Alaboud-Client-Version"]="17.1.0";
   config.params={
     ...(config.params||{}),
     _live:Date.now()
