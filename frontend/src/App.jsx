@@ -274,7 +274,7 @@ function Dashboard({navigate}){
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v18.1.0 2FA + Biometric <span>● متصل</span></p></div>
+        <div><h2>شركة العبود التجارية</h2><p>v18.2.0 Companies Integration <span>● متصل</span></p></div>
       </div>
       <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
@@ -2505,7 +2505,7 @@ function GeneralDebts(){
     }
   }
 
-  const openDebts=data.rows.filter(item=>Number(item.remaining||0)>0);
+  const openDebts=data.rows.filter(item=>Number(item.remaining||0)>0&&item.source==="MANUAL");
 
   const currencyMeta=Object.fromEntries(debtCurrencies.map(item=>[item.code,item]));
 
@@ -2661,6 +2661,7 @@ function GeneralDebts(){
         <thead>
           <tr>
             <th>النوع</th>
+            <th>المصدر</th>
             <th>الشخص/الجهة</th>
             <th>المبلغ</th>
             <th>المدفوع</th>
@@ -2680,6 +2681,7 @@ function GeneralDebts(){
                     {item.type==="RECEIVABLE"?"دين لنا":"دين علينا"}
                   </span>
                 </td>
+                <td>{item.source==="PARTNER"?"شركة":item.source==="TRANSFER"?"حوالة":"يدوي"}</td>
                 <td>{item.partyName}</td>
                 <td>{money(item.amount)}</td>
                 <td>{money(item.paid)}</td>
@@ -2690,7 +2692,7 @@ function GeneralDebts(){
                 <td>{item.reference||"-"}</td>
               </tr>
             )
-            :<tr><td colSpan="9">لا توجد ديون مسجلة.</td></tr>
+            :<tr><td colSpan="10">لا توجد ديون مسجلة.</td></tr>
           }
         </tbody>
       </table>
@@ -2866,9 +2868,10 @@ function PartnerStatement({partnerId,back}){
 function Partners({open}){
   const [data,setData]=useState({rows:[],totals:{receivable:0,payable:0,net:0},totalsByCurrency:{}});
   const [error,setError]=useState("");
+  const [message,setMessage]=useState("");
   const [form,setForm]=useState({
-    name:"",contactName:"",phone:"",whatsapp:"",email:"",
-    country:"",city:"",address:"",notes:""
+    name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",
+    systemUrl:"",connectionType:"WEB",accountCurrency:"CAD",integrationName:"",username:"",syncEnabled:false
   });
 
   async function load(){
@@ -2876,7 +2879,7 @@ function Partners({open}){
       const response=await api.get("/partners");
       setData(response.data);
     }catch(requestError){
-      setError(requestError.response?.data?.message||"تعذر تحميل الموردين والشركات");
+      setError(requestError.response?.data?.message||"تعذر تحميل الشركات");
     }
   }
 
@@ -2884,40 +2887,72 @@ function Partners({open}){
 
   async function add(event){
     event.preventDefault();
-    await api.post("/partners",form);
-    setForm({name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:""});
-    await load();
+    setError("");setMessage("");
+    try{
+      await api.post("/partners",form);
+      setForm({name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",systemUrl:"",connectionType:"WEB",accountCurrency:"CAD",integrationName:"",username:"",syncEnabled:false});
+      setMessage("تمت إضافة الشركة وظهرت في قسم الشركات");
+      await load();
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر إضافة الشركة");
+    }
   }
 
+  async function testConnection(partner){
+    setError("");setMessage("");
+    try{
+      const response=await api.post(`/partners/${partner.id}/test-connection`);
+      setMessage(`${partner.name}: ${response.data.message}`);
+      await load();
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر اختبار الاتصال");
+    }
+  }
+
+  const statusLabel=status=>({READY:"جاهز",CONFIGURED:"مُعدّ",MANUAL:"يدوي",NOT_CONFIGURED:"غير مكتمل"}[status]||"يدوي");
+
   return <>
-    <h2>الشركات</h2>
+    <div className="page-title-row"><h2>🏢 الشركات والربط الخارجي</h2></div>
     {error&&<div className="card customer-error">{error}</div>}
+    {message&&<div className="card rate-message">{message}</div>}
     <div className="stats">
       <div className="card receivable-card"><span>إجمالي دين لنا</span><strong>{money(data.totals.receivable)}</strong></div>
       <div className="card payable-card"><span>إجمالي دين علينا</span><strong>{money(data.totals.payable)}</strong></div>
       <div className="card final"><span>الصافي</span><strong>{money(data.totals.net)}</strong></div>
+      <div className="card"><span>عدد الشركات</span><strong>{data.rows.length}</strong></div>
     </div>
 
-    <form className="card form" onSubmit={add}>
-      <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="اسم المورد أو الشركة" required/>
+    <form className="card form company-integration-form" onSubmit={add}>
+      <h3>➕ إضافة شركة وربطها</h3>
+      <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="اسم الشركة" required/>
+      <input value={form.integrationName} onChange={e=>setForm({...form,integrationName:e.target.value})} placeholder="اسم الربط (اختياري)"/>
+      <input type="url" value={form.systemUrl} onChange={e=>setForm({...form,systemUrl:e.target.value})} placeholder="رابط نظام الشركة https://..."/>
+      <select value={form.connectionType} onChange={e=>setForm({...form,connectionType:e.target.value})}>
+        <option value="WEB">رابط ويب</option><option value="API">API</option><option value="CSV">CSV</option><option value="EXCEL">Excel</option><option value="PDF">PDF</option>
+      </select>
+      <select value={form.accountCurrency} onChange={e=>setForm({...form,accountCurrency:e.target.value})}>
+        {debtCurrencies.map(item=><option key={item.code} value={item.code}>{item.flag} {item.code}</option>)}
+      </select>
+      <input value={form.username} onChange={e=>setForm({...form,username:e.target.value})} placeholder="اسم المستخدم للربط (اختياري)" autoComplete="off"/>
       <input value={form.contactName} onChange={e=>setForm({...form,contactName:e.target.value})} placeholder="اسم المسؤول"/>
       <input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="الهاتف"/>
       <input value={form.whatsapp} onChange={e=>setForm({...form,whatsapp:e.target.value})} placeholder="واتساب"/>
       <input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="البريد"/>
-      <input value={form.country} onChange={e=>setForm({...form,country:e.target.value})} placeholder="الدولة"/>
-      <input value={form.city} onChange={e=>setForm({...form,city:e.target.value})} placeholder="المدينة"/>
-      <input value={form.address} onChange={e=>setForm({...form,address:e.target.value})} placeholder="العنوان"/>
-      <button>إضافة</button>
+      <label className="integration-toggle"><input type="checkbox" checked={form.syncEnabled} onChange={e=>setForm({...form,syncEnabled:e.target.checked})}/><span>تفعيل المزامنة عند توفر موصل الشركة</span></label>
+      <button>حفظ وإظهار الشركة</button>
     </form>
 
     <div className="card tablewrap">
       <table>
-        <thead><tr><th>الاسم</th><th>المسؤول</th><th>الهاتف</th><th>دين لنا</th><th>دين علينا</th><th>الصافي</th><th>الملف</th></tr></thead>
+        <thead><tr><th>الشركة</th><th>نوع الربط</th><th>الحالة</th><th>دين لنا</th><th>دين علينا</th><th>الصافي</th><th>الرابط</th><th>الإجراءات</th></tr></thead>
         <tbody>{data.rows.length?data.rows.map(partner=><tr key={partner.id}>
-          <td>{partner.name}</td><td>{partner.contactName||"-"}</td><td>{partner.phone||"-"}</td>
-          <td>{money(partner.receivable)}</td><td>{money(partner.payable)}</td><td><strong>{money(partner.net)}</strong></td>
-          <td><button onClick={()=>open(partner.id)}>فتح</button></td>
-        </tr>):<tr><td colSpan="7">لا توجد شركات أو موردون.</td></tr>}</tbody>
+          <td><strong>{partner.name}</strong><small className="company-subline">{partner.contactName||partner.integrationName||"-"}</small></td>
+          <td>{partner.connectionType||"يدوي"}</td>
+          <td><span className={`integration-status status-${String(partner.connectionStatus||"MANUAL").toLowerCase()}`}>{statusLabel(partner.connectionStatus)}</span></td>
+          <td>{money(partner.receivable)} {partner.accountCurrency||"CAD"}</td><td>{money(partner.payable)} {partner.accountCurrency||"CAD"}</td><td><strong>{money(partner.net)}</strong></td>
+          <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
+          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الرابط</button>}</td>
+        </tr>):<tr><td colSpan="8">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>
     </div>
   </>;
@@ -3282,7 +3317,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v18.1.0 2FA + Biometric"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v18.2.0 Companies Integration"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3385,7 +3420,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v18.1.0 2FA + Biometric"
+        version:"v18.2.0 Companies Integration"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3461,7 +3496,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v18.1.0 2FA + Biometric</span>
+      <span className="settings-version">v18.2.0 Companies Integration</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3575,7 +3610,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v18.1.0 2FA + Biometric").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v18.2.0 Companies Integration").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3806,7 +3841,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v18.1.0 2FA + Biometric</small>
+          <small>v18.2.0 Companies Integration</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3822,7 +3857,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v18.1.0 2FA + Biometric</small>
+          <small>v18.2.0 Companies Integration</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

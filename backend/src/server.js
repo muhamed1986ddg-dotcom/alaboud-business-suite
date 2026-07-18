@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.1.0",channel:"2fa-biometric-security",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.2.0",channel:"company-integrations",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -1607,7 +1607,55 @@ app.get("/api/general-debts", auth, (req,res)=>{
     };
   }).filter(Boolean);
 
-  const rows = [...manualRows, ...transferRows]
+  const partners = Array.isArray(store.partners) ? store.partners : [];
+  const partnerTransactions = Array.isArray(store.partnerTransactions) ? store.partnerTransactions : [];
+  const partnerPayments = Array.isArray(store.partnerPayments) ? store.partnerPayments : [];
+  const partnerRows = [];
+
+  for (const partner of partners) {
+    const transactionsForPartner = partnerTransactions.filter((item)=>item.partnerId===partner.id);
+    const paymentsForPartner = partnerPayments.filter((item)=>item.partnerId===partner.id);
+    const currencies = new Set([
+      ...transactionsForPartner.map((item)=>String(item.currency||"CAD").toUpperCase()),
+      ...paymentsForPartner.map((item)=>String(item.currency||"CAD").toUpperCase())
+    ]);
+
+    for (const currency of currencies) {
+      const receivable = transactionsForPartner
+        .filter((item)=>item.type==="RECEIVABLE" && String(item.currency||"CAD").toUpperCase()===currency)
+        .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      const payable = transactionsForPartner
+        .filter((item)=>item.type==="PAYABLE" && String(item.currency||"CAD").toUpperCase()===currency)
+        .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      const received = paymentsForPartner
+        .filter((item)=>item.direction==="RECEIVED" && String(item.currency||"CAD").toUpperCase()===currency)
+        .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      const paid = paymentsForPartner
+        .filter((item)=>item.direction==="PAID" && String(item.currency||"CAD").toUpperCase()===currency)
+        .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+
+      const receivableRemaining = Math.max(receivable-received,0);
+      const payableRemaining = Math.max(payable-paid,0);
+      if (receivableRemaining>0.001) partnerRows.push({
+        id:`PARTNER:RECEIVABLE:${partner.id}:${currency}`,
+        type:"RECEIVABLE", partyName:partner.name, amount:+receivable.toFixed(2),
+        paid:+received.toFixed(2), remaining:+receivableRemaining.toFixed(2), currency,
+        dueDate:"", description:"رصيد شركة مرتبط", reference:partner.integrationName||partner.name,
+        status:received>0?"PARTIAL":"OPEN", source:"PARTNER", partnerId:partner.id,
+        createdAt:partner.updatedAt||partner.createdAt||now()
+      });
+      if (payableRemaining>0.001) partnerRows.push({
+        id:`PARTNER:PAYABLE:${partner.id}:${currency}`,
+        type:"PAYABLE", partyName:partner.name, amount:+payable.toFixed(2),
+        paid:+paid.toFixed(2), remaining:+payableRemaining.toFixed(2), currency,
+        dueDate:"", description:"رصيد شركة مرتبط", reference:partner.integrationName||partner.name,
+        status:paid>0?"PARTIAL":"OPEN", source:"PARTNER", partnerId:partner.id,
+        createdAt:partner.updatedAt||partner.createdAt||now()
+      });
+    }
+  }
+
+  const rows = [...manualRows, ...transferRows, ...partnerRows]
     .filter((debt)=>!type || debt.type===type)
     .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
 
@@ -1632,7 +1680,8 @@ app.get("/api/general-debts", auth, (req,res)=>{
     rows,
     totals:cadTotals,
     totalsByCurrency,
-    automaticTransferDebts:transferRows.length
+    automaticTransferDebts:transferRows.length,
+    automaticCompanyDebts:partnerRows.length
   });
 });
 
@@ -2013,7 +2062,13 @@ app.post("/api/partners", auth, (req,res)=>{
     country="",
     city="",
     address="",
-    notes=""
+    notes="",
+    systemUrl="",
+    connectionType="WEB",
+    accountCurrency="CAD",
+    integrationName="",
+    username="",
+    syncEnabled=false
   }=req.body||{};
 
   if(!name)return res.status(400).json({message:"اسم المورد أو الشركة مطلوب"});
@@ -2030,6 +2085,14 @@ app.post("/api/partners", auth, (req,res)=>{
       city,
       address,
       notes,
+      systemUrl:String(systemUrl||"").trim(),
+      connectionType:["API","WEB","CSV","EXCEL","PDF"].includes(String(connectionType).toUpperCase())?String(connectionType).toUpperCase():"WEB",
+      accountCurrency:String(accountCurrency||"CAD").toUpperCase(),
+      integrationName:String(integrationName||name),
+      username:String(username||""),
+      syncEnabled:Boolean(syncEnabled),
+      connectionStatus:String(systemUrl||"").trim()?"CONFIGURED":"MANUAL",
+      lastSyncAt:null,
       createdAt:now(),
       createdBy:req.user.id
     };
@@ -2039,6 +2102,45 @@ app.post("/api/partners", auth, (req,res)=>{
   });
 
   res.status(201).json(partner);
+});
+
+app.patch("/api/partners/:id", auth, (req,res)=>{
+  const allowed=["name","contactName","phone","whatsapp","email","country","city","address","notes","systemUrl","connectionType","accountCurrency","integrationName","username","syncEnabled"];
+  let updated=null;
+  mutate(store=>{
+    const partner=store.partners.find(item=>item.id===req.params.id);
+    if(!partner)return;
+    for(const key of allowed){
+      if(req.body?.[key]===undefined)continue;
+      partner[key]=key==="syncEnabled"?Boolean(req.body[key]):String(req.body[key]??"");
+    }
+    partner.connectionType=String(partner.connectionType||"WEB").toUpperCase();
+    partner.accountCurrency=String(partner.accountCurrency||"CAD").toUpperCase();
+    partner.connectionStatus=String(partner.systemUrl||"").trim()?"CONFIGURED":"MANUAL";
+    partner.updatedAt=now();
+    audit(store,req.user.id,"UPDATE","PARTNER",partner.id,{integration:true});
+    updated={...partner};
+  });
+  if(!updated)return res.status(404).json({message:"الشركة غير موجودة"});
+  res.json(updated);
+});
+
+app.post("/api/partners/:id/test-connection", auth, (req,res)=>{
+  let result=null;
+  mutate(store=>{
+    const partner=store.partners.find(item=>item.id===req.params.id);
+    if(!partner)return;
+    const url=String(partner.systemUrl||"").trim();
+    let valid=false;
+    try{const parsed=new URL(url);valid=["http:","https:"].includes(parsed.protocol);}catch{}
+    partner.connectionStatus=valid?"READY":"NOT_CONFIGURED";
+    partner.lastConnectionTestAt=now();
+    partner.updatedAt=now();
+    result={ok:valid,status:partner.connectionStatus,message:valid?"تم التحقق من صيغة الرابط، والربط جاهز لإضافة موصل الشركة":"أدخل رابطًا صحيحًا يبدأ بـ http أو https"};
+    audit(store,req.user.id,"TEST_CONNECTION","PARTNER",partner.id,{ok:valid});
+  });
+  if(!result)return res.status(404).json({message:"الشركة غير موجودة"});
+  res.status(result.ok?200:400).json(result);
 });
 
 app.get("/api/partners/:id", auth, (req,res)=>{
