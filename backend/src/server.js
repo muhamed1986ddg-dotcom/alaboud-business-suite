@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.2.0",channel:"company-integrations",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.0",channel:"jad-live-balance",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -1999,6 +1999,89 @@ app.get("/api/transactions/:id/invoice", auth, (req,res)=>{
 });
 
 
+
+const INTEGRATION_SECRET=process.env.INTEGRATION_SECRET||JWT_SECRET;
+function integrationKey(){return crypto.createHash("sha256").update(String(INTEGRATION_SECRET)).digest();}
+function encryptIntegrationSecret(value){
+  if(!value)return "";
+  const iv=crypto.randomBytes(12);const cipher=crypto.createCipheriv("aes-256-gcm",integrationKey(),iv);
+  const encrypted=Buffer.concat([cipher.update(String(value),"utf8"),cipher.final()]);
+  return `enc:v1:${iv.toString("base64")}:${cipher.getAuthTag().toString("base64")}:${encrypted.toString("base64")}`;
+}
+function decryptIntegrationSecret(value){
+  const text=String(value||"");if(!text)return "";if(!text.startsWith("enc:v1:"))return text;
+  const [,version,iv64,tag64,data64]=text.split(":");if(version!=="v1")throw new Error("Unsupported integration secret");
+  const decipher=crypto.createDecipheriv("aes-256-gcm",integrationKey(),Buffer.from(iv64,"base64"));
+  decipher.setAuthTag(Buffer.from(tag64,"base64"));
+  return Buffer.concat([decipher.update(Buffer.from(data64,"base64")),decipher.final()]).toString("utf8");
+}
+function normalizeBaseUrl(value){const parsed=new URL(String(value||"").trim());return `${parsed.protocol}//${parsed.host}`;}
+function htmlText(value){return String(value||"").replace(/<br\s*\/?\s*>/gi," ").replace(/<[^>]+>/g," ").replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&#039;/g,"'").replace(/&quot;/g,'"').replace(/\s+/g," ").trim();}
+function numberFromText(value){const match=htmlText(value).replace(/,/g,"").match(/-?\d+(?:\.\d+)?/);return match?safeNumber(match[0]):0;}
+function extractCookies(headers){
+  const raw=typeof headers.getSetCookie==="function"?headers.getSetCookie():[headers.get("set-cookie")].filter(Boolean);
+  return raw.map(item=>String(item).split(";")[0]).filter(Boolean).join("; ");
+}
+function mergeCookies(current,next){const jar={};for(const pair of `${current||""}; ${next||""}`.split(";")){const i=pair.indexOf("=");if(i>0)jar[pair.slice(0,i).trim()]=pair.slice(i+1).trim();}return Object.entries(jar).map(([k,v])=>`${k}=${v}`).join("; ");}
+async function fetchWithCookies(url,options={},cookie=""){
+  const headers={...(options.headers||{})};if(cookie)headers.Cookie=cookie;
+  const response=await fetch(url,{...options,headers,redirect:"manual",signal:AbortSignal.timeout(20000)});
+  return {response,cookie:mergeCookies(cookie,extractCookies(response.headers))};
+}
+function findToken(html){
+  const patterns=[/name=["']tok["'][^>]*value=["']([^"']+)/i,/value=["']([^"']+)["'][^>]*name=["']tok["']/i];
+  for(const pattern of patterns){const match=String(html).match(pattern);if(match)return match[1];}return "";
+}
+function parseJadStatement(html){
+  const source=String(html||"");
+  const tbodyMatches=[...source.matchAll(/<tbody[^>]*>([\s\S]*?)<\/tbody>/gi)];
+  let rows=[];
+  for(const body of tbodyMatches){
+    const parsed=[...body[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)].map(row=>[...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(cell=>htmlText(cell[1]))).filter(cells=>cells.length>=6);
+    if(parsed.length>rows.length)rows=parsed;
+  }
+  const movements=rows.map(cells=>({
+    sequence:cells[0]||"",date:cells[1]||"",movementType:cells[2]||"",movementNumber:cells[3]||"",notes:cells[4]||"",
+    payable:numberFromText(cells[5]),receivable:numberFromText(cells[6]),balance:numberFromText(cells[7]??cells[cells.length-1]),raw:cells
+  }));
+  const last=movements[movements.length-1]||{};
+  const totalPayableMatch=source.match(/(?:دائن\s*علينا|مجموع\s*الدائن\s*علينا)[\s\S]{0,180}?([\d,]+(?:\.\d+)?)/i);
+  const totalReceivableMatch=source.match(/(?:مدين\s*لنا|مجموع\s*المدين\s*لنا)[\s\S]{0,180}?([\d,]+(?:\.\d+)?)/i);
+  let payable=totalPayableMatch?numberFromText(totalPayableMatch[1]):0;
+  let receivable=totalReceivableMatch?numberFromText(totalReceivableMatch[1]):0;
+  const balance=safeNumber(last.balance);
+  if(!payable&&!receivable&&balance){
+    const pageText=htmlText(source);
+    if(/دائن\s*علينا|دولار\s*عليكم/.test(pageText))payable=Math.abs(balance);else receivable=Math.abs(balance);
+  }
+  return {movements,balance:+balance.toFixed(2),payable:+payable.toFixed(2),receivable:+receivable.toFixed(2)};
+}
+async function syncJadPartner(partner,{fromDate,toDate}={}){
+  const base=normalizeBaseUrl(partner.systemUrl);const prefix=String(partner.pathPrefix||"/ssljd/merkez112/1/2").replace(/\/$/,"");
+  const username=String(partner.username||"").trim();const password=decryptIntegrationSecret(partner.passwordEncrypted);
+  if(!username||!password)throw new Error("اسم المستخدم وكلمة المرور مطلوبان للربط");
+  let cookie="";
+  let step=await fetchWithCookies(`${base}${prefix}/log_2`,{headers:{Accept:"text/html"}},cookie);cookie=step.cookie;
+  let loginHtml=await step.response.text();let token=findToken(loginHtml);
+  if(!token){step=await fetchWithCookies(`${base}${prefix}/log`,{headers:{Accept:"text/html"}},cookie);cookie=step.cookie;loginHtml=await step.response.text();token=findToken(loginHtml);}
+  if(!token)throw new Error("تعذر استخراج رمز تسجيل الدخول من موقع الشركة");
+  const loginBody=new URLSearchParams({mail:username,pass:password,tok:token,"btn-login":""});
+  step=await fetchWithCookies(`${base}${prefix}/log`,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded","Referer":`${base}${prefix}/log_2`},body:loginBody.toString()},cookie);cookie=step.cookie;
+  if(![200,302,303].includes(step.response.status))throw new Error(`فشل تسجيل الدخول (${step.response.status})`);
+  const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*24*3600*1000).toISOString().slice(0,10);
+  const end=toDate||new Date().toISOString().slice(0,10);
+  const accountId=String(partner.externalAccountId||"").trim();
+  if(accountId){
+    const form=new FormData();form.append("currency",String(partner.accountCurrency||"USD").toLowerCase());form.append("date1","date");form.append("confirm",accountId);form.append("date2",start);form.append("date3",end);
+    step=await fetchWithCookies(`${base}${prefix}/account`,{method:"POST",headers:{Referer:`${base}${prefix}/account`},body:form},cookie);cookie=step.cookie;await step.response.arrayBuffer();
+  }
+  const query=new URLSearchParams({currency:String(partner.accountCurrency||"USD").toLowerCase(),date1:"date",date2:start,date3:end});
+  step=await fetchWithCookies(`${base}${prefix}/accountprint.php?${query}`,{headers:{Accept:"text/html","Referer":`${base}${prefix}/account`}},cookie);
+  if(step.response.status!==200)throw new Error(`تعذر جلب كشف الحساب (${step.response.status})`);
+  const html=await step.response.text();if(/name=["']pass["']|btn-login/i.test(html)&&!/<tbody/i.test(html))throw new Error("رفض الموقع جلسة الدخول؛ تحقق من بيانات الحساب");
+  return {...parseJadStatement(html),fromDate:start,toDate:end};
+}
+
 app.get("/api/partners", auth, (_req,res)=>{
   const store=readStore();
   const partners=Array.isArray(store.partners)?store.partners:[];
@@ -2025,11 +2108,13 @@ app.get("/api/partners", auth, (_req,res)=>{
       .filter(item=>item.direction==="PAID")
       .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
-    const receivableBalance=Math.max(receivable-receivedPayments,0);
-    const payableBalance=Math.max(payable-paidPayments,0);
+    const receivableBalance=Math.max(receivable-receivedPayments,0)+safeNumber(partner.externalReceivable);
+    const payableBalance=Math.max(payable-paidPayments,0)+safeNumber(partner.externalPayable);
 
+    const {passwordEncrypted,...publicPartner}=partner;
     return {
-      ...partner,
+      ...publicPartner,
+      hasPassword:Boolean(passwordEncrypted),
       receivable:+receivableBalance.toFixed(2),
       payable:+payableBalance.toFixed(2),
       net:+(receivableBalance-payableBalance).toFixed(2)
@@ -2068,6 +2153,11 @@ app.post("/api/partners", auth, (req,res)=>{
     accountCurrency="CAD",
     integrationName="",
     username="",
+    password="",
+    externalAccountId="",
+    connectorType="GENERIC",
+    pathPrefix="/ssljd/merkez112/1/2",
+    syncFromDate="",
     syncEnabled=false
   }=req.body||{};
 
@@ -2090,6 +2180,12 @@ app.post("/api/partners", auth, (req,res)=>{
       accountCurrency:String(accountCurrency||"CAD").toUpperCase(),
       integrationName:String(integrationName||name),
       username:String(username||""),
+      passwordEncrypted:encryptIntegrationSecret(password),
+      externalAccountId:String(externalAccountId||""),
+      connectorType:String(connectorType||"GENERIC").toUpperCase(),
+      pathPrefix:String(pathPrefix||"/ssljd/merkez112/1/2"),
+      syncFromDate:String(syncFromDate||""),
+      externalReceivable:0,externalPayable:0,externalBalance:0,
       syncEnabled:Boolean(syncEnabled),
       connectionStatus:String(systemUrl||"").trim()?"CONFIGURED":"MANUAL",
       lastSyncAt:null,
@@ -2105,11 +2201,12 @@ app.post("/api/partners", auth, (req,res)=>{
 });
 
 app.patch("/api/partners/:id", auth, (req,res)=>{
-  const allowed=["name","contactName","phone","whatsapp","email","country","city","address","notes","systemUrl","connectionType","accountCurrency","integrationName","username","syncEnabled"];
+  const allowed=["name","contactName","phone","whatsapp","email","country","city","address","notes","systemUrl","connectionType","accountCurrency","integrationName","username","externalAccountId","connectorType","pathPrefix","syncFromDate","syncEnabled"];
   let updated=null;
   mutate(store=>{
     const partner=store.partners.find(item=>item.id===req.params.id);
     if(!partner)return;
+    if(req.body?.password)partner.passwordEncrypted=encryptIntegrationSecret(req.body.password);
     for(const key of allowed){
       if(req.body?.[key]===undefined)continue;
       partner[key]=key==="syncEnabled"?Boolean(req.body[key]):String(req.body[key]??"");
@@ -2125,22 +2222,44 @@ app.patch("/api/partners/:id", auth, (req,res)=>{
   res.json(updated);
 });
 
-app.post("/api/partners/:id/test-connection", auth, (req,res)=>{
-  let result=null;
-  mutate(store=>{
-    const partner=store.partners.find(item=>item.id===req.params.id);
-    if(!partner)return;
-    const url=String(partner.systemUrl||"").trim();
-    let valid=false;
-    try{const parsed=new URL(url);valid=["http:","https:"].includes(parsed.protocol);}catch{}
-    partner.connectionStatus=valid?"READY":"NOT_CONFIGURED";
-    partner.lastConnectionTestAt=now();
-    partner.updatedAt=now();
-    result={ok:valid,status:partner.connectionStatus,message:valid?"تم التحقق من صيغة الرابط، والربط جاهز لإضافة موصل الشركة":"أدخل رابطًا صحيحًا يبدأ بـ http أو https"};
-    audit(store,req.user.id,"TEST_CONNECTION","PARTNER",partner.id,{ok:valid});
-  });
-  if(!result)return res.status(404).json({message:"الشركة غير موجودة"});
-  res.status(result.ok?200:400).json(result);
+app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
+  const store=readStore();const partner=(store.partners||[]).find(item=>item.id===req.params.id);
+  if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
+  try{
+    if(String(partner.connectorType||"").toUpperCase()==="JAD"){
+      const result=await syncJadPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10)});
+      mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.updatedAt=now();}});
+      return res.json({ok:true,status:"READY",message:`تم الاتصال بنجاح، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
+    }
+    normalizeBaseUrl(partner.systemUrl);
+    mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.updatedAt=now();}});
+    res.json({ok:true,status:"READY",message:"الرابط صالح. اختر موصل الشركة لإجراء مزامنة فعلية."});
+  }catch(error){
+    mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.updatedAt=now();}});
+    res.status(400).json({message:error.message||"تعذر اختبار الاتصال"});
+  }
+});
+
+app.post("/api/partners/:id/sync", auth, async (req,res)=>{
+  const snapshot=readStore();const partner=(snapshot.partners||[]).find(item=>item.id===req.params.id);
+  if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
+  if(String(partner.connectorType||"").toUpperCase()!=="JAD")return res.status(400).json({message:"لا يوجد موصل فعلي محدد لهذه الشركة"});
+  try{
+    const result=await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate});
+    let publicPartner=null;
+    mutate(store=>{
+      const item=store.partners.find(x=>x.id===partner.id);if(!item)return;
+      item.externalReceivable=result.receivable;item.externalPayable=result.payable;item.externalBalance=result.balance;
+      item.lastSyncAt=now();item.lastSyncError="";item.connectionStatus="READY";item.updatedAt=now();
+      item.lastImportedMovementCount=result.movements.length;
+      const {passwordEncrypted,...safe}=item;publicPartner={...safe,hasPassword:Boolean(passwordEncrypted)};
+      audit(store,req.user.id,"SYNC","PARTNER",item.id,{connector:"JAD",balance:result.balance,receivable:result.receivable,payable:result.payable,count:result.movements.length});
+    });
+    res.json({message:"تم جلب الرصيد من شركة جاد",partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
+  }catch(error){
+    mutate(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.updatedAt=now();}});
+    res.status(400).json({message:error.message||"تعذر جلب الرصيد"});
+  }
 });
 
 app.get("/api/partners/:id", auth, (req,res)=>{
@@ -2167,13 +2286,14 @@ app.get("/api/partners/:id", auth, (req,res)=>{
   const paid=payments.filter(item=>item.direction==="PAID")
     .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
+  const {passwordEncrypted,...safePartner}=partner;
   res.json({
-    partner,
+    partner:{...safePartner,hasPassword:Boolean(passwordEncrypted)},
     transactions,
     payments,
     totals:{
-      receivable:+Math.max(receivable-received,0).toFixed(2),
-      payable:+Math.max(payable-paid,0).toFixed(2),
+      receivable:+(Math.max(receivable-received,0)+safeNumber(partner.externalReceivable)).toFixed(2),
+      payable:+(Math.max(payable-paid,0)+safeNumber(partner.externalPayable)).toFixed(2),
       net:+(Math.max(receivable-received,0)-Math.max(payable-paid,0)).toFixed(2)
     }
   });
