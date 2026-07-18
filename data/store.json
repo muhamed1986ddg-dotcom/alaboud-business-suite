@@ -143,6 +143,10 @@
       "createdAt": "2026-07-18T03:53:09.677Z",
       "previousHash": "b68d73b64d27ab7d70b6f7e682ed2709673cd5a7f3dd95e2e286f20cc23f1b1a",
       "integrityHash": "2f21b507c38dd56277a91cc439752b85b5793e917a28026b7ad9ad0e70365d37"
+    },
+    {
+      "id": "one",
+      "companyId": "test-company"
     }
   ],
   "exchangeRates": [],
@@ -158,7 +162,13 @@
       "createdAt": "2026-07-18T03:52:58.564Z"
     }
   ],
-  "partners": [],
+  "partners": [
+    {
+      "id": "p1",
+      "name": "Jad",
+      "companyId": "test-company"
+    }
+  ],
   "partnerTransactions": [],
   "partnerPayments": [],
   "notificationSettings": {
@@ -168,6 +178,11 @@
   },
   "companySettings": {
     "dedba6ca-b0dd-4579-af4a-177291571944": {
+      "overdueDays": 7,
+      "lowCashLimit": 5000,
+      "whatsappTemplate": ""
+    },
+    "test-company": {
       "overdueDays": 7,
       "lowCashLimit": 5000,
       "whatsappTemplate": ""
