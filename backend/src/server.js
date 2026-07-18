@@ -161,7 +161,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"17.0.0",channel:"enterprise",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"17.0.1",channel:"enterprise",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -176,12 +176,12 @@ app.post("/api/auth/login",(req,res)=>{
     mutate(root=>{
       let device=(root.devices||[]).find(item=>item.companyId===user.companyId&&item.installationId===installationId);
       if(!device){
-        device={id:id(),companyId:user.companyId,installationId,deviceName:String(req.headers["x-device-name"]||"جهاز جديد").slice(0,120),platform:String(req.headers["x-device-platform"]||"Web").slice(0,80),appVersion:String(req.headers["x-alaboud-client-version"]||"17.0.0").slice(0,30),active:true,firstSeenAt:now(),lastSeenAt:now(),lastUserId:user.id};
+        device={id:id(),companyId:user.companyId,installationId,deviceName:String(req.headers["x-device-name"]||"جهاز جديد").slice(0,120),platform:String(req.headers["x-device-platform"]||"Web").slice(0,80),appVersion:String(req.headers["x-alaboud-client-version"]||"17.0.1").slice(0,30),active:true,firstSeenAt:now(),lastSeenAt:now(),lastUserId:user.id};
         root.devices.push(device);
         audit(root,user.id,"REGISTER","DEVICE",device.id,{installationId,platform:device.platform});
       }else{
         if(device.active===false)throw new Error("هذا الجهاز معطل من لوحة الإدارة");
-        device.lastSeenAt=now();device.lastUserId=user.id;device.appVersion=String(req.headers["x-alaboud-client-version"]||device.appVersion||"17.0.0");
+        device.lastSeenAt=now();device.lastUserId=user.id;device.appVersion=String(req.headers["x-alaboud-client-version"]||device.appVersion||"17.0.1");
       }
       user.lastLoginAt=now();
     });
@@ -200,7 +200,7 @@ app.get("/api/auth/session",auth,(req,res)=>{
   }
 
   res.json({
-    version:"17.0.0",
+    version:"17.0.1",
     user:{
       id:user.id,
       name:user.name,
@@ -393,7 +393,7 @@ app.get("/api/dashboard", auth, (_req,res)=>{
   const s = readStore();
   const today = new Date().toISOString().slice(0,10);
   const todayTx = s.transactions.filter((t)=>t.createdAt.slice(0,10)===today && t.status!=="CANCELLED");
-  const todayExpenses = s.expenses.filter((e)=>e.date===today).reduce((a,e)=>a+Number(e.amount),0);
+  const todayExpenses = s.expenses.filter((e)=>e.date===today).reduce((a,e)=>a+Number(e.cadAmount??e.amount),0);
   const totalProfit = todayTx.reduce((a,t)=>a+Number(t.totalProfit||0),0)-todayExpenses;
   const receivables = s.customers.reduce((a,c)=>a+customerSummary(s,c).finalBalance,0);
   const capital = s.capitalMovements.reduce((a,m)=>a+(m.type==="IN"?Number(m.amount):-Number(m.amount)),0);
@@ -608,7 +608,7 @@ app.get("/api/capital-overview", auth, (req,res)=>{
   );
   const monthlyExpenses=expenses
     .filter(item=>String(item.date||item.createdAt||"").slice(0,7)===requestedMonth)
-    .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+    .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
   const receivables=customers.reduce(
     (sum,customer)=>sum+safeNumber(customerSummary(store,customer).finalBalance),0
@@ -665,20 +665,20 @@ app.get("/api/monthly-report", auth, (req,res)=>{
     .filter(item=>item&&!item.isDeleted)
     .filter(item=>String(item.paymentDate||item.date||item.createdAt||"").slice(0,7)===month);
 
-  const transferTotal=transactions.reduce((sum,item)=>sum+safeNumber(item.amount),0);
+  const transferTotal=transactions.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
   const feesTotal=transactions.reduce((sum,item)=>sum+safeNumber(item.transferFee),0);
   const exchangeProfit=transactions.reduce((sum,item)=>sum+safeNumber(item.exchangeProfit),0);
   const grossProfit=transactions.reduce((sum,item)=>sum+safeNumber(item.totalProfit),0);
-  const expenseTotal=expenses.reduce((sum,item)=>sum+safeNumber(item.amount),0);
+  const expenseTotal=expenses.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
   const netProfit=grossProfit-expenseTotal;
-  const paidTotal=payments.reduce((sum,item)=>sum+safeNumber(item.amount),0);
+  const paidTotal=payments.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
   const capitalIn=capitalMovements
     .filter(item=>item.type==="IN")
-    .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+    .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
   const capitalOut=capitalMovements
     .filter(item=>item.type!=="IN")
-    .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+    .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
   const customerMap=new Map();
   for(const transaction of transactions){
@@ -1388,7 +1388,7 @@ app.get("/api/profits", auth, (req,res)=>{
   const exchangeProfit = transactions.reduce((a,t)=>a+Number(t.exchangeProfit||0),0);
   const transferFees = transactions.reduce((a,t)=>a+Number(t.transferFee||0),0);
   const grossProfit = transactions.reduce((a,t)=>a+Number(t.totalProfit||0),0);
-  const totalExpenses = expenses.reduce((a,e)=>a+Number(e.amount||0),0);
+  const totalExpenses = expenses.reduce((a,e)=>a+Number(e.cadAmount??e.amount??0),0);
   const netProfit = grossProfit-totalExpenses;
 
   const byMonthMap = {};
@@ -1402,7 +1402,7 @@ app.get("/api/profits", auth, (req,res)=>{
   for (const e of expenses) {
     const month = String(e.date || e.createdAt).slice(0,7);
     byMonthMap[month] ||= {month,exchangeProfit:0,transferFees:0,grossProfit:0,expenses:0,netProfit:0};
-    byMonthMap[month].expenses += Number(e.amount||0);
+    byMonthMap[month].expenses += Number(e.cadAmount??e.amount??0);
   }
   const monthly = Object.values(byMonthMap)
     .map((x)=>({...x,
@@ -1911,19 +1911,19 @@ app.get("/api/partners", auth, (_req,res)=>{
 
     const receivable=partnerTransactions
       .filter(item=>item.type==="RECEIVABLE")
-      .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
     const payable=partnerTransactions
       .filter(item=>item.type==="PAYABLE")
-      .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
     const receivedPayments=partnerPayments
       .filter(item=>item.direction==="RECEIVED")
-      .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
     const paidPayments=partnerPayments
       .filter(item=>item.direction==="PAID")
-      .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
     const receivableBalance=Math.max(receivable-receivedPayments,0);
     const payableBalance=Math.max(payable-paidPayments,0);
@@ -2006,13 +2006,13 @@ app.get("/api/partners/:id", auth, (req,res)=>{
     .sort((a,b)=>String(b.date||b.createdAt).localeCompare(String(a.date||a.createdAt)));
 
   const receivable=transactions.filter(item=>item.type==="RECEIVABLE")
-    .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+    .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
   const payable=transactions.filter(item=>item.type==="PAYABLE")
-    .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+    .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
   const received=payments.filter(item=>item.direction==="RECEIVED")
-    .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+    .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
   const paid=payments.filter(item=>item.direction==="PAID")
-    .reduce((sum,item)=>sum+safeNumber(item.amount),0);
+    .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
   res.json({
     partner,
@@ -2163,7 +2163,7 @@ app.get("/api/partners/:id/statement", auth, (req,res)=>{
 });
 
 app.get("/api/expenses", auth, (_req,res)=>res.json(readStore().expenses.slice().reverse()));
-app.post("/api/expenses", auth, (req,res)=>{const {title,amount,currency="CAD",category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount);if(!title||!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid expense"});const e=mutate(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency,category,date,createdAt:now(),createdBy:req.user.id};s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id);return x;});res.status(201).json(e);});
+app.post("/api/expenses", auth, (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=mutate(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
 app.get("/api/capital", auth, (_req,res)=>res.json(readStore().capitalMovements.slice().reverse()));
 app.post("/api/capital", auth, (req,res)=>{const {type="IN",amount,currency="CAD",description="",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount);if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid capital movement"});const m=mutate(s=>{const x={id:id(),type,amount:+n.toFixed(2),currency,description,date,createdAt:now(),createdBy:req.user.id};s.capitalMovements.push(x);audit(s,req.user.id,"CREATE","CAPITAL",x.id);return x;});res.status(201).json(m);});
 
@@ -2300,7 +2300,7 @@ async function startServer(){
   await initStore();
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v17.0.0 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v17.0.1 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{

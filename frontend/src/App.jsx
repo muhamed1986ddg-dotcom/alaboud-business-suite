@@ -302,66 +302,128 @@ function Dashboard({navigate}){
 
   if(!data)return <div className="premium-loading">جاري تحميل لوحة التحكم…</div>;
 
-  const homeStats=[
-    {label:"إجمالي الأرباح",value:cad(data.todayProfit||0),icon:"📈",trend:"+8.5% ↑",tone:"positive",route:"profits"},
-    {label:"إجمالي الحوالات",value:Number(data.todayTransactions||0).toLocaleString("en-CA"),icon:"⇄",trend:"+12.3% ↑",tone:"positive",route:"transactions"},
-    {label:"عملاء متأخرون",value:noticeData.overdueCount||0,icon:"👤",trend:`-${noticeData.overdueCount||0} ↓`,tone:"negative",route:"customers"},
-    {label:"دين علينا",value:cad(data.payables||0),icon:"👛",trend:"-4.7% ↓",tone:"negative",route:"debts"}
+  const kpis=[
+    {label:"إجمالي الحوالات",value:data.todayTransactions||0,icon:"💱",tone:"green",note:"حوالات اليوم"},
+    {label:"إجمالي الأرباح",value:cad(data.todayProfit),icon:"📈",tone:"blue",note:"الربح اليومي"},
+    {label:"المصروفات",value:cad(data.todayExpenses||0),icon:"👛",tone:"orange",note:"مصروفات اليوم"},
+    {label:"العملاء",value:data.customers||0,icon:"👥",tone:"purple",note:`${noticeData.overdueCount||0} متأخر`}
   ];
 
-  const homeMenu=[
-    {title:"العملاء",subtitle:"إدارة العملاء وأرصدتهم",icon:"👥",route:"customers"},
-    {title:"الشركات",subtitle:"إدارة الشركات",icon:"🏢",route:"partners"},
-    {title:"الحوالات",subtitle:"إضافة وإدارة الحوالات",icon:"⇄",route:"transactions"},
-    {title:"المصروفات",subtitle:"إدارة المصروفات",icon:"🧾",route:"expenses"},
-    {title:"الأرباح",subtitle:"تقارير وتحليل الأرباح",icon:"📈",route:"profits"},
-    {title:"العملات وأسعار الصرف",subtitle:"أسعار العملات والتحديثات",icon:"💱",route:"rates"},
-    {title:"الدين العام",subtitle:"إجمالي الدين العام",icon:"📒",route:"debts"},
-    {title:"الميزانية",subtitle:"عرض الميزانية",icon:"⚖️",route:"capital-overview"},
-    {title:"التقارير الشهرية",subtitle:"التقارير والإحصائيات",icon:"▥",route:"monthly-report",featured:true},
-    {title:"الإعدادات والتنبيهات",subtitle:"الإعدادات العامة",icon:"⚙️",route:"settings"}
-  ];
-
-  return <div className="luxury-home-dashboard">
-    <section className="luxury-home-topbar">
-      <button className="luxury-menu-button" type="button" onClick={()=>document.querySelector(".mobile-menu-action")?.click()}>☰</button>
-      <h1>العملاء <span>👥</span></h1>
-      <button className="luxury-notice-button" type="button" onClick={()=>setOpen(!open)}>🔔{noticeData.count>0&&<i/>}</button>
+  return <div className="premium-dashboard">
+    <section className="premium-hero dashboard-pro-hero">
+      <div className="dashboard-pro-brand">
+        <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+        <div><h2>شركة العبود التجارية</h2><p>v17.0.1 Enterprise <span>● متصل</span></p></div>
+      </div>
+      <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
+      <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
     </section>
 
-    <section className="luxury-brand-card">
-      <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-      <div>
-        <h2>شركة العبود التجارية</h2>
-        <p>v17.0.0 Enterprise</p>
+    <section className="premium-kpis">
+      {kpis.map(item=><button key={item.label} className={`premium-kpi ${item.tone}`} onClick={()=>{
+        if(item.label==="إجمالي الحوالات")navigate("transactions");
+        else if(item.label==="إجمالي الأرباح")navigate("profits");
+        else if(item.label==="المصروفات")navigate("expenses");
+        else navigate("customers");
+      }}>
+        <div className="premium-kpi-icon">{item.icon}</div>
+        <div><span>{item.label}</span><strong>{item.value}</strong><small>{item.note}</small></div>
+      </button>)}
+    </section>
+
+    <section className="premium-grid">
+      <div className="premium-recent panel-dark">
+        <div className="section-heading">
+          <h3>أحدث الحوالات</h3>
+          <button onClick={()=>navigate("transactions")}>عرض الكل</button>
+        </div>
+        {recent.length?recent.map(item=><button className="recent-row" key={item.id} onClick={()=>navigate("transactions")}>
+          <div className="recent-currency"><span>{item.currency||"USD"}</span><small>{item.number||"حوالة"}</small></div>
+          <div className="recent-date">{item.transferDate||String(item.createdAt||"").slice(0,10)}</div>
+          <strong>{cad(item.totalCustomerDue||0)}</strong>
+          <b>‹</b>
+        </button>):<p className="empty-state">لا توجد حوالات حديثة.</p>}
+      </div>
+
+      <div className="premium-summary panel-dark dashboard-price-bulletin">
+        <div className="section-heading">
+          <h3>نشرة أسعار الصرف</h3>
+          <button onClick={()=>navigate("rates")}>عرض الكل</button>
+        </div>
+        <div className="dashboard-rate-list">
+          {dashboardRates.length?dashboardRates.map(rate=><button
+            className="dashboard-rate-row"
+            key={rate.id||`${rate.baseCurrency}-${rate.quoteCurrency}`}
+            onClick={()=>navigate("rates")}
+          >
+            {(()=>{
+              const trend=rateTrend(rate,dashboardRateHistory);
+              return <>
+                <strong className="dashboard-rate-pair">
+                  <CurrencyFlag code={rate.baseCurrency} className="dashboard-rate-flag"/>
+                  <span>{rate.baseCurrency}/{rate.quoteCurrency}</span>
+                  <span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol}</span>
+                </strong>
+                <span>شراء <b>{Number(rate.buyRate||0).toFixed(4)}</b></span>
+                <span>بيع <b>{Number(rate.sellRate||0).toFixed(4)}</b></span>
+              </>;
+            })()}
+          </button>):<p className="empty-state">لا توجد أسعار صرف مسجلة.</p>}
+        </div>
       </div>
     </section>
 
-    <section className="luxury-stat-card">
-      {homeStats.map(item=><button key={item.label} type="button" onClick={()=>navigate(item.route)}>
-        <span className="luxury-stat-icon">{item.icon}</span>
-        <b>{item.label}</b>
-        <strong>{item.value}</strong>
-        <small className={item.tone}>{item.trend}</small>
-      </button>)}
+    <section className="dashboard-pro-analysis">
+      <div className="dashboard-pro-performance panel-dark">
+        <div className="section-heading"><h3>ملخص الأداء (آخر 7 أيام)</h3><span className="dashboard-pro-period">آخر 7 أيام</span></div>
+        <div className="dashboard-pro-chart">
+          <div className="dashboard-pro-grid"><i/><i/><i/><i/><i/></div>
+          <div className="dashboard-pro-bars">{[38,54,61,69,82,66,77].map((value,index)=><div className="dashboard-pro-bar-col" key={index}><div className="dashboard-pro-bar" style={{height:`${value}%`}}/><small>{index+8}/7</small></div>)}</div>
+          <svg viewBox="0 0 700 220" preserveAspectRatio="none"><polyline points="50,160 150,115 250,102 350,78 450,42 550,85 650,65"/></svg>
+        </div>
+        <div className="dashboard-pro-legend"><span>● إجمالي الحوالات (CAD)</span><span>● إجمالي الأرباح</span></div>
+      </div>
+      <div className="dashboard-pro-finance panel-dark">
+        <div className="section-heading"><h3>⚖️ الميزانية</h3><button onClick={()=>navigate("capital-overview")}>عرض الكل</button></div>
+        <p><span>الرصيد الحالي</span><strong>{cad(data.capital||0)}</strong></p>
+        <p><span>الذمم المستحقة</span><strong>{cad(data.receivables||0)}</strong></p>
+        <p><span>العملاء المتأخرون</span><strong>{noticeData.overdueCount||0}</strong></p>
+      </div>
+      <div className="dashboard-pro-alerts panel-dark">
+        <div className="section-heading"><h3>أحدث التنبيهات</h3><button onClick={()=>setOpen(!open)}>عرض الكل</button></div>
+        {(noticeData.notifications||[]).slice(0,3).map(item=><div className={`dashboard-pro-alert severity-${item.severity}`} key={item.id}><b>!</b><div><strong>{item.title}</strong><small>{item.message}</small></div></div>)}
+        {!noticeData.notifications?.length&&<p className="empty-state">لا توجد تنبيهات حالياً.</p>}
+      </div>
+      <div className="dashboard-pro-stats panel-dark">
+        <div className="section-heading"><h3>إحصائيات سريعة</h3></div>
+        <p><span>حوالات اليوم</span><strong>{data.todayTransactions||0}</strong></p>
+        <p><span>أرباح اليوم</span><strong>{cad(data.todayProfit)}</strong></p>
+        <p><span>عدد العملاء</span><strong>{data.customers||0}</strong></p>
+      </div>
     </section>
 
-    <div className="luxury-section-title"><h3>القائمة الرئيسية</h3></div>
-    <section className="luxury-menu-grid">
-      {homeMenu.map(item=><button key={item.route} type="button" className={item.featured?"featured":""} onClick={()=>navigate(item.route)}>
-        <span className="luxury-menu-icon">{item.icon}</span>
-        <div><strong>{item.title}</strong><small>{item.subtitle}</small></div>
-        <b>‹</b>
-      </button>)}
+    <section className="premium-quick">
+      <button onClick={()=>navigate("transactions")}><span>💱</span><strong>إضافة حوالة</strong></button>
+      <button onClick={()=>navigate("expenses")}><span>👛</span><strong>إضافة مصروف</strong></button>
+      <button onClick={()=>navigate("customers")}><span>👤＋</span><strong>عميل جديد</strong></button>
+      <button onClick={()=>navigate("monthly-report")}><span>📄</span><strong>تقرير سريع</strong></button>
+      <button onClick={()=>navigate("rates")}><span>☁</span><strong>أسعار الصرف</strong></button>
     </section>
 
-    <button className="luxury-logout-tile" type="button" onClick={()=>{if(window.confirm("هل تريد تسجيل الخروج من البرنامج؟")){localStorage.clear();window.location.reload();}}}>
-      <span>🚪</span><div><strong>تسجيل الخروج</strong><small>تسجيل الخروج من التطبيق</small></div><b>‹</b>
+    <button className="premium-alert-strip" onClick={()=>setOpen(!open)}>
+      <span>🔔</span>
+      <strong>{noticeData.count?`${noticeData.count} تنبيهات تحتاج المراجعة`:"لا توجد تنبيهات جديدة"}</strong>
+      <b>‹</b>
     </button>
 
-    {open&&<div className="panel-dark premium-notifications luxury-notifications">
+    {open&&<div className="panel-dark premium-notifications">
       <div className="section-heading"><h3>مركز التنبيهات</h3><button onClick={()=>setOpen(false)}>إغلاق</button></div>
-      {noticeData.notifications.length?noticeData.notifications.map(item=><div className={`notification-item severity-${item.severity}`} key={item.id}><div><strong>{item.title}</strong><p>{item.message}</p></div></div>):<p>لا توجد تنبيهات حالياً.</p>}
+      {noticeData.notifications.length?noticeData.notifications.map(item=>
+        <div className={`notification-item severity-${item.severity}`} key={item.id}>
+          <div><strong>{item.title}</strong><p>{item.message}</p></div>
+          {item.customerId&&<button onClick={()=>navigate("customers")}>فتح</button>}
+        </div>
+      ):<p>لا توجد تنبيهات حالياً.</p>}
     </div>}
   </div>;
 }
@@ -3259,7 +3321,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v17.0.0 Enterprise"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v17.0.1 Enterprise"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3357,7 +3419,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v17.0.0 Enterprise"
+        version:"v17.0.1 Enterprise"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3433,7 +3495,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v17.0.0 Enterprise</span>
+      <span className="settings-version">v17.0.1 Enterprise</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3519,7 +3581,7 @@ function SettingsPanel(){
       {savedUser.role==="ADMIN"&&<article className="settings-card settings-wide-card">
         <div className="settings-card-title"><span>💻</span><h3>الأجهزة والتراخيص</h3></div>
         <p className="settings-help">يُسجل كل تثبيت بمعرّف فريد ونوع الجهاز والإصدار وآخر اتصال.</p>
-        <div className="admin-list">{devices.length?devices.map(device=><div className="admin-row" key={device.id}><div><strong>{device.deviceName||"جهاز"}</strong><small>{device.appVersion||"17.0.0"} • {device.platform?.slice(0,70)}<br/>آخر اتصال: {device.lastSeenAt?new Date(device.lastSeenAt).toLocaleString("ar-CA"):"—"}</small></div><button type="button" className={device.active!==false?"danger-soft":"success-soft"} onClick={async()=>{const {data}=await api.patch(`/devices/${device.id}`,{active:device.active===false});setDevices(list=>list.map(x=>x.id===data.id?data:x))}}>{device.active!==false?"تعطيل الجهاز":"إعادة التفعيل"}</button></div>):<p className="settings-help">ستظهر الأجهزة هنا بعد أول تسجيل دخول بالإصدار الجديد.</p>}</div>
+        <div className="admin-list">{devices.length?devices.map(device=><div className="admin-row" key={device.id}><div><strong>{device.deviceName||"جهاز"}</strong><small>{device.appVersion||"17.0.1"} • {device.platform?.slice(0,70)}<br/>آخر اتصال: {device.lastSeenAt?new Date(device.lastSeenAt).toLocaleString("ar-CA"):"—"}</small></div><button type="button" className={device.active!==false?"danger-soft":"success-soft"} onClick={async()=>{const {data}=await api.patch(`/devices/${device.id}`,{active:device.active===false});setDevices(list=>list.map(x=>x.id===data.id?data:x))}}>{device.active!==false?"تعطيل الجهاز":"إعادة التفعيل"}</button></div>):<p className="settings-help">ستظهر الأجهزة هنا بعد أول تسجيل دخول بالإصدار الجديد.</p>}</div>
       </article>}
 
       <article className="settings-card settings-wide-card">
@@ -3544,7 +3606,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v17.0.0 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v17.0.1 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3563,7 +3625,45 @@ function SettingsPanel(){
   </section>;
 }
 
-function Simple({type}){const[list,setList]=useState([]),[title,setTitle]=useState(""),[amount,setAmount]=useState(""),[move,setMove]=useState("IN");const endpoint=type==="expenses"?"/expenses":"/capital";const load=()=>api.get(endpoint).then(r=>setList(r.data));useEffect(()=>{load();},[type]);async function add(e){e.preventDefault();await api.post(endpoint,type==="expenses"?{title,amount}:{type:move,amount,description:title});setTitle("");setAmount("");load();}return <><h2>{type==="expenses"?"المصروفات":"رأس المال"}</h2><form className="card form" onSubmit={add}>{type==="capital"&&<select value={move} onChange={e=>setMove(e.target.value)}><option value="IN">زيادة</option><option value="OUT">سحب</option></select>}<input value={title} onChange={e=>setTitle(e.target.value)} placeholder="الوصف" required/><input type="number" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="المبلغ" required/><button>حفظ</button></form><div className="card tablewrap"><table><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.title||x.description}</td><td>{x.type||x.category}</td><td>{money(x.amount)}</td></tr>)}</tbody></table></div></>}
+function Simple({type}){
+  const [list,setList]=useState([]),[title,setTitle]=useState(""),[amount,setAmount]=useState(""),[move,setMove]=useState("IN");
+  const [currency,setCurrency]=useState("CAD"),[exchangeRate,setExchangeRate]=useState("1"),[category,setCategory]=useState("Other"),[date,setDate]=useState(new Date().toISOString().slice(0,10));
+  const endpoint=type==="expenses"?"/expenses":"/capital";
+  const expenseCurrencies=[
+    {code:"CAD",flag:"🇨🇦",name:"دولار كندي"},{code:"USD",flag:"🇺🇸",name:"دولار أمريكي"},
+    {code:"EUR",flag:"🇪🇺",name:"يورو"},{code:"GBP",flag:"🇬🇧",name:"جنيه إسترليني"},
+    {code:"TRY",flag:"🇹🇷",name:"ليرة تركية"},{code:"SYP",flag:"🇸🇾",name:"ليرة سورية"},
+    {code:"SAR",flag:"🇸🇦",name:"ريال سعودي"},{code:"AED",flag:"🇦🇪",name:"درهم إماراتي"},
+    {code:"JOD",flag:"🇯🇴",name:"دينار أردني"}
+  ];
+  const flagOf=code=>expenseCurrencies.find(x=>x.code===String(code||"").toUpperCase())?.flag||"🏳️";
+  const load=()=>api.get(endpoint).then(r=>setList(r.data));
+  useEffect(()=>{load();},[type]);
+  useEffect(()=>{if(currency==="CAD")setExchangeRate("1");},[currency]);
+  async function add(e){
+    e.preventDefault();
+    const payload=type==="expenses"?{title,amount,currency,exchangeRate:Number(exchangeRate||1),category,date}:{type:move,amount,currency,description:title,date};
+    await api.post(endpoint,payload);
+    setTitle("");setAmount("");setDate(new Date().toISOString().slice(0,10));load();
+  }
+  if(type!=="expenses")return <><h2>رأس المال</h2><form className="card form" onSubmit={add}><select value={move} onChange={e=>setMove(e.target.value)}><option value="IN">زيادة</option><option value="OUT">سحب</option></select><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="الوصف" required/><input type="number" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="المبلغ" required/><button>حفظ</button></form><div className="card tablewrap"><table><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.description}</td><td>{x.type}</td><td>{money(x.amount)} {x.currency||"CAD"}</td></tr>)}</tbody></table></div></>;
+  const totals=list.reduce((acc,x)=>{const code=x.currency||"CAD";acc[code]=(acc[code]||0)+Number(x.amount||0);acc.CAD_TOTAL=(acc.CAD_TOTAL||0)+Number(x.cadAmount??x.amount??0);return acc;},{});
+  return <div className="expenses-multi-page">
+    <div className="expenses-title-row"><div><h2>المصروفات بجميع العملات</h2><p>سجّل المصروف بعملته الأصلية وسيتم احتسابه تلقائيًا بالدولار الكندي.</p></div><div className="expenses-cad-total"><span>الإجمالي المعتمد</span><strong>{money(totals.CAD_TOTAL)} CAD 🇨🇦</strong></div></div>
+    <form className="card form expenses-multi-form" onSubmit={add}>
+      <label><span>الوصف</span><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="مثال: وقود، إيجار، خدمات" required/></label>
+      <label><span>التصنيف</span><select value={category} onChange={e=>setCategory(e.target.value)}><option value="Other">أخرى</option><option value="Fuel">وقود</option><option value="Rent">إيجار</option><option value="Utilities">خدمات</option><option value="Salary">رواتب</option><option value="Office">مكتب</option><option value="Transport">نقل</option></select></label>
+      <label><span>العملة</span><select value={currency} onChange={e=>setCurrency(e.target.value)}>{expenseCurrencies.map(c=><option key={c.code} value={c.code}>{c.flag} {c.code} — {c.name}</option>)}</select></label>
+      <label><span>المبلغ بالعملة الأصلية</span><input type="number" min="0.01" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="0.00" required/></label>
+      <label><span>سعر التحويل إلى CAD</span><input type="number" min="0.000001" step="0.000001" value={exchangeRate} onChange={e=>setExchangeRate(e.target.value)} disabled={currency==="CAD"} required/></label>
+      <label><span>التاريخ</span><input type="date" value={date} onChange={e=>setDate(e.target.value)} required/></label>
+      <div className="expense-conversion-preview"><span>القيمة المعتمدة في التقارير</span><strong>{money(Number(amount||0)*Number(exchangeRate||0))} CAD 🇨🇦</strong></div>
+      <button className="expense-save-button">حفظ المصروف</button>
+    </form>
+    <section className="expense-currency-totals">{expenseCurrencies.filter(c=>totals[c.code]).map(c=><div className="card" key={c.code}><span>{c.flag} {c.name}</span><strong>{money(totals[c.code])} {c.code}</strong></div>)}</section>
+    <div className="card tablewrap expense-table"><table><thead><tr><th>التاريخ</th><th>الوصف</th><th>التصنيف</th><th>العملة</th><th>المبلغ الأصلي</th><th>سعر التحويل</th><th>القيمة CAD</th></tr></thead><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.title}</td><td>{x.category||"Other"}</td><td><span className="expense-currency-cell">{flagOf(x.currency)} {x.currency||"CAD"}</span></td><td>{money(x.amount)} {x.currency||"CAD"}</td><td>{Number(x.exchangeRate||1).toFixed(6)}</td><td><strong>{money(x.cadAmount??x.amount)} CAD 🇨🇦</strong></td></tr>)}</tbody></table></div>
+  </div>;
+}
 export default function App(){
   const sessionFixVersion="16.0.0";
   const savedSessionFix=localStorage.getItem("alaboud_session_fix_version");
@@ -3714,7 +3814,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v17.0.0 Enterprise</small>
+          <small>v17.0.1 Enterprise</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3730,7 +3830,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v17.0.0 Enterprise</small>
+          <small>v17.0.1 Enterprise</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
