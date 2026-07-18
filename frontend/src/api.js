@@ -19,7 +19,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="17.0.0";
+  config.headers["X-Alaboud-Client-Version"]="17.0.1";
   config.params={
     ...(config.params||{}),
     _live:Date.now()
