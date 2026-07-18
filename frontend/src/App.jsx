@@ -564,6 +564,23 @@ function Customers({open}){
     }
   }
 
+  async function resetCustomerAccount(customer){
+    const balance=Number(customer.finalBalance||0).toFixed(2);
+    const confirmed=window.confirm(
+      `تصفير حساب العميل «${customer.name}»؟\n\nالرصيد الحالي: ${balance} CAD\nسيبدأ حساب جديد من الصفر، ولن تظهر الحوالات والدفعات السابقة في الحساب الجديد.\nلن يتم حذف أي بيانات وسيبقى الحساب السابق محفوظًا في الأرشيف.`
+    );
+    if(!confirmed)return;
+    setError("");
+    try{
+      await api.post(`/customers/${customer.id}/reset-account`,{});
+      if(editingCustomer?.id===customer.id)setEditingCustomer(null);
+      await load();
+      window.alert("تم تصفير الحساب وبدء حساب جديد بنجاح. الحساب السابق محفوظ في الأرشيف.");
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر تصفير حساب العميل");
+    }
+  }
+
   function prepareTransfer(customer){
     setTransferForm({
       customerId:customer.id,
@@ -1001,9 +1018,18 @@ function Customers({open}){
           <div className="customer-simple-main customer-name-only">
             <strong>{customer.name}</strong>
             <small>{customer.phone||"بدون رقم هاتف"}</small>
+            {customer.accountResetAt&&<small className="customer-reset-date">حساب جديد منذ {new Date(customer.accountResetAt).toLocaleDateString("ar-CA")}</small>}
           </div>
         </button>
         <div className="customer-row-actions">
+          <button
+            type="button"
+            className="customer-reset-button"
+            onClick={()=>resetCustomerAccount(customer)}
+            aria-label={`تصفير حساب ${customer.name}`}
+          >
+            🔄 تصفير الحساب
+          </button>
           <button
             type="button"
             className="customer-edit-button"

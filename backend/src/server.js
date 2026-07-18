@@ -69,6 +69,23 @@ function safeNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function recordTime(value, fallback = "") {
+  const text = String(value || fallback || "").trim();
+  if (!text) return 0;
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00:00` : text;
+  const parsed = new Date(normalized).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isAfterCustomerReset(record, customer, preferredDateKey = "") {
+  const resetTime = recordTime(customer?.accountResetAt);
+  if (!resetTime) return true;
+  const preferredTime = preferredDateKey ? recordTime(record?.[preferredDateKey]) : 0;
+  const createdTime = recordTime(record?.createdAt || record?.updatedAt);
+  const activityTime = Math.max(preferredTime, createdTime);
+  return activityTime >= resetTime;
+}
+
 function customerSummary(store, c) {
   const overdueThreshold = Math.max(1, safeNumber(store.notificationSettings?.overdueDays, 7));
   const transactions = (Array.isArray(store.transactions) ? store.transactions : [])
@@ -77,7 +94,10 @@ function customerSummary(store, c) {
     .filter((item) => item && !item.isDeleted);
 
   const txs = transactions.filter(
-    (transaction) => transaction.customerId === c.id && transaction.status !== "CANCELLED"
+    (transaction) =>
+      transaction.customerId === c.id &&
+      transaction.status !== "CANCELLED" &&
+      isAfterCustomerReset(transaction, c, "transferDate")
   );
 
   const paymentByTransaction = new Map();
@@ -88,8 +108,9 @@ function customerSummary(store, c) {
     );
   }
 
-  const oldBalance = Math.max(safeNumber(c.oldBalance), 0);
-  const oldBalancePaid = Math.min(Math.max(safeNumber(c.oldBalancePaid), 0), oldBalance);
+  const accountWasReset = Boolean(c.accountResetAt);
+  const oldBalance = accountWasReset ? 0 : Math.max(safeNumber(c.oldBalance), 0);
+  const oldBalancePaid = accountWasReset ? 0 : Math.min(Math.max(safeNumber(c.oldBalancePaid), 0), oldBalance);
 
   let total = oldBalance;
   let paid = oldBalancePaid;
@@ -140,7 +161,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"16.0.7",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"16.0.17",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -164,7 +185,7 @@ app.get("/api/auth/session",auth,(req,res)=>{
   }
 
   res.json({
-    version:"16.0.7",
+    version:"16.0.17",
     user:{
       id:user.id,
       name:user.name,
@@ -691,6 +712,45 @@ app.patch("/api/customers/:id", auth, (req,res)=>{
     res.json(updated);
   }catch(error){
     res.status(400).json({message:error.message||"تعذر تعديل العميل"});
+  }
+});
+
+app.post("/api/customers/:id/reset-account", auth, (req,res)=>{
+  try{
+    const result=mutate((store)=>{
+      const customer=(Array.isArray(store.customers)?store.customers:[])
+        .find(item=>item?.id===req.params.id && !item?.isDeleted);
+      if(!customer)return null;
+
+      const before=customerSummary(store,customer);
+      const resetAt=now();
+      const resetEntry={
+        id:id(),
+        resetAt,
+        resetBy:req.user.id,
+        note:String(req.body?.note||"تصفير الحساب وبدء حساب جديد").trim(),
+        snapshot:{
+          totalTransactions:before.totalTransactions,
+          totalPaid:before.totalPaid,
+          finalBalance:before.finalBalance,
+          oldBalance:before.oldBalance,
+          oldBalancePaid:before.oldBalancePaid
+        }
+      };
+
+      if(!Array.isArray(customer.accountResets))customer.accountResets=[];
+      customer.accountResets.push(resetEntry);
+      customer.accountResetAt=resetAt;
+      customer.updatedAt=resetAt;
+      customer.updatedBy=req.user.id;
+      audit(store,req.user.id,"RESET_ACCOUNT","CUSTOMER",customer.id,resetEntry);
+      return {customer:customerSummary(store,customer),reset:resetEntry};
+    });
+
+    if(!result)return res.status(404).json({message:"العميل غير موجود"});
+    res.json({message:"تم تصفير حساب العميل وبدء حساب جديد مع حفظ الحساب السابق في الأرشيف",...result});
+  }catch(error){
+    res.status(400).json({message:error.message||"تعذر تصفير حساب العميل"});
   }
 });
 
@@ -1615,6 +1675,7 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
         transaction?.customerId===customer.id &&
         !transaction?.isDeleted &&
         transaction.status!=="CANCELLED" &&
+        isAfterCustomerReset(transaction, customer, "transferDate") &&
         inRange(transaction)
       )
       .map(transaction=>{
@@ -1665,8 +1726,9 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
       })
       .sort((a,b)=>String(a.transferDate).localeCompare(String(b.transferDate)));
 
-    const oldBalance=Math.max(safeNumber(customer.oldBalance),0);
-    const oldBalancePaid=Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),oldBalance);
+    const accountWasReset=Boolean(customer.accountResetAt);
+    const oldBalance=accountWasReset?0:Math.max(safeNumber(customer.oldBalance),0);
+    const oldBalancePaid=accountWasReset?0:Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),oldBalance);
     const oldBalanceRemaining=Math.max(oldBalance-oldBalancePaid,0);
 
     const totals=transactions.reduce((acc,item)=>{
