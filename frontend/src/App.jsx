@@ -145,64 +145,46 @@ function translateAppText(value){
 
 function AppLanguageBridge(){
   useEffect(()=>{
-    let observer;
-    let frame=0;
-    let applying=false;
-
     const applyLanguage=()=>{
-      if(applying)return;
-      applying=true;
-      observer?.disconnect();
-      try{
-        const language=localStorage.getItem("alaboud_language")||"ar";
-        const english=language==="en";
-        document.documentElement.lang=language;
-        document.documentElement.dir=english?"ltr":"rtl";
-        document.body.classList.toggle("app-language-en",english);
+      const language=localStorage.getItem("alaboud_language")||"ar";
+      const english=language==="en";
+      document.documentElement.lang=language;
+      document.documentElement.dir=english?"ltr":"rtl";
+      document.body.classList.toggle("app-language-en",english);
 
-        document.querySelectorAll("body *").forEach(node=>{
-          if(node.closest?.("script,style"))return;
-          node.childNodes.forEach(child=>{
-            if(child.nodeType!==Node.TEXT_NODE)return;
+      document.querySelectorAll("body *").forEach(node=>{
+        if(node.closest("script,style"))return;
+        node.childNodes.forEach(child=>{
+          if(child.nodeType===Node.TEXT_NODE){
             if(english){
               if(child.__alaboudArabicOriginal===undefined)child.__alaboudArabicOriginal=child.nodeValue;
-              const translated=translateAppText(child.__alaboudArabicOriginal);
-              if(child.nodeValue!==translated)child.nodeValue=translated;
-            }else if(child.__alaboudArabicOriginal!==undefined&&child.nodeValue!==child.__alaboudArabicOriginal){
+              child.nodeValue=translateAppText(child.__alaboudArabicOriginal);
+            }else if(child.__alaboudArabicOriginal!==undefined){
               child.nodeValue=child.__alaboudArabicOriginal;
             }
-          });
-
-          ["placeholder","title","aria-label"].forEach(attribute=>{
-            if(!node.hasAttribute?.(attribute))return;
-            const key=`alaboudOriginal${attribute.replace("-","")}`;
-            if(english){
-              if(node.dataset[key]===undefined)node.dataset[key]=node.getAttribute(attribute)||"";
-              const translated=translateAppText(node.dataset[key]);
-              if(node.getAttribute(attribute)!==translated)node.setAttribute(attribute,translated);
-            }else if(node.dataset[key]!==undefined&&node.getAttribute(attribute)!==node.dataset[key]){
-              node.setAttribute(attribute,node.dataset[key]);
-            }
-          });
+          }
         });
-      }finally{
-        applying=false;
-        observer?.observe(document.body,{childList:true,subtree:true,characterData:false});
-      }
+
+        ["placeholder","title","aria-label"].forEach(attribute=>{
+          if(!node.hasAttribute?.(attribute))return;
+          const key=`alaboudOriginal${attribute.replace("-","")}`;
+          if(english){
+            if(node.dataset[key]===undefined)node.dataset[key]=node.getAttribute(attribute)||"";
+            node.setAttribute(attribute,translateAppText(node.dataset[key]));
+          }else if(node.dataset[key]!==undefined){
+            node.setAttribute(attribute,node.dataset[key]);
+          }
+        });
+      });
     };
 
-    const scheduleApply=()=>{
-      if(frame)return;
-      frame=requestAnimationFrame(()=>{frame=0;applyLanguage()});
-    };
-
-    observer=new MutationObserver(scheduleApply);
     applyLanguage();
-    window.addEventListener("alaboud-language-change",scheduleApply);
+    const observer=new MutationObserver(()=>applyLanguage());
+    observer.observe(document.body,{childList:true,subtree:true,characterData:false});
+    window.addEventListener("alaboud-language-change",applyLanguage);
     return()=>{
-      if(frame)cancelAnimationFrame(frame);
       observer.disconnect();
-      window.removeEventListener("alaboud-language-change",scheduleApply);
+      window.removeEventListener("alaboud-language-change",applyLanguage);
     };
   },[]);
   return null;
@@ -216,63 +198,24 @@ function Login({onLogin}){
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
   const [accepted,setAccepted]=useState(localStorage.getItem("alaboud_legal_acceptance_v1")==="yes");
-
-  function saveSession(data){
-    localStorage.setItem("afs_token",data.token);
-    localStorage.setItem("afs_user",JSON.stringify(data.user));
+  const [twoFactor,setTwoFactor]=useState({required:false,challenge:"",code:""});
+  const nativeBiometric=typeof window!=="undefined"&&window.AlAboudNative?.requestBiometricLogin;
+  async function saveSession(data){
+    localStorage.setItem("afs_token",data.token); localStorage.setItem("afs_user",JSON.stringify(data.user));
+    try{if(window.AlAboudNative?.saveBiometricToken){const response=await api.post("/auth/biometric-token");window.AlAboudNative.saveBiometricToken(response.data.token,JSON.stringify(data.user));}}catch{}
     onLogin();
   }
-
   async function submitLogin(e){
-    e.preventDefault();setError("");
-    if(!accepted){setError("يجب الموافقة على سياسة الخصوصية وشروط الاستخدام");return}
+    e.preventDefault();setError(""); if(!accepted){setError("يجب الموافقة على سياسة الخصوصية وشروط الاستخدام");return}
     localStorage.setItem("alaboud_legal_acceptance_v1","yes");setBusy(true);
-    try{const {data}=await api.post("/auth/login",{email,password});saveSession(data)}
-    catch(error){setError(error.response?.data?.message||"فشل تسجيل الدخول")}
-    finally{setBusy(false)}
+    try{const {data}=await api.post("/auth/login",{email,password});if(data.twoFactorRequired){setTwoFactor({required:true,challenge:data.challenge,code:""});return}await saveSession(data)}
+    catch(error){setError(error.response?.data?.message||"فشل تسجيل الدخول")}finally{setBusy(false)}
   }
-
-  async function submitRegister(e){
-    e.preventDefault();setError("");
-    if(!accepted){setError("يجب الموافقة على سياسة الخصوصية وشروط الاستخدام");return}
-    localStorage.setItem("alaboud_legal_acceptance_v1","yes");
-    if(form.password!==form.confirmPassword){setError("تأكيد كلمة المرور غير مطابق");return}
-    setBusy(true);
-    try{
-      const {data}=await api.post("/auth/register-company",{
-        ownerName:form.ownerName,companyName:form.companyName,email:form.email,phone:form.phone,password:form.password
-      });
-      saveSession(data);
-    }catch(error){setError(error.response?.data?.message||"تعذر إنشاء الحساب")}
-    finally{setBusy(false)}
-  }
-
-  return <div className="login">
-    <form className="panel public-account-panel" onSubmit={mode==="login"?submitLogin:submitRegister}>
-      <img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-      <h1>{mode==="login"?"تسجيل الدخول":"إنشاء حساب شركة جديد"}</h1>
-      <p className="login-company-en">ALABOUD BUSINESS SUITE</p>
-      {mode==="login"?<>
-        <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد الإلكتروني" required/>
-        <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور" required/>
-      </>:<>
-        <input value={form.ownerName} onChange={e=>setForm({...form,ownerName:e.target.value})} placeholder="اسم صاحب الحساب" required/>
-        <input value={form.companyName} onChange={e=>setForm({...form,companyName:e.target.value})} placeholder="اسم الشركة" required/>
-        <input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="البريد الإلكتروني" required/>
-        <input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="رقم الهاتف"/>
-        <input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="كلمة المرور — 8 أحرف على الأقل" required/>
-        <input type="password" value={form.confirmPassword} onChange={e=>setForm({...form,confirmPassword:e.target.value})} placeholder="تأكيد كلمة المرور" required/>
-        <div className="tenant-privacy-note">🔒 سيتم إنشاء مساحة بيانات مستقلة لشركتك. لن ترى بيانات أي شركة أخرى.</div>
-      </>}
-      <label className="legal-consent"><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)}/><span>أوافق على <button type="button" onClick={()=>alert("سياسة الخصوصية: يجمع النظام معلومات الحساب ومعرف التثبيت ونوع الجهاز وإصدار التطبيق وتواريخ الاستخدام لأغراض الأمان وإدارة التراخيص فقط، ولا يشارك البيانات مع جهات خارجية.")}>سياسة الخصوصية</button> و<button type="button" onClick={()=>alert("شروط الاستخدام: الاستخدام للأجهزة والحسابات المصرح بها فقط، ويمنع نسخ البرنامج أو إعادة بيعه دون إذن.")}>شروط الاستخدام</button></span></label>
-      {error&&<div className="error">{error}</div>}
-      <button disabled={busy}>{busy?"جاري التنفيذ...":mode==="login"?"تسجيل الدخول":"إنشاء الحساب والدخول"}</button>
-      <button className="account-mode-button" type="button" onClick={()=>{setMode(mode==="login"?"register":"login");setError("")}}>
-        {mode==="login"?"مستخدم جديد؟ إنشاء حساب شركة":"لدي حساب بالفعل — تسجيل الدخول"}
-      </button>
-      <small>يمكن استخدام نفس الحساب على أكثر من هاتف وستظهر نفس البيانات السحابية.</small>
-    </form>
-  </div>
+  async function submitTwoFactor(e){e.preventDefault();setBusy(true);setError("");try{const {data}=await api.post("/auth/2fa/verify",{challenge:twoFactor.challenge,code:twoFactor.code});await saveSession(data)}catch(error){setError(error.response?.data?.message||"رمز التحقق غير صحيح")}finally{setBusy(false)}}
+  useEffect(()=>{const handler=async event=>{try{setBusy(true);const {data}=await api.post("/auth/biometric-login",{token:event.detail?.token});await saveSession(data)}catch(error){setError(error.response?.data?.message||"تعذر الدخول بالبصمة أو الوجه")}finally{setBusy(false)}};window.addEventListener("alaboud-biometric-token",handler);return()=>window.removeEventListener("alaboud-biometric-token",handler)},[]);
+  async function submitRegister(e){e.preventDefault();setError("");if(!accepted){setError("يجب الموافقة على سياسة الخصوصية وشروط الاستخدام");return}localStorage.setItem("alaboud_legal_acceptance_v1","yes");if(form.password!==form.confirmPassword){setError("تأكيد كلمة المرور غير مطابق");return}setBusy(true);try{const {data}=await api.post("/auth/register-company",{ownerName:form.ownerName,companyName:form.companyName,email:form.email,phone:form.phone,password:form.password});await saveSession(data)}catch(error){setError(error.response?.data?.message||"تعذر إنشاء الحساب")}finally{setBusy(false)}}
+  if(twoFactor.required)return <div className="login"><form className="panel public-account-panel" onSubmit={submitTwoFactor}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><h1>التحقق بخطوتين</h1><p>أدخل الرمز المكوّن من 6 أرقام من تطبيق Authenticator.</p><input inputMode="numeric" autoComplete="one-time-code" maxLength="6" value={twoFactor.code} onChange={e=>setTwoFactor({...twoFactor,code:e.target.value.replace(/\D/g,"").slice(0,6)})} placeholder="000000" required/>{error&&<div className="error">{error}</div>}<button disabled={busy||twoFactor.code.length!==6}>{busy?"جاري التحقق...":"تحقق ودخول"}</button><button type="button" className="account-mode-button" onClick={()=>setTwoFactor({required:false,challenge:"",code:""})}>العودة</button></form></div>;
+  return <div className="login"><form className="panel public-account-panel" onSubmit={mode==="login"?submitLogin:submitRegister}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><h1>{mode==="login"?"تسجيل الدخول":"إنشاء حساب شركة جديد"}</h1><p className="login-company-en">ALABOUD BUSINESS SUITE</p>{mode==="login"?<><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد الإلكتروني" required/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور" required/></>:<><input value={form.ownerName} onChange={e=>setForm({...form,ownerName:e.target.value})} placeholder="اسم صاحب الحساب" required/><input value={form.companyName} onChange={e=>setForm({...form,companyName:e.target.value})} placeholder="اسم الشركة" required/><input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="البريد الإلكتروني" required/><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="رقم الهاتف"/><input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="كلمة المرور — 12 حرفًا قوية" required/><input type="password" value={form.confirmPassword} onChange={e=>setForm({...form,confirmPassword:e.target.value})} placeholder="تأكيد كلمة المرور" required/></>}<label className="legal-consent"><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)}/><span>أوافق على سياسة الخصوصية وشروط الاستخدام</span></label>{error&&<div className="error">{error}</div>}<button disabled={busy}>{busy?"جاري التنفيذ...":mode==="login"?"تسجيل الدخول":"إنشاء الحساب والدخول"}</button>{mode==="login"&&nativeBiometric&&<button className="biometric-login-button" type="button" onClick={()=>window.AlAboudNative.requestBiometricLogin()}>👆 الدخول بالبصمة أو الوجه</button>}<button className="account-mode-button" type="button" onClick={()=>{setMode(mode==="login"?"register":"login");setError("")}}>{mode==="login"?"مستخدم جديد؟ إنشاء حساب شركة":"لدي حساب بالفعل — تسجيل الدخول"}</button></form></div>
 }
 function Dashboard({navigate}){
   const [data,setData]=useState(null);
@@ -331,7 +274,7 @@ function Dashboard({navigate}){
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v18.0.1 Mobile Login Fix <span>● متصل</span></p></div>
+        <div><h2>شركة العبود التجارية</h2><p>v18.1.0 2FA + Biometric <span>● متصل</span></p></div>
       </div>
       <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
@@ -3339,7 +3282,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v18.0.1 Mobile Login Fix"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v18.1.0 2FA + Biometric"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3348,6 +3291,7 @@ function SettingsPanel(){
   const [lastBackupAt,setLastBackupAt]=useState(localStorage.getItem("alaboud_last_backup_at")||"");
   const [users,setUsers]=useState([]);
   const [devices,setDevices]=useState([]);
+  const [twoFactorInfo,setTwoFactorInfo]=useState({secret:"",code:"",enabled:Boolean(savedUser.twoFactorEnabled)});
 
   useEffect(()=>{
     api.get("/company-profile").then(({data})=>setCompanyProfile(data)).catch(()=>{});
@@ -3429,6 +3373,10 @@ function SettingsPanel(){
     }
   }
 
+  async function beginTwoFactor(){setMessage("");try{const {data}=await api.post("/auth/2fa/setup");setTwoFactorInfo(current=>({...current,...data,code:""}));setMessage("أضف المفتاح إلى تطبيق Authenticator ثم أدخل الرمز")}catch(error){setMessage(error.response?.data?.message||"تعذر بدء إعداد التحقق بخطوتين")}}
+  async function enableTwoFactor(){try{const {data}=await api.post("/auth/2fa/enable",{code:twoFactorInfo.code});const user={...savedUser,twoFactorEnabled:true};localStorage.setItem("afs_user",JSON.stringify(user));setTwoFactorInfo({secret:"",code:"",enabled:true});setMessage(data.message)}catch(error){setMessage(error.response?.data?.message||"تعذر تفعيل التحقق بخطوتين")}}
+  async function disableTwoFactor(){try{const {data}=await api.post("/auth/2fa/disable");const user={...savedUser,twoFactorEnabled:false};localStorage.setItem("afs_user",JSON.stringify(user));setTwoFactorInfo({secret:"",code:"",enabled:false});setMessage(data.message)}catch(error){setMessage(error.response?.data?.message||"تعذر تعطيل التحقق بخطوتين")}}
+
   async function checkUpdates(){
     setUpdateInfo(current=>({...current,checking:true,status:"جاري التحقق..."}));
     try{
@@ -3437,7 +3385,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v18.0.1 Mobile Login Fix"
+        version:"v18.1.0 2FA + Biometric"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3513,12 +3461,15 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v18.0.1 Mobile Login Fix</span>
+      <span className="settings-version">v18.1.0 2FA + Biometric</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
 
     <div className="settings-grid">
+    <article className="settings-card security-access-card"><div className="settings-card-title"><span>🔐</span><h3>حماية تسجيل الدخول</h3></div><p className="settings-help">التحقق بخطوتين بواسطة Google Authenticator أو Microsoft Authenticator.</p>{twoFactorInfo.enabled?<button type="button" className="danger" onClick={disableTwoFactor}>تعطيل التحقق بخطوتين</button>:<>{!twoFactorInfo.secret?<button type="button" className="settings-primary-button" onClick={beginTwoFactor}>بدء التفعيل</button>:<div className="two-factor-setup"><label>المفتاح السري<input readOnly value={twoFactorInfo.secret}/></label><small>انسخ المفتاح إلى تطبيق Authenticator.</small><label>رمز التحقق<input inputMode="numeric" maxLength="6" value={twoFactorInfo.code} onChange={e=>setTwoFactorInfo({...twoFactorInfo,code:e.target.value.replace(/\D/g,"").slice(0,6)})}/></label><button type="button" disabled={twoFactorInfo.code.length!==6} onClick={enableTwoFactor}>تأكيد التفعيل</button></div>}</>}<p className="security-note">في تطبيق الهاتف يمكن الدخول بالبصمة أو الوجه بعد أول دخول ناجح.</p></article>
+
+
       <article className="settings-card settings-backup-card">
         <div className="settings-card-title"><span>💾</span><h3>النسخ الاحتياطي</h3></div>
         <p className="settings-help">تنزيل نسخة كاملة من بيانات شركتك أو استعادتها لاحقًا.</p>
@@ -3624,7 +3575,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v18.0.1 Mobile Login Fix").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v18.1.0 2FA + Biometric").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3855,7 +3806,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v18.0.1 Mobile Login Fix</small>
+          <small>v18.1.0 2FA + Biometric</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3871,7 +3822,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v18.0.1 Mobile Login Fix</small>
+          <small>v18.1.0 2FA + Biometric</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
