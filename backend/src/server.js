@@ -656,7 +656,7 @@ app.get("/api/monthly-report", auth, (req,res)=>{
 });
 
 
-app.get("/api/customers", auth, (_req,res)=>{ const s=readStore(); res.json(s.customers.map(c=>customerSummary(s,c)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))); });
+app.get("/api/customers", auth, (_req,res)=>{ const s=readStore(); res.json(s.customers.filter(c=>!c?.isDeleted).map(c=>customerSummary(s,c)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))); });
 app.post("/api/customers", auth, (req,res)=>{
   const {name,phone="",email="",identityNumber="",notes="",oldBalance=0}=req.body||{};
   if(!String(name).trim()) return res.status(400).json({message:"Customer name is required"});
@@ -694,6 +694,25 @@ app.patch("/api/customers/:id", auth, (req,res)=>{
   }
 });
 
+app.delete("/api/customers/:id", auth, (req,res)=>{
+  try{
+    const deleted=mutate((store)=>{
+      const customer=(Array.isArray(store.customers)?store.customers:[])
+        .find(item=>item?.id===req.params.id && !item?.isDeleted);
+      if(!customer)return null;
+      customer.isDeleted=true;
+      customer.deletedAt=now();
+      customer.deletedBy=req.user.id;
+      audit(store,req.user.id,"DELETE","CUSTOMER",customer.id,{softDelete:true,name:customer.name});
+      return {id:customer.id,name:customer.name};
+    });
+    if(!deleted)return res.status(404).json({message:"العميل غير موجود أو محذوف مسبقًا"});
+    res.json({message:"تم حذف العميل مع الحفاظ على السجلات المالية",customer:deleted});
+  }catch(error){
+    res.status(400).json({message:error.message||"تعذر حذف العميل"});
+  }
+});
+
 app.get("/api/customers/:id", auth, (req,res)=>{
   try {
     const store = readStore();
@@ -701,7 +720,7 @@ app.get("/api/customers/:id", auth, (req,res)=>{
     const allTransactions = (Array.isArray(store.transactions) ? store.transactions : []).filter(item=>!item?.isDeleted);
     const allPayments = (Array.isArray(store.payments) ? store.payments : []).filter(item=>!item?.isDeleted);
 
-    const customer = customers.find((item) => item && item.id === req.params.id);
+    const customer = customers.find((item) => item && item.id === req.params.id && !item.isDeleted);
     if (!customer) return res.status(404).json({message:"العميل غير موجود"});
 
     const transactions = allTransactions
