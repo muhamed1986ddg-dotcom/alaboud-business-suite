@@ -145,46 +145,64 @@ function translateAppText(value){
 
 function AppLanguageBridge(){
   useEffect(()=>{
-    const applyLanguage=()=>{
-      const language=localStorage.getItem("alaboud_language")||"ar";
-      const english=language==="en";
-      document.documentElement.lang=language;
-      document.documentElement.dir=english?"ltr":"rtl";
-      document.body.classList.toggle("app-language-en",english);
+    let observer;
+    let frame=0;
+    let applying=false;
 
-      document.querySelectorAll("body *").forEach(node=>{
-        if(node.closest("script,style"))return;
-        node.childNodes.forEach(child=>{
-          if(child.nodeType===Node.TEXT_NODE){
+    const applyLanguage=()=>{
+      if(applying)return;
+      applying=true;
+      observer?.disconnect();
+      try{
+        const language=localStorage.getItem("alaboud_language")||"ar";
+        const english=language==="en";
+        document.documentElement.lang=language;
+        document.documentElement.dir=english?"ltr":"rtl";
+        document.body.classList.toggle("app-language-en",english);
+
+        document.querySelectorAll("body *").forEach(node=>{
+          if(node.closest?.("script,style"))return;
+          node.childNodes.forEach(child=>{
+            if(child.nodeType!==Node.TEXT_NODE)return;
             if(english){
               if(child.__alaboudArabicOriginal===undefined)child.__alaboudArabicOriginal=child.nodeValue;
-              child.nodeValue=translateAppText(child.__alaboudArabicOriginal);
-            }else if(child.__alaboudArabicOriginal!==undefined){
+              const translated=translateAppText(child.__alaboudArabicOriginal);
+              if(child.nodeValue!==translated)child.nodeValue=translated;
+            }else if(child.__alaboudArabicOriginal!==undefined&&child.nodeValue!==child.__alaboudArabicOriginal){
               child.nodeValue=child.__alaboudArabicOriginal;
             }
-          }
-        });
+          });
 
-        ["placeholder","title","aria-label"].forEach(attribute=>{
-          if(!node.hasAttribute?.(attribute))return;
-          const key=`alaboudOriginal${attribute.replace("-","")}`;
-          if(english){
-            if(node.dataset[key]===undefined)node.dataset[key]=node.getAttribute(attribute)||"";
-            node.setAttribute(attribute,translateAppText(node.dataset[key]));
-          }else if(node.dataset[key]!==undefined){
-            node.setAttribute(attribute,node.dataset[key]);
-          }
+          ["placeholder","title","aria-label"].forEach(attribute=>{
+            if(!node.hasAttribute?.(attribute))return;
+            const key=`alaboudOriginal${attribute.replace("-","")}`;
+            if(english){
+              if(node.dataset[key]===undefined)node.dataset[key]=node.getAttribute(attribute)||"";
+              const translated=translateAppText(node.dataset[key]);
+              if(node.getAttribute(attribute)!==translated)node.setAttribute(attribute,translated);
+            }else if(node.dataset[key]!==undefined&&node.getAttribute(attribute)!==node.dataset[key]){
+              node.setAttribute(attribute,node.dataset[key]);
+            }
+          });
         });
-      });
+      }finally{
+        applying=false;
+        observer?.observe(document.body,{childList:true,subtree:true,characterData:false});
+      }
     };
 
+    const scheduleApply=()=>{
+      if(frame)return;
+      frame=requestAnimationFrame(()=>{frame=0;applyLanguage()});
+    };
+
+    observer=new MutationObserver(scheduleApply);
     applyLanguage();
-    const observer=new MutationObserver(()=>applyLanguage());
-    observer.observe(document.body,{childList:true,subtree:true,characterData:false});
-    window.addEventListener("alaboud-language-change",applyLanguage);
+    window.addEventListener("alaboud-language-change",scheduleApply);
     return()=>{
+      if(frame)cancelAnimationFrame(frame);
       observer.disconnect();
-      window.removeEventListener("alaboud-language-change",applyLanguage);
+      window.removeEventListener("alaboud-language-change",scheduleApply);
     };
   },[]);
   return null;
@@ -313,7 +331,7 @@ function Dashboard({navigate}){
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v17.2.0 AI Ultimate <span>● متصل</span></p></div>
+        <div><h2>شركة العبود التجارية</h2><p>v18.0.1 Mobile Login Fix <span>● متصل</span></p></div>
       </div>
       <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
@@ -3321,7 +3339,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v17.2.0 AI Ultimate"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v18.0.1 Mobile Login Fix"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3419,7 +3437,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v17.2.0 AI Ultimate"
+        version:"v18.0.1 Mobile Login Fix"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3495,7 +3513,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v17.2.0 AI Ultimate</span>
+      <span className="settings-version">v18.0.1 Mobile Login Fix</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3606,7 +3624,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v17.2.0 AI Ultimate").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v18.0.1 Mobile Login Fix").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3837,7 +3855,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v17.2.0 AI Ultimate</small>
+          <small>v18.0.1 Mobile Login Fix</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3853,7 +3871,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v17.2.0 AI Ultimate</small>
+          <small>v18.0.1 Mobile Login Fix</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
