@@ -197,6 +197,7 @@ function Login({onLogin}){
   const [form,setForm]=useState({ownerName:"",companyName:"",email:"",phone:"",password:"",confirmPassword:""});
   const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
+  const [accepted,setAccepted]=useState(localStorage.getItem("alaboud_legal_acceptance_v1")==="yes");
 
   function saveSession(data){
     localStorage.setItem("afs_token",data.token);
@@ -205,7 +206,9 @@ function Login({onLogin}){
   }
 
   async function submitLogin(e){
-    e.preventDefault();setError("");setBusy(true);
+    e.preventDefault();setError("");
+    if(!accepted){setError("يجب الموافقة على سياسة الخصوصية وشروط الاستخدام");return}
+    localStorage.setItem("alaboud_legal_acceptance_v1","yes");setBusy(true);
     try{const {data}=await api.post("/auth/login",{email,password});saveSession(data)}
     catch(error){setError(error.response?.data?.message||"فشل تسجيل الدخول")}
     finally{setBusy(false)}
@@ -213,6 +216,8 @@ function Login({onLogin}){
 
   async function submitRegister(e){
     e.preventDefault();setError("");
+    if(!accepted){setError("يجب الموافقة على سياسة الخصوصية وشروط الاستخدام");return}
+    localStorage.setItem("alaboud_legal_acceptance_v1","yes");
     if(form.password!==form.confirmPassword){setError("تأكيد كلمة المرور غير مطابق");return}
     setBusy(true);
     try{
@@ -224,51 +229,31 @@ function Login({onLogin}){
     finally{setBusy(false)}
   }
 
-  return <div className="login luxury-login">
-    <div className="luxury-login-shell">
-      <section className="luxury-login-brand">
-        <div className="luxury-login-glow"/>
-        <img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div className="luxury-login-brand-copy">
-          <span>نظام الإدارة المالية المتكامل</span>
-          <h1>شركة العبود التجارية</h1>
-          <p>إدارة العملاء والحوالات والديون والأرباح بأمان وسهولة</p>
-          <strong>ALABOUD BUSINESS SUITE</strong>
-          <small>v16.0.18 Enterprise</small>
-        </div>
-        <div className="luxury-login-features">
-          <span>✓ بيانات سحابية آمنة</span>
-          <span>✓ يعمل على الهاتف والكمبيوتر</span>
-          <span>✓ نسخ احتياطي وحماية للبيانات</span>
-        </div>
-      </section>
-
-      <form className="panel public-account-panel luxury-login-form" onSubmit={mode==="login"?submitLogin:submitRegister}>
-        <div className="luxury-login-form-head">
-          <span className="luxury-login-lock">🔐</span>
-          <h2>{mode==="login"?"تسجيل الدخول":"إنشاء حساب شركة جديد"}</h2>
-          <p>{mode==="login"?"أدخل بيانات حسابك للوصول إلى البرنامج":"أنشئ حسابًا جديدًا وآمنًا لشركتك"}</p>
-        </div>
-        {mode==="login"?<>
-          <label className="luxury-login-field"><span>البريد الإلكتروني</span><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="name@example.com" required/></label>
-          <label className="luxury-login-field"><span>كلمة المرور</span><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" required/></label>
-        </>:<>
-          <label className="luxury-login-field"><span>اسم صاحب الحساب</span><input value={form.ownerName} onChange={e=>setForm({...form,ownerName:e.target.value})} placeholder="الاسم الكامل" required/></label>
-          <label className="luxury-login-field"><span>اسم الشركة</span><input value={form.companyName} onChange={e=>setForm({...form,companyName:e.target.value})} placeholder="اسم الشركة" required/></label>
-          <label className="luxury-login-field"><span>البريد الإلكتروني</span><input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="name@example.com" required/></label>
-          <label className="luxury-login-field"><span>رقم الهاتف</span><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="رقم الهاتف"/></label>
-          <label className="luxury-login-field"><span>كلمة المرور</span><input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="8 أحرف على الأقل" required/></label>
-          <label className="luxury-login-field"><span>تأكيد كلمة المرور</span><input type="password" value={form.confirmPassword} onChange={e=>setForm({...form,confirmPassword:e.target.value})} placeholder="أعد كتابة كلمة المرور" required/></label>
-          <div className="tenant-privacy-note">🔒 سيتم إنشاء مساحة بيانات مستقلة لشركتك ولن تظهر بياناتها لأي شركة أخرى.</div>
-        </>}
-        {error&&<div className="error">{error}</div>}
-        <button className="luxury-login-submit" disabled={busy}>{busy?"جاري التنفيذ...":mode==="login"?"دخول آمن إلى البرنامج":"إنشاء الحساب والدخول"}</button>
-        <button className="account-mode-button" type="button" onClick={()=>{setMode(mode==="login"?"register":"login");setError("")}}>
-          {mode==="login"?"مستخدم جديد؟ إنشاء حساب شركة":"لدي حساب بالفعل — تسجيل الدخول"}
-        </button>
-        <small className="luxury-login-sync-note">☁ يمكن استخدام الحساب على أكثر من جهاز وستظهر نفس البيانات السحابية.</small>
-      </form>
-    </div>
+  return <div className="login">
+    <form className="panel public-account-panel" onSubmit={mode==="login"?submitLogin:submitRegister}>
+      <img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+      <h1>{mode==="login"?"تسجيل الدخول":"إنشاء حساب شركة جديد"}</h1>
+      <p className="login-company-en">ALABOUD BUSINESS SUITE</p>
+      {mode==="login"?<>
+        <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد الإلكتروني" required/>
+        <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور" required/>
+      </>:<>
+        <input value={form.ownerName} onChange={e=>setForm({...form,ownerName:e.target.value})} placeholder="اسم صاحب الحساب" required/>
+        <input value={form.companyName} onChange={e=>setForm({...form,companyName:e.target.value})} placeholder="اسم الشركة" required/>
+        <input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="البريد الإلكتروني" required/>
+        <input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="رقم الهاتف"/>
+        <input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="كلمة المرور — 8 أحرف على الأقل" required/>
+        <input type="password" value={form.confirmPassword} onChange={e=>setForm({...form,confirmPassword:e.target.value})} placeholder="تأكيد كلمة المرور" required/>
+        <div className="tenant-privacy-note">🔒 سيتم إنشاء مساحة بيانات مستقلة لشركتك. لن ترى بيانات أي شركة أخرى.</div>
+      </>}
+      <label className="legal-consent"><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)}/><span>أوافق على <button type="button" onClick={()=>alert("سياسة الخصوصية: يجمع النظام معلومات الحساب ومعرف التثبيت ونوع الجهاز وإصدار التطبيق وتواريخ الاستخدام لأغراض الأمان وإدارة التراخيص فقط، ولا يشارك البيانات مع جهات خارجية.")}>سياسة الخصوصية</button> و<button type="button" onClick={()=>alert("شروط الاستخدام: الاستخدام للأجهزة والحسابات المصرح بها فقط، ويمنع نسخ البرنامج أو إعادة بيعه دون إذن.")}>شروط الاستخدام</button></span></label>
+      {error&&<div className="error">{error}</div>}
+      <button disabled={busy}>{busy?"جاري التنفيذ...":mode==="login"?"تسجيل الدخول":"إنشاء الحساب والدخول"}</button>
+      <button className="account-mode-button" type="button" onClick={()=>{setMode(mode==="login"?"register":"login");setError("")}}>
+        {mode==="login"?"مستخدم جديد؟ إنشاء حساب شركة":"لدي حساب بالفعل — تسجيل الدخول"}
+      </button>
+      <small>يمكن استخدام نفس الحساب على أكثر من هاتف وستظهر نفس البيانات السحابية.</small>
+    </form>
   </div>
 }
 function Dashboard({navigate}){
@@ -317,128 +302,66 @@ function Dashboard({navigate}){
 
   if(!data)return <div className="premium-loading">جاري تحميل لوحة التحكم…</div>;
 
-  const kpis=[
-    {label:"إجمالي الحوالات",value:data.todayTransactions||0,icon:"💱",tone:"green",note:"حوالات اليوم"},
-    {label:"إجمالي الأرباح",value:cad(data.todayProfit),icon:"📈",tone:"blue",note:"الربح اليومي"},
-    {label:"المصروفات",value:cad(data.todayExpenses||0),icon:"👛",tone:"orange",note:"مصروفات اليوم"},
-    {label:"العملاء",value:data.customers||0,icon:"👥",tone:"purple",note:`${noticeData.overdueCount||0} متأخر`}
+  const homeStats=[
+    {label:"إجمالي الأرباح",value:cad(data.todayProfit||0),icon:"📈",trend:"+8.5% ↑",tone:"positive",route:"profits"},
+    {label:"إجمالي الحوالات",value:Number(data.todayTransactions||0).toLocaleString("en-CA"),icon:"⇄",trend:"+12.3% ↑",tone:"positive",route:"transactions"},
+    {label:"عملاء متأخرون",value:noticeData.overdueCount||0,icon:"👤",trend:`-${noticeData.overdueCount||0} ↓`,tone:"negative",route:"customers"},
+    {label:"دين علينا",value:cad(data.payables||0),icon:"👛",trend:"-4.7% ↓",tone:"negative",route:"debts"}
   ];
 
-  return <div className="premium-dashboard">
-    <section className="premium-hero dashboard-pro-hero">
-      <div className="dashboard-pro-brand">
-        <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v16.0.18 Enterprise <span>● متصل</span></p></div>
-      </div>
-      <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
-      <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
+  const homeMenu=[
+    {title:"العملاء",subtitle:"إدارة العملاء وأرصدتهم",icon:"👥",route:"customers"},
+    {title:"الشركات",subtitle:"إدارة الشركات",icon:"🏢",route:"partners"},
+    {title:"الحوالات",subtitle:"إضافة وإدارة الحوالات",icon:"⇄",route:"transactions"},
+    {title:"المصروفات",subtitle:"إدارة المصروفات",icon:"🧾",route:"expenses"},
+    {title:"الأرباح",subtitle:"تقارير وتحليل الأرباح",icon:"📈",route:"profits"},
+    {title:"العملات وأسعار الصرف",subtitle:"أسعار العملات والتحديثات",icon:"💱",route:"rates"},
+    {title:"الدين العام",subtitle:"إجمالي الدين العام",icon:"📒",route:"debts"},
+    {title:"الميزانية",subtitle:"عرض الميزانية",icon:"⚖️",route:"capital-overview"},
+    {title:"التقارير الشهرية",subtitle:"التقارير والإحصائيات",icon:"▥",route:"monthly-report",featured:true},
+    {title:"الإعدادات والتنبيهات",subtitle:"الإعدادات العامة",icon:"⚙️",route:"settings"}
+  ];
+
+  return <div className="luxury-home-dashboard">
+    <section className="luxury-home-topbar">
+      <button className="luxury-menu-button" type="button" onClick={()=>document.querySelector(".mobile-menu-action")?.click()}>☰</button>
+      <h1>العملاء <span>👥</span></h1>
+      <button className="luxury-notice-button" type="button" onClick={()=>setOpen(!open)}>🔔{noticeData.count>0&&<i/>}</button>
     </section>
 
-    <section className="premium-kpis">
-      {kpis.map(item=><button key={item.label} className={`premium-kpi ${item.tone}`} onClick={()=>{
-        if(item.label==="إجمالي الحوالات")navigate("transactions");
-        else if(item.label==="إجمالي الأرباح")navigate("profits");
-        else if(item.label==="المصروفات")navigate("expenses");
-        else navigate("customers");
-      }}>
-        <div className="premium-kpi-icon">{item.icon}</div>
-        <div><span>{item.label}</span><strong>{item.value}</strong><small>{item.note}</small></div>
+    <section className="luxury-brand-card">
+      <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
+      <div>
+        <h2>شركة العبود التجارية</h2>
+        <p>v17.0.0 Enterprise</p>
+      </div>
+    </section>
+
+    <section className="luxury-stat-card">
+      {homeStats.map(item=><button key={item.label} type="button" onClick={()=>navigate(item.route)}>
+        <span className="luxury-stat-icon">{item.icon}</span>
+        <b>{item.label}</b>
+        <strong>{item.value}</strong>
+        <small className={item.tone}>{item.trend}</small>
       </button>)}
     </section>
 
-    <section className="premium-grid">
-      <div className="premium-recent panel-dark">
-        <div className="section-heading">
-          <h3>أحدث الحوالات</h3>
-          <button onClick={()=>navigate("transactions")}>عرض الكل</button>
-        </div>
-        {recent.length?recent.map(item=><button className="recent-row" key={item.id} onClick={()=>navigate("transactions")}>
-          <div className="recent-currency"><span>{item.currency||"USD"}</span><small>{item.number||"حوالة"}</small></div>
-          <div className="recent-date">{item.transferDate||String(item.createdAt||"").slice(0,10)}</div>
-          <strong>{cad(item.totalCustomerDue||0)}</strong>
-          <b>‹</b>
-        </button>):<p className="empty-state">لا توجد حوالات حديثة.</p>}
-      </div>
-
-      <div className="premium-summary panel-dark dashboard-price-bulletin">
-        <div className="section-heading">
-          <h3>نشرة أسعار الصرف</h3>
-          <button onClick={()=>navigate("rates")}>عرض الكل</button>
-        </div>
-        <div className="dashboard-rate-list">
-          {dashboardRates.length?dashboardRates.map(rate=><button
-            className="dashboard-rate-row"
-            key={rate.id||`${rate.baseCurrency}-${rate.quoteCurrency}`}
-            onClick={()=>navigate("rates")}
-          >
-            {(()=>{
-              const trend=rateTrend(rate,dashboardRateHistory);
-              return <>
-                <strong className="dashboard-rate-pair">
-                  <CurrencyFlag code={rate.baseCurrency} className="dashboard-rate-flag"/>
-                  <span>{rate.baseCurrency}/{rate.quoteCurrency}</span>
-                  <span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol}</span>
-                </strong>
-                <span>شراء <b>{Number(rate.buyRate||0).toFixed(4)}</b></span>
-                <span>بيع <b>{Number(rate.sellRate||0).toFixed(4)}</b></span>
-              </>;
-            })()}
-          </button>):<p className="empty-state">لا توجد أسعار صرف مسجلة.</p>}
-        </div>
-      </div>
+    <div className="luxury-section-title"><h3>القائمة الرئيسية</h3></div>
+    <section className="luxury-menu-grid">
+      {homeMenu.map(item=><button key={item.route} type="button" className={item.featured?"featured":""} onClick={()=>navigate(item.route)}>
+        <span className="luxury-menu-icon">{item.icon}</span>
+        <div><strong>{item.title}</strong><small>{item.subtitle}</small></div>
+        <b>‹</b>
+      </button>)}
     </section>
 
-    <section className="dashboard-pro-analysis">
-      <div className="dashboard-pro-performance panel-dark">
-        <div className="section-heading"><h3>ملخص الأداء (آخر 7 أيام)</h3><span className="dashboard-pro-period">آخر 7 أيام</span></div>
-        <div className="dashboard-pro-chart">
-          <div className="dashboard-pro-grid"><i/><i/><i/><i/><i/></div>
-          <div className="dashboard-pro-bars">{[38,54,61,69,82,66,77].map((value,index)=><div className="dashboard-pro-bar-col" key={index}><div className="dashboard-pro-bar" style={{height:`${value}%`}}/><small>{index+8}/7</small></div>)}</div>
-          <svg viewBox="0 0 700 220" preserveAspectRatio="none"><polyline points="50,160 150,115 250,102 350,78 450,42 550,85 650,65"/></svg>
-        </div>
-        <div className="dashboard-pro-legend"><span>● إجمالي الحوالات (CAD)</span><span>● إجمالي الأرباح</span></div>
-      </div>
-      <div className="dashboard-pro-finance panel-dark">
-        <div className="section-heading"><h3>⚖️ الميزانية</h3><button onClick={()=>navigate("capital-overview")}>عرض الكل</button></div>
-        <p><span>الرصيد الحالي</span><strong>{cad(data.capital||0)}</strong></p>
-        <p><span>الذمم المستحقة</span><strong>{cad(data.receivables||0)}</strong></p>
-        <p><span>العملاء المتأخرون</span><strong>{noticeData.overdueCount||0}</strong></p>
-      </div>
-      <div className="dashboard-pro-alerts panel-dark">
-        <div className="section-heading"><h3>أحدث التنبيهات</h3><button onClick={()=>setOpen(!open)}>عرض الكل</button></div>
-        {(noticeData.notifications||[]).slice(0,3).map(item=><div className={`dashboard-pro-alert severity-${item.severity}`} key={item.id}><b>!</b><div><strong>{item.title}</strong><small>{item.message}</small></div></div>)}
-        {!noticeData.notifications?.length&&<p className="empty-state">لا توجد تنبيهات حالياً.</p>}
-      </div>
-      <div className="dashboard-pro-stats panel-dark">
-        <div className="section-heading"><h3>إحصائيات سريعة</h3></div>
-        <p><span>حوالات اليوم</span><strong>{data.todayTransactions||0}</strong></p>
-        <p><span>أرباح اليوم</span><strong>{cad(data.todayProfit)}</strong></p>
-        <p><span>عدد العملاء</span><strong>{data.customers||0}</strong></p>
-      </div>
-    </section>
-
-    <section className="premium-quick">
-      <button onClick={()=>navigate("transactions")}><span>💱</span><strong>إضافة حوالة</strong></button>
-      <button onClick={()=>navigate("expenses")}><span>👛</span><strong>إضافة مصروف</strong></button>
-      <button onClick={()=>navigate("customers")}><span>👤＋</span><strong>عميل جديد</strong></button>
-      <button onClick={()=>navigate("monthly-report")}><span>📄</span><strong>تقرير سريع</strong></button>
-      <button onClick={()=>navigate("rates")}><span>☁</span><strong>أسعار الصرف</strong></button>
-    </section>
-
-    <button className="premium-alert-strip" onClick={()=>setOpen(!open)}>
-      <span>🔔</span>
-      <strong>{noticeData.count?`${noticeData.count} تنبيهات تحتاج المراجعة`:"لا توجد تنبيهات جديدة"}</strong>
-      <b>‹</b>
+    <button className="luxury-logout-tile" type="button" onClick={()=>{if(window.confirm("هل تريد تسجيل الخروج من البرنامج؟")){localStorage.clear();window.location.reload();}}}>
+      <span>🚪</span><div><strong>تسجيل الخروج</strong><small>تسجيل الخروج من التطبيق</small></div><b>‹</b>
     </button>
 
-    {open&&<div className="panel-dark premium-notifications">
+    {open&&<div className="panel-dark premium-notifications luxury-notifications">
       <div className="section-heading"><h3>مركز التنبيهات</h3><button onClick={()=>setOpen(false)}>إغلاق</button></div>
-      {noticeData.notifications.length?noticeData.notifications.map(item=>
-        <div className={`notification-item severity-${item.severity}`} key={item.id}>
-          <div><strong>{item.title}</strong><p>{item.message}</p></div>
-          {item.customerId&&<button onClick={()=>navigate("customers")}>فتح</button>}
-        </div>
-      ):<p>لا توجد تنبيهات حالياً.</p>}
+      {noticeData.notifications.length?noticeData.notifications.map(item=><div className={`notification-item severity-${item.severity}`} key={item.id}><div><strong>{item.title}</strong><p>{item.message}</p></div></div>):<p>لا توجد تنبيهات حالياً.</p>}
     </div>}
   </div>;
 }
@@ -3336,16 +3259,19 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v16.0.18 Enterprise"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v17.0.0 Enterprise"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
   const [companySaving,setCompanySaving]=useState(false);
   const [backupBusy,setBackupBusy]=useState(false);
   const [lastBackupAt,setLastBackupAt]=useState(localStorage.getItem("alaboud_last_backup_at")||"");
+  const [users,setUsers]=useState([]);
+  const [devices,setDevices]=useState([]);
 
   useEffect(()=>{
     api.get("/company-profile").then(({data})=>setCompanyProfile(data)).catch(()=>{});
+    if(savedUser.role==="ADMIN"){api.get("/users").then(({data})=>setUsers(data)).catch(()=>{});api.get("/devices").then(({data})=>setDevices(data)).catch(()=>{})}
   },[]);
 
   function chooseCompanyLogo(event){
@@ -3431,7 +3357,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v16.0.18 Enterprise"
+        version:"v17.0.0 Enterprise"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3507,7 +3433,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v16.0.18 Enterprise</span>
+      <span className="settings-version">v17.0.0 Enterprise</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3585,6 +3511,24 @@ function SettingsPanel(){
         </form>
       </article>
 
+      {savedUser.role==="ADMIN"&&<article className="settings-card settings-wide-card">
+        <div className="settings-card-title"><span>👥</span><h3>إدارة المستخدمين والصلاحيات</h3></div>
+        <div className="admin-list">{users.map(user=><div className="admin-row" key={user.id}><div><strong>{user.name}</strong><small>{user.email} • آخر دخول: {user.lastLoginAt?new Date(user.lastLoginAt).toLocaleString("ar-CA"):"لم يدخل بعد"}</small></div><select value={user.role} onChange={async e=>{const {data}=await api.patch(`/users/${user.id}`,{role:e.target.value});setUsers(list=>list.map(x=>x.id===data.id?{...x,...data}:x))}}><option value="ADMIN">مسؤول كامل</option><option value="MANAGER">مدير</option><option value="USER">مستخدم</option><option value="VIEWER">مشاهدة فقط</option></select><button type="button" className={user.active?"danger-soft":"success-soft"} onClick={async()=>{const {data}=await api.patch(`/users/${user.id}`,{active:!user.active});setUsers(list=>list.map(x=>x.id===data.id?{...x,...data}:x))}}>{user.active?"تعطيل":"تفعيل"}</button></div>)}</div>
+      </article>}
+
+      {savedUser.role==="ADMIN"&&<article className="settings-card settings-wide-card">
+        <div className="settings-card-title"><span>💻</span><h3>الأجهزة والتراخيص</h3></div>
+        <p className="settings-help">يُسجل كل تثبيت بمعرّف فريد ونوع الجهاز والإصدار وآخر اتصال.</p>
+        <div className="admin-list">{devices.length?devices.map(device=><div className="admin-row" key={device.id}><div><strong>{device.deviceName||"جهاز"}</strong><small>{device.appVersion||"17.0.0"} • {device.platform?.slice(0,70)}<br/>آخر اتصال: {device.lastSeenAt?new Date(device.lastSeenAt).toLocaleString("ar-CA"):"—"}</small></div><button type="button" className={device.active!==false?"danger-soft":"success-soft"} onClick={async()=>{const {data}=await api.patch(`/devices/${device.id}`,{active:device.active===false});setDevices(list=>list.map(x=>x.id===data.id?data:x))}}>{device.active!==false?"تعطيل الجهاز":"إعادة التفعيل"}</button></div>):<p className="settings-help">ستظهر الأجهزة هنا بعد أول تسجيل دخول بالإصدار الجديد.</p>}</div>
+      </article>}
+
+      <article className="settings-card settings-wide-card">
+        <div className="settings-card-title"><span>📄</span><h3>سياسة الخصوصية وشروط الاستخدام</h3></div>
+        <details><summary>سياسة الخصوصية</summary><p className="settings-help">يجمع النظام معلومات الحساب ومعرّف التثبيت ونوع الجهاز وإصدار التطبيق وتاريخ أول وآخر استخدام لأغراض الأمان وإدارة التراخيص فقط. لا تُباع البيانات ولا تُشارك مع جهات خارجية، ولا تُخزن كلمات المرور بصورتها الأصلية.</p></details>
+        <details><summary>شروط الاستخدام</summary><p className="settings-help">الاستخدام مخصص للأجهزة والحسابات المصرح بها. يمنع نسخ البرنامج أو إعادة بيعه أو تجاوز الحماية دون إذن. المستخدم مسؤول عن صحة البيانات والنسخ الاحتياطية والالتزام بالقوانين المحلية.</p></details>
+        <small>آخر تحديث: 18 يوليو 2026 — الإصدار القانوني 1.0</small>
+      </article>
+
       <article className="settings-card">
         <div className="settings-card-title"><span>🔐</span><h3>تغيير كلمة السر</h3></div>
         <form className="settings-form-modern" onSubmit={changePassword}>
@@ -3600,7 +3544,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v16.0.18 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v17.0.0 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3770,7 +3714,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v16.0.18 Enterprise</small>
+          <small>v17.0.0 Enterprise</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3786,7 +3730,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v16.0.18 Enterprise</small>
+          <small>v17.0.0 Enterprise</small>
         </div>
       </div>
       {menu.map(([key,label])=><button

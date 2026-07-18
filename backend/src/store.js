@@ -13,13 +13,13 @@ const pool = databaseUrl ? new Pool({
   ssl: databaseUrl.includes("localhost") ? false : { rejectUnauthorized: false }
 }) : null;
 
-const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","notificationActions","auditLogs"];
+const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","notificationActions","auditLogs","devices"];
 const emptyStore = () => ({
   companies: [], users: [], customers: [], transactions: [], payments: [], expenses: [],
   capitalMovements: [], exchangeRates: [], generalDebts: [], generalDebtPayments: [],
   partners: [], partnerTransactions: [], partnerPayments: [],
   notificationSettings: { overdueDays: 7, lowCashLimit: 5000, whatsappTemplate: "" },
-  companySettings: {}, notificationActions: [], auditLogs: []
+  companySettings: {}, notificationActions: [], auditLogs: [], devices: []
 });
 
 function normalizeStore(store){

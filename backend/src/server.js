@@ -36,7 +36,7 @@ function seedAdmin(){
       admin.companyId=company.id;
     }
 
-    const tenantArrays=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","notificationActions","auditLogs"];
+    const tenantArrays=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","notificationActions","auditLogs","devices"];
     for(const key of tenantArrays){
       for(const item of store[key]||[]){
         if(item&&!item.companyId)item.companyId=company.id;
@@ -161,7 +161,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"16.0.18",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"17.0.0",channel:"enterprise",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -171,6 +171,21 @@ app.post("/api/auth/login",(req,res)=>{
   }
   const company=store.companies.find(item=>item.id===user.companyId&&item.active);
   if(!company)return res.status(403).json({message:"Company account is inactive"});
+  const installationId=String(req.headers["x-installation-id"]||req.body?.installationId||"").trim();
+  if(installationId){
+    mutate(root=>{
+      let device=(root.devices||[]).find(item=>item.companyId===user.companyId&&item.installationId===installationId);
+      if(!device){
+        device={id:id(),companyId:user.companyId,installationId,deviceName:String(req.headers["x-device-name"]||"جهاز جديد").slice(0,120),platform:String(req.headers["x-device-platform"]||"Web").slice(0,80),appVersion:String(req.headers["x-alaboud-client-version"]||"17.0.0").slice(0,30),active:true,firstSeenAt:now(),lastSeenAt:now(),lastUserId:user.id};
+        root.devices.push(device);
+        audit(root,user.id,"REGISTER","DEVICE",device.id,{installationId,platform:device.platform});
+      }else{
+        if(device.active===false)throw new Error("هذا الجهاز معطل من لوحة الإدارة");
+        device.lastSeenAt=now();device.lastUserId=user.id;device.appVersion=String(req.headers["x-alaboud-client-version"]||device.appVersion||"17.0.0");
+      }
+      user.lastLoginAt=now();
+    });
+  }
   const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId},JWT_SECRET,{expiresIn:"30d"});
   res.json({token,user:{id:user.id,name:user.name,email:user.email,role:user.role,companyId:user.companyId,companyName:company.name}});
 });
@@ -185,7 +200,7 @@ app.get("/api/auth/session",auth,(req,res)=>{
   }
 
   res.json({
-    version:"16.0.18",
+    version:"17.0.0",
     user:{
       id:user.id,
       name:user.name,
@@ -306,6 +321,7 @@ app.post("/api/users", auth, (req,res)=>{
       }
       const user={
         id:id(),
+        companyId:req.user.companyId,
         name,
         email,
         passwordHash:bcrypt.hashSync(password,12),
@@ -322,6 +338,55 @@ app.post("/api/users", auth, (req,res)=>{
     res.status(400).json({message:error.message||"تعذر إنشاء الحساب"});
   }
 });
+
+app.get("/api/users", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"إدارة المستخدمين متاحة للمدير فقط"});
+  const users=readStore().users.map(user=>({id:user.id,name:user.name,email:user.email,role:user.role,active:user.active!==false,createdAt:user.createdAt,lastLoginAt:user.lastLoginAt||null}));
+  res.json(users);
+});
+
+app.patch("/api/users/:id", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"إدارة المستخدمين متاحة للمدير فقط"});
+  try{
+    const updated=mutate(store=>{
+      const user=store.users.find(item=>item.id===req.params.id);
+      if(!user)throw new Error("المستخدم غير موجود");
+      if(user.id===req.user.id&&req.body?.active===false)throw new Error("لا يمكنك تعطيل حسابك الحالي");
+      if(req.body?.name!==undefined)user.name=String(req.body.name||"").trim()||user.name;
+      if(req.body?.role!==undefined&&["ADMIN","MANAGER","USER","VIEWER"].includes(String(req.body.role).toUpperCase()))user.role=String(req.body.role).toUpperCase();
+      if(req.body?.active!==undefined)user.active=Boolean(req.body.active);
+      if(String(req.body?.password||"").length>=8)user.passwordHash=bcrypt.hashSync(String(req.body.password),12);
+      user.updatedAt=now();
+      audit(store,req.user.id,"UPDATE","USER",user.id,{role:user.role,active:user.active});
+      return {id:user.id,name:user.name,email:user.email,role:user.role,active:user.active!==false,lastLoginAt:user.lastLoginAt||null};
+    });
+    res.json(updated);
+  }catch(error){res.status(400).json({message:error.message||"تعذر تحديث المستخدم"})}
+});
+
+app.get("/api/devices", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"إدارة الأجهزة متاحة للمدير فقط"});
+  res.json((readStore().devices||[]).slice().sort((a,b)=>String(b.lastSeenAt||"").localeCompare(String(a.lastSeenAt||""))));
+});
+
+app.patch("/api/devices/:id", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"إدارة الأجهزة متاحة للمدير فقط"});
+  try{
+    const device=mutate(store=>{
+      const item=(store.devices||[]).find(row=>row.id===req.params.id);
+      if(!item)throw new Error("الجهاز غير موجود");
+      if(req.body?.active!==undefined)item.active=Boolean(req.body.active);
+      if(req.body?.deviceName!==undefined)item.deviceName=String(req.body.deviceName||"").slice(0,120);
+      item.updatedAt=now();
+      audit(store,req.user.id,"UPDATE","DEVICE",item.id,{active:item.active});
+      return item;
+    });
+    res.json(device);
+  }catch(error){res.status(400).json({message:error.message||"تعذر تحديث الجهاز"})}
+});
+
+app.get("/api/legal/privacy", (_req,res)=>res.json({version:"1.0",updatedAt:"2026-07-18",title:"سياسة الخصوصية",content:"يجمع النظام معلومات الحساب ومعرّف التثبيت ونوع الجهاز وإصدار التطبيق وتاريخ أول وآخر استخدام لأغراض الأمان وإدارة التراخيص فقط. لا تُباع البيانات ولا تُشارك مع جهات خارجية، ولا يتم جمع كلمات المرور بصورتها الأصلية. يتحمل مدير الشركة مسؤولية بيانات العملاء المسجلة داخل النظام."}));
+app.get("/api/legal/terms", (_req,res)=>res.json({version:"1.0",updatedAt:"2026-07-18",title:"شروط الاستخدام",content:"استخدام البرنامج مخصص للحسابات والأجهزة المصرح بها. يمنع نسخ البرنامج أو إعادة بيعه أو محاولة تجاوز الحماية دون إذن. المستخدم مسؤول عن صحة البيانات والنسخ الاحتياطية والالتزام بالقوانين المحلية."}));
 
 
 app.get("/api/dashboard", auth, (_req,res)=>{
@@ -2235,7 +2300,7 @@ async function startServer(){
   await initStore();
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v16.0.7 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v17.0.0 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{
