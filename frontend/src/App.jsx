@@ -313,7 +313,7 @@ function Dashboard({navigate}){
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
-        <div><h2>شركة العبود التجارية</h2><p>v17.0.1 Enterprise <span>● متصل</span></p></div>
+        <div><h2>شركة العبود التجارية</h2><p>v17.1.0 AI Enterprise <span>● متصل</span></p></div>
       </div>
       <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
@@ -3321,7 +3321,7 @@ function SettingsPanel(){
   const [displayMode,setDisplayMode]=useState(localStorage.getItem("alaboud_display_mode")||"comfortable");
   const [currency,setCurrency]=useState(localStorage.getItem("alaboud_primary_currency")||"CAD");
   const [message,setMessage]=useState("");
-  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v17.0.1 Enterprise"});
+  const [updateInfo,setUpdateInfo]=useState({checking:false,status:"",version:"v17.1.0 AI Enterprise"});
   const [accountForm,setAccountForm]=useState({name:"",email:"",password:"",role:"USER"});
   const [passwordForm,setPasswordForm]=useState({currentPassword:"",newPassword:"",confirmPassword:""});
   const [companyProfile,setCompanyProfile]=useState({name:savedUser.companyName||"",phone:"",logoDataUrl:""});
@@ -3419,7 +3419,7 @@ function SettingsPanel(){
       setUpdateInfo({
         checking:false,
         status:`الخدمة تعمل بشكل طبيعي — إصدار الخادم ${serverVersion}`,
-        version:"v17.0.1 Enterprise"
+        version:"v17.1.0 AI Enterprise"
       });
     }catch{
       setUpdateInfo(current=>({...current,checking:false,status:"تعذر التحقق من حالة التحديث"}));
@@ -3495,7 +3495,7 @@ function SettingsPanel(){
           <p>شركة العبود التجارية — إدارة تفضيلات البرنامج والحساب</p>
         </div>
       </div>
-      <span className="settings-version">v17.0.1 Enterprise</span>
+      <span className="settings-version">v17.1.0 AI Enterprise</span>
     </div>
 
     {message&&<div className="card settings-message">{message}</div>}
@@ -3606,7 +3606,7 @@ function SettingsPanel(){
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
           <a href="mailto:support@alaboud.local?subject=ALABOUD%20Business%20Suite%20Support">✉️ البريد الفني</a>
-          <button type="button" onClick={()=>navigator.clipboard?.writeText("v17.0.1 Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
+          <button type="button" onClick={()=>navigator.clipboard?.writeText("v17.1.0 AI Enterprise").then(()=>setMessage("تم نسخ رقم الإصدار"))}>📋 نسخ رقم الإصدار</button>
         </div>
       </article>
 
@@ -3623,6 +3623,22 @@ function SettingsPanel(){
       </article>
     </div>
   </section>;
+}
+
+
+function AICommandCenter({navigate}){
+  const [overview,setOverview]=useState(null);const [question,setQuestion]=useState("");const [messages,setMessages]=useState([{role:"assistant",text:"مرحبًا، أنا مساعد العبود الذكي. اسألني عن الأرباح أو المصروفات أو الديون أو التوقعات."}]);const [busy,setBusy]=useState(false);const [listening,setListening]=useState(false);
+  const load=()=>api.get("/ai/overview").then(r=>setOverview(r.data)).catch(()=>{});
+  useEffect(()=>{load()},[]);
+  async function ask(text=question){const q=String(text||"").trim();if(!q||busy)return;setQuestion("");setMessages(m=>[...m,{role:"user",text:q}]);setBusy(true);try{const {data}=await api.post("/ai/assistant",{question:q});setMessages(m=>[...m,{role:"assistant",text:data.answer,data:data.data||[],action:data.action}]);setOverview(data.overview||overview)}catch(e){setMessages(m=>[...m,{role:"assistant",text:e.response?.data?.message||"تعذر تنفيذ التحليل الآن."}])}finally{setBusy(false)}}
+  function voice(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){alert("الإدخال الصوتي غير مدعوم في هذا المتصفح");return}const r=new SR();r.lang="ar-SA";r.onstart=()=>setListening(true);r.onend=()=>setListening(false);r.onresult=e=>{const t=e.results[0][0].transcript;setQuestion(t);ask(t)};r.start()}
+  if(!overview)return <div className="premium-loading">جاري تشغيل مركز الذكاء…</div>;
+  return <section className="ai-center">
+    <div className="ai-hero"><div><span>🤖</span><div><h2>مركز القيادة الذكي</h2><p>ALABOUD AI — تحليل الأعمال واتخاذ القرار</p></div></div><b className={overview.healthScore>=75?"good":overview.healthScore>=50?"warn":"bad"}>صحة الشركة {overview.healthScore}/100</b></div>
+    <div className="ai-kpis"><article><span>صافي اليوم</span><strong>{cad(overview.today.netProfit)}</strong></article><article><span>صافي الشهر</span><strong>{cad(overview.month.netProfit)}</strong></article><article><span>الديون لنا</span><strong>{cad(overview.finance.receivables)}</strong></article><article><span>توقع الشهر القادم</span><strong>{cad(overview.forecast.nextMonthNet)}</strong></article></div>
+    <div className="ai-layout"><div className="ai-chat card"><div className="ai-messages">{messages.map((m,i)=><div key={i} className={`ai-message ${m.role}`}><p>{m.text}</p>{m.data?.length>0&&<div className="ai-results">{m.data.slice(0,6).map((x,j)=><div key={x.id||j}><strong>{x.name||x.title||x.number||"سجل"}</strong><span>{x.finalBalance!==undefined?cad(x.finalBalance):x.amount!==undefined?`${x.amount} ${x.currency||""}`:""}</span></div>)}</div>}{m.action&&<button onClick={()=>navigate(m.action.page)}>فتح الصفحة</button>}</div>)}{busy&&<div className="ai-message assistant"><p>جاري التحليل…</p></div>}</div><form onSubmit={e=>{e.preventDefault();ask()}} className="ai-input"><button type="button" onClick={voice}>{listening?"◉":"🎙️"}</button><input value={question} onChange={e=>setQuestion(e.target.value)} placeholder="اسأل: كم أرباح هذا الشهر؟"/><button>إرسال</button></form><div className="ai-quick">{["كم أرباح اليوم؟","اعرض الديون المتأخرة","حلل المصروفات","ما توقع الشهر القادم؟","قيّم صحة الشركة"].map(x=><button key={x} onClick={()=>ask(x)}>{x}</button>)}</div></div>
+    <aside className="ai-side"><div className="card"><h3>💡 توصيات اليوم</h3>{overview.recommendations.map((x,i)=><p key={i}>• {x}</p>)}</div><div className="card"><h3>🚨 اكتشاف تلقائي</h3>{overview.anomalies.length?overview.anomalies.map((x,i)=><div key={i} className={`ai-alert ${x.level}`}><strong>{x.title}</strong><small>{x.message}</small></div>):<p>لا توجد أخطاء غير اعتيادية.</p>}</div><div className="card"><h3>🖥️ مراقبة النظام</h3><p>قاعدة البيانات: <b>{overview.system.database}</b></p><p>المستخدمون: <b>{overview.system.users}</b></p><p>الأجهزة النشطة: <b>{overview.system.devices}</b></p><button onClick={()=>navigate("settings")}>النسخ الاحتياطي والإعدادات</button></div></aside></div>
+  </section>
 }
 
 function Simple({type}){
@@ -3778,6 +3794,8 @@ export default function App(){
     content=<SettingsPanel/>;
   }else if(page==="settings"){
     content=<SettingsPanel/>;
+  }else if(page==="ai-center"){
+    content=<AICommandCenter navigate={navigate}/>;
   }else if(page==="expenses"){
     content=<Simple type="expenses"/>;
   }else{
@@ -3802,6 +3820,7 @@ export default function App(){
     ["debts","📒 الدَّين العام"],
     ["capital-overview","⚖️ الميزانية"],
     ["monthly-report","📊 التقارير الشهرية"],
+    ["ai-center","🤖 مساعد العبود AI"],
     ["settings","⚙️ الإعدادات والتنبيهات"]
   ];
 
@@ -3814,7 +3833,7 @@ export default function App(){
         <img className="mobile-header-logo" src={companyBrand.logoDataUrl||"/alaboud-company-logo.webp"} alt={companyBrand.name}/>
         <div className="mobile-brand-copy">
           <strong>{companyBrand.name}</strong>
-          <small>v17.0.1 Enterprise</small>
+          <small>v17.1.0 AI Enterprise</small>
         </div>
       </div>
       <button className="mobile-header-action mobile-home-action" onClick={()=>setMobileMenuOpen(true)} aria-label="القائمة الرئيسية">
@@ -3830,7 +3849,7 @@ export default function App(){
       <div className="sidebar-account-box no-print">
         <div>
           <strong>{companyBrand.name}</strong>
-          <small>v17.0.1 Enterprise</small>
+          <small>v17.1.0 AI Enterprise</small>
         </div>
       </div>
       {menu.map(([key,label])=><button
@@ -3864,6 +3883,7 @@ export default function App(){
         </button>
       </div>}
     </main>
+    <button className="ai-floating no-print" onClick={()=>navigate("ai-center")} title="مساعد العبود الذكي">🤖</button>
     <nav className="mobile-bottom-nav no-print" aria-label="التنقل السريع">
       <button className={page==="customers"?"active":""} onClick={()=>navigate("customers")}>
         <span>👥</span><small>العملاء</small>
