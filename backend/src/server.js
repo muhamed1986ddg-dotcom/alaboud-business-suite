@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.3",channel:"tenant-array-recursion-fix",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.4",channel:"jad-redirect-session-fix",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2023,10 +2023,36 @@ function extractCookies(headers){
   return raw.map(item=>String(item).split(";")[0]).filter(Boolean).join("; ");
 }
 function mergeCookies(current,next){const jar={};for(const pair of `${current||""}; ${next||""}`.split(";")){const i=pair.indexOf("=");if(i>0)jar[pair.slice(0,i).trim()]=pair.slice(i+1).trim();}return Object.entries(jar).map(([k,v])=>`${k}=${v}`).join("; ");}
-async function fetchWithCookies(url,options={},cookie=""){
-  const headers={...(options.headers||{})};if(cookie)headers.Cookie=cookie;
-  const response=await fetch(url,{...options,headers,redirect:"manual",signal:AbortSignal.timeout(20000)});
-  return {response,cookie:mergeCookies(cookie,extractCookies(response.headers))};
+async function fetchWithCookies(url,options={},cookie="",settings={}){
+  const maxRedirects=Number.isFinite(settings.maxRedirects)?settings.maxRedirects:8;
+  let currentUrl=String(url);
+  let currentCookie=String(cookie||"");
+  let currentOptions={...options};
+  const redirects=[];
+  for(let index=0;index<=maxRedirects;index+=1){
+    const headers={...(currentOptions.headers||{})};
+    if(currentCookie)headers.Cookie=currentCookie;
+    const response=await fetch(currentUrl,{...currentOptions,headers,redirect:"manual",signal:AbortSignal.timeout(20000)});
+    currentCookie=mergeCookies(currentCookie,extractCookies(response.headers));
+    const status=response.status;
+    const location=response.headers.get("location");
+    if(!location||![301,302,303,307,308].includes(status)){
+      return {response,cookie:currentCookie,url:currentUrl,redirects};
+    }
+    if(index===maxRedirects)throw new Error("تجاوز موقع الشركة الحد المسموح لإعادة التوجيه");
+    const nextUrl=new URL(location,currentUrl).toString();
+    redirects.push({status,from:currentUrl,to:nextUrl});
+    const method=String(currentOptions.method||"GET").toUpperCase();
+    const shouldSwitchToGet=status===303||((status===301||status===302)&&method!=="GET"&&method!=="HEAD");
+    if(shouldSwitchToGet){
+      const nextHeaders={...(currentOptions.headers||{})};
+      delete nextHeaders["Content-Type"];delete nextHeaders["content-type"];
+      delete nextHeaders["Content-Length"];delete nextHeaders["content-length"];
+      currentOptions={...currentOptions,method:"GET",body:undefined,headers:nextHeaders};
+    }
+    currentUrl=nextUrl;
+  }
+  throw new Error("تعذر إكمال إعادة التوجيه");
 }
 function findToken(html){
   const patterns=[/name=["']tok["'][^>]*value=["']([^"']+)/i,/value=["']([^"']+)["'][^>]*name=["']tok["']/i];
@@ -2057,30 +2083,86 @@ function parseJadStatement(html){
   return {movements,balance:+balance.toFixed(2),payable:+payable.toFixed(2),receivable:+receivable.toFixed(2)};
 }
 async function syncJadPartner(partner,{fromDate,toDate}={}){
-  const base=normalizeBaseUrl(partner.systemUrl);const prefix=String(partner.pathPrefix||"/ssljd/merkez112/1/2").replace(/\/$/,"");
-  const username=String(partner.username||"").trim();const password=decryptIntegrationSecret(partner.passwordEncrypted);
+  const base=normalizeBaseUrl(partner.systemUrl);
+  const prefix=String(partner.pathPrefix||"/ssljd/merkez112/1/2").replace(/\/$/,"");
+  const username=String(partner.username||"").trim();
+  const password=decryptIntegrationSecret(partner.passwordEncrypted);
   if(!username||!password)throw new Error("اسم المستخدم وكلمة المرور مطلوبان للربط");
+
   let cookie="";
-  let step=await fetchWithCookies(`${base}${prefix}/log_2`,{headers:{Accept:"text/html"}},cookie);cookie=step.cookie;
-  let loginHtml=await step.response.text();let token=findToken(loginHtml);
-  if(!token){step=await fetchWithCookies(`${base}${prefix}/log`,{headers:{Accept:"text/html"}},cookie);cookie=step.cookie;loginHtml=await step.response.text();token=findToken(loginHtml);}
+  let step=await fetchWithCookies(`${base}${prefix}/log_2`,{headers:{Accept:"text/html,application/xhtml+xml"}},cookie);
+  cookie=step.cookie;
+  let loginHtml=await step.response.text();
+  let token=findToken(loginHtml);
+  if(!token){
+    step=await fetchWithCookies(`${base}${prefix}/log`,{headers:{Accept:"text/html,application/xhtml+xml",Referer:`${base}${prefix}/log_2`}},cookie);
+    cookie=step.cookie;
+    loginHtml=await step.response.text();
+    token=findToken(loginHtml);
+  }
   if(!token)throw new Error("تعذر استخراج رمز تسجيل الدخول من موقع الشركة");
+
   const loginBody=new URLSearchParams({mail:username,pass:password,tok:token,"btn-login":""});
-  step=await fetchWithCookies(`${base}${prefix}/log`,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded","Referer":`${base}${prefix}/log_2`},body:loginBody.toString()},cookie);cookie=step.cookie;
-  if(![200,302,303].includes(step.response.status))throw new Error(`فشل تسجيل الدخول (${step.response.status})`);
+  step=await fetchWithCookies(`${base}${prefix}/log`,{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/x-www-form-urlencoded",
+      Accept:"text/html,application/xhtml+xml",
+      Origin:base,
+      Referer:`${base}${prefix}/log_2`
+    },
+    body:loginBody.toString()
+  },cookie,{maxRedirects:10});
+  cookie=step.cookie;
+  const afterLoginHtml=await step.response.text();
+  const afterLoginText=htmlText(afterLoginHtml);
+  const loginRejected=/name=["']pass["']|btn-login/i.test(afterLoginHtml)&&!/كشف حساب|الحسابات|الصفحة الرئيسية/i.test(afterLoginText);
+  if(loginRejected)throw new Error("رفض موقع جاد تسجيل الدخول؛ تحقق من اسم المستخدم وكلمة المرور");
+
+  // Open the account page once using the authenticated session. Some Jad installations
+  // initialize account context only after this page is visited.
+  step=await fetchWithCookies(`${base}${prefix}/account`,{
+    headers:{Accept:"text/html,application/xhtml+xml",Referer:step.url||`${base}${prefix}/log_2`}
+  },cookie,{maxRedirects:10});
+  cookie=step.cookie;
+  const accountHtml=await step.response.text();
+  if(/name=["']pass["']|btn-login/i.test(accountHtml))throw new Error("انتهت جلسة جاد بعد تسجيل الدخول؛ تحقق من بيانات الحساب");
+
   const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*24*3600*1000).toISOString().slice(0,10);
   const end=toDate||new Date().toISOString().slice(0,10);
   const accountId=String(partner.externalAccountId||"").trim();
   if(accountId){
-    const form=new FormData();form.append("currency",String(partner.accountCurrency||"USD").toLowerCase());form.append("date1","date");form.append("confirm",accountId);form.append("date2",start);form.append("date3",end);
-    step=await fetchWithCookies(`${base}${prefix}/account`,{method:"POST",headers:{Referer:`${base}${prefix}/account`},body:form},cookie);cookie=step.cookie;await step.response.arrayBuffer();
+    const form=new URLSearchParams();
+    form.set("currency",String(partner.accountCurrency||"USD").toLowerCase());
+    form.set("date1","date");
+    form.set("confirm",accountId);
+    form.set("date2",start);
+    form.set("date3",end);
+    step=await fetchWithCookies(`${base}${prefix}/account`,{
+      method:"POST",
+      headers:{"Content-Type":"application/x-www-form-urlencoded",Accept:"text/html,application/xhtml+xml",Origin:base,Referer:`${base}${prefix}/account`},
+      body:form.toString()
+    },cookie,{maxRedirects:10});
+    cookie=step.cookie;
+    const selectedHtml=await step.response.text();
+    if(/name=["']pass["']|btn-login/i.test(selectedHtml))throw new Error("رفض موقع جاد اختيار الحساب؛ أعد التحقق من بيانات الدخول");
   }
-  const query=new URLSearchParams({currency:String(partner.accountCurrency||"USD").toLowerCase(),date1:"date",date2:start,date3:end});
-  step=await fetchWithCookies(`${base}${prefix}/accountprint.php?${query}`,{headers:{Accept:"text/html","Referer":`${base}${prefix}/account`}},cookie);
+
+  const query=new URLSearchParams({
+    currency:String(partner.accountCurrency||"USD").toLowerCase(),
+    date1:"date",date2:start,date3:end
+  });
+  step=await fetchWithCookies(`${base}${prefix}/accountprint.php?${query}`,{
+    headers:{Accept:"text/html,application/xhtml+xml",Referer:`${base}${prefix}/account`}
+  },cookie,{maxRedirects:10});
+  cookie=step.cookie;
   if(step.response.status!==200)throw new Error(`تعذر جلب كشف الحساب (${step.response.status})`);
-  const html=await step.response.text();if(/name=["']pass["']|btn-login/i.test(html)&&!/<tbody/i.test(html))throw new Error("رفض الموقع جلسة الدخول؛ تحقق من بيانات الحساب");
-  return {...parseJadStatement(html),fromDate:start,toDate:end};
+  const html=await step.response.text();
+  if(/name=["']pass["']|btn-login/i.test(html)&&!/<tbody/i.test(html))throw new Error("رفض الموقع جلسة الدخول؛ تحقق من بيانات الحساب");
+  if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن/i.test(htmlText(html)))throw new Error("تم الاتصال بجاد لكن لم يتم العثور على جدول كشف الحساب");
+  return {...parseJadStatement(html),fromDate:start,toDate:end,redirects:step.redirects||[]};
 }
+
 
 app.get("/api/partners", auth, (_req,res)=>{
   const store=readStore();
