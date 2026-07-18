@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.3.5 Jad Token Login Fix";
+const APP_VERSION="v18.3.6 Jad Cookie Session Fix";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
