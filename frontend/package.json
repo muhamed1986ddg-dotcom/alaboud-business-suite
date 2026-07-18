@@ -1,6 +1,6 @@
 {
   "name": "alaboud-stable-frontend",
-  "version": "18.3.1",
+  "version": "18.3.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,8 +10,8 @@
     "@vitejs/plugin-react": "^4.3.4",
     "axios": "^1.7.9",
     "vite": "^6.0.5",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react": "^18.3.2",
+    "react-dom": "^18.3.2"
   },
   "devDependencies": {}
 }
