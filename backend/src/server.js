@@ -74,7 +74,7 @@ function auth(req,res,next){
 function audit(store, userId, action, entityType, entityId, details = {}) {
   const logs=store.auditLogs||[]; const previous=logs.length?logs[logs.length-1].integrityHash||"":"GENESIS";
   const entry={ id:id(), userId, action, entityType, entityId, details, createdAt:now(), previousHash:previous };
-  entry.integrityHash=sha256(JSON.stringify(entry)); logs.push(entry); store.auditLogs=logs;
+  entry.integrityHash=sha256(JSON.stringify(entry)); logs.push(entry);
 }
 
 
@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.2",channel:"jad-connector-fix",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.3",channel:"tenant-array-recursion-fix",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();

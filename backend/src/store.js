@@ -125,6 +125,13 @@ function tenantView(root,companyId){
     },
     set(target,prop,value){
       if(prop==="notificationSettings"){target.companySettings[companyId]={...value};return true}
+      if(DATA_ARRAYS.includes(prop)){
+        const current=Array.isArray(target[prop])?target[prop]:[];
+        const otherTenants=current.filter(item=>!item||item.companyId!==companyId);
+        const tenantItems=Array.from(value||[]).map(item=>({...item,companyId}));
+        target[prop]=[...otherTenants,...tenantItems];
+        return true;
+      }
       target[prop]=value;return true;
     }
   });
