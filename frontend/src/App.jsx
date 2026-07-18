@@ -551,6 +551,19 @@ function Customers({open}){
     }
   }
 
+  async function deleteCustomer(customer){
+    const confirmed=window.confirm(`هل أنت متأكد من حذف العميل «${customer.name}»؟\nسيتم إخفاء العميل مع الحفاظ على السجلات المالية المرتبطة به.`);
+    if(!confirmed)return;
+    setError("");
+    try{
+      await api.delete(`/customers/${customer.id}`);
+      if(editingCustomer?.id===customer.id)setEditingCustomer(null);
+      await load();
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر حذف العميل");
+    }
+  }
+
   function prepareTransfer(customer){
     setTransferForm({
       customerId:customer.id,
@@ -980,16 +993,35 @@ function Customers({open}){
     <input className="card customer-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
 
     <div className="customer-cards customer-list-simple">
-      {filtered.length?filtered.map(customer=><button
-        type="button"
-        className={`customer-simple-row ${customer.overdue?"is-overdue":customer.finalBalance>0?"has-balance":"is-paid"}`}
+      {filtered.length?filtered.map(customer=><div
+        className={`customer-simple-row customer-row-with-actions ${customer.overdue?"is-overdue":customer.finalBalance>0?"has-balance":"is-paid"}`}
         key={customer.id}
-        onClick={()=>open(customer.id)}
       >
-        <div className="customer-simple-main customer-name-only">
-          <strong>{customer.name}</strong>
+        <button type="button" className="customer-open-button" onClick={()=>open(customer.id)}>
+          <div className="customer-simple-main customer-name-only">
+            <strong>{customer.name}</strong>
+            <small>{customer.phone||"بدون رقم هاتف"}</small>
+          </div>
+        </button>
+        <div className="customer-row-actions">
+          <button
+            type="button"
+            className="customer-edit-button"
+            onClick={()=>{setEditingCustomer({...customer});setActivePanel("");window.scrollTo({top:0,behavior:"smooth"})}}
+            aria-label={`تعديل ${customer.name}`}
+          >
+            ✏️ تعديل
+          </button>
+          <button
+            type="button"
+            className="customer-delete-button"
+            onClick={()=>deleteCustomer(customer)}
+            aria-label={`حذف ${customer.name}`}
+          >
+            🗑️ حذف
+          </button>
         </div>
-      </button>):<div className="card">لا توجد نتائج.</div>}
+      </div>):<div className="card">لا توجد نتائج.</div>}
     </div>
     </>}
   </>;
