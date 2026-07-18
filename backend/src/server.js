@@ -161,7 +161,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"16.0.17",channel:"enterprise-alpha",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"16.0.18",channel:"enterprise-alpha",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -185,7 +185,7 @@ app.get("/api/auth/session",auth,(req,res)=>{
   }
 
   res.json({
-    version:"16.0.17",
+    version:"16.0.18",
     user:{
       id:user.id,
       name:user.name,
@@ -2155,7 +2155,7 @@ app.get("/api/backup", auth, (req,res)=>{
   data.notificationSettings={...(store.notificationSettings||{})};
   const payload={
     format:"ALABOUD_BACKUP",
-    version:"16.0.14",
+    version:"16.0.18",
     createdAt:now(),
     company:{id:req.user.companyId,name:company?.name||""},
     data
