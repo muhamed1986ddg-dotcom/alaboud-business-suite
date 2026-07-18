@@ -95,10 +95,13 @@ function tenantArray(root,key,companyId){
     get(_target,prop){
       if(prop==="push")return (...items)=>root[key].push(...items.map(item=>({...item,companyId})));
       if(prop==="length")return visible().length;
-      if(prop===Symbol.iterator)return visible()[Symbol.iterator].bind(visible());
+      if(prop===Symbol.iterator){const rows=visible();return rows[Symbol.iterator].bind(rows);}
+      if(prop==="toJSON")return ()=>visible();
+      if(prop==="slice")return (...args)=>visible().slice(...args);
       if(typeof prop==="string"&&/^\d+$/.test(prop))return visible()[Number(prop)];
-      const value=visible()[prop];
-      return typeof value==="function"?value.bind(visible()):value;
+      const rows=visible();
+      const value=rows[prop];
+      return typeof value==="function"?value.bind(rows):value;
     }
   });
 }
