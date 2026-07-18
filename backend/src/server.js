@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.4",channel:"jad-redirect-session-fix",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.5",channel:"jad-csrf-token-login-fix",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2089,35 +2089,46 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
   const password=decryptIntegrationSecret(partner.passwordEncrypted);
   if(!username||!password)throw new Error("اسم المستخدم وكلمة المرور مطلوبان للربط");
 
-  let cookie="";
-  let step=await fetchWithCookies(`${base}${prefix}/log_2`,{headers:{Accept:"text/html,application/xhtml+xml"}},cookie);
-  cookie=step.cookie;
-  let loginHtml=await step.response.text();
-  let token=findToken(loginHtml);
-  if(!token){
-    step=await fetchWithCookies(`${base}${prefix}/log`,{headers:{Accept:"text/html,application/xhtml+xml",Referer:`${base}${prefix}/log_2`}},cookie);
-    cookie=step.cookie;
-    loginHtml=await step.response.text();
-    token=findToken(loginHtml);
-  }
-  if(!token)throw new Error("تعذر استخراج رمز تسجيل الدخول من موقع الشركة");
+  const browserHeaders={
+    Accept:"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language":"ar,en-US;q=0.9,en;q=0.8",
+    "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+  };
 
-  const loginBody=new URLSearchParams({mail:username,pass:password,tok:token,"btn-login":""});
+  // Jad generates a fresh CSRF token (tok) on GET /log and binds it to PHPSESSID.
+  // The same cookie jar, token and Referer must be reused for the POST request.
+  let cookie="";
+  let step=await fetchWithCookies(`${base}${prefix}/log`,{headers:browserHeaders},cookie,{maxRedirects:4});
+  cookie=step.cookie;
+  const loginHtml=await step.response.text();
+  const token=findToken(loginHtml);
+  if(!token)throw new Error("تعذر استخراج رمز الحماية tok من صفحة تسجيل دخول جاد");
+
+  const loginBody=new URLSearchParams();
+  loginBody.set("mail",username);
+  loginBody.set("pass",password);
+  loginBody.set("tok",token);
+  loginBody.set("btn-login","");
+
   step=await fetchWithCookies(`${base}${prefix}/log`,{
     method:"POST",
     headers:{
+      ...browserHeaders,
       "Content-Type":"application/x-www-form-urlencoded",
-      Accept:"text/html,application/xhtml+xml",
       Origin:base,
-      Referer:`${base}${prefix}/log_2`
+      Referer:`${base}${prefix}/log`
     },
     body:loginBody.toString()
   },cookie,{maxRedirects:10});
   cookie=step.cookie;
   const afterLoginHtml=await step.response.text();
-  const afterLoginText=htmlText(afterLoginHtml);
-  const loginRejected=/name=["']pass["']|btn-login/i.test(afterLoginHtml)&&!/كشف حساب|الحسابات|الصفحة الرئيسية/i.test(afterLoginText);
-  if(loginRejected)throw new Error("رفض موقع جاد تسجيل الدخول؛ تحقق من اسم المستخدم وكلمة المرور");
+  const finalPath=new URL(step.url).pathname.replace(/\/$/,"");
+  const loginFormStillVisible=/<form[^>]+(?:action=["'][^"']*\/log["']|id=["'][^"']*login)/i.test(afterLoginHtml)
+    && /name=["'](?:mail|pass|tok)["']/i.test(afterLoginHtml);
+  const reachedLogin2=finalPath.endsWith(`${prefix}/log_2`);
+  if(loginFormStillVisible||!reachedLogin2){
+    throw new Error("رفض موقع جاد تسجيل الدخول؛ تحقق من اسم المستخدم وكلمة المرور ورمز الحماية");
+  }
 
   // Open the account page once using the authenticated session. Some Jad installations
   // initialize account context only after this page is visited.
