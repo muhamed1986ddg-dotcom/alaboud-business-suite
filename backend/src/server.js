@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.5",channel:"jad-csrf-token-login-fix",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.6",channel:"jad-cookie-jar-post-login-fix",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2018,11 +2018,31 @@ function decryptIntegrationSecret(value){
 function normalizeBaseUrl(value){const parsed=new URL(String(value||"").trim());return `${parsed.protocol}//${parsed.host}`;}
 function htmlText(value){return String(value||"").replace(/<br\s*\/?\s*>/gi," ").replace(/<[^>]+>/g," ").replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&#039;/g,"'").replace(/&quot;/g,'"').replace(/\s+/g," ").trim();}
 function numberFromText(value){const match=htmlText(value).replace(/,/g,"").match(/-?\d+(?:\.\d+)?/);return match?safeNumber(match[0]):0;}
+function splitSetCookieHeader(value){
+  const text=String(value||"");if(!text)return [];
+  return text.split(/,(?=\s*[^;,=\s]+=[^;,]+)/g).map(x=>x.trim()).filter(Boolean);
+}
 function extractCookies(headers){
-  const raw=typeof headers.getSetCookie==="function"?headers.getSetCookie():[headers.get("set-cookie")].filter(Boolean);
+  let raw=[];
+  if(typeof headers.getSetCookie==="function")raw=headers.getSetCookie();
+  if(!raw?.length)raw=splitSetCookieHeader(headers.get("set-cookie"));
   return raw.map(item=>String(item).split(";")[0]).filter(Boolean).join("; ");
 }
 function mergeCookies(current,next){const jar={};for(const pair of `${current||""}; ${next||""}`.split(";")){const i=pair.indexOf("=");if(i>0)jar[pair.slice(0,i).trim()]=pair.slice(i+1).trim();}return Object.entries(jar).map(([k,v])=>`${k}=${v}`).join("; ");}
+function parseFirstPostForm(html,baseUrl){
+  const source=String(html||"");
+  const form=[...source.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)].find(m=>/method=["']?post/i.test(m[1]));
+  if(!form)return null;
+  const actionMatch=form[1].match(/action=["']([^"']*)/i);const action=new URL(actionMatch?.[1]||baseUrl,baseUrl).toString();
+  const body=new URLSearchParams();
+  for(const m of form[2].matchAll(/<input\b([^>]*)>/gi)){
+    const attrs=m[1];const name=attrs.match(/name=["']([^"']+)/i)?.[1];if(!name)continue;
+    const type=(attrs.match(/type=["']([^"']+)/i)?.[1]||"text").toLowerCase();
+    if(["submit","button","image","file"].includes(type))continue;
+    const value=attrs.match(/value=["']([^"']*)/i)?.[1]||"";body.append(name,htmlText(value));
+  }
+  return {action,body:body.toString()};
+}
 async function fetchWithCookies(url,options={},cookie="",settings={}){
   const maxRedirects=Number.isFinite(settings.maxRedirects)?settings.maxRedirects:8;
   let currentUrl=String(url);
@@ -2121,13 +2141,24 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
     body:loginBody.toString()
   },cookie,{maxRedirects:10});
   cookie=step.cookie;
-  const afterLoginHtml=await step.response.text();
-  const finalPath=new URL(step.url).pathname.replace(/\/$/,"");
+  let afterLoginHtml=await step.response.text();
+  let finalPath=new URL(step.url).pathname.replace(/\/$/,"");
   const loginFormStillVisible=/<form[^>]+(?:action=["'][^"']*\/log["']|id=["'][^"']*login)/i.test(afterLoginHtml)
     && /name=["'](?:mail|pass|tok)["']/i.test(afterLoginHtml);
   const reachedLogin2=finalPath.endsWith(`${prefix}/log_2`);
   if(loginFormStillVisible||!reachedLogin2){
     throw new Error("رفض موقع جاد تسجيل الدخول؛ تحقق من اسم المستخدم وكلمة المرور ورمز الحماية");
+  }
+
+  // Jad may return an intermediate POST form on log_2 to finalize the branch/account session.
+  // Submit it automatically with the same complete cookie jar before opening /account.
+  const postLoginForm=parseFirstPostForm(afterLoginHtml,step.url);
+  if(postLoginForm){
+    step=await fetchWithCookies(postLoginForm.action,{
+      method:"POST",headers:{...browserHeaders,"Content-Type":"application/x-www-form-urlencoded",Origin:base,Referer:step.url},body:postLoginForm.body
+    },cookie,{maxRedirects:10});
+    cookie=step.cookie;afterLoginHtml=await step.response.text();finalPath=new URL(step.url).pathname.replace(/\/$/,"");
+    if(/name=["']pass["']|btn-login/i.test(afterLoginHtml))throw new Error("انتهت جلسة جاد أثناء إكمال تسجيل الدخول");
   }
 
   // Open the account page once using the authenticated session. Some Jad installations
