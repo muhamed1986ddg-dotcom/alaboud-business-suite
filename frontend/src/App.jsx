@@ -2869,9 +2869,10 @@ function Partners({open}){
   const [data,setData]=useState({rows:[],totals:{receivable:0,payable:0,net:0},totalsByCurrency:{}});
   const [error,setError]=useState("");
   const [message,setMessage]=useState("");
+  const [syncingId,setSyncingId]=useState("");
   const [form,setForm]=useState({
     name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",
-    systemUrl:"",connectionType:"WEB",accountCurrency:"CAD",integrationName:"",username:"",syncEnabled:false
+    systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"JAD",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true
   });
 
   async function load(){
@@ -2890,7 +2891,7 @@ function Partners({open}){
     setError("");setMessage("");
     try{
       await api.post("/partners",form);
-      setForm({name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",systemUrl:"",connectionType:"WEB",accountCurrency:"CAD",integrationName:"",username:"",syncEnabled:false});
+      setForm({name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"JAD",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true});
       setMessage("تمت إضافة الشركة وظهرت في قسم الشركات");
       await load();
     }catch(requestError){
@@ -2909,7 +2910,17 @@ function Partners({open}){
     }
   }
 
-  const statusLabel=status=>({READY:"جاهز",CONFIGURED:"مُعدّ",MANUAL:"يدوي",NOT_CONFIGURED:"غير مكتمل"}[status]||"يدوي");
+  async function syncPartner(partner){
+    setError("");setMessage("");setSyncingId(partner.id);
+    try{
+      const response=await api.post(`/partners/${partner.id}/sync`,{});
+      setMessage(`${partner.name}: ${response.data.message} — الرصيد ${money(response.data.result.balance)} ${partner.accountCurrency||"USD"}`);
+      await load();
+    }catch(requestError){setError(requestError.response?.data?.message||"تعذر جلب الرصيد");}
+    finally{setSyncingId("");}
+  }
+
+  const statusLabel=status=>({READY:"متصل",CONFIGURED:"مُعدّ",MANUAL:"يدوي",NOT_CONFIGURED:"غير مكتمل",ERROR:"خطأ"}[status]||"يدوي");
 
   return <>
     <div className="page-title-row"><h2>🏢 الشركات والربط الخارجي</h2></div>
@@ -2930,29 +2941,35 @@ function Partners({open}){
       <select value={form.connectionType} onChange={e=>setForm({...form,connectionType:e.target.value})}>
         <option value="WEB">رابط ويب</option><option value="API">API</option><option value="CSV">CSV</option><option value="EXCEL">Excel</option><option value="PDF">PDF</option>
       </select>
+      <select value={form.connectorType} onChange={e=>setForm({...form,connectorType:e.target.value})}>
+        <option value="JAD">موصل شركة جاد — جلب الرصيد تلقائيًا</option><option value="GENERIC">شركة عامة — بدون مزامنة تلقائية</option>
+      </select>
       <select value={form.accountCurrency} onChange={e=>setForm({...form,accountCurrency:e.target.value})}>
         {debtCurrencies.map(item=><option key={item.code} value={item.code}>{item.flag} {item.code}</option>)}
       </select>
-      <input value={form.username} onChange={e=>setForm({...form,username:e.target.value})} placeholder="اسم المستخدم للربط (اختياري)" autoComplete="off"/>
+      <input value={form.username} onChange={e=>setForm({...form,username:e.target.value})} placeholder="اسم المستخدم في موقع الشركة" autoComplete="off"/>
+      <input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="كلمة مرور موقع الشركة" autoComplete="new-password"/>
+      <input value={form.externalAccountId} onChange={e=>setForm({...form,externalAccountId:e.target.value})} placeholder="رقم الحساب في الشركة (مثال 3267)"/>
+      <input type="date" value={form.syncFromDate} onChange={e=>setForm({...form,syncFromDate:e.target.value})} title="جلب الحركات ابتداءً من هذا التاريخ"/>
       <input value={form.contactName} onChange={e=>setForm({...form,contactName:e.target.value})} placeholder="اسم المسؤول"/>
       <input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="الهاتف"/>
       <input value={form.whatsapp} onChange={e=>setForm({...form,whatsapp:e.target.value})} placeholder="واتساب"/>
       <input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="البريد"/>
       <label className="integration-toggle"><input type="checkbox" checked={form.syncEnabled} onChange={e=>setForm({...form,syncEnabled:e.target.checked})}/><span>تفعيل المزامنة عند توفر موصل الشركة</span></label>
-      <button>حفظ وإظهار الشركة</button>
+      <button>حفظ وربط الشركة</button>
     </form>
 
     <div className="card tablewrap">
       <table>
-        <thead><tr><th>الشركة</th><th>نوع الربط</th><th>الحالة</th><th>دين لنا</th><th>دين علينا</th><th>الصافي</th><th>الرابط</th><th>الإجراءات</th></tr></thead>
+        <thead><tr><th>الشركة</th><th>نوع الربط</th><th>الحالة</th><th>دين لنا</th><th>دين علينا</th><th>الصافي</th><th>الرصيد الخارجي</th><th>آخر مزامنة</th><th>الرابط</th><th>الإجراءات</th></tr></thead>
         <tbody>{data.rows.length?data.rows.map(partner=><tr key={partner.id}>
           <td><strong>{partner.name}</strong><small className="company-subline">{partner.contactName||partner.integrationName||"-"}</small></td>
           <td>{partner.connectionType||"يدوي"}</td>
           <td><span className={`integration-status status-${String(partner.connectionStatus||"MANUAL").toLowerCase()}`}>{statusLabel(partner.connectionStatus)}</span></td>
-          <td>{money(partner.receivable)} {partner.accountCurrency||"CAD"}</td><td>{money(partner.payable)} {partner.accountCurrency||"CAD"}</td><td><strong>{money(partner.net)}</strong></td>
+          <td>{money(partner.receivable)} {partner.accountCurrency||"CAD"}</td><td>{money(partner.payable)} {partner.accountCurrency||"CAD"}</td><td><strong>{money(partner.net)}</strong></td><td>{money(partner.externalBalance)} {partner.accountCurrency||"USD"}</td><td>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar"):"-"}</td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
-          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الرابط</button>}</td>
-        </tr>):<tr><td colSpan="8">لا توجد شركات بعد.</td></tr>}</tbody>
+          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{partner.connectorType==="JAD"&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد الآن"}</button>}</td>
+        </tr>):<tr><td colSpan="10">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>
     </div>
   </>;
