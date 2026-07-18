@@ -2,15 +2,26 @@ const express = require("express");
 const helmet = require("helmet");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
+const { hashPassword, verifyPassword, isScryptHash, passwordPolicy, encryptJson, decryptJson, sha256 } = require("./security");
 const path = require("path");
 const fs = require("fs");
 const { readStore, mutate, id, now, runWithTenant, initStore } = require("./store");
 
 const PORT = Number(process.env.PORT || 5000);
+const IS_PROD = process.env.NODE_ENV === "production";
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
+if (IS_PROD && JWT_SECRET === "LOCAL_TRIAL_CHANGE_ME_6_0") { throw new Error("JWT_SECRET قوي ومخصص مطلوب في الإنتاج"); }
 const app = express();
-app.use(helmet({ contentSecurityPolicy: false }));
-app.use(express.json({ limit: "20mb" }));
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+app.use((req,res,next)=>{ req.requestId=crypto.randomUUID(); res.setHeader("X-Request-ID",req.requestId); next(); });
+app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:","blob:"], connectSrc:["'self'","https:"], objectSrc:["'none'"], baseUri:["'self'"], frameAncestors:["'none'"] } }, crossOriginEmbedderPolicy:false, hsts: IS_PROD ? {maxAge:31536000,includeSubDomains:true,preload:true}:false }));
+app.use(express.json({ limit: "2mb", strict:true }));
+app.use(express.urlencoded({extended:false,limit:"256kb"}));
+const requestBuckets=new Map();
+function rateLimit(name,limit,windowMs){return (req,res,next)=>{const key=`${name}:${req.ip}`;const t=Date.now();let b=requestBuckets.get(key);if(!b||t>b.reset){b={count:0,reset:t+windowMs};requestBuckets.set(key,b)}b.count++;res.setHeader("RateLimit-Limit",limit);res.setHeader("RateLimit-Remaining",Math.max(0,limit-b.count));if(b.count>limit)return res.status(429).json({message:"طلبات كثيرة جدًا، حاول لاحقًا"});next()}}
+app.use("/api",rateLimit("api",600,15*60*1000));
 
 app.use("/api",(_req,res,next)=>{
   res.setHeader("Cache-Control","no-store, no-cache, must-revalidate, proxy-revalidate");
@@ -30,7 +41,7 @@ function seedAdmin(){
 
     let admin=store.users.find(user=>user.email==="admin@alaboud.local");
     if(!admin){
-      admin={id:id(),companyId:company.id,name:"System Administrator",email:"admin@alaboud.local",passwordHash:bcrypt.hashSync("Admin123!",12),role:"ADMIN",active:true,createdAt:now()};
+      admin={id:id(),companyId:company.id,name:"System Administrator",email:"admin@alaboud.local",passwordHash:hashPassword("Admin123!ChangeMe"),role:"ADMIN",active:true,mustChangePassword:true,createdAt:now()};
       store.users.push(admin);
     }else if(!admin.companyId){
       admin.companyId=company.id;
@@ -52,7 +63,7 @@ function auth(req,res,next){
   const h=req.headers.authorization||"";
   const token=h.startsWith("Bearer ")?h.slice(7):"";
   try{
-    req.user=jwt.verify(token,JWT_SECRET);
+    req.user=jwt.verify(token,JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-client",algorithms:["HS256"]});
     if(!req.user.companyId)return res.status(401).json({message:"Company account required"});
     runWithTenant(req.user.companyId,()=>next());
   }catch{
@@ -61,7 +72,9 @@ function auth(req,res,next){
 }
 
 function audit(store, userId, action, entityType, entityId, details = {}) {
-  store.auditLogs.push({ id: id(), userId, action, entityType, entityId, details, createdAt: now() });
+  const logs=store.auditLogs||[]; const previous=logs.length?logs[logs.length-1].integrityHash||"":"GENESIS";
+  const entry={ id:id(), userId, action, entityType, entityId, details, createdAt:now(), previousHash:previous };
+  entry.integrityHash=sha256(JSON.stringify(entry)); logs.push(entry); store.auditLogs=logs;
 }
 
 function safeNumber(value, fallback = 0) {
@@ -161,33 +174,18 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"17.1.0",channel:"enterprise",cloud:true}));
-app.post("/api/auth/login",(req,res)=>{
-  const {email,password}=req.body||{};
-  const store=readStore();
-  const user=store.users.find(u=>u.email.toLowerCase()===String(email||"").toLowerCase()&&u.active);
-  if(!user||!bcrypt.compareSync(String(password||""),user.passwordHash)){
-    return res.status(401).json({message:"Invalid credentials"});
-  }
-  const company=store.companies.find(item=>item.id===user.companyId&&item.active);
-  if(!company)return res.status(403).json({message:"Company account is inactive"});
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.0.0",channel:"fortress-security",cloud:true}));
+app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
+  const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
+  const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
+  if(user?.lockedUntil&&new Date(user.lockedUntil).getTime()>current) return res.status(423).json({message:"الحساب مقفل مؤقتًا بسبب محاولات فاشلة متكررة"});
+  const valid=user&&(isScryptHash(user.passwordHash)?verifyPassword(password,user.passwordHash):bcrypt.compareSync(password,user.passwordHash));
+  if(!valid){ mutate(root=>{const u=root.users.find(x=>String(x.email||"").toLowerCase()===email); if(u){u.failedLoginAttempts=(u.failedLoginAttempts||0)+1; if(u.failedLoginAttempts>=5){u.lockedUntil=new Date(Date.now()+15*60*1000).toISOString();u.failedLoginAttempts=0;} audit(root,u.id,"LOGIN_FAILED","AUTH",u.id,{ip:req.ip,requestId:req.requestId});}}); return res.status(401).json({message:"بيانات الدخول غير صحيحة"}); }
+  const company=store.companies.find(item=>item.id===user.companyId&&item.active); if(!company)return res.status(403).json({message:"Company account is inactive"});
   const installationId=String(req.headers["x-installation-id"]||req.body?.installationId||"").trim();
-  if(installationId){
-    mutate(root=>{
-      let device=(root.devices||[]).find(item=>item.companyId===user.companyId&&item.installationId===installationId);
-      if(!device){
-        device={id:id(),companyId:user.companyId,installationId,deviceName:String(req.headers["x-device-name"]||"جهاز جديد").slice(0,120),platform:String(req.headers["x-device-platform"]||"Web").slice(0,80),appVersion:String(req.headers["x-alaboud-client-version"]||"17.1.0").slice(0,30),active:true,firstSeenAt:now(),lastSeenAt:now(),lastUserId:user.id};
-        root.devices.push(device);
-        audit(root,user.id,"REGISTER","DEVICE",device.id,{installationId,platform:device.platform});
-      }else{
-        if(device.active===false)throw new Error("هذا الجهاز معطل من لوحة الإدارة");
-        device.lastSeenAt=now();device.lastUserId=user.id;device.appVersion=String(req.headers["x-alaboud-client-version"]||device.appVersion||"17.0.1");
-      }
-      user.lastLoginAt=now();
-    });
-  }
-  const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId},JWT_SECRET,{expiresIn:"30d"});
-  res.json({token,user:{id:user.id,name:user.name,email:user.email,role:user.role,companyId:user.companyId,companyName:company.name}});
+  try{ mutate(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;if(!isScryptHash(u.passwordHash))u.passwordHash=hashPassword(password); let device=(root.devices||[]).find(item=>item.companyId===u.companyId&&item.installationId===installationId); if(installationId){if(!device){device={id:id(),companyId:u.companyId,installationId,deviceName:String(req.headers["x-device-name"]||"جهاز جديد").slice(0,120),platform:String(req.headers["x-device-platform"]||"Web").slice(0,80),appVersion:String(req.headers["x-alaboud-client-version"]||"18.0.0").slice(0,30),active:true,firstSeenAt:now(),lastSeenAt:now(),lastUserId:u.id};root.devices.push(device);}else if(device.active===false)throw new Error("هذا الجهاز معطل من لوحة الإدارة");else{device.lastSeenAt=now();device.lastUserId=u.id;}}u.lastLoginAt=now();audit(root,u.id,"LOGIN_SUCCESS","AUTH",u.id,{ip:req.ip,installationId,requestId:req.requestId});}); }catch(e){return res.status(403).json({message:e.message});}
+  const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId,jti:crypto.randomUUID()},JWT_SECRET,{expiresIn:"12h",issuer:"alaboud-business-suite",audience:"alaboud-client"});
+  res.json({token,user:{id:user.id,name:user.name,email:user.email,role:user.role,companyId:user.companyId,companyName:company.name,mustChangePassword:Boolean(user.mustChangePassword)}});
 });
 
 app.get("/api/auth/session",auth,(req,res)=>{
@@ -226,13 +224,13 @@ app.post("/api/auth/register-company",(req,res)=>{
   if(!ownerName||!companyName||!email.includes("@")){
     return res.status(400).json({message:"الاسم واسم الشركة والبريد الإلكتروني مطلوبة"});
   }
-  if(password.length<8)return res.status(400).json({message:"كلمة المرور يجب أن تكون 8 أحرف على الأقل"});
+  { const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message}); }
 
   try{
     const result=mutate(store=>{
       if(store.users.some(user=>String(user.email||"").toLowerCase()===email))throw new Error("البريد الإلكتروني مستخدم مسبقًا");
       const company={id:id(),name:companyName,phone,active:true,createdAt:now()};
-      const user={id:id(),companyId:company.id,name:ownerName,email,passwordHash:bcrypt.hashSync(password,12),role:"ADMIN",active:true,createdAt:now()};
+      const user={id:id(),companyId:company.id,name:ownerName,email,passwordHash:hashPassword(password),role:"ADMIN",active:true,createdAt:now()};
       store.companies.push(company);
       store.users.push(user);
       store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
@@ -248,9 +246,8 @@ app.post("/api/auth/register-company",(req,res)=>{
 app.post("/api/auth/change-password", auth, (req,res)=>{
   const currentPassword=String(req.body?.currentPassword||"");
   const newPassword=String(req.body?.newPassword||"");
-  if(newPassword.length<8){
-    return res.status(400).json({message:"كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل"});
-  }
+  const policy=passwordPolicy(newPassword);
+  if(!policy.ok){ return res.status(400).json({message:policy.message}); }
 
   try{
     mutate((store)=>{
@@ -259,7 +256,8 @@ app.post("/api/auth/change-password", auth, (req,res)=>{
       if(!bcrypt.compareSync(currentPassword,user.passwordHash)){
         throw new Error("كلمة المرور الحالية غير صحيحة");
       }
-      user.passwordHash=bcrypt.hashSync(newPassword,12);
+      user.passwordHash=hashPassword(newPassword);
+      user.mustChangePassword=false;
       user.updatedAt=now();
       audit(store,req.user.id,"UPDATE","USER_PASSWORD",user.id,{});
     });
@@ -310,9 +308,7 @@ app.post("/api/users", auth, (req,res)=>{
   if(!name||!email||!email.includes("@")){
     return res.status(400).json({message:"الاسم والبريد الإلكتروني مطلوبان"});
   }
-  if(password.length<8){
-    return res.status(400).json({message:"كلمة المرور يجب أن تكون 8 أحرف على الأقل"});
-  }
+  { const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message}); }
 
   try{
     const created=mutate((store)=>{
@@ -324,7 +320,7 @@ app.post("/api/users", auth, (req,res)=>{
         companyId:req.user.companyId,
         name,
         email,
-        passwordHash:bcrypt.hashSync(password,12),
+        passwordHash:hashPassword(password),
         role,
         active:true,
         createdAt:now()
@@ -355,7 +351,7 @@ app.patch("/api/users/:id", auth, (req,res)=>{
       if(req.body?.name!==undefined)user.name=String(req.body.name||"").trim()||user.name;
       if(req.body?.role!==undefined&&["ADMIN","MANAGER","USER","VIEWER"].includes(String(req.body.role).toUpperCase()))user.role=String(req.body.role).toUpperCase();
       if(req.body?.active!==undefined)user.active=Boolean(req.body.active);
-      if(String(req.body?.password||"").length>=8)user.passwordHash=bcrypt.hashSync(String(req.body.password),12);
+      if(req.body?.password!==undefined){const policy=passwordPolicy(String(req.body.password));if(!policy.ok)throw new Error(policy.message);user.passwordHash=hashPassword(String(req.body.password));user.mustChangePassword=true;}
       user.updatedAt=now();
       audit(store,req.user.id,"UPDATE","USER",user.id,{role:user.role,active:user.active});
       return {id:user.id,name:user.name,email:user.email,role:user.role,active:user.active!==false,lastLoginAt:user.lastLoginAt||null};
@@ -2304,6 +2300,19 @@ app.get("/api/backup", auth, (req,res)=>{
   res.setHeader("Content-Type","application/json; charset=utf-8");
   res.setHeader("Content-Disposition",`attachment; filename="${filename}"`);
   res.send(JSON.stringify(payload,null,2));
+});
+
+app.get("/api/security/status", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"متاح للمدير فقط"});
+  const store=readStore(); const logs=store.auditLogs||[]; let chainValid=true,prev="GENESIS";
+  for(const item of logs){const copy={...item};delete copy.integrityHash;if(item.previousHash!==prev||sha256(JSON.stringify(copy))!==item.integrityHash){chainValid=false;break;}prev=item.integrityHash;}
+  res.json({version:"18.0.0",passwordHashing:"scrypt",sessionHours:12,httpsRequired:IS_PROD,auditIntegrity:chainValid,activeDevices:(store.devices||[]).filter(x=>x.active!==false).length,failedLogins24h:logs.filter(x=>x.action==="LOGIN_FAILED"&&Date.now()-new Date(x.createdAt).getTime()<86400000).length,securityScore:[IS_PROD,JWT_SECRET!=="LOCAL_TRIAL_CHANGE_ME_6_0",chainValid].filter(Boolean).length===3?95:78});
+});
+
+app.post("/api/backup/encrypted", auth, rateLimit("backup",10,60*60*1000),(req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"متاح للمدير فقط"}); const password=String(req.body?.password||""); const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message});
+  const store=readStore(),data={};for(const key of BACKUP_ARRAYS)data[key]=Array.from(store[key]||[]).map(item=>({...item})); const payload={format:"ALABOUD_BACKUP",version:"18.0.0",createdAt:now(),companyId:req.user.companyId,data}; const encrypted=encryptJson(payload,password);
+  mutate(root=>audit(root,req.user.id,"EXPORT_ENCRYPTED","BACKUP",id(),{ip:req.ip})); res.setHeader("Content-Disposition",`attachment; filename="alaboud-secure-backup-${Date.now()}.abs"`);res.json(encrypted);
 });
 
 app.post("/api/backup/restore", auth, (req,res)=>{
