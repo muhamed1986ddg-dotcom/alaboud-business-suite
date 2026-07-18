@@ -38,7 +38,7 @@ function assert(condition,label,response){
 setTimeout(async()=>{
   try{
     let r=await request("GET","/api/health");
-    assert(r.status===200&&r.body.version==="18.3.0","health",r);
+    assert(r.status===200&&r.body.version==="18.3.7","health",r);
 
     r=await request("POST","/api/auth/login",{email:"admin@alaboud.local",password:"Admin123!"});
     assert(r.status===200&&r.body.token,"login",r);
