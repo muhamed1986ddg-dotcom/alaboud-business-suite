@@ -127,7 +127,8 @@
       },
       "createdAt": "2026-07-18T03:53:00.728Z",
       "previousHash": "",
-      "integrityHash": "b68d73b64d27ab7d70b6f7e682ed2709673cd5a7f3dd95e2e286f20cc23f1b1a"
+      "integrityHash": "b68d73b64d27ab7d70b6f7e682ed2709673cd5a7f3dd95e2e286f20cc23f1b1a",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
     },
     {
       "id": "ad57a64a-56ca-4414-8e3d-83ade3044395",
@@ -142,14 +143,556 @@
       },
       "createdAt": "2026-07-18T03:53:09.677Z",
       "previousHash": "b68d73b64d27ab7d70b6f7e682ed2709673cd5a7f3dd95e2e286f20cc23f1b1a",
-      "integrityHash": "2f21b507c38dd56277a91cc439752b85b5793e917a28026b7ad9ad0e70365d37"
+      "integrityHash": "2f21b507c38dd56277a91cc439752b85b5793e917a28026b7ad9ad0e70365d37",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
     },
     {
       "id": "one",
       "companyId": "test-company"
+    },
+    {
+      "id": "0ddf8b5c-0b6c-41d2-aa6f-ce03c13cd694",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "b833e53c-1497-4ca2-944b-b3e66b164141",
+      "details": {
+        "baseCurrency": "CAD",
+        "quoteCurrency": "USD",
+        "rate": 0.71274,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:21:05.020Z",
+      "previousHash": "",
+      "integrityHash": "ef51586185492b87660fea6c1a048376d5d29ee34818a34c6b4ee96f63a0fa0c",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "b1ebcdef-3fb6-47c9-b9c7-4f6119941ed2",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "357d7cf1-d7be-4844-ad2a-bd90a87f98d4",
+      "details": {
+        "baseCurrency": "USD",
+        "quoteCurrency": "CAD",
+        "rate": 1.403,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:21:05.071Z",
+      "previousHash": "ef51586185492b87660fea6c1a048376d5d29ee34818a34c6b4ee96f63a0fa0c",
+      "integrityHash": "a8592c5c5736556de4e067a8489422dfdd26348d75d753db8d86367d403838c1",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "04306836-1a72-4359-9ade-01e09cad5b4f",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "0015dd94-2c13-41ab-b731-2be9036f9fce",
+      "details": {
+        "baseCurrency": "USD",
+        "quoteCurrency": "AED",
+        "rate": 3.6725,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:21:05.387Z",
+      "previousHash": "a8592c5c5736556de4e067a8489422dfdd26348d75d753db8d86367d403838c1",
+      "integrityHash": "4de757451b785fd35d36a01828899bdbc876bd0850fe5c5e5db501f1419dff4f",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "7a05d048-ba33-4b1d-bd9e-9d3a2f499ecd",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "09af8067-84ef-49f2-a640-2f0608bb8ecb",
+      "details": {
+        "baseCurrency": "AED",
+        "quoteCurrency": "USD",
+        "rate": 0.27229,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:21:05.698Z",
+      "previousHash": "4de757451b785fd35d36a01828899bdbc876bd0850fe5c5e5db501f1419dff4f",
+      "integrityHash": "a2a7ff00d4bf976be977df880c35469f7f8a45d88aada1c8298193ffc128d365",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "f986dd60-c347-4ffe-8e2c-fa034f53b035",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "fdcab20a-4c8a-4f4b-948c-15a59fc55fe2",
+      "details": {
+        "baseCurrency": "EUR",
+        "quoteCurrency": "USD",
+        "rate": 1.1457,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:21:05.733Z",
+      "previousHash": "a2a7ff00d4bf976be977df880c35469f7f8a45d88aada1c8298193ffc128d365",
+      "integrityHash": "300810e7f12369b4211ccb20d221259384b6601ed28b155826c88ad0cfa2e6d8",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "bba44195-878f-48f6-b1ee-5818ed24e99c",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "6493803b-407d-4c95-82df-4e27e33452d2",
+      "details": {
+        "baseCurrency": "USD",
+        "quoteCurrency": "EUR",
+        "rate": 0.87285,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:21:06.070Z",
+      "previousHash": "300810e7f12369b4211ccb20d221259384b6601ed28b155826c88ad0cfa2e6d8",
+      "integrityHash": "a752fec820dccba8bf7b5b9f1401a5310530abfed2019da849c8c1b7307d6964",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "8ae2d1dd-a519-4f70-98c0-8e7c227c8195",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "f31a04b0-cc53-4842-ac99-80a677be1073",
+      "details": {
+        "baseCurrency": "GBP",
+        "quoteCurrency": "USD",
+        "rate": 1.3466,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:21:06.106Z",
+      "previousHash": "a752fec820dccba8bf7b5b9f1401a5310530abfed2019da849c8c1b7307d6964",
+      "integrityHash": "07cd7ee056b36b925702e6b445b97ba672d2da700b26c812ed8113cbe9384c31",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "557baef4-4d4e-4db8-9790-d5f5664aae14",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "03e778fc-bb04-477c-9fc7-dc08a295e947",
+      "details": {
+        "baseCurrency": "USD",
+        "quoteCurrency": "GBP",
+        "rate": 0.74264,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:21:06.483Z",
+      "previousHash": "07cd7ee056b36b925702e6b445b97ba672d2da700b26c812ed8113cbe9384c31",
+      "integrityHash": "0481d16889b633f971ee3b9a3b2d9805a9ed2e5651c1eabeb5df983076ccd623",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "962e34c8-2abf-42af-947a-f4165bb2f01d",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "fa64aba5-59dc-44d1-a2d4-a5e9a7d105bb",
+      "details": {
+        "baseCurrency": "USD",
+        "quoteCurrency": "SYP",
+        "rate": 121.909573,
+        "source": "EXCHANGE_RATE_API"
+      },
+      "createdAt": "2026-07-18T20:21:06.653Z",
+      "previousHash": "0481d16889b633f971ee3b9a3b2d9805a9ed2e5651c1eabeb5df983076ccd623",
+      "integrityHash": "78039cde8b89c50bbeb2718f8669aaa6a65ef28c677ee0aeb12cdb1b66e9c264",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "68b869e0-0bb2-4987-8c52-5cde4b3ca1b5",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "34a8024d-1165-4215-868e-6ad447192618",
+      "details": {
+        "baseCurrency": "CAD",
+        "quoteCurrency": "USD",
+        "rate": 0.71274,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:25:47.314Z",
+      "previousHash": "78039cde8b89c50bbeb2718f8669aaa6a65ef28c677ee0aeb12cdb1b66e9c264",
+      "integrityHash": "fa87c1f58892d5407ee1bc4172b5440007d772b4de341c51c3958b076eb782de"
+    },
+    {
+      "id": "297d1e14-e269-4b29-9cb4-2c749e81bbc9",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "78e39d17-f57a-4d55-9d61-26c515a6b708",
+      "details": {
+        "baseCurrency": "USD",
+        "quoteCurrency": "CAD",
+        "rate": 1.403,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:25:47.349Z",
+      "previousHash": "fa87c1f58892d5407ee1bc4172b5440007d772b4de341c51c3958b076eb782de",
+      "integrityHash": "fb5551274d7bffe91d81688fe8033e8354c1cf851b03df6c8aacba292421bfa3"
+    },
+    {
+      "id": "ed35fce2-f143-46b3-bec4-3feccc863c5e",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "c96fd520-b3cb-4b7d-97f8-f265ebfc53f0",
+      "details": {
+        "baseCurrency": "USD",
+        "quoteCurrency": "AED",
+        "rate": 3.6725,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:25:47.379Z",
+      "previousHash": "fb5551274d7bffe91d81688fe8033e8354c1cf851b03df6c8aacba292421bfa3",
+      "integrityHash": "a476470a2d85dd91e05743e37f844b00a5691fcce3c575d8bd62d7decfe46cb2"
+    },
+    {
+      "id": "93b5905d-713d-457b-ad3e-b6397e0bdd81",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "53e958ee-7719-426e-b7e4-a33269989b60",
+      "details": {
+        "baseCurrency": "AED",
+        "quoteCurrency": "USD",
+        "rate": 0.27229,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:25:47.413Z",
+      "previousHash": "a476470a2d85dd91e05743e37f844b00a5691fcce3c575d8bd62d7decfe46cb2",
+      "integrityHash": "94f3627b362de6bcee9fb0b3344059084cfe840e9030400c10ad6e6667618465"
+    },
+    {
+      "id": "4ad676e8-351f-40de-a9e0-f6e54f3a5a49",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "587881b0-9295-43f2-ae37-6b92f15b3958",
+      "details": {
+        "baseCurrency": "EUR",
+        "quoteCurrency": "USD",
+        "rate": 1.1457,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:25:47.446Z",
+      "previousHash": "94f3627b362de6bcee9fb0b3344059084cfe840e9030400c10ad6e6667618465",
+      "integrityHash": "11c38a754304c47dd36324341437d14e30500e8bdb70875d361fac290afa7b42"
+    },
+    {
+      "id": "75069a35-d1cf-442f-828c-53f9f29f5bde",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "d35d6dae-2f6d-44c3-bec7-3b62455cee1f",
+      "details": {
+        "baseCurrency": "USD",
+        "quoteCurrency": "EUR",
+        "rate": 0.87285,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:25:47.475Z",
+      "previousHash": "11c38a754304c47dd36324341437d14e30500e8bdb70875d361fac290afa7b42",
+      "integrityHash": "047ff28b82f85d3f40a15f1917502dd1c3a4278498bd0668dc06c4e8826fb180"
+    },
+    {
+      "id": "41b9a3a9-5dbf-49e1-b037-a62e40f2c8f9",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "f2b6df2a-8427-46f9-8fa8-c69641ca6ed7",
+      "details": {
+        "baseCurrency": "GBP",
+        "quoteCurrency": "USD",
+        "rate": 1.3466,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:25:47.508Z",
+      "previousHash": "047ff28b82f85d3f40a15f1917502dd1c3a4278498bd0668dc06c4e8826fb180",
+      "integrityHash": "f7a730aa7e907f370358d7ebd71537d6403071f21f38542f17ce53dafec0fabb"
+    },
+    {
+      "id": "a0cfcbd8-e709-44c1-ad96-247e2baa27d8",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "c19a3f98-29d2-4e3f-8ae1-569634cee24f",
+      "details": {
+        "baseCurrency": "USD",
+        "quoteCurrency": "GBP",
+        "rate": 0.74264,
+        "source": "FRANKFURTER"
+      },
+      "createdAt": "2026-07-18T20:25:47.538Z",
+      "previousHash": "f7a730aa7e907f370358d7ebd71537d6403071f21f38542f17ce53dafec0fabb",
+      "integrityHash": "4fa67e9e7afef89aa30db024639f27626960c22b200169ed2e44af002e635330"
+    },
+    {
+      "id": "2673e557-c59b-415b-9b50-976ada2faa44",
+      "userId": "SYSTEM_HOURLY",
+      "action": "AUTO_REFRESH",
+      "entityType": "EXCHANGE_RATE",
+      "entityId": "5d821e99-f092-4b55-8029-ce8d9d56e512",
+      "details": {
+        "baseCurrency": "USD",
+        "quoteCurrency": "SYP",
+        "rate": 121.909573,
+        "source": "EXCHANGE_RATE_API"
+      },
+      "createdAt": "2026-07-18T20:25:47.626Z",
+      "previousHash": "4fa67e9e7afef89aa30db024639f27626960c22b200169ed2e44af002e635330",
+      "integrityHash": "1ee83cf1f894d577e9dd6ad75dfa3896b3af0948e32c2a6f0c79e3f9c5d574f6"
     }
   ],
-  "exchangeRates": [],
+  "exchangeRates": [
+    {
+      "id": "b833e53c-1497-4ca2-944b-b3e66b164141",
+      "baseCurrency": "CAD",
+      "quoteCurrency": "USD",
+      "buyRate": 0.71274,
+      "sellRate": 0.71274,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:21:05.006Z",
+      "createdBy": "SYSTEM_HOURLY",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "357d7cf1-d7be-4844-ad2a-bd90a87f98d4",
+      "baseCurrency": "USD",
+      "quoteCurrency": "CAD",
+      "buyRate": 1.403,
+      "sellRate": 1.403,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:21:05.071Z",
+      "createdBy": "SYSTEM_HOURLY",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "0015dd94-2c13-41ab-b731-2be9036f9fce",
+      "baseCurrency": "USD",
+      "quoteCurrency": "AED",
+      "buyRate": 3.6725,
+      "sellRate": 3.6725,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:21:05.387Z",
+      "createdBy": "SYSTEM_HOURLY",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "09af8067-84ef-49f2-a640-2f0608bb8ecb",
+      "baseCurrency": "AED",
+      "quoteCurrency": "USD",
+      "buyRate": 0.27229,
+      "sellRate": 0.27229,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:21:05.698Z",
+      "createdBy": "SYSTEM_HOURLY",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "fdcab20a-4c8a-4f4b-948c-15a59fc55fe2",
+      "baseCurrency": "EUR",
+      "quoteCurrency": "USD",
+      "buyRate": 1.1457,
+      "sellRate": 1.1457,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:21:05.733Z",
+      "createdBy": "SYSTEM_HOURLY",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "6493803b-407d-4c95-82df-4e27e33452d2",
+      "baseCurrency": "USD",
+      "quoteCurrency": "EUR",
+      "buyRate": 0.87285,
+      "sellRate": 0.87285,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:21:06.070Z",
+      "createdBy": "SYSTEM_HOURLY",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "f31a04b0-cc53-4842-ac99-80a677be1073",
+      "baseCurrency": "GBP",
+      "quoteCurrency": "USD",
+      "buyRate": 1.3466,
+      "sellRate": 1.3466,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:21:06.106Z",
+      "createdBy": "SYSTEM_HOURLY",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "03e778fc-bb04-477c-9fc7-dc08a295e947",
+      "baseCurrency": "USD",
+      "quoteCurrency": "GBP",
+      "buyRate": 0.74264,
+      "sellRate": 0.74264,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:21:06.483Z",
+      "createdBy": "SYSTEM_HOURLY",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "fa64aba5-59dc-44d1-a2d4-a5e9a7d105bb",
+      "baseCurrency": "USD",
+      "quoteCurrency": "SYP",
+      "buyRate": 121.909573,
+      "sellRate": 121.909573,
+      "notes": "تحديث تلقائي لسعر USD/SYP من ExchangeRate-API",
+      "source": "EXCHANGE_RATE_API",
+      "sourceDate": "Sat, 18 Jul 2026 00:02:32 +0000",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:21:06.653Z",
+      "createdBy": "SYSTEM_HOURLY",
+      "companyId": "dedba6ca-b0dd-4579-af4a-177291571944"
+    },
+    {
+      "id": "34a8024d-1165-4215-868e-6ad447192618",
+      "baseCurrency": "CAD",
+      "quoteCurrency": "USD",
+      "buyRate": 0.71274,
+      "sellRate": 0.71274,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:25:47.312Z",
+      "createdBy": "SYSTEM_HOURLY"
+    },
+    {
+      "id": "78e39d17-f57a-4d55-9d61-26c515a6b708",
+      "baseCurrency": "USD",
+      "quoteCurrency": "CAD",
+      "buyRate": 1.403,
+      "sellRate": 1.403,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:25:47.349Z",
+      "createdBy": "SYSTEM_HOURLY"
+    },
+    {
+      "id": "c96fd520-b3cb-4b7d-97f8-f265ebfc53f0",
+      "baseCurrency": "USD",
+      "quoteCurrency": "AED",
+      "buyRate": 3.6725,
+      "sellRate": 3.6725,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:25:47.379Z",
+      "createdBy": "SYSTEM_HOURLY"
+    },
+    {
+      "id": "53e958ee-7719-426e-b7e4-a33269989b60",
+      "baseCurrency": "AED",
+      "quoteCurrency": "USD",
+      "buyRate": 0.27229,
+      "sellRate": 0.27229,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:25:47.413Z",
+      "createdBy": "SYSTEM_HOURLY"
+    },
+    {
+      "id": "587881b0-9295-43f2-ae37-6b92f15b3958",
+      "baseCurrency": "EUR",
+      "quoteCurrency": "USD",
+      "buyRate": 1.1457,
+      "sellRate": 1.1457,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:25:47.446Z",
+      "createdBy": "SYSTEM_HOURLY"
+    },
+    {
+      "id": "d35d6dae-2f6d-44c3-bec7-3b62455cee1f",
+      "baseCurrency": "USD",
+      "quoteCurrency": "EUR",
+      "buyRate": 0.87285,
+      "sellRate": 0.87285,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:25:47.474Z",
+      "createdBy": "SYSTEM_HOURLY"
+    },
+    {
+      "id": "f2b6df2a-8427-46f9-8fa8-c69641ca6ed7",
+      "baseCurrency": "GBP",
+      "quoteCurrency": "USD",
+      "buyRate": 1.3466,
+      "sellRate": 1.3466,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:25:47.508Z",
+      "createdBy": "SYSTEM_HOURLY"
+    },
+    {
+      "id": "c19a3f98-29d2-4e3f-8ae1-569634cee24f",
+      "baseCurrency": "USD",
+      "quoteCurrency": "GBP",
+      "buyRate": 0.74264,
+      "sellRate": 0.74264,
+      "notes": "تحديث تلقائي من أسعار مرجعية للبنوك المركزية",
+      "source": "FRANKFURTER",
+      "sourceDate": "2026-07-19",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:25:47.538Z",
+      "createdBy": "SYSTEM_HOURLY"
+    },
+    {
+      "id": "5d821e99-f092-4b55-8029-ce8d9d56e512",
+      "baseCurrency": "USD",
+      "quoteCurrency": "SYP",
+      "buyRate": 121.909573,
+      "sellRate": 121.909573,
+      "notes": "تحديث تلقائي لسعر USD/SYP من ExchangeRate-API",
+      "source": "EXCHANGE_RATE_API",
+      "sourceDate": "Sat, 18 Jul 2026 00:02:32 +0000",
+      "isAutomatic": true,
+      "createdAt": "2026-07-18T20:25:47.626Z",
+      "createdBy": "SYSTEM_HOURLY"
+    }
+  ],
   "generalDebts": [],
   "generalDebtPayments": [],
   "companies": [
