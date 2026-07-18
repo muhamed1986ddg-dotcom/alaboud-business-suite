@@ -4359,3 +4359,20 @@ body.app-language-en aside{
   .customer-row-actions{display:grid;grid-template-columns:1fr 1fr}
   .customer-edit-button,.customer-delete-button{width:100%}
 }
+
+/* v16.0.17 — customer account reset and fresh-account separation */
+.customer-reset-button{
+  border:1px solid #0ea5e9;
+  background:#e0f2fe;
+  color:#075985;
+  border-radius:10px;
+  padding:.55rem .75rem;
+  font-weight:800;
+  cursor:pointer;
+}
+.customer-reset-button:hover{background:#bae6fd}
+.customer-reset-date{display:block;color:#0369a1;font-weight:700;margin-top:.2rem}
+@media (max-width:720px){
+  .customer-row-actions{display:grid;grid-template-columns:1fr 1fr;gap:.4rem}
+  .customer-reset-button{grid-column:1/-1}
+}
