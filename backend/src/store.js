@@ -5,6 +5,10 @@ const { AsyncLocalStorage } = require("async_hooks");
 const { Pool } = require("pg");
 
 const tenantContext = new AsyncLocalStorage();
+const RAW_STORE = Symbol("ALABOUD_RAW_STORE");
+function unwrapStore(store){
+  try{return store && store[RAW_STORE] ? store[RAW_STORE] : store;}catch(_error){return store;}
+}
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.resolve(__dirname, "../../data");
 const dataFile = path.join(dataDir, "store.json");
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
@@ -23,6 +27,7 @@ const emptyStore = () => ({
 });
 
 function normalizeStore(store){
+  store=unwrapStore(store);
   store=store&&typeof store==="object"?store:{};
   const fresh=emptyStore();
   for(const [key,defaultValue] of Object.entries(fresh)){
@@ -80,7 +85,7 @@ async function initStore(){
 }
 function readRootStore(){return normalizeStore(rootStore)}
 function writeStore(store){
-  rootStore=normalizeStore(store);
+  rootStore=normalizeStore(unwrapStore(store));
   if(pool)queuePersist();
   else{
     fs.mkdirSync(dataDir,{recursive:true});
@@ -90,10 +95,12 @@ function writeStore(store){
   }
 }
 function tenantArray(root,key,companyId){
-  const visible=()=>root[key].filter(item=>item&&item.companyId===companyId);
+  root=unwrapStore(root);
+  const source=()=>Array.isArray(root[key])?root[key]:[];
+  const visible=()=>source().filter(item=>item&&item.companyId===companyId);
   return new Proxy([],{
     get(_target,prop){
-      if(prop==="push")return (...items)=>root[key].push(...items.map(item=>({...item,companyId})));
+      if(prop==="push")return (...items)=>source().push(...items.map(item=>({...item,companyId})));
       if(prop==="length")return visible().length;
       if(prop===Symbol.iterator){const rows=visible();return rows[Symbol.iterator].bind(rows);}
       if(prop==="toJSON")return ()=>visible();
@@ -106,9 +113,11 @@ function tenantArray(root,key,companyId){
   });
 }
 function tenantView(root,companyId){
+  root=unwrapStore(root);
   if(!root.companySettings[companyId])root.companySettings[companyId]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
   return new Proxy(root,{
     get(target,prop){
+      if(prop===RAW_STORE)return target;
       if(prop==="users")return target.users.filter(user=>user.companyId===companyId);
       if(prop==="notificationSettings")return target.companySettings[companyId];
       if(DATA_ARRAYS.includes(prop))return tenantArray(target,prop,companyId);
