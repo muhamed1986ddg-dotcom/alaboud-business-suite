@@ -2406,7 +2406,7 @@ function ExchangeRates(){
 
 
 function GeneralDebts(){
-  const [data,setData]=useState({rows:[],totals:{receivable:0,payable:0,net:0}});
+  const [data,setData]=useState({rows:[],totals:{receivable:0,payable:0,net:0},totalsByCurrency:{}});
   const [filter,setFilter]=useState("");
   const [message,setMessage]=useState("");
   const [payment,setPayment]=useState({debtId:"",amount:"",paymentDate:"",notes:""});
@@ -2425,7 +2425,8 @@ function GeneralDebts(){
       const {data}=await api.get("/general-debts",{params:{type:filter}});
       setData({
         rows:Array.isArray(data?.rows)?data.rows:[],
-        totals:data?.totals||{receivable:0,payable:0,net:0}
+        totals:data?.totals||{receivable:0,payable:0,net:0},
+        totalsByCurrency:data?.totalsByCurrency||{}
       });
     }catch(error){
       setMessage(error.response?.data?.message||"تعذر تحميل الديون");
@@ -2471,6 +2472,18 @@ function GeneralDebts(){
 
   const openDebts=data.rows.filter(item=>Number(item.remaining||0)>0);
 
+  const debtCurrencies=[
+    {code:"USD",flag:"🇺🇸",name:"دولار أمريكي",symbol:"$"},
+    {code:"CAD",flag:"🇨🇦",name:"دولار كندي",symbol:"$"},
+    {code:"EUR",flag:"🇪🇺",name:"يورو",symbol:"€"},
+    {code:"TRY",flag:"🇹🇷",name:"ليرة تركية",symbol:"₺"},
+    {code:"SYP",flag:"🇸🇾",name:"ليرة سورية",symbol:"ل.س"},
+    {code:"SAR",flag:"🇸🇦",name:"ريال سعودي",symbol:"ر.س"},
+    {code:"JOD",flag:"🇯🇴",name:"دينار أردني",symbol:"د.أ"}
+  ];
+
+  const currencyMeta=Object.fromEntries(debtCurrencies.map(item=>[item.code,item]));
+
   const statusLabel={
     OPEN:"مفتوح",
     PARTIAL:"مدفوع جزئيًا",
@@ -2483,16 +2496,39 @@ function GeneralDebts(){
 
     <div className="stats">
       <div className="card receivable-card">
-        <span>دين لنا</span>
+        <span>دين لنا — CAD 🇨🇦</span>
         <strong>{money(data.totals.receivable)}</strong>
       </div>
       <div className="card payable-card">
-        <span>دين علينا</span>
+        <span>دين علينا — CAD 🇨🇦</span>
         <strong>{money(data.totals.payable)}</strong>
       </div>
       <div className="card final">
-        <span>صافي الديون</span>
+        <span>صافي الديون — CAD 🇨🇦</span>
         <strong>{money(data.totals.net)}</strong>
+      </div>
+    </div>
+
+    <div className="card debt-currency-summary">
+      <div className="debt-currency-summary-head">
+        <div>
+          <h3>مجموع الديون في باقي العملات</h3>
+          <p>يظهر مجموع دين لنا ودين علينا وصافي الدين لكل عملة بشكل مستقل.</p>
+        </div>
+      </div>
+      <div className="debt-currency-totals">
+        {debtCurrencies.map(currency=>{
+          const total=data.totalsByCurrency?.[currency.code]||{receivable:0,payable:0,net:0};
+          return <div className="debt-currency-total card" key={currency.code}>
+            <div className="debt-currency-title">
+              <span className="debt-currency-flag">{currency.flag}</span>
+              <div><strong>{currency.code}</strong><small>{currency.name}</small></div>
+            </div>
+            <div className="debt-currency-row receivable"><span>دين لنا</span><b>{money(total.receivable)} {currency.symbol}</b></div>
+            <div className="debt-currency-row payable"><span>دين علينا</span><b>{money(total.payable)} {currency.symbol}</b></div>
+            <div className="debt-currency-row net"><span>الصافي</span><b>{money(total.net)} {currency.symbol}</b></div>
+          </div>
+        })}
       </div>
     </div>
 
@@ -2528,7 +2564,7 @@ function GeneralDebts(){
       />
 
       <select value={form.currency} onChange={e=>setForm({...form,currency:e.target.value})}>
-        {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=>
+        {debtCurrencies.map(item=>item.code).map(currency=>
           <option key={currency}>{currency}</option>
         )}
       </select>
@@ -2623,7 +2659,7 @@ function GeneralDebts(){
                 <td>{money(item.amount)}</td>
                 <td>{money(item.paid)}</td>
                 <td><strong>{money(item.remaining)}</strong></td>
-                <td>{item.currency}</td>
+                <td><span className="debt-table-currency">{currencyMeta[item.currency]?.flag||"💱"} {item.currency}</span></td>
                 <td>{item.dueDate||"-"}</td>
                 <td>{statusLabel[item.status]||item.status}</td>
                 <td>{item.reference||"-"}</td>
@@ -2803,7 +2839,7 @@ function PartnerStatement({partnerId,back}){
 }
 
 function Partners({open}){
-  const [data,setData]=useState({rows:[],totals:{receivable:0,payable:0,net:0}});
+  const [data,setData]=useState({rows:[],totals:{receivable:0,payable:0,net:0},totalsByCurrency:{}});
   const [error,setError]=useState("");
   const [form,setForm]=useState({
     name:"",contactName:"",phone:"",whatsapp:"",email:"",
@@ -2988,7 +3024,7 @@ function CapitalOverview(){
         required
       />
       <select value={form.currency} onChange={e=>setForm({...form,currency:e.target.value})}>
-        {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=><option key={currency}>{currency}</option>)}
+        {debtCurrencies.map(item=>item.code).map(currency=><option key={currency}>{currency}</option>)}
       </select>
       <label className="capital-today-field">
         <span>📅 تاريخ اليوم</span>
@@ -3006,7 +3042,7 @@ function CapitalOverview(){
       </select>
       <input type="number" min=".01" step=".01" value={editing.amount} onChange={e=>setEditing({...editing,amount:e.target.value})} required/>
       <select value={editing.currency||"CAD"} onChange={e=>setEditing({...editing,currency:e.target.value})}>
-        {["CAD","USD","EUR","SYP","AED","GBP"].map(currency=><option key={currency}>{currency}</option>)}
+        {debtCurrencies.map(item=>item.code).map(currency=><option key={currency}>{currency}</option>)}
       </select>
       <input type="date" value={editing.date||""} onChange={e=>setEditing({...editing,date:e.target.value})}/>
       <input value={editing.description||""} onChange={e=>setEditing({...editing,description:e.target.value})} placeholder="الوصف"/>
