@@ -161,7 +161,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"17.0.1",channel:"enterprise",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"17.1.0",channel:"enterprise",cloud:true}));
 app.post("/api/auth/login",(req,res)=>{
   const {email,password}=req.body||{};
   const store=readStore();
@@ -176,7 +176,7 @@ app.post("/api/auth/login",(req,res)=>{
     mutate(root=>{
       let device=(root.devices||[]).find(item=>item.companyId===user.companyId&&item.installationId===installationId);
       if(!device){
-        device={id:id(),companyId:user.companyId,installationId,deviceName:String(req.headers["x-device-name"]||"جهاز جديد").slice(0,120),platform:String(req.headers["x-device-platform"]||"Web").slice(0,80),appVersion:String(req.headers["x-alaboud-client-version"]||"17.0.1").slice(0,30),active:true,firstSeenAt:now(),lastSeenAt:now(),lastUserId:user.id};
+        device={id:id(),companyId:user.companyId,installationId,deviceName:String(req.headers["x-device-name"]||"جهاز جديد").slice(0,120),platform:String(req.headers["x-device-platform"]||"Web").slice(0,80),appVersion:String(req.headers["x-alaboud-client-version"]||"17.1.0").slice(0,30),active:true,firstSeenAt:now(),lastSeenAt:now(),lastUserId:user.id};
         root.devices.push(device);
         audit(root,user.id,"REGISTER","DEVICE",device.id,{installationId,platform:device.platform});
       }else{
@@ -200,7 +200,7 @@ app.get("/api/auth/session",auth,(req,res)=>{
   }
 
   res.json({
-    version:"17.0.1",
+    version:"17.1.0",
     user:{
       id:user.id,
       name:user.name,
@@ -2160,6 +2160,81 @@ app.get("/api/partners/:id/statement", auth, (req,res)=>{
     rows,
     finalBalance:+runningBalance.toFixed(2)
   });
+});
+
+
+function aiMonthKey(value){return String(value||"").slice(0,7)}
+function aiDateKey(value){return String(value||"").slice(0,10)}
+function aiAnalytics(store){
+  const today=new Date();
+  const todayKey=today.toISOString().slice(0,10);
+  const monthKey=todayKey.slice(0,7);
+  const previousMonth=new Date(Date.UTC(today.getUTCFullYear(),today.getUTCMonth()-1,1)).toISOString().slice(0,7);
+  const validTx=(store.transactions||[]).filter(t=>t&&!t.isDeleted&&t.status!=="CANCELLED");
+  const expenses=(store.expenses||[]).filter(e=>e&&!e.isDeleted);
+  const customers=(store.customers||[]).filter(c=>c&&!c.isDeleted).map(c=>customerSummary(store,c));
+  const txProfit=rows=>rows.reduce((a,t)=>a+safeNumber(t.totalProfit),0);
+  const expenseCad=rows=>rows.reduce((a,e)=>a+safeNumber(e.cadAmount,e.amount),0);
+  const monthTx=validTx.filter(t=>aiMonthKey(t.transferDate||t.createdAt)===monthKey);
+  const previousTx=validTx.filter(t=>aiMonthKey(t.transferDate||t.createdAt)===previousMonth);
+  const monthExpenses=expenses.filter(e=>aiMonthKey(e.date||e.createdAt)===monthKey);
+  const previousExpenses=expenses.filter(e=>aiMonthKey(e.date||e.createdAt)===previousMonth);
+  const todayTx=validTx.filter(t=>aiDateKey(t.transferDate||t.createdAt)===todayKey);
+  const todayExpenses=expenses.filter(e=>aiDateKey(e.date||e.createdAt)===todayKey);
+  const monthNet=txProfit(monthTx)-expenseCad(monthExpenses);
+  const previousNet=txProfit(previousTx)-expenseCad(previousExpenses);
+  const receivables=customers.reduce((a,c)=>a+safeNumber(c.finalBalance),0);
+  const overdue=customers.filter(c=>c.overdue).sort((a,b)=>b.finalBalance-a.finalBalance);
+  const capital=(store.capitalMovements||[]).reduce((a,m)=>a+(m.type==="IN"?safeNumber(m.amount):-safeNumber(m.amount)),0);
+  const categoryTotals={};
+  for(const e of monthExpenses){const k=e.category||"Other";categoryTotals[k]=(categoryTotals[k]||0)+safeNumber(e.cadAmount,e.amount)}
+  const currencyTotals={};
+  for(const t of monthTx){const k=t.currency||"CAD";currencyTotals[k]=(currencyTotals[k]||0)+safeNumber(t.amount)}
+  const topExpense=Object.entries(categoryTotals).sort((a,b)=>b[1]-a[1])[0]||["لا يوجد",0];
+  const topCurrency=Object.entries(currencyTotals).sort((a,b)=>b[1]-a[1])[0]||["لا يوجد",0];
+  const duplicateExpenses=[];
+  const seen=new Map();
+  for(const e of expenses){const key=[e.title,e.amount,e.currency,e.date].join('|');if(seen.has(key))duplicateExpenses.push(e);else seen.set(key,e.id)}
+  const anomalies=[];
+  if(duplicateExpenses.length)anomalies.push({level:"warning",title:"مصروفات مكررة محتملة",message:`تم العثور على ${duplicateExpenses.length} مصروفات متشابهة تحتاج مراجعة.`});
+  if(monthExpenses.length>=3){const avg=expenseCad(monthExpenses)/monthExpenses.length;for(const e of monthExpenses){if(safeNumber(e.cadAmount,e.amount)>avg*3)anomalies.push({level:"danger",title:"مصروف غير اعتيادي",message:`المصروف ${e.title} أعلى بكثير من متوسط هذا الشهر.`})}}
+  if(overdue.length)anomalies.push({level:"danger",title:"ديون متأخرة",message:`يوجد ${overdue.length} عملاء متأخرين بإجمالي ${receivables.toFixed(2)} CAD.`});
+  const profitTrend=previousNet?((monthNet-previousNet)/Math.abs(previousNet))*100:(monthNet>0?100:0);
+  let score=100;
+  if(monthNet<0)score-=30;
+  if(profitTrend<-15)score-=15;
+  if(capital<safeNumber(store.notificationSettings?.lowCashLimit,5000))score-=20;
+  if(overdue.length)score-=Math.min(20,overdue.length*3);
+  if(anomalies.length)score-=Math.min(15,anomalies.length*3);
+  score=Math.max(0,Math.min(100,Math.round(score)));
+  const recentMonths=[];
+  for(let i=5;i>=0;i--){const d=new Date(Date.UTC(today.getUTCFullYear(),today.getUTCMonth()-i,1));const key=d.toISOString().slice(0,7);const t=validTx.filter(x=>aiMonthKey(x.transferDate||x.createdAt)===key);const e=expenses.filter(x=>aiMonthKey(x.date||x.createdAt)===key);recentMonths.push({month:key,net:+(txProfit(t)-expenseCad(e)).toFixed(2),expenses:+expenseCad(e).toFixed(2),profit:+txProfit(t).toFixed(2)})}
+  const values=recentMonths.map(x=>x.net);const forecast=values.length?values.reduce((a,b)=>a+b,0)/values.length:0;
+  const recommendations=[];
+  if(overdue.length)recommendations.push(`ابدأ بتحصيل ديون ${overdue.slice(0,3).map(c=>c.name).join("، ")}.`);
+  if(topExpense[1]>0)recommendations.push(`راجع مصروفات ${topExpense[0]} لأنها الأعلى هذا الشهر.`);
+  if(profitTrend<0)recommendations.push("راجع أسعار البيع والتكاليف لأن صافي الربح أقل من الشهر الماضي.");
+  if(capital<safeNumber(store.notificationSettings?.lowCashLimit,5000))recommendations.push("السيولة أقل من الحد المحدد؛ قلل المصروفات غير الضرورية مؤقتًا.");
+  if(!recommendations.length)recommendations.push("الأداء مستقر. استمر في متابعة التحصيل والمصروفات يوميًا.");
+  return {generatedAt:now(),healthScore:score,today:{transactions:todayTx.length,grossProfit:+txProfit(todayTx).toFixed(2),expenses:+expenseCad(todayExpenses).toFixed(2),netProfit:+(txProfit(todayTx)-expenseCad(todayExpenses)).toFixed(2)},month:{transactions:monthTx.length,grossProfit:+txProfit(monthTx).toFixed(2),expenses:+expenseCad(monthExpenses).toFixed(2),netProfit:+monthNet.toFixed(2),profitTrend:+profitTrend.toFixed(1),topExpenseCategory:topExpense[0],topCurrency:topCurrency[0]},finance:{capital:+capital.toFixed(2),receivables:+receivables.toFixed(2),overdueCount:overdue.length},forecast:{nextMonthNet:+forecast.toFixed(2),method:"متوسط آخر 6 أشهر"},anomalies:anomalies.slice(0,8),recommendations:recommendations.slice(0,6),overdueCustomers:overdue.slice(0,8),monthlyTrend:recentMonths,system:{database:process.env.DATABASE_URL?"PostgreSQL Cloud":"JSON Local",users:(store.users||[]).length,devices:(store.devices||[]).filter(d=>d.active).length,lastBackupAt:store.companySettings?.lastBackupAt||null}};
+}
+app.get("/api/ai/overview",auth,(req,res)=>res.json(aiAnalytics(readStore())));
+app.post("/api/ai/assistant",auth,(req,res)=>{
+  const question=String(req.body?.question||"").trim();
+  if(!question)return res.status(400).json({message:"اكتب سؤالك أولاً"});
+  const store=readStore();const a=aiAnalytics(store);const q=question.toLowerCase();let answer="";let data=[];let action=null;
+  if(/ربح|ارباح|أرباح|profit/.test(q)){answer=`صافي ربح اليوم ${a.today.netProfit.toFixed(2)} CAD، وصافي ربح هذا الشهر ${a.month.netProfit.toFixed(2)} CAD. التغير عن الشهر السابق ${a.month.profitTrend.toFixed(1)}%.`;}
+  else if(/مصروف|expenses?/.test(q)){answer=`مصروفات اليوم ${a.today.expenses.toFixed(2)} CAD، ومصروفات الشهر ${a.month.expenses.toFixed(2)} CAD. أعلى تصنيف هو ${a.month.topExpenseCategory}.`;data=(store.expenses||[]).slice().reverse().slice(0,10);}
+  else if(/دين|متأخر|receivable/.test(q)){answer=`إجمالي الديون لنا ${a.finance.receivables.toFixed(2)} CAD، ويوجد ${a.finance.overdueCount} عملاء متأخرين.`;data=a.overdueCustomers;}
+  else if(/رأس المال|راس المال|سيولة|capital/.test(q)){answer=`رأس المال المسجل حاليًا ${a.finance.capital.toFixed(2)} CAD. ${a.recommendations.find(x=>x.includes("السيولة"))||"السيولة ضمن المتابعة."}`;}
+  else if(/توقع|forecast/.test(q)){answer=`التوقع التقريبي لصافي الشهر القادم هو ${a.forecast.nextMonthNet.toFixed(2)} CAD، اعتمادًا على ${a.forecast.method}.`;}
+  else if(/صحة|تقييم|health/.test(q)){answer=`تقييم صحة الشركة ${a.healthScore} من 100. أهم توصية: ${a.recommendations[0]}`;}
+  else if(/نسخ احتياطي|backup/.test(q)){answer="يمكنك إنشاء نسخة احتياطية الآن من الإعدادات. أوصي بإنشائها بعد أي تغييرات كبيرة.";action={type:"NAVIGATE",page:"settings"};}
+  else if(/عميل/.test(q)){const name=question.replace(/.*عميل\s*/i,"").trim();const rows=(store.customers||[]).filter(c=>!c.isDeleted&&(!name||String(c.name||"").includes(name))).map(c=>customerSummary(store,c)).slice(0,10);answer=rows.length?`وجدت ${rows.length} نتيجة للعملاء.`:"لم أجد عميلًا مطابقًا.";data=rows;}
+  else if(/حوال/.test(q)){data=(store.transactions||[]).filter(t=>!t.isDeleted).slice().reverse().slice(0,10);answer=`هذه أحدث ${data.length} حوالات مسجلة.`;}
+  else {answer=`ملخص ذكي: صحة الشركة ${a.healthScore}/100، صافي الشهر ${a.month.netProfit.toFixed(2)} CAD، الديون لنا ${a.finance.receivables.toFixed(2)} CAD. ${a.recommendations[0]}`;}
+  audit(store,req.user.id,"ASK","AI_ASSISTANT","assistant",{question:question.slice(0,250)});
+  res.json({answer,data,action,overview:a});
 });
 
 app.get("/api/expenses", auth, (_req,res)=>res.json(readStore().expenses.slice().reverse()));
