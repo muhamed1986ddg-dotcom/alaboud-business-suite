@@ -2437,7 +2437,9 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
       audit(store,req.user.id,"SYNC","PARTNER",item.id,{connector:"JAD",balance:result.balance,receivable:result.receivable,payable:result.payable,count:result.movements.length});
     });
     res.json({message:"تم جلب الرصيد من شركة جاد",partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
-  }catch(error){
+  }catch(error){  console.error("========== JAD SYNC ERROR ==========");
+  console.error(error);
+  console.error(error?.stack);
     mutate(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.updatedAt=now();}});
     res.status(400).json({message:error.message||"تعذر جلب الرصيد"});
   }
