@@ -2390,19 +2390,36 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
   const accountUrl=`${base}${prefix}/account`;
   const cleanOtp=String(otp||"").replace(/\D/g,"").slice(0,8);
 
-  const launchOptions={headless:true,args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-zygote"],timeout:45000};
+  const launchOptions={headless:true,args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-zygote"],timeout:60000};
   if(process.env.CHROME_EXECUTABLE_PATH)launchOptions.executablePath=process.env.CHROME_EXECUTABLE_PATH;
 
   let browser; let page; const trace=[];
+  const diagnosticDir=path.join(require("os").tmpdir(),"alaboud-jad-diagnostics");
+  const diagnosticBase=path.join(diagnosticDir,String(partner.id||"jad"));
+  const safeText=value=>String(value||"").replace(new RegExp(username.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"gi"),"[username]").replace(/\b\d{6,8}\b/g,"[otp]");
+  const saveDiagnosticArtifacts=async(label)=>{
+    if(!page)return null;
+    try{
+      fs.mkdirSync(diagnosticDir,{recursive:true});
+      const stamp=Date.now();
+      const png=`${diagnosticBase}-${stamp}.png`;
+      const htmlFile=`${diagnosticBase}-${stamp}.html`;
+      await page.screenshot({path:png,fullPage:true}).catch(()=>null);
+      const rawHtml=await page.content().catch(()=>"");
+      fs.writeFileSync(htmlFile,safeText(rawHtml),"utf8");
+      return {label,png,html:htmlFile,createdAt:new Date().toISOString()};
+    }catch{return null;}
+  };
   const record=async(label)=>{
     if(!page)return;
     const entry={label,url:page.url(),title:await page.title().catch(()=>""),time:new Date().toISOString()};
-    entry.text=(await page.locator('body').innerText({timeout:2500}).catch(()=>"" )).replace(/\s+/g," ").slice(0,500);
+    entry.text=safeText((await page.locator('body').innerText({timeout:2500}).catch(()=>"" )).replace(/\s+/g," ").slice(0,900));
     trace.push(entry);
   };
   const diagnosticError=async(message,code="JAD_FLOW_ERROR")=>{
     await record("failure");
-    const error=new Error(message); error.code=code; error.jadTrace=trace.slice(-12); return error;
+    const artifacts=await saveDiagnosticArtifacts(code);
+    const error=new Error(message); error.code=code; error.jadTrace=trace.slice(-16); error.jadArtifacts=artifacts; return error;
   };
   try{
     try {
@@ -2478,12 +2495,13 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     if(await accountLink.count()&&await accountLink.isVisible().catch(()=>false)){
       await Promise.all([page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),accountLink.click()]);
     }else await page.goto(accountUrl,{waitUntil:"domcontentloaded"});
-    await page.waitForTimeout(900); await record("account-page");
+    await page.waitForLoadState("networkidle",{timeout:12000}).catch(()=>null);
+    await page.waitForTimeout(1200); await record("account-page");
     let accountHtml=await page.content();
     if(isJadLoginPage(accountHtml,page.url()))throw await diagnosticError("موقع جاد أعاد صفحة تسجيل الدخول بعد إدخال البيانات؛ الرمز قد يكون منتهيًا أو تم رفض تسجيل الدخول","JAD_LOGIN_REJECTED");
 
-    // The captured Jad request posts directly to /account and returns the full HTML statement.
-    // Do not assume accountprint.php exists on every Jad installation.
+    // Post the exact account form captured from Jad. Retry because the site sometimes
+    // completes its transfer/session initialization a few seconds after navigation.
     const formPayload={
       currency:String(partner.accountCurrency||"USD").toLowerCase(),
       date1:"date",
@@ -2491,21 +2509,31 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
       date2:start,
       date3:end
     };
-    const posted=await page.evaluate(async({url,payload})=>{
-      const body=new URLSearchParams();
-      for(const [key,value] of Object.entries(payload)){if(value!==undefined&&value!==null&&String(value)!=="")body.set(key,String(value));}
-      const response=await fetch(url,{method:"POST",credentials:"include",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:body.toString()});
-      return {status:response.status,url:response.url,html:await response.text()};
-    },{url:accountUrl,payload:formPayload});
-    trace.push({label:"account-post",url:posted.url,status:posted.status,time:new Date().toISOString(),text:htmlText(posted.html).slice(0,500)});
-    const html=posted.html;
-    if(posted.status<200||posted.status>=400)throw await diagnosticError(`تعذر إرسال طلب كشف الحساب إلى جاد (${posted.status})`,"JAD_ACCOUNT_POST_FAILED");
+    let posted=null;
+    for(let attempt=1;attempt<=3;attempt+=1){
+      posted=await page.evaluate(async({url,payload})=>{
+        const body=new URLSearchParams();
+        for(const [key,value] of Object.entries(payload)){if(value!==undefined&&value!==null&&String(value)!=="")body.set(key,String(value));}
+        const response=await fetch(url,{method:"POST",credentials:"include",redirect:"follow",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8","X-Requested-With":"XMLHttpRequest"},body:body.toString()});
+        return {status:response.status,url:response.url,html:await response.text()};
+      },{url:accountUrl,payload:formPayload});
+      const text=safeText(htmlText(posted.html).slice(0,900));
+      trace.push({label:`account-post-${attempt}`,url:posted.url,status:posted.status,time:new Date().toISOString(),text});
+      if(posted.status>=200&&posted.status<400&&(/<tbody/i.test(posted.html)||/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(text)))break;
+      await page.waitForTimeout(1200*attempt);
+      await page.reload({waitUntil:"domcontentloaded"}).catch(()=>null);
+      await page.waitForLoadState("networkidle",{timeout:8000}).catch(()=>null);
+    }
+    const html=posted?.html||"";
+    if(!posted||posted.status<200||posted.status>=400)throw await diagnosticError(`تعذر إرسال طلب كشف الحساب إلى جاد (${posted.status})`,"JAD_ACCOUNT_POST_FAILED");
     if(isJadLoginPage(html,posted.url)&&!/<tbody/i.test(html))throw await diagnosticError("رفض موقع جاد الجلسة عند طلب كشف الحساب؛ أدخل رمز Authenticator جديدًا","JAD_SESSION_REJECTED");
     if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(htmlText(html)))throw await diagnosticError("تم تسجيل الدخول، لكن استجابة كشف الحساب لا تحتوي جدولًا. تحقق من رقم الحساب الخارجي","JAD_STATEMENT_NOT_FOUND");
     return {...parseJadStatement(html),fromDate:start,toDate:end,mode:"BROWSER",diagnostic:trace.slice(-10)};
   }catch(error){
     if(/Executable doesn't exist|browserType\.launch|Failed to launch|host system is missing dependencies/i.test(String(error?.message||""))){const wrapped=new Error("تعذر تشغيل متصفح جاد على الخادم. تأكد من اكتمال تنزيل Chromium أثناء بناء Render");wrapped.code="JAD_BROWSER_UNAVAILABLE";wrapped.cause=error;throw wrapped;}
-    if(!error.jadTrace)error.jadTrace=trace.slice(-12);
+    if(!error.jadTrace)error.jadTrace=trace.slice(-16);
+    if(!error.jadArtifacts)error.jadArtifacts=await saveDiagnosticArtifacts(error.code||"JAD_ERROR");
+    console.error("[JAD]",error.code||"JAD_ERROR",error.message,{trace:error.jadTrace,artifacts:error.jadArtifacts});
     throw error;
   }finally{if(browser)await browser.close().catch(()=>{});}
 }
@@ -2677,8 +2705,8 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
     mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.updatedAt=now();}});
     res.json({ok:true,status:"READY",message:"الرابط صالح. اختر موصل الشركة لإجراء مزامنة فعلية."});
   }catch(error){
-    mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-12):[];item.updatedAt=now();}});
-    res.status(400).json({message:error.message||"تعذر اختبار الاتصال",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-6):[]});
+    mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];item.lastJadArtifacts=error.jadArtifacts||null;item.updatedAt=now();}});
+    res.status(400).json({message:error.message||"تعذر اختبار الاتصال",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null});
   }
 });
 
@@ -2699,8 +2727,8 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
     });
     res.json({message:"تم جلب الرصيد من شركة جاد",partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
   }catch(error){
-    mutate(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-12):[];item.updatedAt=now();}});
-    res.status(400).json({message:error.message||"تعذر جلب الرصيد",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-6):[]});
+    mutate(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];item.lastJadArtifacts=error.jadArtifacts||null;item.updatedAt=now();}});
+    res.status(400).json({message:error.message||"تعذر جلب الرصيد",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null});
   }
 });
 
@@ -2708,7 +2736,16 @@ app.get("/api/partners/:id/jad-diagnostic", auth, (req,res)=>{
   const store=readStore();
   const partner=(store.partners||[]).find(item=>item.id===req.params.id);
   if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
-  res.json({message:partner.lastSyncError||"لا يوجد خطأ مسجل",diagnostic:Array.isArray(partner.lastJadDiagnostic)?partner.lastJadDiagnostic:[],lastSyncAt:partner.lastSyncAt||null,status:partner.connectionStatus||"CONFIGURED"});
+  res.json({message:partner.lastSyncError||"لا يوجد خطأ مسجل",diagnostic:Array.isArray(partner.lastJadDiagnostic)?partner.lastJadDiagnostic:[],artifacts:partner.lastJadArtifacts?{available:true,createdAt:partner.lastJadArtifacts.createdAt}:null,lastSyncAt:partner.lastSyncAt||null,status:partner.connectionStatus||"CONFIGURED"});
+});
+
+app.get("/api/partners/:id/jad-diagnostic/screenshot", auth, (req,res)=>{
+  const store=readStore();
+  const partner=(store.partners||[]).find(item=>item.id===req.params.id);
+  if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
+  const file=partner.lastJadArtifacts?.png;
+  if(!file||!fs.existsSync(file))return res.status(404).json({message:"لا توجد لقطة تشخيص متاحة؛ أعد اختبار الاتصال ثم افتح اللقطة مباشرة"});
+  res.type("png").sendFile(path.resolve(file));
 });
 
 app.get("/api/partners/:id", auth, (req,res)=>{
