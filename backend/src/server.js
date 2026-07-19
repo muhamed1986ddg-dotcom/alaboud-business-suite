@@ -2188,8 +2188,14 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
     headers:{...browserHeaders,Accept:"text/html,application/xhtml+xml",Referer:step.url||`${base}${prefix}/log_2`}
   },cookie,{maxRedirects:10});
   cookie=step.cookie;
-  const accountHtml=await step.response.text();
-  if(isJadLoginPage(accountHtml,step.url))throw new Error("انتهت جلسة جاد بعد تسجيل الدخول؛ تحقق من بيانات الحساب");
+  accountHtml = await step.response.text();
+
+console.log("=== ACCOUNT URL ===", step.url);
+console.log("=== ACCOUNT HTML ===", accountHtml.substring(0, 3000));
+
+if (isLoginPage(accountHtml)) {
+  throw new Error("انتهت جلسة جاد بعد تسجيل الدخول، تحقق من بيانات الحساب.");
+}
 
   const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*24*3600*1000).toISOString().slice(0,10);
   const end=toDate||new Date().toISOString().slice(0,10);
