@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.6",channel:"jad-cookie-jar-post-login-fix",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.8",channel:"jad-cookie-jar-post-login-fix",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2029,35 +2029,38 @@ function extractCookies(headers){
   return raw.map(item=>String(item).split(";")[0]).filter(Boolean).join("; ");
 }
 function mergeCookies(current,next){const jar={};for(const pair of `${current||""}; ${next||""}`.split(";")){const i=pair.indexOf("=");if(i>0)jar[pair.slice(0,i).trim()]=pair.slice(i+1).trim();}return Object.entries(jar).map(([k,v])=>`${k}=${v}`).join("; ");}
-function parseAutomaticPostForm(html,baseUrl){
+function isJadLoginPage(html,url=""){
+  const source=String(html||"");
+  const forms=[...source.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)];
+  const hasRealLoginForm=forms.some(form=>{
+    const body=form[2];
+    return /<input\b[^>]*name=["']pass["'][^>]*>/i.test(body)
+      && /<input\b[^>]*name=["'](?:mail|tok)["'][^>]*>/i.test(body);
+  });
+  const path=(()=>{try{return new URL(url).pathname.replace(/\/$/,"");}catch{return "";}})();
+  return hasRealLoginForm || /\/log$/.test(path);
+}
+function parseSafeHiddenPostForm(html,baseUrl){
   const source=String(html||"");
   for(const form of source.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)){
     if(!/method=["']?post/i.test(form[1]))continue;
-    const actionMatch=form[1].match(/action=["']([^"']*)/i);
-    const action=new URL(actionMatch?.[1]||baseUrl,baseUrl).toString();
-    const actionPath=new URL(action).pathname.toLowerCase();
-    const inner=form[2];
-
-    // Never auto-submit login, logout, delete or other user-action forms.
-    if(/(?:logout|signout|delete|remove|logoff)/i.test(actionPath))continue;
-    if(/name=["'](?:mail|pass|password|btn-login)["']/i.test(inner))continue;
-    if(/<button\b|type=["'](?:submit|button|image)["']/i.test(inner))continue;
-
-    const inputs=[...inner.matchAll(/<input\b([^>]*)>/gi)];
+    const inputs=[...form[2].matchAll(/<input\b([^>]*)>/gi)];
     if(!inputs.length)continue;
-    const body=new URLSearchParams();
-    let safe=true;
-    for(const match of inputs){
-      const attrs=match[1];
+    let safe=true;const body=new URLSearchParams();
+    for(const input of inputs){
+      const attrs=input[1];
       const name=attrs.match(/name=["']([^"']+)/i)?.[1];
       if(!name)continue;
       const type=(attrs.match(/type=["']([^"']+)/i)?.[1]||"text").toLowerCase();
-      // An automatic hand-off form should contain hidden fields only.
       if(type!=="hidden"){safe=false;break;}
       const value=attrs.match(/value=["']([^"']*)/i)?.[1]||"";
       body.append(name,htmlText(value));
     }
-    if(safe&&[...body.keys()].length)return {action,body:body.toString()};
+    if(!safe||![...body.keys()].length)continue;
+    const actionMatch=form[1].match(/action=["']([^"']*)/i);
+    const action=new URL(actionMatch?.[1]||baseUrl,baseUrl).toString();
+    if(/(?:logout|signout)/i.test(action))continue;
+    return {action,body:body.toString()};
   }
   return null;
 }
@@ -2170,23 +2173,23 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
 
   // Jad may return an intermediate POST form on log_2 to finalize the branch/account session.
   // Submit it automatically with the same complete cookie jar before opening /account.
-  const postLoginForm=parseAutomaticPostForm(afterLoginHtml,step.url);
+  const postLoginForm=parseSafeHiddenPostForm(afterLoginHtml,step.url);
   if(postLoginForm){
     step=await fetchWithCookies(postLoginForm.action,{
       method:"POST",headers:{...browserHeaders,"Content-Type":"application/x-www-form-urlencoded",Origin:base,Referer:step.url},body:postLoginForm.body
     },cookie,{maxRedirects:10});
     cookie=step.cookie;afterLoginHtml=await step.response.text();finalPath=new URL(step.url).pathname.replace(/\/$/,"");
-    if(/name=["']pass["']|btn-login/i.test(afterLoginHtml))throw new Error("انتهت جلسة جاد أثناء إكمال تسجيل الدخول");
+    if(isJadLoginPage(afterLoginHtml,step.url))throw new Error("انتهت جلسة جاد أثناء إكمال تسجيل الدخول");
   }
 
   // Open the account page once using the authenticated session. Some Jad installations
   // initialize account context only after this page is visited.
   step=await fetchWithCookies(`${base}${prefix}/account`,{
-    headers:{...browserHeaders,Referer:step.url||`${base}${prefix}/log_2`}
+    headers:{...browserHeaders,Accept:"text/html,application/xhtml+xml",Referer:step.url||`${base}${prefix}/log_2`}
   },cookie,{maxRedirects:10});
   cookie=step.cookie;
   const accountHtml=await step.response.text();
-  if(/name=["']pass["']|btn-login/i.test(accountHtml))throw new Error("انتهت جلسة جاد بعد تسجيل الدخول؛ تحقق من بيانات الحساب");
+  if(isJadLoginPage(accountHtml,step.url))throw new Error("انتهت جلسة جاد بعد تسجيل الدخول؛ تحقق من بيانات الحساب");
 
   const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*24*3600*1000).toISOString().slice(0,10);
   const end=toDate||new Date().toISOString().slice(0,10);
@@ -2200,12 +2203,12 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
     form.set("date3",end);
     step=await fetchWithCookies(`${base}${prefix}/account`,{
       method:"POST",
-      headers:{...browserHeaders,"Content-Type":"application/x-www-form-urlencoded",Origin:base,Referer:`${base}${prefix}/account`},
+      headers:{"Content-Type":"application/x-www-form-urlencoded",Accept:"text/html,application/xhtml+xml",Origin:base,Referer:`${base}${prefix}/account`},
       body:form.toString()
     },cookie,{maxRedirects:10});
     cookie=step.cookie;
     const selectedHtml=await step.response.text();
-    if(/name=["']pass["']|btn-login/i.test(selectedHtml))throw new Error("رفض موقع جاد اختيار الحساب؛ أعد التحقق من بيانات الدخول");
+    if(isJadLoginPage(selectedHtml,step.url))throw new Error("رفض موقع جاد اختيار الحساب؛ أعد التحقق من بيانات الدخول");
   }
 
   const query=new URLSearchParams({
@@ -2213,12 +2216,12 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
     date1:"date",date2:start,date3:end
   });
   step=await fetchWithCookies(`${base}${prefix}/accountprint.php?${query}`,{
-    headers:{...browserHeaders,Referer:`${base}${prefix}/account`}
+    headers:{Accept:"text/html,application/xhtml+xml",Referer:`${base}${prefix}/account`}
   },cookie,{maxRedirects:10});
   cookie=step.cookie;
   if(step.response.status!==200)throw new Error(`تعذر جلب كشف الحساب (${step.response.status})`);
   const html=await step.response.text();
-  if(/name=["']pass["']|btn-login/i.test(html)&&!/<tbody/i.test(html))throw new Error("رفض الموقع جلسة الدخول؛ تحقق من بيانات الحساب");
+  if(isJadLoginPage(html,step.url)&&!/<tbody/i.test(html))throw new Error("رفض الموقع جلسة الدخول؛ تحقق من بيانات الحساب");
   if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن/i.test(htmlText(html)))throw new Error("تم الاتصال بجاد لكن لم يتم العثور على جدول كشف الحساب");
   return {...parseJadStatement(html),fromDate:start,toDate:end,redirects:step.redirects||[]};
 }
