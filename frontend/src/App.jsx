@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.5.0 Jad Playwright Render Fix";
+const APP_VERSION="v18.5.2 Jad Authenticator OTP";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -2871,6 +2871,7 @@ function Partners({open}){
   const [error,setError]=useState("");
   const [message,setMessage]=useState("");
   const [syncingId,setSyncingId]=useState("");
+  const [otpById,setOtpById]=useState({});
   const [form,setForm]=useState({
     name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",
     systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"JAD",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true
@@ -2903,7 +2904,7 @@ function Partners({open}){
   async function testConnection(partner){
     setError("");setMessage("");
     try{
-      const response=await api.post(`/partners/${partner.id}/test-connection`);
+      const response=await api.post(`/partners/${partner.id}/test-connection`,{otp:otpById[partner.id]||""});
       setMessage(`${partner.name}: ${response.data.message}`);
       await load();
     }catch(requestError){
@@ -2914,7 +2915,8 @@ function Partners({open}){
   async function syncPartner(partner){
     setError("");setMessage("");setSyncingId(partner.id);
     try{
-      const response=await api.post(`/partners/${partner.id}/sync`,{});
+      const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||""});
+      setOtpById(current=>({...current,[partner.id]:""}));
       setMessage(`${partner.name}: ${response.data.message} — الرصيد ${money(response.data.result.balance)} ${partner.accountCurrency||"USD"}`);
       await load();
     }catch(requestError){setError(requestError.response?.data?.message||"تعذر جلب الرصيد");}
@@ -2969,7 +2971,7 @@ function Partners({open}){
           <td><span className={`integration-status status-${String(partner.connectionStatus||"MANUAL").toLowerCase()}`}>{statusLabel(partner.connectionStatus)}</span></td>
           <td>{money(partner.receivable)} {partner.accountCurrency||"CAD"}</td><td>{money(partner.payable)} {partner.accountCurrency||"CAD"}</td><td><strong>{money(partner.net)}</strong></td><td>{money(partner.externalBalance)} {partner.accountCurrency||"USD"}</td><td>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar"):"-"}</td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
-          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{partner.connectorType==="JAD"&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد الآن"}</button>}</td>
+          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{partner.connectorType==="JAD"&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{partner.connectorType==="JAD"&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد الآن"}</button>}</td>
         </tr>):<tr><td colSpan="10">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>
     </div>

@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.5.0",channel:"jad-playwright-render-fix",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.5.2",channel:"jad-authenticator-otp",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2372,7 +2372,7 @@ async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
 }
 
 
-async function syncJadPartnerBrowser(partner,{fromDate,toDate}={}){
+async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
   let chromium;
   try{
     ({chromium}=require("playwright"));
@@ -2437,6 +2437,42 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate}={}){
       submit.click()
     ]);
     await page.waitForTimeout(1500);
+
+    // Jad may request a time-based one-time password from Google Authenticator.
+    // The code is supplied by the user for this single request and is never persisted.
+    const otpSelectors=[
+      'input[name="otp"]','input[name="code"]','input[name="token"]',
+      'input[name="verify"]','input[name="verification_code"]',
+      'input[autocomplete="one-time-code"]','input[inputmode="numeric"]'
+    ];
+    let otpField=null;
+    for(const selector of otpSelectors){
+      const candidate=page.locator(selector).first();
+      if(await candidate.count()){
+        const visible=await candidate.isVisible().catch(()=>false);
+        if(visible){otpField=candidate;break;}
+      }
+    }
+    if(otpField){
+      const cleanOtp=String(otp||"").replace(/\D/g,"").slice(0,8);
+      if(!/^\d{6,8}$/.test(cleanOtp)){
+        const required=new Error("أدخل رمز Google Authenticator الحالي ثم أعد المحاولة");
+        required.code="JAD_OTP_REQUIRED";
+        throw required;
+      }
+      await otpField.fill(cleanOtp);
+      const otpSubmit=page.locator('button[type="submit"],input[type="submit"],button[name*="verify" i],button[name*="confirm" i]').first();
+      if(await otpSubmit.count()){
+        await Promise.all([
+          page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),
+          otpSubmit.click()
+        ]);
+      }else{
+        await otpField.press("Enter");
+        await page.waitForLoadState("domcontentloaded").catch(()=>null);
+      }
+      await page.waitForTimeout(1200);
+    }
 
     // Jad can perform a JavaScript/meta redirect after the POST.
     for(let i=0;i<4;i+=1){
@@ -2657,7 +2693,7 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
   if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
   try{
     if(String(partner.connectorType||"").toUpperCase()==="JAD"){
-      const result=await syncJadPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10)});
+      const result=await syncJadPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp});
       mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.updatedAt=now();}});
       return res.json({ok:true,status:"READY",message:`تم الاتصال بنجاح، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
     }
@@ -2675,7 +2711,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
   if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
   if(String(partner.connectorType||"").toUpperCase()!=="JAD")return res.status(400).json({message:"لا يوجد موصل فعلي محدد لهذه الشركة"});
   try{
-    const result=await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate});
+    const result=await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp});
     let publicPartner=null;
     mutate(store=>{
       const item=store.partners.find(x=>x.id===partner.id);if(!item)return;
