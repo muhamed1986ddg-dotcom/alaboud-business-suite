@@ -1654,31 +1654,81 @@ app.get("/api/general-debts", auth, (req,res)=>{
       });
     }
 
-    // الرصيد الخارجي الذي يجلبه موصل الشركة يظهر تلقائيًا في الدين العام.
-    // القاعدة المعتمدة: الرصيد السالب = دين علينا، والرصيد الموجب = دين لنا.
-    // الصف محسوب ديناميكيًا من سجل الشركة، لذلك تتحدث قيمته في نفس السجل ولا تتكرر عند كل مزامنة.
-    const externalBalance = safeNumber(partner.externalBalance);
-    if (Math.abs(externalBalance) > 0.001) {
-      const externalType = externalBalance < 0 ? "PAYABLE" : "RECEIVABLE";
-      const externalAmount = Math.abs(externalBalance);
-      const externalCurrency = String(partner.accountCurrency || "USD").toUpperCase();
+    // أرصدة الشركة الخارجية تظهر في الدين العام حسب عملة حساب الشركة الأصلية.
+    // نعتمد القيم التفصيلية القادمة من الموصل أولًا:
+    // externalReceivable = دين لنا، externalPayable = دين علينا.
+    // لا نستخدم externalBalance كدين إذا توفرت القيم التفصيلية، لأنه قد يمثل رصيدًا مختلفًا في كشف الشركة.
+    const externalCurrency = String(partner.accountCurrency || "USD").toUpperCase();
+    const externalReceivable = Math.max(safeNumber(partner.externalReceivable), 0);
+    const externalPayable = Math.max(safeNumber(partner.externalPayable), 0);
+    const hasDetailedExternalDebt = externalReceivable > 0.001 || externalPayable > 0.001;
+    const externalCreatedAt = partner.lastSyncAt || partner.updatedAt || partner.createdAt || now();
+
+    if (externalReceivable > 0.001) {
       partnerRows.push({
-        id:`PARTNER:EXTERNAL:${partner.id}:${externalCurrency}`,
-        type:externalType,
+        id:`PARTNER:EXTERNAL:RECEIVABLE:${partner.id}:${externalCurrency}`,
+        type:"RECEIVABLE",
         partyName:partner.name,
-        amount:+externalAmount.toFixed(2),
+        amount:+externalReceivable.toFixed(2),
         paid:0,
-        remaining:+externalAmount.toFixed(2),
+        remaining:+externalReceivable.toFixed(2),
         currency:externalCurrency,
         dueDate:"",
-        description:`الرصيد الخارجي لشركة ${partner.name}`,
+        description:`دين لنا من الرصيد الخارجي لشركة ${partner.name}`,
         reference:partner.integrationName || partner.name,
         status:"OPEN",
         source:"PARTNER_EXTERNAL",
         partnerId:partner.id,
-        createdAt:partner.lastSyncAt || partner.updatedAt || partner.createdAt || now(),
+        createdAt:externalCreatedAt,
         lastSyncAt:partner.lastSyncAt || null,
       });
+    }
+
+    if (externalPayable > 0.001) {
+      partnerRows.push({
+        id:`PARTNER:EXTERNAL:PAYABLE:${partner.id}:${externalCurrency}`,
+        type:"PAYABLE",
+        partyName:partner.name,
+        amount:+externalPayable.toFixed(2),
+        paid:0,
+        remaining:+externalPayable.toFixed(2),
+        currency:externalCurrency,
+        dueDate:"",
+        description:`دين علينا من الرصيد الخارجي لشركة ${partner.name}`,
+        reference:partner.integrationName || partner.name,
+        status:"OPEN",
+        source:"PARTNER_EXTERNAL",
+        partnerId:partner.id,
+        createdAt:externalCreatedAt,
+        lastSyncAt:partner.lastSyncAt || null,
+      });
+    }
+
+    // توافق مع سجلات قديمة لم تكن تحفظ externalReceivable/externalPayable.
+    // نستخدم الرصيد الموقّع فقط عندما لا توجد قيم تفصيلية إطلاقًا.
+    if (!hasDetailedExternalDebt) {
+      const externalBalance = safeNumber(partner.externalBalance);
+      if (Math.abs(externalBalance) > 0.001) {
+        const externalType = externalBalance < 0 ? "PAYABLE" : "RECEIVABLE";
+        const externalAmount = Math.abs(externalBalance);
+        partnerRows.push({
+          id:`PARTNER:EXTERNAL:BALANCE:${partner.id}:${externalCurrency}`,
+          type:externalType,
+          partyName:partner.name,
+          amount:+externalAmount.toFixed(2),
+          paid:0,
+          remaining:+externalAmount.toFixed(2),
+          currency:externalCurrency,
+          dueDate:"",
+          description:`الرصيد الخارجي لشركة ${partner.name}`,
+          reference:partner.integrationName || partner.name,
+          status:"OPEN",
+          source:"PARTNER_EXTERNAL",
+          partnerId:partner.id,
+          createdAt:externalCreatedAt,
+          lastSyncAt:partner.lastSyncAt || null,
+        });
+      }
     }
   }
 
