@@ -12,3 +12,7 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
+      - key: JAD_CONNECTOR_MODE
+        value: browser
+      - key: JAD_HTTP_FALLBACK
+        value: "false"

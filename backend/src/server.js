@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.4.0",channel:"jad-playwright-browser-connector",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.5.0",channel:"jad-playwright-render-fix",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2375,7 +2375,7 @@ async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
 async function syncJadPartnerBrowser(partner,{fromDate,toDate}={}){
   let chromium;
   try{
-    ({chromium}=require("playwright-chromium"));
+    ({chromium}=require("playwright"));
   }catch(error){
     const wrapped=new Error("موصل المتصفح غير مثبت. نفّذ npm install داخل backend ثم أعد النشر");
     wrapped.code="JAD_BROWSER_UNAVAILABLE";
@@ -2397,7 +2397,7 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate}={}){
 
   const launchOptions={
     headless:true,
-    args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-zygote","--single-process"],
+    args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-zygote"],
     timeout:45000
   };
   if(process.env.CHROME_EXECUTABLE_PATH)launchOptions.executablePath=process.env.CHROME_EXECUTABLE_PATH;
@@ -2433,10 +2433,10 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate}={}){
     if(await submit.count()===0)throw new Error("تعذر العثور على زر تسجيل الدخول في موقع جاد");
 
     await Promise.all([
-      page.waitForLoadState("domcontentloaded").catch(()=>null),
+      page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),
       submit.click()
     ]);
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1500);
 
     // Jad can perform a JavaScript/meta redirect after the POST.
     for(let i=0;i<4;i+=1){
