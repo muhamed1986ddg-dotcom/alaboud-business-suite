@@ -2193,7 +2193,7 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
 console.log("=== ACCOUNT URL ===", step.url);
 console.log("=== ACCOUNT HTML ===", accountHtml.substring(0, 3000));
 
-if (isLoginPage(accountHtml)) {
+if (isJadLoginPage(accountHtml, step.url)) {
   throw new Error("انتهت جلسة جاد بعد تسجيل الدخول، تحقق من بيانات الحساب.");
 }
 
