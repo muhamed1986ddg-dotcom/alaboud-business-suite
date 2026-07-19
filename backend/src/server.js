@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.7",channel:"jad-safe-continuation-form-fix",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.6",channel:"jad-cookie-jar-post-login-fix",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2029,76 +2029,37 @@ function extractCookies(headers){
   return raw.map(item=>String(item).split(";")[0]).filter(Boolean).join("; ");
 }
 function mergeCookies(current,next){const jar={};for(const pair of `${current||""}; ${next||""}`.split(";")){const i=pair.indexOf("=");if(i>0)jar[pair.slice(0,i).trim()]=pair.slice(i+1).trim();}return Object.entries(jar).map(([k,v])=>`${k}=${v}`).join("; ");}
-function decodeHtmlAttribute(value){
-  return String(value||"")
-    .replace(/&amp;/gi,"&")
-    .replace(/&quot;/gi,'"')
-    .replace(/&#0*39;|&apos;/gi,"'")
-    .replace(/&lt;/gi,"<")
-    .replace(/&gt;/gi,">");
-}
-function parseJadContinuationForm(html,baseUrl){
+function parseAutomaticPostForm(html,baseUrl){
   const source=String(html||"");
-  const forms=[...source.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)]
-    .filter(m=>/method\s*=\s*["']?post/i.test(m[1]));
-
-  let best=null;
-  for(const form of forms){
-    const attrs=form[1]||"";
-    const inner=form[2]||"";
-    const combined=htmlText(`${attrs} ${inner}`).toLowerCase();
-    const actionRaw=decodeHtmlAttribute(attrs.match(/action\s*=\s*["']([^"']*)/i)?.[1]||baseUrl);
-    const action=new URL(actionRaw||baseUrl,baseUrl).toString();
+  for(const form of source.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)){
+    if(!/method=["']?post/i.test(form[1]))continue;
+    const actionMatch=form[1].match(/action=["']([^"']*)/i);
+    const action=new URL(actionMatch?.[1]||baseUrl,baseUrl).toString();
     const actionPath=new URL(action).pathname.toLowerCase();
+    const inner=form[2];
 
-    // Never auto-submit login or logout forms. The old implementation selected the
-    // first POST form, which on some Jad pages is the logout form and destroys the
-    // authenticated PHP session immediately after a successful login.
-    if(/name\s*=\s*["'](?:mail|pass)["']|type\s*=\s*["']password["']|btn-login/i.test(inner))continue;
-    if(/logout|log_out|signout|sign-out|تسجيل\s*الخروج|خروج/.test(`${actionPath} ${combined}`))continue;
+    // Never auto-submit login, logout, delete or other user-action forms.
+    if(/(?:logout|signout|delete|remove|logoff)/i.test(actionPath))continue;
+    if(/name=["'](?:mail|pass|password|btn-login)["']/i.test(inner))continue;
+    if(/<button\b|type=["'](?:submit|button|image)["']/i.test(inner))continue;
 
+    const inputs=[...inner.matchAll(/<input\b([^>]*)>/gi)];
+    if(!inputs.length)continue;
     const body=new URLSearchParams();
-    let hiddenCount=0;
-    let meaningfulCount=0;
-    let submitAdded=false;
-
-    for(const m of inner.matchAll(/<input\b([^>]*)>/gi)){
-      const inputAttrs=m[1]||"";
-      const name=decodeHtmlAttribute(inputAttrs.match(/name\s*=\s*["']([^"']+)/i)?.[1]||"");
+    let safe=true;
+    for(const match of inputs){
+      const attrs=match[1];
+      const name=attrs.match(/name=["']([^"']+)/i)?.[1];
       if(!name)continue;
-      const type=(inputAttrs.match(/type\s*=\s*["']([^"']+)/i)?.[1]||"text").toLowerCase();
-      if(["button","image","file","reset"].includes(type))continue;
-      if((type==="checkbox"||type==="radio")&&!/\bchecked\b/i.test(inputAttrs))continue;
-      if(type==="submit"&&submitAdded)continue;
-      const value=decodeHtmlAttribute(inputAttrs.match(/value\s*=\s*["']([^"']*)/i)?.[1]||"");
-      body.append(name,value);
-      if(type==="hidden")hiddenCount+=1;
-      if(type==="submit")submitAdded=true;
-      if(!["submit","button"].includes(type))meaningfulCount+=1;
+      const type=(attrs.match(/type=["']([^"']+)/i)?.[1]||"text").toLowerCase();
+      // An automatic hand-off form should contain hidden fields only.
+      if(type!=="hidden"){safe=false;break;}
+      const value=attrs.match(/value=["']([^"']*)/i)?.[1]||"";
+      body.append(name,htmlText(value));
     }
-
-    for(const m of inner.matchAll(/<select\b([^>]*)>([\s\S]*?)<\/select>/gi)){
-      const name=decodeHtmlAttribute((m[1]||"").match(/name\s*=\s*["']([^"']+)/i)?.[1]||"");
-      if(!name)continue;
-      const options=[...m[2].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)];
-      const selected=options.find(x=>/\bselected\b/i.test(x[1]))||options[0];
-      if(selected){
-        const value=decodeHtmlAttribute(selected[1].match(/value\s*=\s*["']([^"']*)/i)?.[1]||htmlText(selected[2]));
-        body.append(name,value);meaningfulCount+=1;
-      }
-    }
-
-    const autoSubmit=/\.submit\s*\(|requestSubmit\s*\(|onload[^>]*submit/i.test(source);
-    let score=hiddenCount*2+meaningfulCount;
-    if(/log_2|account|merkez|branch|company|confirm|select/i.test(`${actionPath} ${inner}`))score+=4;
-    if(autoSubmit)score+=3;
-
-    // A continuation form must carry actual state. This prevents navigation/search
-    // forms from being posted accidentally.
-    if(!body.toString()||score<3)continue;
-    if(!best||score>best.score)best={action,body:body.toString(),score};
+    if(safe&&[...body.keys()].length)return {action,body:body.toString()};
   }
-  return best?{action:best.action,body:best.body}:null;
+  return null;
 }
 async function fetchWithCookies(url,options={},cookie="",settings={}){
   const maxRedirects=Number.isFinite(settings.maxRedirects)?settings.maxRedirects:8;
@@ -2209,7 +2170,7 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
 
   // Jad may return an intermediate POST form on log_2 to finalize the branch/account session.
   // Submit it automatically with the same complete cookie jar before opening /account.
-  const postLoginForm=parseJadContinuationForm(afterLoginHtml,step.url);
+  const postLoginForm=parseAutomaticPostForm(afterLoginHtml,step.url);
   if(postLoginForm){
     step=await fetchWithCookies(postLoginForm.action,{
       method:"POST",headers:{...browserHeaders,"Content-Type":"application/x-www-form-urlencoded",Origin:base,Referer:step.url},body:postLoginForm.body
@@ -2221,7 +2182,7 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
   // Open the account page once using the authenticated session. Some Jad installations
   // initialize account context only after this page is visited.
   step=await fetchWithCookies(`${base}${prefix}/account`,{
-    headers:{Accept:"text/html,application/xhtml+xml",Referer:step.url||`${base}${prefix}/log_2`}
+    headers:{...browserHeaders,Referer:step.url||`${base}${prefix}/log_2`}
   },cookie,{maxRedirects:10});
   cookie=step.cookie;
   const accountHtml=await step.response.text();
@@ -2239,7 +2200,7 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
     form.set("date3",end);
     step=await fetchWithCookies(`${base}${prefix}/account`,{
       method:"POST",
-      headers:{"Content-Type":"application/x-www-form-urlencoded",Accept:"text/html,application/xhtml+xml",Origin:base,Referer:`${base}${prefix}/account`},
+      headers:{...browserHeaders,"Content-Type":"application/x-www-form-urlencoded",Origin:base,Referer:`${base}${prefix}/account`},
       body:form.toString()
     },cookie,{maxRedirects:10});
     cookie=step.cookie;
@@ -2252,7 +2213,7 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
     date1:"date",date2:start,date3:end
   });
   step=await fetchWithCookies(`${base}${prefix}/accountprint.php?${query}`,{
-    headers:{Accept:"text/html,application/xhtml+xml",Referer:`${base}${prefix}/account`}
+    headers:{...browserHeaders,Referer:`${base}${prefix}/account`}
   },cookie,{maxRedirects:10});
   cookie=step.cookie;
   if(step.response.status!==200)throw new Error(`تعذر جلب كشف الحساب (${step.response.status})`);
