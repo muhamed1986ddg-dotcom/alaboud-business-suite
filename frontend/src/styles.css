@@ -4410,3 +4410,8 @@ body.app-language-en aside{
 .company-subline{display:block;opacity:.7;margin-top:4px}
 .integration-status{display:inline-flex;padding:5px 10px;border-radius:999px;font-weight:700;font-size:.82rem;background:#eef2f7}
 .status-ready{background:#dcfce7;color:#166534}.status-configured{background:#dbeafe;color:#1d4ed8}.status-not_configured{background:#fee2e2;color:#991b1b}.status-manual{background:#f1f5f9;color:#475569}
+
+/* v18.5.2 Jad Authenticator OTP */
+.jad-otp-input{min-width:150px;max-width:170px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;text-align:center;font-weight:800;letter-spacing:1.5px;background:#fff}
+.jad-otp-input:focus{outline:2px solid rgba(14,165,233,.22);border-color:#0284c7}
+.actions .jad-otp-input{display:inline-block;margin:3px}
