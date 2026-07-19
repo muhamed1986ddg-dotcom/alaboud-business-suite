@@ -2418,6 +2418,22 @@ function parseJadCurrencyBalances(html){
         }
       }
 
+      // Direct Jad card pattern: amount, optional icon/flag, currency label, direction.
+      // Example: 8,857 [EU icon] يورو لكم.
+      const directCardPatterns=[
+        {kind:"receivable",re:new RegExp(`${amount}[^\p{L}\p{N}]{0,30}${a}\s*${recv}`,"giu")},
+        {kind:"payable",re:new RegExp(`${amount}[^\p{L}\p{N}]{0,30}${a}\s*${pay}`,"giu")}
+      ];
+      for(const candidate of directCardPatterns){
+        for(const match of raw.matchAll(candidate.re)){
+          const amountValue=Math.abs(numberFromText(match[1]));
+          if(!Number.isFinite(amountValue))continue;
+          found=true;
+          if(candidate.kind==="receivable")receivable=Math.max(receivable,amountValue);
+          else payable=Math.max(payable,amountValue);
+        }
+      }
+
       // Fallback for Jad dashboard cards where the flag/icon appears between
       // the amount and the currency label. Inspect a compact window around the alias.
       const aliasRe=new RegExp(a,"giu");
@@ -2760,12 +2776,37 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     await verifyAuthenticatedSession();
 
     // Read every currency card from Jad dashboard before navigating to the statement page.
-    // Example: 54,981 دولار عليكم / 8,857 يورو لكم.
-    await page.waitForTimeout(1800);
-    const authenticatedLandingHtml=await page.content().catch(()=>"");
-    const authenticatedLandingText=await page.locator("body").innerText().catch(()=>"");
-    const dashboardCurrencyBalances=parseJadCurrencyBalances(`${authenticatedLandingText} ${authenticatedLandingHtml}`);
-    trace.push({label:"dashboard-currency-balances",url:page.url(),time:new Date().toISOString(),balances:dashboardCurrencyBalances,preview:safeText(authenticatedLandingText).slice(0,900)});
+    // Jad may render the cards asynchronously or inside an iframe. Poll all frames so
+    // patterns such as "8,857 [EU icon] يورو لكم" are not missed.
+    const collectDashboardCurrencySource=async()=>{
+      const chunks=[];
+      for(const frame of page.frames()){
+        const text=await frame.locator("body").innerText().catch(()=>"");
+        const html=await frame.content().catch(()=>"");
+        if(text)chunks.push(text);
+        if(html)chunks.push(html);
+      }
+      return chunks.join(" ");
+    };
+    let dashboardCurrencySource="";
+    let dashboardCurrencyBalances={};
+    for(let attempt=0;attempt<12;attempt+=1){
+      dashboardCurrencySource=await collectDashboardCurrencySource();
+      dashboardCurrencyBalances=parseJadCurrencyBalances(dashboardCurrencySource);
+      const hasPrimary=dashboardCurrencyBalances.USD||dashboardCurrencyBalances.EUR;
+      if(hasPrimary)break;
+      await page.waitForTimeout(650);
+    }
+    // One extra wait for delayed secondary cards (especially EUR) after USD appears.
+    if(dashboardCurrencyBalances.USD&&!dashboardCurrencyBalances.EUR){
+      for(let attempt=0;attempt<8;attempt+=1){
+        await page.waitForTimeout(500);
+        dashboardCurrencySource=await collectDashboardCurrencySource();
+        dashboardCurrencyBalances=parseJadCurrencyBalances(dashboardCurrencySource);
+        if(dashboardCurrencyBalances.EUR)break;
+      }
+    }
+    trace.push({label:"dashboard-currency-balances",url:page.url(),time:new Date().toISOString(),balances:dashboardCurrencyBalances,preview:safeText(htmlText(dashboardCurrencySource)).slice(0,1400)});
 
     // Jad commonly exposes the statement on pl.m even when the authenticated
     // landing URL remains /log. Probe the known authenticated endpoint first,
