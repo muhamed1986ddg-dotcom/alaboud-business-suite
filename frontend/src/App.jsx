@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.4 External Balance to General Debt";
+const APP_VERSION="v18.6.5 Reconnect Without Redirect";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -2929,9 +2929,11 @@ function Partners({open}){
       const response=await api.get(`/partners/${partner.id}/jad-diagnostic`);
       const lines=(response.data.diagnostic||[]).map(item=>`${item.label}: ${item.url||""}${item.status?` — ${item.status}`:""}${item.text?` — ${item.text}`:""}`);
       setMessage(`${partner.name}: ${response.data.message}${lines.length?`\n${lines.join("\n")}`:""}`);
+      // لا تفتح صفحة جاد أو لقطة التشخيص في تبويب جديد.
+      // يبقى سجل الربط داخل نفس الصفحة حتى لا ينتقل المستخدم إلى صفحة تسجيل الدخول.
       if(response.data.artifacts?.available){
-        const shot=await api.get(`/partners/${partner.id}/jad-diagnostic/screenshot`,{responseType:"blob"}).catch(()=>null);
-        if(shot){const url=URL.createObjectURL(shot.data);window.open(url,"_blank","noopener,noreferrer");setTimeout(()=>URL.revokeObjectURL(url),60000);}
+        setMessage(current=>`${current}
+توجد لقطة تشخيص محفوظة على الخادم، ولن يتم فتحها تلقائياً.`);
       }
     }catch(requestError){setError(requestError.response?.data?.message||"لا يوجد سجل تشخيص متاح");}
   }

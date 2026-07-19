@@ -2949,7 +2949,7 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
   try{
     if(String(partner.connectorType||"").toUpperCase()==="JAD"){
       const result=await syncJadPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp});
-      mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.updatedAt=now();}});
+      mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.updatedAt=now();}});
       return res.json({ok:true,status:"READY",message:`تم الاتصال بنجاح، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
     }
     normalizeBaseUrl(partner.systemUrl);
@@ -2971,7 +2971,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
     mutate(store=>{
       const item=store.partners.find(x=>x.id===partner.id);if(!item)return;
       item.externalReceivable=result.receivable;item.externalPayable=result.payable;item.externalBalance=result.balance;
-      item.lastSyncAt=now();item.lastSyncError="";item.connectionStatus="READY";item.updatedAt=now();
+      item.lastSyncAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.connectionStatus="READY";item.updatedAt=now();
       item.lastImportedMovementCount=result.movements.length;
       const {passwordEncrypted,...safe}=item;publicPartner={...safe,hasPassword:Boolean(passwordEncrypted)};
       audit(store,req.user.id,"SYNC","PARTNER",item.id,{connector:"JAD",balance:result.balance,receivable:result.receivable,payable:result.payable,count:result.movements.length});
