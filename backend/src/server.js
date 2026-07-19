@@ -1653,6 +1653,33 @@ app.get("/api/general-debts", auth, (req,res)=>{
         createdAt:partner.updatedAt||partner.createdAt||now()
       });
     }
+
+    // الرصيد الخارجي الذي يجلبه موصل الشركة يظهر تلقائيًا في الدين العام.
+    // القاعدة المعتمدة: الرصيد السالب = دين علينا، والرصيد الموجب = دين لنا.
+    // الصف محسوب ديناميكيًا من سجل الشركة، لذلك تتحدث قيمته في نفس السجل ولا تتكرر عند كل مزامنة.
+    const externalBalance = safeNumber(partner.externalBalance);
+    if (Math.abs(externalBalance) > 0.001) {
+      const externalType = externalBalance < 0 ? "PAYABLE" : "RECEIVABLE";
+      const externalAmount = Math.abs(externalBalance);
+      const externalCurrency = String(partner.accountCurrency || "USD").toUpperCase();
+      partnerRows.push({
+        id:`PARTNER:EXTERNAL:${partner.id}:${externalCurrency}`,
+        type:externalType,
+        partyName:partner.name,
+        amount:+externalAmount.toFixed(2),
+        paid:0,
+        remaining:+externalAmount.toFixed(2),
+        currency:externalCurrency,
+        dueDate:"",
+        description:`الرصيد الخارجي لشركة ${partner.name}`,
+        reference:partner.integrationName || partner.name,
+        status:"OPEN",
+        source:"PARTNER_EXTERNAL",
+        partnerId:partner.id,
+        createdAt:partner.lastSyncAt || partner.updatedAt || partner.createdAt || now(),
+        lastSyncAt:partner.lastSyncAt || null,
+      });
+    }
   }
 
   const rows = [...manualRows, ...transferRows, ...partnerRows]
