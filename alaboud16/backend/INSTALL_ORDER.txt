@@ -1,5 +1,0 @@
-1) انشر AlAboud_Web_v12_2_Professional_FINAL.zip على مشروع الويب ثم Render.
-2) اختبر الموقع والتطبيق الحالي.
-3) ارفع AlAboud_Mobile_v12_2_Professional.zip إلى مستودع alaboud-mobile-app.
-4) شغّل Build Android v12.2 Professional APK من Actions.
-5) حمّل Artifact وثبّت app-debug.apk.
