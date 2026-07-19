@@ -2052,6 +2052,7 @@ function parseSafeHiddenPostForm(html,baseUrl){
       const name=attrs.match(/name=["']([^"']+)/i)?.[1];
       if(!name)continue;
       const type=(attrs.match(/type=["']([^"']+)/i)?.[1]||"text").toLowerCase();
+      if(type==="submit"||type==="button"||type==="image")continue; // buttons don't need to be submitted with fetch
       if(type!=="hidden"){safe=false;break;}
       const value=attrs.match(/value=["']([^"']*)/i)?.[1]||"";
       body.append(name,htmlText(value));
@@ -2188,16 +2189,16 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
     headers:{...browserHeaders,Accept:"text/html,application/xhtml+xml",Referer:step.url||`${base}${prefix}/log_2`}
   },cookie,{maxRedirects:10});
   cookie=step.cookie;
-  accountHtml = await step.response.text();
-
-console.log("=== ACCOUNT URL ===", step.url);
-
-// أضف هذا السطر الجديد
-console.log(accountHtml.match(/<body[\s\S]*<\/body>/i)?.[0] || accountHtml);
-
-if (isJadLoginPage(accountHtml, step.url)) {
-    throw new Error("انتهت جلسة جاد بعد تسجيل الدخول، تحقق من بيانات الحساب.");
-}
+  const accountHtml=await step.response.text();
+  if(isJadLoginPage(accountHtml,step.url)){
+    console.error("[JAD_SYNC_DEBUG] account page bounced to login",{
+      partnerId:partner.id,
+      finalUrl:step.url,
+      hadPostLoginForm:Boolean(postLoginForm),
+      htmlSnippet:String(accountHtml).slice(0,800)
+    });
+    throw new Error("انتهت جلسة جاد بعد تسجيل الدخول؛ تحقق من بيانات الحساب");
+  }
 
   const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*24*3600*1000).toISOString().slice(0,10);
   const end=toDate||new Date().toISOString().slice(0,10);
