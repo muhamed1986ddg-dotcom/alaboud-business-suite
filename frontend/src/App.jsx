@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.15 Stable Last Successful Balances";
+const APP_VERSION="v18.6.16 Clean Successful Sync Status";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -2966,8 +2966,14 @@ function Partners({open}){
       const response=await api.get(`/partners/${partner.id}/jad-diagnostic`);
       const diagnostic=Array.isArray(response.data.diagnostic)?response.data.diagnostic:[];
       console.info("Jad diagnostic",{partner:partner.name,diagnostic,artifacts:response.data.artifacts});
-      const lastStep=diagnostic.length?diagnostic[diagnostic.length-1]?.label:"لا توجد خطوات مسجلة";
-      setMessage(`${partner.name}: سجل الربط متاح. آخر خطوة: ${lastStep}. التفاصيل التقنية محفوظة في Console وRender Logs.`);
+      const hasSuccessfulSync=Boolean(response.data.lastSyncAt)&&String(response.data.status||"").toUpperCase()==="READY";
+      if(hasSuccessfulSync){
+        const syncedAt=new Date(response.data.lastSyncAt).toLocaleString("ar-CA");
+        setMessage(`${partner.name}: متصل — آخر مزامنة ناجحة ${syncedAt}.`);
+      }else{
+        const lastStep=diagnostic.length?diagnostic[diagnostic.length-1]?.label:"لا توجد خطوات مسجلة";
+        setMessage(`${partner.name}: سجل الربط متاح${lastStep&&lastStep!=="failure"?` — آخر خطوة: ${lastStep}`:""}. التفاصيل التقنية محفوظة في Console وRender Logs.`);
+      }
     }catch(requestError){setError(cleanConnectorMessage(requestError.response?.data?.message||"لا يوجد سجل تشخيص متاح"));}
   }
 
