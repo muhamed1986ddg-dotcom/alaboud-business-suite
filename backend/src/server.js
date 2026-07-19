@@ -2424,28 +2424,37 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     await Promise.all([page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),submit.click()]);
     await page.waitForTimeout(1200); await record("after-credentials");
 
-    // Detect OTP by selectors and by page wording. Jad installations use different field names.
-    const otpPageText=(await page.locator('body').innerText().catch(()=>""));
-    const otpHint=/رمز\s*(?:التحقق|التوثيق|المصادقة)|authenticator|verification\s*code|one[- ]time|otp/i.test(otpPageText);
-    const otpCandidates=page.locator('input:not([type="hidden"]):not([type="password"]):not([type="email"]):not([name="mail"])');
-    let otpField=null;
-    for(let i=0;i<await otpCandidates.count();i+=1){
-      const c=otpCandidates.nth(i); if(!(await c.isVisible().catch(()=>false)))continue;
-      const meta=await c.evaluate(el=>({name:el.name||"",id:el.id||"",type:el.type||"",inputmode:el.inputMode||"",autocomplete:el.autocomplete||"",placeholder:el.placeholder||"",maxlength:el.maxLength||0})).catch(()=>({}));
-      const signature=Object.values(meta).join(" ");
-      if(/otp|code|token|verify|verification|auth|two|2fa|numeric|one-time/i.test(signature)||meta.maxlength===6||meta.maxlength===8){otpField=c;break;}
+    // Detect OTP in the main page or any iframe. Jad may render Authenticator inside a nested frame.
+    let otpTarget=null;
+    let otpContext=null;
+    let otpHint=false;
+    for(const frame of page.frames()){
+      const frameText=await frame.locator('body').innerText({timeout:2500}).catch(()=>"");
+      if(/رمز\s*(?:التحقق|التوثيق|المصادقة)|authenticator|verification\s*code|one[- ]time|otp|2fa/i.test(frameText))otpHint=true;
+      const candidates=frame.locator('input:not([type="hidden"]):not([type="password"]):not([type="email"]):not([name="mail"])');
+      for(let i=0;i<await candidates.count();i+=1){
+        const c=candidates.nth(i); if(!(await c.isVisible().catch(()=>false)))continue;
+        const meta=await c.evaluate(el=>({name:el.name||"",id:el.id||"",type:el.type||"",inputmode:el.inputMode||"",autocomplete:el.autocomplete||"",placeholder:el.placeholder||"",maxlength:el.maxLength||0})).catch(()=>({}));
+        const signature=Object.values(meta).join(" ");
+        if(/otp|code|token|verify|verification|auth|two|2fa|numeric|one-time|pin/i.test(signature)||meta.maxlength===6||meta.maxlength===8){otpTarget=c;otpContext=frame;break;}
+      }
+      if(otpTarget)break;
     }
-    if(!otpField&&otpHint){
-      const visibleTextInputs=page.locator('input[type="text"],input:not([type])');
-      for(let i=0;i<await visibleTextInputs.count();i++){const c=visibleTextInputs.nth(i);if(await c.isVisible().catch(()=>false)){otpField=c;break;}}
+    if(!otpTarget&&otpHint){
+      for(const frame of page.frames()){
+        const candidates=frame.locator('input[type="text"],input[type="tel"],input:not([type])');
+        for(let i=0;i<await candidates.count();i+=1){const c=candidates.nth(i);if(await c.isVisible().catch(()=>false)){otpTarget=c;otpContext=frame;break;}}
+        if(otpTarget)break;
+      }
     }
-    if(otpField){
-      if(!/^\d{6,8}$/.test(cleanOtp)){const e=await diagnosticError("أدخل رمز Google Authenticator الحالي ثم أعد المحاولة","JAD_OTP_REQUIRED");throw e;}
-      await otpField.fill(cleanOtp);
-      const otpSubmit=page.locator('button[type="submit"],input[type="submit"],button:has-text("تأكيد"),button:has-text("تحقق"),button:has-text("دخول")').first();
-      if(await otpSubmit.count())await Promise.all([page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),otpSubmit.click()]);
-      else {await otpField.press("Enter");await page.waitForLoadState("domcontentloaded").catch(()=>null);}
-      await page.waitForTimeout(1500); await record("after-otp");
+    if(otpTarget){
+      if(!/^\d{6,8}$/.test(cleanOtp))throw await diagnosticError("أدخل رمز Google Authenticator الحالي ثم أعد المحاولة","JAD_OTP_REQUIRED");
+      await otpTarget.fill(cleanOtp);
+      const scope=otpContext||page.mainFrame();
+      const otpSubmit=scope.locator('button[type="submit"],input[type="submit"],button:has-text("تأكيد"),button:has-text("تحقق"),button:has-text("دخول"),button:has-text("متابعة")').first();
+      if(await otpSubmit.count())await Promise.all([page.waitForLoadState("domcontentloaded",{timeout:30000}).catch(()=>null),otpSubmit.click()]);
+      else {await otpTarget.press("Enter");await page.waitForLoadState("domcontentloaded").catch(()=>null);}
+      await page.waitForTimeout(1800); await record("after-otp");
     }else if(otpHint){throw await diagnosticError("ظهرت صفحة رمز التحقق ولكن لم يتمكن البرنامج من تحديد خانة الرمز","JAD_OTP_FIELD_NOT_FOUND");}
 
     // Allow client-side redirects and intermediate transfer pages to finish.
@@ -2465,27 +2474,27 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     let accountHtml=await page.content();
     if(isJadLoginPage(accountHtml,page.url()))throw await diagnosticError("موقع جاد أعاد صفحة تسجيل الدخول بعد إدخال البيانات؛ الرمز قد يكون منتهيًا أو تم رفض تسجيل الدخول","JAD_LOGIN_REJECTED");
 
-    if(accountId){
-      const confirm=page.locator('[name="confirm"]').first();
-      if(await confirm.count()){
-        await confirm.fill(accountId);
-        const currency=page.locator('[name="currency"]').first(); if(await currency.count())await currency.selectOption(String(partner.accountCurrency||"USD").toLowerCase()).catch(()=>null);
-        const date2=page.locator('[name="date2"]').first(); const date3=page.locator('[name="date3"]').first();
-        if(await date2.count())await date2.fill(start); if(await date3.count())await date3.fill(end);
-        const form=confirm.locator('xpath=ancestor::form[1]');
-        if(await form.count())await Promise.all([page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),form.evaluate(f=>f.submit())]);
-        else await confirm.press("Enter");
-        await page.waitForTimeout(700); await record("account-selected");
-      }
-    }
-
-    const query=new URLSearchParams({currency:String(partner.accountCurrency||"USD").toLowerCase(),date1:"date",date2:start,date3:end});
-    await page.goto(`${base}${prefix}/accountprint.php?${query}`,{waitUntil:"domcontentloaded"});
-    await page.waitForTimeout(700); await record("statement-page");
-    const html=await page.content();
-    if(isJadLoginPage(html,page.url())&&!/<tbody/i.test(html))throw await diagnosticError("رفض موقع جاد الجلسة عند طلب كشف الحساب؛ يلزم تسجيل دخول جديد","JAD_SESSION_REJECTED");
-    if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن/i.test(htmlText(html)))throw await diagnosticError("تم تسجيل الدخول، لكن صفحة كشف الحساب في جاد مختلفة عن المتوقع. راجع سجل تشخيص جاد","JAD_STATEMENT_NOT_FOUND");
-    return {...parseJadStatement(html),fromDate:start,toDate:end,mode:"BROWSER",diagnostic:trace.slice(-8)};
+    // The captured Jad request posts directly to /account and returns the full HTML statement.
+    // Do not assume accountprint.php exists on every Jad installation.
+    const formPayload={
+      currency:String(partner.accountCurrency||"USD").toLowerCase(),
+      date1:"date",
+      confirm:accountId,
+      date2:start,
+      date3:end
+    };
+    const posted=await page.evaluate(async({url,payload})=>{
+      const body=new URLSearchParams();
+      for(const [key,value] of Object.entries(payload)){if(value!==undefined&&value!==null&&String(value)!=="")body.set(key,String(value));}
+      const response=await fetch(url,{method:"POST",credentials:"include",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:body.toString()});
+      return {status:response.status,url:response.url,html:await response.text()};
+    },{url:accountUrl,payload:formPayload});
+    trace.push({label:"account-post",url:posted.url,status:posted.status,time:new Date().toISOString(),text:htmlText(posted.html).slice(0,500)});
+    const html=posted.html;
+    if(posted.status<200||posted.status>=400)throw await diagnosticError(`تعذر إرسال طلب كشف الحساب إلى جاد (${posted.status})`,"JAD_ACCOUNT_POST_FAILED");
+    if(isJadLoginPage(html,posted.url)&&!/<tbody/i.test(html))throw await diagnosticError("رفض موقع جاد الجلسة عند طلب كشف الحساب؛ أدخل رمز Authenticator جديدًا","JAD_SESSION_REJECTED");
+    if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(htmlText(html)))throw await diagnosticError("تم تسجيل الدخول، لكن استجابة كشف الحساب لا تحتوي جدولًا. تحقق من رقم الحساب الخارجي","JAD_STATEMENT_NOT_FOUND");
+    return {...parseJadStatement(html),fromDate:start,toDate:end,mode:"BROWSER",diagnostic:trace.slice(-10)};
   }catch(error){
     if(/Executable doesn't exist|browserType\.launch|Failed to launch|host system is missing dependencies/i.test(String(error?.message||""))){const wrapped=new Error("تعذر تشغيل متصفح جاد على الخادم. تأكد من اكتمال تنزيل Chromium أثناء بناء Render");wrapped.code="JAD_BROWSER_UNAVAILABLE";wrapped.cause=error;throw wrapped;}
     if(!error.jadTrace)error.jadTrace=trace.slice(-12);

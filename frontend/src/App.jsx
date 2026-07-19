@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.5.2 Jad Authenticator OTP";
+const APP_VERSION="v18.5.5 Jad Direct Account POST";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
