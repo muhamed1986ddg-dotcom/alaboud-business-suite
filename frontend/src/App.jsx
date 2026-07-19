@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.5 Reconnect Without Redirect";
+const APP_VERSION="v18.6.6 Stable Connected Status";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -2983,7 +2983,7 @@ function Partners({open}){
         <tbody>{data.rows.length?data.rows.map(partner=><tr key={partner.id}>
           <td><strong>{partner.name}</strong><small className="company-subline">{partner.contactName||partner.integrationName||"-"}</small></td>
           <td>{partner.connectionType||"يدوي"}</td>
-          <td><span className={`integration-status status-${String(partner.connectionStatus||"MANUAL").toLowerCase()}`}>{statusLabel(partner.connectionStatus)}</span></td>
+          <td>{(()=>{const effectiveStatus=partner.lastSyncAt&&Number.isFinite(Number(partner.externalBalance))?"READY":partner.connectionStatus;return <span className={`integration-status status-${String(effectiveStatus||"MANUAL").toLowerCase()}`}>{statusLabel(effectiveStatus)}</span>;})()}</td>
           <td>{money(partner.receivable)} {partner.accountCurrency||"CAD"}</td><td>{money(partner.payable)} {partner.accountCurrency||"CAD"}</td><td><strong>{money(partner.net)}</strong></td><td>{money(partner.externalBalance)} {partner.accountCurrency||"USD"}</td><td>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar"):"-"}</td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
           <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{partner.connectorType==="JAD"&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{partner.connectorType==="JAD"&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد الآن"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</td>

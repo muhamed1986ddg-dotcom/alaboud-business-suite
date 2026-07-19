@@ -2956,7 +2956,17 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
     mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.updatedAt=now();}});
     res.json({ok:true,status:"READY",message:"الرابط صالح. اختر موصل الشركة لإجراء مزامنة فعلية."});
   }catch(error){
-    mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];item.lastJadArtifacts=error.jadArtifacts||null;item.updatedAt=now();}});
+    mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){
+      // لا نحول الشركة إلى "خطأ" إذا سبق أن نجحت مزامنة فعلية وجُلب الرصيد.
+      // نحفظ خطأ المحاولة الأخيرة كسجل تحذيري فقط، وتبقى الحالة "متصل" حتى تنجح/تفشل مزامنة فعلية جديدة دون أي نجاح سابق.
+      const hasSuccessfulSync=Boolean(item.lastSyncAt) && Number.isFinite(Number(item.externalBalance));
+      item.connectionStatus=hasSuccessfulSync?"READY":"ERROR";
+      item.lastSyncError=String(error.message||error);
+      item.lastConnectionTestErrorAt=now();
+      item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];
+      item.lastJadArtifacts=error.jadArtifacts||null;
+      item.updatedAt=now();
+    }});
     res.status(400).json({message:error.message||"تعذر اختبار الاتصال",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null,details:error.jadDetails||null});
   }
 });
@@ -2978,7 +2988,17 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
     });
     res.json({message:"تم جلب الرصيد من شركة جاد",partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
   }catch(error){
-    mutate(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];item.lastJadArtifacts=error.jadArtifacts||null;item.updatedAt=now();}});
+    mutate(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){
+      // إذا توجد مزامنة ناجحة سابقة، نحافظ على حالة الاتصال والرصيد المؤكدين.
+      // الفشل المؤقت (OTP منتهي/انقطاع) يُسجل ولا يمحو آخر نجاح.
+      const hasSuccessfulSync=Boolean(item.lastSyncAt) && Number.isFinite(Number(item.externalBalance));
+      item.connectionStatus=hasSuccessfulSync?"READY":"ERROR";
+      item.lastSyncError=String(error.message||error);
+      item.lastSyncAttemptErrorAt=now();
+      item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];
+      item.lastJadArtifacts=error.jadArtifacts||null;
+      item.updatedAt=now();
+    }});
     res.status(400).json({message:error.message||"تعذر جلب الرصيد",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null,details:error.jadDetails||null});
   }
 });
