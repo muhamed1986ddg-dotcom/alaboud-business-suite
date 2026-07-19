@@ -2586,49 +2586,64 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     let postedStatus=0;
     let postedUrl=page.url();
     for(let attempt=1;attempt<=3;attempt+=1){
-      const submitter=accountForm.locator('[name="confirm"], button[type="submit"], input[type="submit"]').first();
-      let response=null;
-      const responsePromise=page.waitForResponse(r=>{
-        try{return new URL(r.url()).pathname.replace(/\/$/,"").endsWith(`${prefix}/account`)&&r.request().method()==="POST";}catch{return false;}
-      },{timeout:20000}).catch(()=>null);
-      if(await submitter.count()){
-        await Promise.all([
-          page.waitForNavigation({waitUntil:"domcontentloaded",timeout:20000}).catch(()=>null),
-          submitter.click({timeout:10000})
-        ]);
-      }else{
-        await accountForm.evaluate(form=>form.requestSubmit());
-        await page.waitForLoadState("domcontentloaded",{timeout:20000}).catch(()=>null);
-      }
-      response=await responsePromise;
-      await page.waitForLoadState("networkidle",{timeout:10000}).catch(()=>null);
-      await page.waitForTimeout(900);
-      postedUrl=response?.url()||page.url();
-      postedStatus=response?.status()||200;
-      html=await page.content();
-      const text=safeText(htmlText(html).slice(0,900));
-      trace.push({label:`account-native-submit-${attempt}`,url:postedUrl,status:postedStatus,time:new Date().toISOString(),text});
-      if(postedStatus>=200&&postedStatus<400&&(/<tbody/i.test(html)||/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(text)))break;
+      // Do not click Jad's disabled Save button. Serialize and POST the real form
+      // from inside the authenticated browser page, preserving cookies, hidden
+      // fields, disabled named controls and the submit button name/value.
+      const formSnapshot=await accountForm.evaluate(form=>({
+        action:form.action||location.href,
+        method:(form.method||"POST").toUpperCase(),
+        valid:typeof form.checkValidity==="function"?form.checkValidity():true,
+        controls:[...form.elements].map(el=>({
+          name:el.name||"",type:el.type||"",tag:el.tagName||"",value:el.value||"",
+          disabled:Boolean(el.disabled),required:Boolean(el.required),
+          valid:el.validity?el.validity.valid:true,validationMessage:el.validationMessage||""
+        })).filter(item=>item.name)
+      })).catch(()=>null);
+      trace.push({label:`account-form-state-${attempt}`,time:new Date().toISOString(),form:formSnapshot?{
+        action:formSnapshot.action,method:formSnapshot.method,valid:formSnapshot.valid,
+        controls:formSnapshot.controls.map(c=>({name:c.name,type:c.type,tag:c.tag,value:/pass|token|otp/i.test(c.name)?"[hidden]":safeText(c.value),disabled:c.disabled,required:c.required,valid:c.valid,validationMessage:safeText(c.validationMessage)}))
+      }:null});
 
-      // If native submission did not update the page, replay the *actual* FormData without extra AJAX headers.
-      const fallback=await accountForm.evaluate(async form=>{
-        const data=new FormData(form);
+      const posted=await accountForm.evaluate(async form=>{
+        const pairs=[];
+        const add=(name,value)=>{if(name)pairs.push([String(name),String(value??"")]);};
+        for(const el of [...form.elements]){
+          if(!el.name)continue;
+          const type=String(el.type||"").toLowerCase();
+          if((type==="checkbox"||type==="radio")&&!el.checked)continue;
+          if(el.tagName==="SELECT"&&el.multiple){
+            for(const option of [...el.selectedOptions])add(el.name,option.value);
+          }else if(type!=="submit"&&type!=="button"&&type!=="reset"&&type!=="file"){
+            add(el.name,el.value);
+          }
+        }
         const submitter=form.querySelector('[name="confirm"],button[type="submit"],input[type="submit"]');
-        if(submitter&&submitter.name&&!data.has(submitter.name))data.append(submitter.name,submitter.value||"");
+        if(submitter&&submitter.name)add(submitter.name,submitter.value||"");
         const body=new URLSearchParams();
-        for(const [key,value] of data.entries())body.append(key,String(value));
-        const response=await fetch(form.action||location.href,{method:(form.method||"POST").toUpperCase(),credentials:"include",redirect:"follow",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:body.toString()});
-        return {status:response.status,url:response.url,html:await response.text()};
-      }).catch(()=>null);
-      if(fallback){
-        postedUrl=fallback.url;postedStatus=fallback.status;html=fallback.html;
-        const fallbackText=safeText(htmlText(html).slice(0,900));
-        trace.push({label:`account-formdata-fallback-${attempt}`,url:postedUrl,status:postedStatus,time:new Date().toISOString(),text:fallbackText});
-        if(postedStatus>=200&&postedStatus<400&&(/<tbody/i.test(html)||/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(fallbackText)))break;
+        for(const [key,value] of pairs)body.append(key,value);
+        const target=new URL(form.action||location.href,location.href).href;
+        const method=(form.method||"POST").toUpperCase();
+        const response=await fetch(target,{
+          method,credentials:"include",redirect:"follow",
+          headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8","Accept":"text/html,application/xhtml+xml"},
+          body:method==="GET"?undefined:body.toString()
+        });
+        return {status:response.status,url:response.url,html:await response.text(),payload:[...body.entries()]};
+      }).catch(error=>({error:String(error&&error.message||error)}));
+
+      if(!posted||posted.error){
+        trace.push({label:`account-direct-post-error-${attempt}`,time:new Date().toISOString(),error:posted?.error||"unknown"});
+        await page.waitForTimeout(700*attempt);
+        continue;
       }
-      await page.goto(accountUrl,{waitUntil:"domcontentloaded"}).catch(()=>null);
-      await page.waitForLoadState("networkidle",{timeout:8000}).catch(()=>null);
-      await page.waitForTimeout(1000*attempt);
+
+      postedUrl=posted.url;
+      postedStatus=posted.status;
+      html=posted.html;
+      const text=safeText(htmlText(html).slice(0,1200));
+      trace.push({label:`account-direct-post-${attempt}`,url:postedUrl,status:postedStatus,time:new Date().toISOString(),payload:posted.payload.map(([k,v])=>[k,/pass|token|otp/i.test(k)?"[hidden]":safeText(v)]),text});
+      if(postedStatus>=200&&postedStatus<400&&(/<tbody/i.test(html)||/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(text)))break;
+      await page.waitForTimeout(900*attempt);
     }
 
     if(postedStatus<200||postedStatus>=400)throw await diagnosticError(`تعذر إرسال نموذج كشف الحساب الحقيقي إلى جاد (${postedStatus})`,"JAD_ACCOUNT_POST_FAILED");
