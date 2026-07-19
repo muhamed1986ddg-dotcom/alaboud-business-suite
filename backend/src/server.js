@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.8",channel:"jad-cookie-jar-post-login-fix",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.9",channel:"jad-form-session-flow-fix",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2052,7 +2052,6 @@ function parseSafeHiddenPostForm(html,baseUrl){
       const name=attrs.match(/name=["']([^"']+)/i)?.[1];
       if(!name)continue;
       const type=(attrs.match(/type=["']([^"']+)/i)?.[1]||"text").toLowerCase();
-      if(type==="submit"||type==="button"||type==="image")continue; // buttons don't need to be submitted with fetch
       if(type!=="hidden"){safe=false;break;}
       const value=attrs.match(/value=["']([^"']*)/i)?.[1]||"";
       body.append(name,htmlText(value));
@@ -2096,9 +2095,100 @@ async function fetchWithCookies(url,options={},cookie="",settings={}){
   }
   throw new Error("تعذر إكمال إعادة التوجيه");
 }
+function decodeHtmlAttribute(value){
+  return String(value||"")
+    .replace(/&amp;/gi,"&")
+    .replace(/&quot;/gi,'"')
+    .replace(/&#039;|&#39;/gi,"'")
+    .replace(/&lt;/gi,"<")
+    .replace(/&gt;/gi,">");
+}
+function parseHtmlAttributes(value){
+  const attrs={};
+  for(const match of String(value||"").matchAll(/([:\w-]+)(?:\s*=\s*(?:["']([^"']*)["']|([^\s>]+)))?/g)){
+    attrs[String(match[1]||"").toLowerCase()]=decodeHtmlAttribute(match[2]??match[3]??"");
+  }
+  return attrs;
+}
+function parseJadLoginForm(html,baseUrl){
+  const source=String(html||"");
+  for(const form of source.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)){
+    const formAttrs=parseHtmlAttributes(form[1]);
+    const fields=new URLSearchParams();
+    let hasPassword=false;
+    let hasIdentity=false;
+    for(const input of form[2].matchAll(/<input\b([^>]*)>/gi)){
+      const attrs=parseHtmlAttributes(input[1]);
+      const name=attrs.name;
+      if(!name)continue;
+      const type=String(attrs.type||"text").toLowerCase();
+      if(["submit","button","image","file","reset"].includes(type))continue;
+      if(type==="checkbox"||type==="radio"){
+        if(!Object.prototype.hasOwnProperty.call(attrs,"checked"))continue;
+      }
+      fields.append(name,attrs.value||"");
+      if(name.toLowerCase()==="pass"||type==="password")hasPassword=true;
+      if(["mail","email","username","user","tok"].includes(name.toLowerCase()))hasIdentity=true;
+    }
+    if(!hasPassword||!hasIdentity)continue;
+    const action=new URL(formAttrs.action||baseUrl,baseUrl).toString();
+    return {action,method:String(formAttrs.method||"POST").toUpperCase(),fields};
+  }
+  return null;
+}
 function findToken(html){
+  const form=parseJadLoginForm(html,"https://localhost/");
+  if(form){
+    const token=form.fields.get("tok");
+    if(token)return token;
+  }
   const patterns=[/name=["']tok["'][^>]*value=["']([^"']+)/i,/value=["']([^"']+)["'][^>]*name=["']tok["']/i];
-  for(const pattern of patterns){const match=String(html).match(pattern);if(match)return match[1];}return "";
+  for(const pattern of patterns){const match=String(html).match(pattern);if(match)return decodeHtmlAttribute(match[1]);}return "";
+}
+function extractClientRedirect(html,currentUrl){
+  const source=String(html||"");
+  const meta=source.match(/<meta\b[^>]*http-equiv=["']?refresh["']?[^>]*content=["'][^"']*url\s*=\s*([^"';>]+)["']/i)
+    || source.match(/<meta\b[^>]*content=["'][^"']*url\s*=\s*([^"';>]+)["'][^>]*http-equiv=["']?refresh/i);
+  const script=source.match(/(?:window\.)?location(?:\.href)?\s*=\s*["']([^"']+)["']/i)
+    || source.match(/location\.replace\(\s*["']([^"']+)["']\s*\)/i);
+  const target=meta?.[1]||script?.[1];
+  if(!target)return "";
+  try{return new URL(decodeHtmlAttribute(target.trim()),currentUrl).toString();}catch{return "";}
+}
+function loginFailureMessage(html){
+  const text=htmlText(html);
+  const snippets=[
+    /(?:خطأ|تنبيه|تحذير|error|invalid)[^.!؟\n]{0,180}/i,
+    /(?:اسم المستخدم|كلمة المرور|رمز الحماية)[^.!؟\n]{0,180}/i
+  ];
+  for(const pattern of snippets){const match=text.match(pattern);if(match)return match[0].trim();}
+  return "";
+}
+async function followJadPostLoginFlow(step,cookie,browserHeaders,base,prefix){
+  let current=step;
+  let jar=cookie;
+  let html=await current.response.text();
+  for(let attempt=0;attempt<4;attempt+=1){
+    if(isJadLoginPage(html,current.url))return {step:current,cookie:jar,html,loggedOut:true};
+
+    const clientRedirect=extractClientRedirect(html,current.url);
+    if(clientRedirect){
+      current=await fetchWithCookies(clientRedirect,{headers:{...browserHeaders,Referer:current.url}},jar,{maxRedirects:10});
+      jar=current.cookie;html=await current.response.text();continue;
+    }
+
+    const safeForm=parseSafeHiddenPostForm(html,current.url);
+    if(safeForm){
+      current=await fetchWithCookies(safeForm.action,{
+        method:"POST",
+        headers:{...browserHeaders,"Content-Type":"application/x-www-form-urlencoded",Origin:base,Referer:current.url},
+        body:safeForm.body
+      },jar,{maxRedirects:10});
+      jar=current.cookie;html=await current.response.text();continue;
+    }
+    break;
+  }
+  return {step:current,cookie:jar,html,loggedOut:isJadLoginPage(html,current.url)};
 }
 function parseJadStatement(html){
   const source=String(html||"");
@@ -2134,85 +2224,92 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
   const browserHeaders={
     Accept:"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language":"ar,en-US;q=0.9,en;q=0.8",
+    "Cache-Control":"no-cache",
+    Pragma:"no-cache",
+    "Upgrade-Insecure-Requests":"1",
     "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
   };
 
-  // Jad generates a fresh CSRF token (tok) on GET /log and binds it to PHPSESSID.
-  // The same cookie jar, token and Referer must be reused for the POST request.
   let cookie="";
-  let step=await fetchWithCookies(`${base}${prefix}/log`,{headers:browserHeaders},cookie,{maxRedirects:4});
+  const loginUrl=`${base}${prefix}/log`;
+
+  // Read the real login form first. Jad binds the dynamic tok value to the PHP session.
+  let step=await fetchWithCookies(loginUrl,{headers:browserHeaders},cookie,{maxRedirects:6});
   cookie=step.cookie;
   const loginHtml=await step.response.text();
-  const token=findToken(loginHtml);
-  if(!token)throw new Error("تعذر استخراج رمز الحماية tok من صفحة تسجيل دخول جاد");
+  const loginForm=parseJadLoginForm(loginHtml,step.url||loginUrl);
+  if(!loginForm)throw new Error("تعذر العثور على نموذج تسجيل دخول جاد أو استخراج رمز الحماية tok");
 
-  const loginBody=new URLSearchParams();
+  const loginBody=new URLSearchParams(loginForm.fields);
   loginBody.set("mail",username);
   loginBody.set("pass",password);
-  loginBody.set("tok",token);
-  loginBody.set("btn-login","");
+  if(!loginBody.has("tok")){
+    const token=findToken(loginHtml);
+    if(!token)throw new Error("تعذر استخراج رمز الحماية tok من صفحة تسجيل دخول جاد");
+    loginBody.set("tok",token);
+  }
+  if(!loginBody.has("btn-login"))loginBody.set("btn-login","");
 
-  step=await fetchWithCookies(`${base}${prefix}/log`,{
-    method:"POST",
+  step=await fetchWithCookies(loginForm.action||loginUrl,{
+    method:loginForm.method==="GET"?"GET":"POST",
     headers:{
       ...browserHeaders,
       "Content-Type":"application/x-www-form-urlencoded",
       Origin:base,
-      Referer:`${base}${prefix}/log`
+      Referer:step.url||loginUrl
     },
-    body:loginBody.toString()
-  },cookie,{maxRedirects:10});
+    body:loginForm.method==="GET"?undefined:loginBody.toString()
+  },cookie,{maxRedirects:12});
   cookie=step.cookie;
-  let afterLoginHtml=await step.response.text();
-  let finalPath=new URL(step.url).pathname.replace(/\/$/,"");
-  const loginFormStillVisible=/<form[^>]+(?:action=["'][^"']*\/log["']|id=["'][^"']*login)/i.test(afterLoginHtml)
-    && /name=["'](?:mail|pass|tok)["']/i.test(afterLoginHtml);
-  const reachedLogin2=finalPath.endsWith(`${prefix}/log_2`);
-  if(loginFormStillVisible||!reachedLogin2){
-    throw new Error("رفض موقع جاد تسجيل الدخول؛ تحقق من اسم المستخدم وكلمة المرور ورمز الحماية");
+
+  let postLogin=await followJadPostLoginFlow(step,cookie,browserHeaders,base,prefix);
+  step=postLogin.step;cookie=postLogin.cookie;
+  if(postLogin.loggedOut){
+    const reason=loginFailureMessage(postLogin.html);
+    throw new Error(reason?`رفض موقع جاد تسجيل الدخول: ${reason}`:"رفض موقع جاد تسجيل الدخول؛ تحقق من اسم المستخدم وكلمة المرور ورمز الحماية");
   }
 
-  // Jad may return an intermediate POST form on log_2 to finalize the branch/account session.
-  // Submit it automatically with the same complete cookie jar before opening /account.
-  const postLoginForm=parseSafeHiddenPostForm(afterLoginHtml,step.url);
-  if(postLoginForm){
-    step=await fetchWithCookies(postLoginForm.action,{
-      method:"POST",headers:{...browserHeaders,"Content-Type":"application/x-www-form-urlencoded",Origin:base,Referer:step.url},body:postLoginForm.body
+  // Some Jad installations initialize the authenticated branch on log_2 before /account.
+  // Visit it once when the login flow ended elsewhere; a 404/redirect is harmless and is followed manually.
+  const currentPath=(()=>{try{return new URL(step.url).pathname.replace(/\/$/,"");}catch{return "";}})();
+  if(!currentPath.endsWith(`${prefix}/log_2`)){
+    const bootstrap=await fetchWithCookies(`${base}${prefix}/log_2`,{
+      headers:{...browserHeaders,Referer:step.url||loginUrl}
     },cookie,{maxRedirects:10});
-    cookie=step.cookie;afterLoginHtml=await step.response.text();finalPath=new URL(step.url).pathname.replace(/\/$/,"");
-    if(isJadLoginPage(afterLoginHtml,step.url))throw new Error("انتهت جلسة جاد أثناء إكمال تسجيل الدخول");
-  }else{
-    const metaRefresh=afterLoginHtml.match(/<meta[^>]+http-equiv=["']refresh["'][^>]*content=["']([^"']*)["']/i);
-    const jsRedirect=afterLoginHtml.match(/(?:window\.location(?:\.href)?|location\.href)\s*=\s*["']([^"']+)["']/i)
-      || afterLoginHtml.match(/location\.replace\(\s*["']([^"']+)["']/i);
-    const anyForm=[...afterLoginHtml.matchAll(/<form\b([^>]*)>/gi)].map(m=>m[1]);
-    const anyLinks=[...afterLoginHtml.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]{0,60}?)<\/a>/gi)].slice(0,10);
-    console.error("[JAD_SYNC_DEBUG] no auto-submit form found on log_2, dumping page for inspection",{
-      partnerId:partner.id,
-      log2Url:step.url,
-      metaRefresh:metaRefresh?metaRefresh[1]:null,
-      jsRedirect:jsRedirect?jsRedirect[1]:null,
-      formTags:anyForm,
-      links:anyLinks.map(m=>({href:m[1],text:m[2].replace(/<[^>]+>/g," ").trim()})),
-      htmlSnippet:String(afterLoginHtml).slice(0,2000)
-    });
+    cookie=bootstrap.cookie;
+    const bootstrapFlow=await followJadPostLoginFlow(bootstrap,cookie,browserHeaders,base,prefix);
+    if(!bootstrapFlow.loggedOut){step=bootstrapFlow.step;cookie=bootstrapFlow.cookie;}
   }
 
-  // Open the account page once using the authenticated session. Some Jad installations
-  // initialize account context only after this page is visited.
   step=await fetchWithCookies(`${base}${prefix}/account`,{
-    headers:{...browserHeaders,Accept:"text/html,application/xhtml+xml",Referer:step.url||`${base}${prefix}/log_2`}
-  },cookie,{maxRedirects:10});
+    headers:{...browserHeaders,Referer:step.url||`${base}${prefix}/log_2`}
+  },cookie,{maxRedirects:12});
   cookie=step.cookie;
-  const accountHtml=await step.response.text();
+  let accountHtml=await step.response.text();
+
+  // If /account bounced back to /log, retry once through log_2 with the same cookie jar.
   if(isJadLoginPage(accountHtml,step.url)){
-    console.error("[JAD_SYNC_DEBUG] account page bounced to login",{
-      partnerId:partner.id,
+    const retryBootstrap=await fetchWithCookies(`${base}${prefix}/log_2`,{
+      headers:{...browserHeaders,Referer:loginUrl}
+    },cookie,{maxRedirects:10});
+    cookie=retryBootstrap.cookie;
+    const retryFlow=await followJadPostLoginFlow(retryBootstrap,cookie,browserHeaders,base,prefix);
+    cookie=retryFlow.cookie;
+    if(!retryFlow.loggedOut){
+      step=await fetchWithCookies(`${base}${prefix}/account`,{
+        headers:{...browserHeaders,Referer:retryFlow.step.url||`${base}${prefix}/log_2`}
+      },cookie,{maxRedirects:12});
+      cookie=step.cookie;accountHtml=await step.response.text();
+    }
+  }
+
+  if(isJadLoginPage(accountHtml,step.url)){
+    console.error("[JAD AUTH] account returned login page",{
       finalUrl:step.url,
-      hadPostLoginForm:Boolean(postLoginForm),
-      htmlSnippet:String(accountHtml).slice(0,800)
+      redirects:step.redirects,
+      cookieNames:String(cookie||"").split(";").map(x=>x.split("=")[0].trim()).filter(Boolean)
     });
-    throw new Error("انتهت جلسة جاد بعد تسجيل الدخول؛ تحقق من بيانات الحساب");
+    throw new Error("انتهت جلسة جاد بعد تسجيل الدخول؛ موقع جاد أعاد صفحة الدخول عند فتح الحساب");
   }
 
   const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*24*3600*1000).toISOString().slice(0,10);
@@ -2227,12 +2324,12 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
     form.set("date3",end);
     step=await fetchWithCookies(`${base}${prefix}/account`,{
       method:"POST",
-      headers:{"Content-Type":"application/x-www-form-urlencoded",Accept:"text/html,application/xhtml+xml",Origin:base,Referer:`${base}${prefix}/account`},
+      headers:{...browserHeaders,"Content-Type":"application/x-www-form-urlencoded",Origin:base,Referer:`${base}${prefix}/account`},
       body:form.toString()
-    },cookie,{maxRedirects:10});
+    },cookie,{maxRedirects:12});
     cookie=step.cookie;
     const selectedHtml=await step.response.text();
-    if(isJadLoginPage(selectedHtml,step.url))throw new Error("رفض موقع جاد اختيار الحساب؛ أعد التحقق من بيانات الدخول");
+    if(isJadLoginPage(selectedHtml,step.url))throw new Error("رفض موقع جاد اختيار الحساب؛ أعد التحقق من رقم الحساب وبيانات الدخول");
   }
 
   const query=new URLSearchParams({
@@ -2240,12 +2337,12 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
     date1:"date",date2:start,date3:end
   });
   step=await fetchWithCookies(`${base}${prefix}/accountprint.php?${query}`,{
-    headers:{Accept:"text/html,application/xhtml+xml",Referer:`${base}${prefix}/account`}
-  },cookie,{maxRedirects:10});
+    headers:{...browserHeaders,Referer:`${base}${prefix}/account`}
+  },cookie,{maxRedirects:12});
   cookie=step.cookie;
   if(step.response.status!==200)throw new Error(`تعذر جلب كشف الحساب (${step.response.status})`);
   const html=await step.response.text();
-  if(isJadLoginPage(html,step.url)&&!/<tbody/i.test(html))throw new Error("رفض الموقع جلسة الدخول؛ تحقق من بيانات الحساب");
+  if(isJadLoginPage(html,step.url)&&!/<tbody/i.test(html))throw new Error("رفض موقع جاد جلسة الدخول عند طلب كشف الحساب");
   if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن/i.test(htmlText(html)))throw new Error("تم الاتصال بجاد لكن لم يتم العثور على جدول كشف الحساب");
   return {...parseJadStatement(html),fromDate:start,toDate:end,redirects:step.redirects||[]};
 }

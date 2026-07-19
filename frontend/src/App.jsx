@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.3.8 Jad Cookie Session Fix";
+const APP_VERSION="v18.3.9 Jad Session Flow Fix";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
