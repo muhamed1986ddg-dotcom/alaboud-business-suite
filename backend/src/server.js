@@ -2503,30 +2503,90 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     }
     await record("authenticated-landing");
 
-    // Prefer a real account link from the authenticated page, then fall back to the known URL.
-    const accountLink=page.locator(`a[href*="/account"],a[href$="account"],a:has-text("كشف الحساب"),a:has-text("الحساب")`).first();
-    if(await accountLink.count()&&await accountLink.isVisible().catch(()=>false)){
-      await Promise.all([page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),accountLink.click()]);
-    }else await page.goto(accountUrl,{waitUntil:"domcontentloaded"});
-    await page.waitForLoadState("networkidle",{timeout:12000}).catch(()=>null);
-    await page.waitForTimeout(1200); await record("account-page");
-    let accountHtml=await page.content();
-    if(isJadLoginPage(accountHtml,page.url()))throw await diagnosticError("موقع جاد أعاد صفحة تسجيل الدخول بعد إدخال البيانات؛ الرمز قد يكون منتهيًا أو تم رفض تسجيل الدخول","JAD_LOGIN_REJECTED");
+    // Jad often serves the statement form directly on the authenticated landing page
+    // (usually /pl.m). Do not leave that page unless no suitable form exists there.
+    const findAccountForm=async()=>{
+      const forms=page.locator('form');
+      let best=null;
+      let bestScore=-1;
+      const inspected=[];
+      for(let i=0;i<await forms.count();i+=1){
+        const form=forms.nth(i);
+        const info=await form.evaluate((node,index)=>{
+          const controls=[...node.elements].map(el=>({
+            name:el.name||'',id:el.id||'',type:el.type||'',tag:el.tagName||'',value:el.value||'',
+            placeholder:el.placeholder||'',text:(el.innerText||el.value||'').trim()
+          }));
+          return {index,action:node.action||location.href,method:(node.method||'POST').toUpperCase(),controls};
+        },i).catch(()=>null);
+        if(!info)continue;
+        const names=info.controls.map(c=>String(c.name||'').toLowerCase());
+        const signature=info.controls.map(c=>`${c.name} ${c.id} ${c.placeholder} ${c.text}`).join(' ');
+        let score=0;
+        if(names.includes('currency'))score+=5;
+        if(names.includes('date2'))score+=5;
+        if(names.includes('date3'))score+=5;
+        if(/كشف\s*حساب|statement|account|الرصيد|مدين|دائن/i.test(signature))score+=4;
+        if(/mail|pass|btn-login|otp|authenticator/i.test(signature))score-=12;
+        inspected.push({index:i,action:info.action,method:info.method,score,names:names.filter(Boolean)});
+        if(score>bestScore){bestScore=score;best=form;}
+      }
+      trace.push({label:'account-form-scan',url:page.url(),time:new Date().toISOString(),bestScore,forms:inspected});
+      return bestScore>=10?best:null;
+    };
 
-    // Submit Jad's real account form instead of inventing field meanings.
-    // In Jad, `confirm` is usually the submit control value, not the account number.
-    // Native form submission preserves hidden fields, dynamic tokens and the exact browser behavior.
-    const accountForm=page.locator('form').filter({has:page.locator('[name="currency"], [name="date2"], [name="date3"]')}).first();
-    if(await accountForm.count()===0){
+    let accountForm=await findAccountForm();
+    if(!accountForm){
+      const authenticatedUrl=page.url();
+      const links=await page.locator('a[href]').evaluateAll(items=>items.map((a,index)=>({
+        index,href:a.href||'',text:(a.innerText||a.textContent||'').replace(/\s+/g,' ').trim()
+      }))).catch(()=>[]);
+      const candidates=links.map(link=>{
+        let score=0;
+        if(/كشف\s*حساب|حركة\s*الحساب|account\s*statement|statement/i.test(link.text))score+=20;
+        if(/الحساب|account/i.test(link.text))score+=8;
+        if(/pl\.m|account|statement|ledger/i.test(link.href))score+=6;
+        if(/logout|signout|\/log(?:_|\/|$)|javascript:/i.test(link.href))score-=30;
+        return {...link,score};
+      }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
+      trace.push({label:'account-link-candidates',url:page.url(),time:new Date().toISOString(),candidates:candidates.slice(0,12)});
+
+      for(const candidate of candidates.slice(0,8)){
+        await page.goto(candidate.href,{waitUntil:'domcontentloaded'}).catch(()=>null);
+        await page.waitForTimeout(700);
+        await record(`account-candidate-${candidate.index}`);
+        const candidateHtml=await page.content().catch(()=>'');
+        if(!isJadLoginPage(candidateHtml,page.url())){
+          accountForm=await findAccountForm();
+          if(accountForm)break;
+        }
+        await page.goto(authenticatedUrl,{waitUntil:'domcontentloaded'}).catch(()=>null);
+        await page.waitForTimeout(500);
+      }
+    }
+
+    // Final fallback: try the configured/known account URL, but never accept a
+    // redirect back to the login page as a valid account page.
+    if(!accountForm){
+      await page.goto(accountUrl,{waitUntil:'domcontentloaded'}).catch(()=>null);
+      await page.waitForLoadState('networkidle',{timeout:12000}).catch(()=>null);
+      await page.waitForTimeout(900);
+      await record('account-page-fallback');
+      const accountHtml=await page.content().catch(()=>'');
+      if(!isJadLoginPage(accountHtml,page.url()))accountForm=await findAccountForm();
+    }
+
+    if(!accountForm){
       const forms=await page.locator('form').evaluateAll(items=>items.map((form,index)=>({
         index,
         action:form.action,
         method:form.method,
-        controls:[...form.elements].map(el=>({name:el.name||"",type:el.type||"",value:el.value||""})).filter(x=>x.name)
+        controls:[...form.elements].map(el=>({name:el.name||'',type:el.type||'',value:el.value||''})).filter(x=>x.name)
       }))).catch(()=>[]);
-      trace.push({label:"account-forms",url:page.url(),time:new Date().toISOString(),forms});
-      throw await diagnosticError("تم فتح صفحة الحساب، لكن لم يتم العثور على نموذج كشف الحساب الحقيقي","JAD_ACCOUNT_FORM_NOT_FOUND");
+      trace.push({label:'account-forms-final',url:page.url(),time:new Date().toISOString(),forms});
+      throw await diagnosticError('تم تسجيل الدخول، لكن لم يتم العثور على نموذج كشف الحساب في صفحات جاد المتاحة','JAD_ACCOUNT_FORM_NOT_FOUND');
     }
+    await record('account-form-ready');
 
     const formInfo=await accountForm.evaluate(form=>({
       action:form.action,
