@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.5.4",channel:"jad-auth-diagnostics",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.5.9",channel:"jad-full-diagnostics",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2416,19 +2416,32 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     entry.text=safeText((await page.locator('body').innerText({timeout:2500}).catch(()=>"" )).replace(/\s+/g," ").slice(0,900));
     trace.push(entry);
   };
-  const diagnosticError=async(message,code="JAD_FLOW_ERROR")=>{
+  const errorDetails=error=>({
+    name:String(error?.name||"Error"),
+    message:safeText(error?.message||error||"Unknown error"),
+    code:String(error?.code||""),
+    stack:safeText(error?.stack||"").split("\n").slice(0,12).join("\n"),
+    cause:error?.cause?{name:String(error.cause?.name||"Error"),message:safeText(error.cause?.message||error.cause),stack:safeText(error.cause?.stack||"").split("\n").slice(0,8).join("\n")}:null
+  });
+  const diagnosticError=async(message,code="JAD_FLOW_ERROR",cause=null)=>{
     await record("failure");
     const artifacts=await saveDiagnosticArtifacts(code);
-    const error=new Error(message); error.code=code; error.jadTrace=trace.slice(-16); error.jadArtifacts=artifacts; return error;
+    const error=new Error(message); error.code=code; error.cause=cause||undefined; error.jadTrace=trace.slice(-16); error.jadArtifacts=artifacts; error.jadDetails=cause?errorDetails(cause):null; return error;
   };
+  console.log("[JAD][START]",{partnerId:partner.id,base,prefix,loginUrl,accountUrl,accountConfigured:Boolean(accountId),otpProvided:Boolean(cleanOtp),playwrightVersion:(()=>{try{return require("playwright/package.json").version}catch{return "unknown"}})(),browsersPath:process.env.PLAYWRIGHT_BROWSERS_PATH||"default",chromeExecutablePath:process.env.CHROME_EXECUTABLE_PATH||"default"});
   try{
     try {
+      const executable=chromium.executablePath ? chromium.executablePath() : "";
+      console.log("[JAD][CHROMIUM][BEFORE_LAUNCH]",{executable,exists:executable?fs.existsSync(executable):false,launchOptions:{...launchOptions,args:[...launchOptions.args]}});
       browser=await chromium.launch(launchOptions);
+      trace.push({label:"chromium-launched",time:new Date().toISOString(),executable,exists:executable?fs.existsSync(executable):false});
+      console.log("[JAD][CHROMIUM][LAUNCHED]",{executable});
     } catch (launchError) {
       const executable=chromium.executablePath ? chromium.executablePath() : "";
-      const wrapped=new Error(`تعذر تشغيل Chromium على Render: ${launchError.message}${executable ? ` | المسار: ${executable}` : ""}`);
-      wrapped.code="JAD_CHROMIUM_LAUNCH_FAILED";
-      wrapped.cause=launchError;
+      const details=errorDetails(launchError);
+      console.error("[JAD][CHROMIUM][LAUNCH_FAILED]",{...details,executable,exists:executable?fs.existsSync(executable):false,platform:process.platform,arch:process.arch,node:process.version,cwd:process.cwd()});
+      const wrapped=await diagnosticError(`فشل تشغيل Chromium: ${details.message}${executable ? ` | المسار: ${executable}` : ""}`,"JAD_CHROMIUM_LAUNCH_FAILED",launchError);
+      wrapped.executablePath=executable;
       throw wrapped;
     }
     const context=await browser.newContext({locale:"ar",timezoneId:"America/Toronto",userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",viewport:{width:1365,height:900},extraHTTPHeaders:{"Accept-Language":"ar,en-US;q=0.9,en;q=0.8"},ignoreHTTPSErrors:true});
@@ -2623,12 +2636,15 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(htmlText(html)))throw await diagnosticError("تم تسجيل الدخول وإرسال النموذج، لكن جاد لم يعرض كشف الحساب. تحقق من رقم الحساب الخارجي أو اختر الحساب الصحيح","JAD_STATEMENT_NOT_FOUND");
     return {...parseJadStatement(html),fromDate:start,toDate:end,mode:"BROWSER",diagnostic:trace.slice(-10)};
   }catch(error){
-    if(/Executable doesn't exist|browserType\.launch|Failed to launch|host system is missing dependencies/i.test(String(error?.message||""))){const wrapped=new Error("تعذر تشغيل متصفح جاد على الخادم. تأكد من اكتمال تنزيل Chromium أثناء بناء Render");wrapped.code="JAD_BROWSER_UNAVAILABLE";wrapped.cause=error;throw wrapped;}
     if(!error.jadTrace)error.jadTrace=trace.slice(-16);
     if(!error.jadArtifacts)error.jadArtifacts=await saveDiagnosticArtifacts(error.code||"JAD_ERROR");
-    console.error("[JAD]",error.code||"JAD_ERROR",error.message,{trace:error.jadTrace,artifacts:error.jadArtifacts});
+    if(!error.jadDetails)error.jadDetails=errorDetails(error);
+    console.error("[JAD][FAILURE]",{code:error.code||"JAD_ERROR",message:error.message,details:error.jadDetails,trace:error.jadTrace,artifacts:error.jadArtifacts});
     throw error;
-  }finally{if(browser)await browser.close().catch(()=>{});}
+  }finally{
+    if(browser)await browser.close().catch(closeError=>console.error("[JAD][CHROMIUM][CLOSE_FAILED]",errorDetails(closeError)));
+    console.log("[JAD][END]",{partnerId:partner.id,time:new Date().toISOString()});
+  }
 }
 
 async function syncJadPartner(partner,options={}){
@@ -2637,7 +2653,7 @@ async function syncJadPartner(partner,options={}){
   try{
     return await syncJadPartnerBrowser(partner,options);
   }catch(error){
-    const allowFallback=String(process.env.JAD_HTTP_FALLBACK||"true").toLowerCase()!=="false";
+    const allowFallback=String(process.env.JAD_HTTP_FALLBACK||"false").toLowerCase()==="true";
     if(!allowFallback||error?.code!=="JAD_BROWSER_UNAVAILABLE")throw error;
     console.warn("[JAD] Browser connector unavailable; falling back to HTTP connector:",error?.message||error);
     return syncJadPartnerHttp(partner,options);
@@ -2799,7 +2815,7 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
     res.json({ok:true,status:"READY",message:"الرابط صالح. اختر موصل الشركة لإجراء مزامنة فعلية."});
   }catch(error){
     mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];item.lastJadArtifacts=error.jadArtifacts||null;item.updatedAt=now();}});
-    res.status(400).json({message:error.message||"تعذر اختبار الاتصال",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null});
+    res.status(400).json({message:error.message||"تعذر اختبار الاتصال",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null,details:error.jadDetails||null});
   }
 });
 
@@ -2821,7 +2837,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
     res.json({message:"تم جلب الرصيد من شركة جاد",partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
   }catch(error){
     mutate(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];item.lastJadArtifacts=error.jadArtifacts||null;item.updatedAt=now();}});
-    res.status(400).json({message:error.message||"تعذر جلب الرصيد",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null});
+    res.status(400).json({message:error.message||"تعذر جلب الرصيد",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null,details:error.jadDetails||null});
   }
 });
 
