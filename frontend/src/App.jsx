@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.11 Jad EUR Final Parser";
+const APP_VERSION="v18.6.12 Partner Multi-Currency Balances";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -2925,7 +2925,8 @@ function Partners({open}){
     try{
       const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||""});
       setOtpById(current=>({...current,[partner.id]:""}));
-      setMessage(`${partner.name}: ${response.data.message} — الرصيد ${money(response.data.result.balance)} ${partner.accountCurrency||"USD"}`);
+      const syncedCurrencies=Object.entries(response.data.result?.currencies||{}).map(([code,value])=>`${code}: لنا ${money(value?.receivable)} / علينا ${money(value?.payable)}`).join(" — ");
+      setMessage(`${partner.name}: ${response.data.message}${syncedCurrencies?` — ${syncedCurrencies}`:` — الرصيد ${money(response.data.result.balance)} ${partner.accountCurrency||"USD"}`}`);
       await load();
     }catch(requestError){setError(requestError.response?.data?.message||"تعذر جلب الرصيد");}
     finally{setSyncingId("");}
@@ -2947,6 +2948,33 @@ function Partners({open}){
   }
 
   const statusLabel=status=>({READY:"متصل",CONFIGURED:"مُعدّ",MANUAL:"يدوي",NOT_CONFIGURED:"غير مكتمل",ERROR:"خطأ"}[status]||"يدوي");
+
+  const partnerCurrencyEntries=partner=>{
+    const balances=partner?.externalBalances&&typeof partner.externalBalances==="object"?partner.externalBalances:{};
+    const entries=Object.entries(balances)
+      .map(([code,value])=>{
+        const receivable=Math.max(Number(value?.receivable)||0,0);
+        const payable=Math.max(Number(value?.payable)||0,0);
+        const balance=Number.isFinite(Number(value?.balance))?Number(value.balance):receivable-payable;
+        return {code:String(code||"").toUpperCase(),receivable,payable,balance};
+      })
+      .filter(item=>item.code&&(Math.abs(item.receivable)>0.001||Math.abs(item.payable)>0.001||Math.abs(item.balance)>0.001));
+    if(entries.length)return entries.sort((a,b)=>a.code.localeCompare(b.code));
+    const code=String(partner?.accountCurrency||"USD").toUpperCase();
+    const receivable=Math.max(Number(partner?.externalReceivable)||0,0);
+    const payable=Math.max(Number(partner?.externalPayable)||0,0);
+    const balance=Number.isFinite(Number(partner?.externalBalance))?Number(partner.externalBalance):receivable-payable;
+    return [{code,receivable,payable,balance}];
+  };
+
+  const PartnerCurrencyBalances=({partner})=><div className="partner-currency-balances">
+    {partnerCurrencyEntries(partner).map(item=><div className="partner-currency-balance" key={item.code}>
+      <div className="partner-currency-code"><span>{flagOf(item.code)}</span><strong>{item.code}</strong></div>
+      <div><span>دين لنا</span><b className="partner-receivable">{money(item.receivable)}</b></div>
+      <div><span>دين علينا</span><b className="partner-payable">{money(item.payable)}</b></div>
+      <div><span>الصافي</span><b className={item.balance<0?"partner-payable":"partner-receivable"}>{money(item.balance)}</b></div>
+    </div>)}
+  </div>;
 
   return <>
     <div className="page-title-row"><h2>🏢 الشركات والربط الخارجي</h2></div>
@@ -2987,15 +3015,17 @@ function Partners({open}){
 
     <div className="card tablewrap">
       <table>
-        <thead><tr><th>الشركة</th><th>نوع الربط</th><th>الحالة</th><th>دين لنا</th><th>دين علينا</th><th>الصافي</th><th>الرصيد الخارجي</th><th>آخر مزامنة</th><th>الرابط</th><th>الإجراءات</th></tr></thead>
+        <thead><tr><th>الشركة</th><th>نوع الربط</th><th>الحالة</th><th>العملة الأساسية</th><th>أرصدة العملات</th><th>آخر مزامنة</th><th>الرابط</th><th>الإجراءات</th></tr></thead>
         <tbody>{data.rows.length?data.rows.map(partner=><tr key={partner.id}>
           <td><strong>{partner.name}</strong><small className="company-subline">{partner.contactName||partner.integrationName||"-"}</small></td>
           <td>{partner.connectionType||"يدوي"}</td>
           <td>{(()=>{const effectiveStatus=partner.lastSyncAt&&Number.isFinite(Number(partner.externalBalance))?"READY":partner.connectionStatus;return <span className={`integration-status status-${String(effectiveStatus||"MANUAL").toLowerCase()}`}>{statusLabel(effectiveStatus)}</span>;})()}</td>
-          <td>{money(partner.receivable)} {partner.accountCurrency||"CAD"}</td><td>{money(partner.payable)} {partner.accountCurrency||"CAD"}</td><td><strong>{money(partner.net)}</strong></td><td>{money(partner.externalBalance)} {partner.accountCurrency||"USD"}</td><td>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar"):"-"}</td>
+          <td><span className="partner-primary-currency">{flagOf(partner.accountCurrency||"USD")} {partner.accountCurrency||"USD"}</span><small className="company-subline">العملة الأساسية فقط</small></td>
+          <td><PartnerCurrencyBalances partner={partner}/></td>
+          <td>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar"):"-"}</td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
           <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{partner.connectorType==="JAD"&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{partner.connectorType==="JAD"&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد الآن"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</td>
-        </tr>):<tr><td colSpan="10">لا توجد شركات بعد.</td></tr>}</tbody>
+        </tr>):<tr><td colSpan="8">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>
     </div>
   </>;

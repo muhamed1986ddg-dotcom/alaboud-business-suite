@@ -4415,3 +4415,17 @@ body.app-language-en aside{
 .jad-otp-input{min-width:150px;max-width:170px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:10px;text-align:center;font-weight:800;letter-spacing:1.5px;background:#fff}
 .jad-otp-input:focus{outline:2px solid rgba(14,165,233,.22);border-color:#0284c7}
 .actions .jad-otp-input{display:inline-block;margin:3px}
+
+/* v18.6.12: multi-currency balances for connected companies */
+.partner-primary-currency{display:inline-flex;align-items:center;gap:6px;font-weight:800;white-space:nowrap}
+.partner-currency-balances{display:grid;gap:8px;min-width:370px}
+.partner-currency-balance{display:grid;grid-template-columns:74px repeat(3,minmax(88px,1fr));gap:8px;align-items:center;padding:9px 10px;border:1px solid #e5e7eb;border-radius:10px;background:#f8fafc}
+.partner-currency-balance>div{display:grid;gap:2px}
+.partner-currency-balance span{font-size:.72rem;color:#64748b;white-space:nowrap}
+.partner-currency-balance b{font-size:.88rem;white-space:nowrap}
+.partner-currency-code{display:flex!important;grid-auto-flow:column;justify-content:start;align-items:center;gap:6px}
+.partner-currency-code span{font-size:1.15rem}
+.partner-currency-code strong{font-size:.9rem}
+.partner-receivable{color:#047857}
+.partner-payable{color:#b91c1c}
+@media(max-width:800px){.partner-currency-balances{min-width:330px}.partner-currency-balance{grid-template-columns:66px repeat(3,minmax(78px,1fr));gap:5px;padding:8px}}
