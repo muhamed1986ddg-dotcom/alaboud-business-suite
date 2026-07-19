@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.5.5 Jad Direct Account POST";
+const APP_VERSION="v18.5.7 Jad Diagnostics & Retry";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -2923,6 +2923,19 @@ function Partners({open}){
     finally{setSyncingId("");}
   }
 
+  async function showJadDiagnostic(partner){
+    setError("");setMessage("");
+    try{
+      const response=await api.get(`/partners/${partner.id}/jad-diagnostic`);
+      const lines=(response.data.diagnostic||[]).map(item=>`${item.label}: ${item.url||""}${item.status?` — ${item.status}`:""}${item.text?` — ${item.text}`:""}`);
+      setMessage(`${partner.name}: ${response.data.message}${lines.length?`\n${lines.join("\n")}`:""}`);
+      if(response.data.artifacts?.available){
+        const shot=await api.get(`/partners/${partner.id}/jad-diagnostic/screenshot`,{responseType:"blob"}).catch(()=>null);
+        if(shot){const url=URL.createObjectURL(shot.data);window.open(url,"_blank","noopener,noreferrer");setTimeout(()=>URL.revokeObjectURL(url),60000);}
+      }
+    }catch(requestError){setError(requestError.response?.data?.message||"لا يوجد سجل تشخيص متاح");}
+  }
+
   const statusLabel=status=>({READY:"متصل",CONFIGURED:"مُعدّ",MANUAL:"يدوي",NOT_CONFIGURED:"غير مكتمل",ERROR:"خطأ"}[status]||"يدوي");
 
   return <>
@@ -2971,7 +2984,7 @@ function Partners({open}){
           <td><span className={`integration-status status-${String(partner.connectionStatus||"MANUAL").toLowerCase()}`}>{statusLabel(partner.connectionStatus)}</span></td>
           <td>{money(partner.receivable)} {partner.accountCurrency||"CAD"}</td><td>{money(partner.payable)} {partner.accountCurrency||"CAD"}</td><td><strong>{money(partner.net)}</strong></td><td>{money(partner.externalBalance)} {partner.accountCurrency||"USD"}</td><td>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar"):"-"}</td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
-          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{partner.connectorType==="JAD"&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{partner.connectorType==="JAD"&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد الآن"}</button>}</td>
+          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{partner.connectorType==="JAD"&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{partner.connectorType==="JAD"&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد الآن"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</td>
         </tr>):<tr><td colSpan="10">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>
     </div>
