@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.5.9 Jad Full Diagnostics";
+const APP_VERSION="v18.6.1 Jad Direct Form POST";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
