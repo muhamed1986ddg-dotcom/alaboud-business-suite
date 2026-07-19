@@ -2181,6 +2181,21 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
     },cookie,{maxRedirects:10});
     cookie=step.cookie;afterLoginHtml=await step.response.text();finalPath=new URL(step.url).pathname.replace(/\/$/,"");
     if(isJadLoginPage(afterLoginHtml,step.url))throw new Error("انتهت جلسة جاد أثناء إكمال تسجيل الدخول");
+  }else{
+    const metaRefresh=afterLoginHtml.match(/<meta[^>]+http-equiv=["']refresh["'][^>]*content=["']([^"']*)["']/i);
+    const jsRedirect=afterLoginHtml.match(/(?:window\.location(?:\.href)?|location\.href)\s*=\s*["']([^"']+)["']/i)
+      || afterLoginHtml.match(/location\.replace\(\s*["']([^"']+)["']/i);
+    const anyForm=[...afterLoginHtml.matchAll(/<form\b([^>]*)>/gi)].map(m=>m[1]);
+    const anyLinks=[...afterLoginHtml.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]{0,60}?)<\/a>/gi)].slice(0,10);
+    console.error("[JAD_SYNC_DEBUG] no auto-submit form found on log_2, dumping page for inspection",{
+      partnerId:partner.id,
+      log2Url:step.url,
+      metaRefresh:metaRefresh?metaRefresh[1]:null,
+      jsRedirect:jsRedirect?jsRedirect[1]:null,
+      formTags:anyForm,
+      links:anyLinks.map(m=>({href:m[1],text:m[2].replace(/<[^>]+>/g," ").trim()})),
+      htmlSnippet:String(afterLoginHtml).slice(0,2000)
+    });
   }
 
   // Open the account page once using the authenticated session. Some Jad installations
