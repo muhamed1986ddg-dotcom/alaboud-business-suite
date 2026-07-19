@@ -1654,80 +1654,71 @@ app.get("/api/general-debts", auth, (req,res)=>{
       });
     }
 
-    // أرصدة الشركة الخارجية تظهر في الدين العام حسب عملة حساب الشركة الأصلية.
-    // نعتمد القيم التفصيلية القادمة من الموصل أولًا:
-    // externalReceivable = دين لنا، externalPayable = دين علينا.
-    // لا نستخدم externalBalance كدين إذا توفرت القيم التفصيلية، لأنه قد يمثل رصيدًا مختلفًا في كشف الشركة.
-    const externalCurrency = String(partner.accountCurrency || "USD").toUpperCase();
-    const externalReceivable = Math.max(safeNumber(partner.externalReceivable), 0);
-    const externalPayable = Math.max(safeNumber(partner.externalPayable), 0);
-    const hasDetailedExternalDebt = externalReceivable > 0.001 || externalPayable > 0.001;
+    // أرصدة الشركات الخارجية متعددة العملات تظهر في الدين العام حسب العملة الأصلية لكل رصيد.
+    // externalBalances مثال: { USD:{receivable,payable,balance}, EUR:{...} }
     const externalCreatedAt = partner.lastSyncAt || partner.updatedAt || partner.createdAt || now();
+    const multiCurrencyBalances = partner.externalBalances && typeof partner.externalBalances === "object"
+      ? partner.externalBalances
+      : null;
+    const multiEntries = multiCurrencyBalances
+      ? Object.entries(multiCurrencyBalances).filter(([currency,value])=>currency && value && typeof value === "object")
+      : [];
 
-    if (externalReceivable > 0.001) {
-      partnerRows.push({
-        id:`PARTNER:EXTERNAL:RECEIVABLE:${partner.id}:${externalCurrency}`,
-        type:"RECEIVABLE",
-        partyName:partner.name,
-        amount:+externalReceivable.toFixed(2),
-        paid:0,
-        remaining:+externalReceivable.toFixed(2),
-        currency:externalCurrency,
-        dueDate:"",
-        description:`دين لنا من الرصيد الخارجي لشركة ${partner.name}`,
-        reference:partner.integrationName || partner.name,
-        status:"OPEN",
-        source:"PARTNER_EXTERNAL",
-        partnerId:partner.id,
-        createdAt:externalCreatedAt,
-        lastSyncAt:partner.lastSyncAt || null,
-      });
-    }
-
-    if (externalPayable > 0.001) {
-      partnerRows.push({
-        id:`PARTNER:EXTERNAL:PAYABLE:${partner.id}:${externalCurrency}`,
-        type:"PAYABLE",
-        partyName:partner.name,
-        amount:+externalPayable.toFixed(2),
-        paid:0,
-        remaining:+externalPayable.toFixed(2),
-        currency:externalCurrency,
-        dueDate:"",
-        description:`دين علينا من الرصيد الخارجي لشركة ${partner.name}`,
-        reference:partner.integrationName || partner.name,
-        status:"OPEN",
-        source:"PARTNER_EXTERNAL",
-        partnerId:partner.id,
-        createdAt:externalCreatedAt,
-        lastSyncAt:partner.lastSyncAt || null,
-      });
-    }
-
-    // توافق مع سجلات قديمة لم تكن تحفظ externalReceivable/externalPayable.
-    // نستخدم الرصيد الموقّع فقط عندما لا توجد قيم تفصيلية إطلاقًا.
-    if (!hasDetailedExternalDebt) {
-      const externalBalance = safeNumber(partner.externalBalance);
-      if (Math.abs(externalBalance) > 0.001) {
-        const externalType = externalBalance < 0 ? "PAYABLE" : "RECEIVABLE";
-        const externalAmount = Math.abs(externalBalance);
-        partnerRows.push({
-          id:`PARTNER:EXTERNAL:BALANCE:${partner.id}:${externalCurrency}`,
-          type:externalType,
-          partyName:partner.name,
-          amount:+externalAmount.toFixed(2),
-          paid:0,
-          remaining:+externalAmount.toFixed(2),
-          currency:externalCurrency,
-          dueDate:"",
-          description:`الرصيد الخارجي لشركة ${partner.name}`,
-          reference:partner.integrationName || partner.name,
-          status:"OPEN",
-          source:"PARTNER_EXTERNAL",
-          partnerId:partner.id,
-          createdAt:externalCreatedAt,
-          lastSyncAt:partner.lastSyncAt || null,
+    if (multiEntries.length) {
+      for (const [rawCurrency, value] of multiEntries) {
+        const currency = String(rawCurrency || "USD").toUpperCase();
+        const receivable = Math.max(safeNumber(value.receivable), 0);
+        const payable = Math.max(safeNumber(value.payable), 0);
+        if (receivable > 0.001) partnerRows.push({
+          id:`PARTNER:EXTERNAL:RECEIVABLE:${partner.id}:${currency}`,
+          type:"RECEIVABLE", partyName:partner.name, amount:+receivable.toFixed(2), paid:0,
+          remaining:+receivable.toFixed(2), currency, dueDate:"",
+          description:`دين لنا من الرصيد الخارجي لشركة ${partner.name}`,
+          reference:partner.integrationName || partner.name, status:"OPEN", source:"PARTNER_EXTERNAL",
+          partnerId:partner.id, createdAt:externalCreatedAt, lastSyncAt:partner.lastSyncAt || null
         });
+        if (payable > 0.001) partnerRows.push({
+          id:`PARTNER:EXTERNAL:PAYABLE:${partner.id}:${currency}`,
+          type:"PAYABLE", partyName:partner.name, amount:+payable.toFixed(2), paid:0,
+          remaining:+payable.toFixed(2), currency, dueDate:"",
+          description:`دين علينا من الرصيد الخارجي لشركة ${partner.name}`,
+          reference:partner.integrationName || partner.name, status:"OPEN", source:"PARTNER_EXTERNAL",
+          partnerId:partner.id, createdAt:externalCreatedAt, lastSyncAt:partner.lastSyncAt || null
+        });
+      }
+    } else {
+      // توافق مع السجلات القديمة ذات العملة الواحدة.
+      const externalCurrency = String(partner.accountCurrency || "USD").toUpperCase();
+      const externalReceivable = Math.max(safeNumber(partner.externalReceivable), 0);
+      const externalPayable = Math.max(safeNumber(partner.externalPayable), 0);
+      const hasDetailedExternalDebt = externalReceivable > 0.001 || externalPayable > 0.001;
+      if (externalReceivable > 0.001) partnerRows.push({
+        id:`PARTNER:EXTERNAL:RECEIVABLE:${partner.id}:${externalCurrency}`, type:"RECEIVABLE",
+        partyName:partner.name, amount:+externalReceivable.toFixed(2), paid:0, remaining:+externalReceivable.toFixed(2),
+        currency:externalCurrency, dueDate:"", description:`دين لنا من الرصيد الخارجي لشركة ${partner.name}`,
+        reference:partner.integrationName || partner.name, status:"OPEN", source:"PARTNER_EXTERNAL",
+        partnerId:partner.id, createdAt:externalCreatedAt, lastSyncAt:partner.lastSyncAt || null
+      });
+      if (externalPayable > 0.001) partnerRows.push({
+        id:`PARTNER:EXTERNAL:PAYABLE:${partner.id}:${externalCurrency}`, type:"PAYABLE",
+        partyName:partner.name, amount:+externalPayable.toFixed(2), paid:0, remaining:+externalPayable.toFixed(2),
+        currency:externalCurrency, dueDate:"", description:`دين علينا من الرصيد الخارجي لشركة ${partner.name}`,
+        reference:partner.integrationName || partner.name, status:"OPEN", source:"PARTNER_EXTERNAL",
+        partnerId:partner.id, createdAt:externalCreatedAt, lastSyncAt:partner.lastSyncAt || null
+      });
+      if (!hasDetailedExternalDebt) {
+        const externalBalance = safeNumber(partner.externalBalance);
+        if (Math.abs(externalBalance) > 0.001) {
+          const externalType = externalBalance < 0 ? "PAYABLE" : "RECEIVABLE";
+          const externalAmount = Math.abs(externalBalance);
+          partnerRows.push({
+            id:`PARTNER:EXTERNAL:BALANCE:${partner.id}:${externalCurrency}`, type:externalType,
+            partyName:partner.name, amount:+externalAmount.toFixed(2), paid:0, remaining:+externalAmount.toFixed(2),
+            currency:externalCurrency, dueDate:"", description:`الرصيد الخارجي لشركة ${partner.name}`,
+            reference:partner.integrationName || partner.name, status:"OPEN", source:"PARTNER_EXTERNAL",
+            partnerId:partner.id, createdAt:externalCreatedAt, lastSyncAt:partner.lastSyncAt || null
+          });
+        }
       }
     }
   }
@@ -2371,6 +2362,47 @@ async function followJadPostLoginFlow(step,cookie,browserHeaders,base,prefix){
   }
   return {step:current,cookie:jar,html,loggedOut:isJadLoginPage(html,current.url)};
 }
+
+function parseJadCurrencyBalances(html){
+  const text=htmlText(String(html||"")).replace(/\s+/g," ").trim();
+  const aliases=[
+    {code:"CAD",patterns:["دولار كندي","كندي","CAD"]},
+    {code:"USD",patterns:["دولار أمريكي","دولار امريكي","دولار","USD"]},
+    {code:"EUR",patterns:["يورو","EUR"]},
+    {code:"TRY",patterns:["ليرة تركية","تركي","TRY"]},
+    {code:"SYP",patterns:["ليرة سورية","سوري","SYP"]},
+    {code:"SAR",patterns:["ريال سعودي","سعودي","SAR"]},
+    {code:"JOD",patterns:["دينار أردني","دينار اردني","أردني","اردني","JOD"]},
+    {code:"AED",patterns:["درهم إماراتي","درهم اماراتي","إماراتي","اماراتي","AED"]},
+    {code:"GBP",patterns:["جنيه إسترليني","جنيه استرليني","إسترليني","استرليني","GBP"]}
+  ];
+  const out={};
+  const esc=value=>String(value).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  const amountPattern='([+-]?[0-9٠-٩][0-9٠-٩,٬\\s]*(?:[.٫][0-9٠-٩]+)?)';
+  for(const item of aliases){
+    let receivable=0,payable=0,found=false;
+    for(const alias of item.patterns){
+      const a=esc(alias);
+      const patterns=[
+        new RegExp(`${amountPattern}\\s*(?:${a})\\s*(?:لنا|لكم|مستحق\\s*لنا)`,"giu"),
+        new RegExp(`(?:${a})\\s*${amountPattern}\\s*(?:لنا|لكم|مستحق\\s*لنا)`,"giu"),
+        new RegExp(`${amountPattern}\\s*(?:${a})\\s*(?:علينا|عليكم|مستحق\\s*علينا)`,"giu"),
+        new RegExp(`(?:${a})\\s*${amountPattern}\\s*(?:علينا|عليكم|مستحق\\s*علينا)`,"giu")
+      ];
+      for(let i=0;i<patterns.length;i+=1){
+        for(const match of text.matchAll(patterns[i])){
+          const value=Math.abs(numberFromText(match[1]));
+          if(!Number.isFinite(value))continue;
+          found=true;
+          if(i<2)receivable=Math.max(receivable,value); else payable=Math.max(payable,value);
+        }
+      }
+    }
+    if(found)out[item.code]={receivable:+receivable.toFixed(2),payable:+payable.toFixed(2),balance:+(receivable-payable).toFixed(2)};
+  }
+  return out;
+}
+
 function parseJadStatement(html){
   const source=String(html||"");
   const tbodyMatches=[...source.matchAll(/<tbody[^>]*>([\s\S]*?)<\/tbody>/gi)];
@@ -2686,6 +2718,12 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     };
     await verifyAuthenticatedSession();
 
+    // Read every currency card from Jad dashboard before navigating to the statement page.
+    // Example: 54,981 دولار عليكم / 8,857 يورو لكم.
+    const authenticatedLandingHtml=await page.content().catch(()=>"");
+    const dashboardCurrencyBalances=parseJadCurrencyBalances(authenticatedLandingHtml);
+    trace.push({label:"dashboard-currency-balances",url:page.url(),time:new Date().toISOString(),balances:dashboardCurrencyBalances});
+
     // Jad commonly exposes the statement on pl.m even when the authenticated
     // landing URL remains /log. Probe the known authenticated endpoint first,
     // preserving the current browser session and cookies.
@@ -2916,7 +2954,13 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     if(postedStatus<200||postedStatus>=400)throw await diagnosticError(`تعذر إرسال نموذج كشف الحساب الحقيقي إلى جاد (${postedStatus})`,"JAD_ACCOUNT_POST_FAILED");
     if(isJadLoginPage(html,postedUrl)&&!/<tbody/i.test(html))throw await diagnosticError("رفض موقع جاد الجلسة عند طلب كشف الحساب؛ أدخل رمز Authenticator جديدًا","JAD_SESSION_REJECTED");
     if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(htmlText(html)))throw await diagnosticError("تم تسجيل الدخول وإرسال النموذج، لكن جاد لم يعرض كشف الحساب. تحقق من رقم الحساب الخارجي أو اختر الحساب الصحيح","JAD_STATEMENT_NOT_FOUND");
-    return {...parseJadStatement(html),fromDate:start,toDate:end,mode:"BROWSER",diagnostic:trace.slice(-10)};
+    const statement=parseJadStatement(html);
+    const currencyBalances={...dashboardCurrencyBalances};
+    const statementCurrency=String(partner.accountCurrency||"USD").toUpperCase();
+    if(!currencyBalances[statementCurrency] && (statement.receivable||statement.payable||statement.balance)){
+      currencyBalances[statementCurrency]={receivable:statement.receivable,payable:statement.payable,balance:statement.balance};
+    }
+    return {...statement,currencies:currencyBalances,fromDate:start,toDate:end,mode:"BROWSER",diagnostic:trace.slice(-10)};
   }catch(error){
     if(!error.jadTrace)error.jadTrace=trace.slice(-16);
     if(!error.jadArtifacts)error.jadArtifacts=await saveDiagnosticArtifacts(error.code||"JAD_ERROR");
@@ -3120,11 +3164,11 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
     let publicPartner=null;
     mutate(store=>{
       const item=store.partners.find(x=>x.id===partner.id);if(!item)return;
-      item.externalReceivable=result.receivable;item.externalPayable=result.payable;item.externalBalance=result.balance;
+      item.externalReceivable=result.receivable;item.externalPayable=result.payable;item.externalBalance=result.balance;item.externalBalances=(result.currencies&&typeof result.currencies==="object")?result.currencies:{};
       item.lastSyncAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.connectionStatus="READY";item.updatedAt=now();
       item.lastImportedMovementCount=result.movements.length;
       const {passwordEncrypted,...safe}=item;publicPartner={...safe,hasPassword:Boolean(passwordEncrypted)};
-      audit(store,req.user.id,"SYNC","PARTNER",item.id,{connector:"JAD",balance:result.balance,receivable:result.receivable,payable:result.payable,count:result.movements.length});
+      audit(store,req.user.id,"SYNC","PARTNER",item.id,{connector:"JAD",balance:result.balance,receivable:result.receivable,payable:result.payable,currencies:Object.keys(result.currencies||{}),count:result.movements.length});
     });
     res.json({message:"تم جلب الرصيد من شركة جاد",partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
   }catch(error){
