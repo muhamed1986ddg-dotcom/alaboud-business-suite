@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.10",channel:"jad-browser-session-flow-fix",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.4.0",channel:"jad-playwright-browser-connector",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2228,7 +2228,7 @@ function parseJadStatement(html){
   }
   return {movements,balance:+balance.toFixed(2),payable:+payable.toFixed(2),receivable:+receivable.toFixed(2)};
 }
-async function syncJadPartner(partner,{fromDate,toDate}={}){
+async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
   const base=normalizeBaseUrl(partner.systemUrl);
   const prefix=String(partner.pathPrefix||"/ssljd/merkez112/1/2").replace(/\/$/,"");
   const username=String(partner.username||"").trim();
@@ -2369,6 +2369,146 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
   if(isJadLoginPage(html,step.url)&&!/<tbody/i.test(html))throw new Error("رفض موقع جاد جلسة الدخول عند طلب كشف الحساب");
   if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن/i.test(htmlText(html)))throw new Error("تم الاتصال بجاد لكن لم يتم العثور على جدول كشف الحساب");
   return {...parseJadStatement(html),fromDate:start,toDate:end,redirects:step.redirects||[]};
+}
+
+
+async function syncJadPartnerBrowser(partner,{fromDate,toDate}={}){
+  let chromium;
+  try{
+    ({chromium}=require("playwright-chromium"));
+  }catch(error){
+    const wrapped=new Error("موصل المتصفح غير مثبت. نفّذ npm install داخل backend ثم أعد النشر");
+    wrapped.code="JAD_BROWSER_UNAVAILABLE";
+    wrapped.cause=error;
+    throw wrapped;
+  }
+
+  const base=normalizeBaseUrl(partner.systemUrl);
+  const prefix=String(partner.pathPrefix||"/ssljd/merkez112/1/2").replace(/\/$/,"");
+  const username=String(partner.username||"").trim();
+  const password=decryptIntegrationSecret(partner.passwordEncrypted);
+  if(!username||!password)throw new Error("اسم المستخدم وكلمة المرور مطلوبان للربط");
+
+  const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*24*3600*1000).toISOString().slice(0,10);
+  const end=toDate||new Date().toISOString().slice(0,10);
+  const accountId=String(partner.externalAccountId||"").trim();
+  const loginUrl=`${base}${prefix}/log`;
+  const accountUrl=`${base}${prefix}/account`;
+
+  const launchOptions={
+    headless:true,
+    args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-zygote","--single-process"],
+    timeout:45000
+  };
+  if(process.env.CHROME_EXECUTABLE_PATH)launchOptions.executablePath=process.env.CHROME_EXECUTABLE_PATH;
+
+  let browser;
+  try{
+    browser=await chromium.launch(launchOptions);
+    const context=await browser.newContext({
+      locale:"ar",
+      timezoneId:"America/Toronto",
+      userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+      viewport:{width:1365,height:900},
+      extraHTTPHeaders:{"Accept-Language":"ar,en-US;q=0.9,en;q=0.8"},
+      ignoreHTTPSErrors:true
+    });
+    const page=await context.newPage();
+    page.setDefaultTimeout(25000);
+    page.setDefaultNavigationTimeout(45000);
+
+    // Visit the same landing page used by the real Jad browser flow.
+    await page.goto(`${base}${prefix}/pl.m`,{waitUntil:"domcontentloaded"}).catch(()=>null);
+    await page.goto(loginUrl,{waitUntil:"domcontentloaded"});
+
+    const mail=page.locator('input[name="mail"]');
+    const pass=page.locator('input[name="pass"]');
+    if(await mail.count()===0||await pass.count()===0){
+      throw new Error("تعذر العثور على حقول تسجيل الدخول في موقع جاد");
+    }
+    await mail.fill(username);
+    await pass.fill(password);
+
+    const submit=page.locator('button[name="btn-login"],input[name="btn-login"],button[type="submit"],input[type="submit"]').first();
+    if(await submit.count()===0)throw new Error("تعذر العثور على زر تسجيل الدخول في موقع جاد");
+
+    await Promise.all([
+      page.waitForLoadState("domcontentloaded").catch(()=>null),
+      submit.click()
+    ]);
+    await page.waitForTimeout(1200);
+
+    // Jad can perform a JavaScript/meta redirect after the POST.
+    for(let i=0;i<4;i+=1){
+      const current=page.url();
+      if(!/\/log(?:_2)?\/?(?:$|[?#])/i.test(current))break;
+      await page.waitForTimeout(700);
+    }
+
+    await page.goto(accountUrl,{waitUntil:"domcontentloaded"});
+    await page.waitForTimeout(700);
+    let accountHtml=await page.content();
+    if(isJadLoginPage(accountHtml,page.url())){
+      throw new Error("رفض موقع جاد جلسة المتصفح بعد تسجيل الدخول؛ تحقق من بيانات الحساب أو قيود الدخول من خادم Render");
+    }
+
+    if(accountId){
+      const confirm=page.locator('[name="confirm"]');
+      if(await confirm.count()){
+        await confirm.first().fill(accountId);
+        const currency=page.locator('[name="currency"]');
+        if(await currency.count())await currency.first().selectOption(String(partner.accountCurrency||"USD").toLowerCase()).catch(()=>null);
+        const date2=page.locator('[name="date2"]');
+        const date3=page.locator('[name="date3"]');
+        if(await date2.count())await date2.first().fill(start);
+        if(await date3.count())await date3.first().fill(end);
+        await Promise.all([
+          page.waitForLoadState("domcontentloaded").catch(()=>null),
+          confirm.first().press("Enter")
+        ]);
+      }else{
+        await page.evaluate(async ({accountUrl,accountId,start,end,currency})=>{
+          const body=new URLSearchParams({currency,date1:"date",confirm:accountId,date2:start,date3:end});
+          await fetch(accountUrl,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:body.toString(),credentials:"include"});
+        },{accountUrl,accountId,start,end,currency:String(partner.accountCurrency||"USD").toLowerCase()});
+      }
+      await page.waitForTimeout(600);
+    }
+
+    const query=new URLSearchParams({
+      currency:String(partner.accountCurrency||"USD").toLowerCase(),
+      date1:"date",date2:start,date3:end
+    });
+    await page.goto(`${base}${prefix}/accountprint.php?${query}`,{waitUntil:"domcontentloaded"});
+    await page.waitForTimeout(500);
+    const html=await page.content();
+    if(isJadLoginPage(html,page.url())&&!/<tbody/i.test(html))throw new Error("رفض موقع جاد جلسة المتصفح عند طلب كشف الحساب");
+    if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن/i.test(htmlText(html)))throw new Error("تم تسجيل الدخول إلى جاد لكن لم يتم العثور على جدول كشف الحساب");
+    return {...parseJadStatement(html),fromDate:start,toDate:end,mode:"BROWSER"};
+  }catch(error){
+    if(/Executable doesn't exist|browserType\.launch|Failed to launch|host system is missing dependencies/i.test(String(error?.message||""))){
+      const wrapped=new Error("تعذر تشغيل متصفح جاد على الخادم. تأكد من اكتمال تنزيل Chromium أثناء بناء Render");
+      wrapped.code="JAD_BROWSER_UNAVAILABLE";
+      wrapped.cause=error;
+      throw wrapped;
+    }
+    throw error;
+  }finally{
+    if(browser)await browser.close().catch(()=>{});
+  }
+}
+
+async function syncJadPartner(partner,options={}){
+  const mode=String(process.env.JAD_CONNECTOR_MODE||"browser").toLowerCase();
+  if(mode==="http")return syncJadPartnerHttp(partner,options);
+  try{
+    return await syncJadPartnerBrowser(partner,options);
+  }catch(error){
+    const allowFallback=String(process.env.JAD_HTTP_FALLBACK||"true").toLowerCase()!=="false";
+    if(!allowFallback||error?.code!=="JAD_BROWSER_UNAVAILABLE")throw error;
+    console.warn("[JAD] Browser connector unavailable; falling back to HTTP connector:",error?.message||error);
+    return syncJadPartnerHttp(partner,options);
+  }
 }
 
 
