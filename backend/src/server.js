@@ -2191,10 +2191,12 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
   accountHtml = await step.response.text();
 
 console.log("=== ACCOUNT URL ===", step.url);
-console.log("=== ACCOUNT HTML ===", accountHtml.substring(0, 3000));
+
+// أضف هذا السطر الجديد
+console.log(accountHtml.match(/<body[\s\S]*<\/body>/i)?.[0] || accountHtml);
 
 if (isJadLoginPage(accountHtml, step.url)) {
-  throw new Error("انتهت جلسة جاد بعد تسجيل الدخول، تحقق من بيانات الحساب.");
+    throw new Error("انتهت جلسة جاد بعد تسجيل الدخول، تحقق من بيانات الحساب.");
 }
 
   const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*24*3600*1000).toISOString().slice(0,10);
