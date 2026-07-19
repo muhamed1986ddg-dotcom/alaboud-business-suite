@@ -1,11 +1,7 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.13 Partner Currency Flags Fix";
+const APP_VERSION="v18.6.14 Clean Partner Sync UI";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
-const flagOf=code=>{
-  const normalized=String(code||"").toUpperCase();
-  return debtCurrencies.find(item=>item.code===normalized)?.flag||({GBP:"🇬🇧",AED:"🇦🇪"}[normalized]||"🏳️");
-};
 
 function openRegularWhatsApp(phone,message){
   const cleanPhone=String(phone||"").replace(/\D/g,"");
@@ -26,6 +22,24 @@ function openRegularWhatsApp(phone,message){
 
 
 const currencyFlag=code=>String(code||"").toUpperCase();
+
+
+const flagOf=code=>{
+  const normalized=String(code||"").toUpperCase();
+  return ({USD:"🇺🇸",CAD:"🇨🇦",EUR:"🇪🇺",TRY:"🇹🇷",SYP:"🇸🇾",SAR:"🇸🇦",JOD:"🇯🇴",GBP:"🇬🇧",AED:"🇦🇪"})[normalized]||"🏳️";
+};
+
+const cleanConnectorMessage=value=>{
+  const text=String(value||"").replace(/\s+/g," ").trim();
+  if(!text)return "تعذر إكمال العملية";
+  const technical=/chromium-launched|authenticated-landing|after-credentials|after-otp|login-page|account-page|failure:|https?:\/\/jd\d+/i;
+  if(technical.test(text)){
+    if(/authenticator|رمز التحقق|otp/i.test(text))return "تعذر تسجيل الدخول إلى جاد. أدخل رمز Google Authenticator جديدًا ثم أعد المحاولة.";
+    if(/كلمة المرور|اسم المستخدم|credentials/i.test(text))return "تعذر تسجيل الدخول إلى جاد. تحقق من اسم المستخدم وكلمة المرور.";
+    return "تعذر تحديث بيانات جاد. افتح سجل الربط فقط عند الحاجة للتشخيص.";
+  }
+  return text.length>260?`${text.slice(0,257)}...`:text;
+};
 
 const debtCurrencies=[
     {code:"USD",flag:"🇺🇸",name:"دولار أمريكي",symbol:"$"},
@@ -2920,7 +2934,7 @@ function Partners({open}){
       setMessage(`${partner.name}: ${response.data.message}`);
       await load();
     }catch(requestError){
-      setError(requestError.response?.data?.message||"تعذر اختبار الاتصال");
+      setError(cleanConnectorMessage(requestError.response?.data?.message||"تعذر اختبار الاتصال"));
     }
   }
 
@@ -2932,7 +2946,7 @@ function Partners({open}){
       const syncedCurrencies=Object.entries(response.data.result?.currencies||{}).map(([code,value])=>`${code}: لنا ${money(value?.receivable)} / علينا ${money(value?.payable)}`).join(" — ");
       setMessage(`${partner.name}: ${response.data.message}${syncedCurrencies?` — ${syncedCurrencies}`:` — الرصيد ${money(response.data.result.balance)} ${partner.accountCurrency||"USD"}`}`);
       await load();
-    }catch(requestError){setError(requestError.response?.data?.message||"تعذر جلب الرصيد");}
+    }catch(requestError){setError(cleanConnectorMessage(requestError.response?.data?.message||"تعذر جلب الرصيد"));}
     finally{setSyncingId("");}
   }
 
@@ -2940,15 +2954,11 @@ function Partners({open}){
     setError("");setMessage("");
     try{
       const response=await api.get(`/partners/${partner.id}/jad-diagnostic`);
-      const lines=(response.data.diagnostic||[]).map(item=>`${item.label}: ${item.url||""}${item.status?` — ${item.status}`:""}${item.text?` — ${item.text}`:""}`);
-      setMessage(`${partner.name}: ${response.data.message}${lines.length?`\n${lines.join("\n")}`:""}`);
-      // لا تفتح صفحة جاد أو لقطة التشخيص في تبويب جديد.
-      // يبقى سجل الربط داخل نفس الصفحة حتى لا ينتقل المستخدم إلى صفحة تسجيل الدخول.
-      if(response.data.artifacts?.available){
-        setMessage(current=>`${current}
-توجد لقطة تشخيص محفوظة على الخادم، ولن يتم فتحها تلقائياً.`);
-      }
-    }catch(requestError){setError(requestError.response?.data?.message||"لا يوجد سجل تشخيص متاح");}
+      const diagnostic=Array.isArray(response.data.diagnostic)?response.data.diagnostic:[];
+      console.info("Jad diagnostic",{partner:partner.name,diagnostic,artifacts:response.data.artifacts});
+      const lastStep=diagnostic.length?diagnostic[diagnostic.length-1]?.label:"لا توجد خطوات مسجلة";
+      setMessage(`${partner.name}: سجل الربط متاح. آخر خطوة: ${lastStep}. التفاصيل التقنية محفوظة في Console وRender Logs.`);
+    }catch(requestError){setError(cleanConnectorMessage(requestError.response?.data?.message||"لا يوجد سجل تشخيص متاح"));}
   }
 
   const statusLabel=status=>({READY:"متصل",CONFIGURED:"مُعدّ",MANUAL:"يدوي",NOT_CONFIGURED:"غير مكتمل",ERROR:"خطأ"}[status]||"يدوي");
