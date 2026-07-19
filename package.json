@@ -1,9 +1,9 @@
 {
   "name": "alaboud-business-suite-cloud",
-  "version": "18.5.0",
+  "version": "18.5.3",
   "private": true,
   "scripts": {
-    "install:all": "npm install --prefix backend --no-audit --no-fund && npm install --prefix frontend --no-audit --no-fund",
+    "install:all": "npm ci --prefix backend --no-audit --no-fund --prefer-offline && npm ci --prefix frontend --no-audit --no-fund --prefer-offline",
     "build": "npm run build --prefix frontend && node scripts/copy-frontend.js",
     "start": "node backend/src/server.js",
     "render-build": "npm run install:all && npm run build",
