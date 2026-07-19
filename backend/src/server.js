@@ -2175,7 +2175,14 @@ function decryptIntegrationSecret(value){
 }
 function normalizeBaseUrl(value){const parsed=new URL(String(value||"").trim());return `${parsed.protocol}//${parsed.host}`;}
 function htmlText(value){return String(value||"").replace(/<br\s*\/?\s*>/gi," ").replace(/<[^>]+>/g," ").replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&#039;/g,"'").replace(/&quot;/g,'"').replace(/\s+/g," ").trim();}
-function numberFromText(value){const match=htmlText(value).replace(/,/g,"").match(/-?\d+(?:\.\d+)?/);return match?safeNumber(match[0]):0;}
+function numberFromText(value){
+  const normalized=htmlText(value)
+    .replace(/[٠-٩]/g,ch=>"٠١٢٣٤٥٦٧٨٩".indexOf(ch))
+    .replace(/[٬,\s]/g,"")
+    .replace(/٫/g,".");
+  const match=normalized.match(/-?\d+(?:\.\d+)?/);
+  return match?safeNumber(match[0]):0;
+}
 function splitSetCookieHeader(value){
   const text=String(value||"");if(!text)return [];
   return text.split(/,(?=\s*[^;,=\s]+=[^;,]+)/g).map(x=>x.trim()).filter(Boolean);
@@ -2364,7 +2371,13 @@ async function followJadPostLoginFlow(step,cookie,browserHeaders,base,prefix){
 }
 
 function parseJadCurrencyBalances(html){
-  const text=htmlText(String(html||"")).replace(/\s+/g," ").trim();
+  const raw=htmlText(String(html||""))
+    .replace(/[٠-٩]/g,ch=>"٠١٢٣٤٥٦٧٨٩".indexOf(ch))
+    .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g," ")
+    .replace(/[\u{1F000}-\u{1FAFF}\u2600-\u27BF]/gu," ")
+    .replace(/[^\p{L}\p{N}.,+\-٫٬]+/gu," ")
+    .replace(/\s+/g," ")
+    .trim();
   const aliases=[
     {code:"CAD",patterns:["دولار كندي","كندي","CAD"]},
     {code:"USD",patterns:["دولار أمريكي","دولار امريكي","دولار","USD"]},
@@ -2378,23 +2391,51 @@ function parseJadCurrencyBalances(html){
   ];
   const out={};
   const esc=value=>String(value).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
-  const amountPattern='([+-]?[0-9٠-٩][0-9٠-٩,٬\\s]*(?:[.٫][0-9٠-٩]+)?)';
+  const amount='([+-]?[0-9][0-9,٬]*(?:[.٫][0-9]+)?)';
+  const sep='(?:\\s|[^\\p{L}\\p{N}]){0,12}';
+  const recv='(?:لنا|لكم|مستحق\\s*لنا|دائن\\s*(?:لنا|لكم))';
+  const pay='(?:علينا|عليكم|مستحق\\s*علينا|مدين\\s*(?:علينا|عليكم))';
+
   for(const item of aliases){
     let receivable=0,payable=0,found=false;
     for(const alias of item.patterns){
       const a=esc(alias);
-      const patterns=[
-        new RegExp(`${amountPattern}\\s*(?:${a})\\s*(?:لنا|لكم|مستحق\\s*لنا)`,"giu"),
-        new RegExp(`(?:${a})\\s*${amountPattern}\\s*(?:لنا|لكم|مستحق\\s*لنا)`,"giu"),
-        new RegExp(`${amountPattern}\\s*(?:${a})\\s*(?:علينا|عليكم|مستحق\\s*علينا)`,"giu"),
-        new RegExp(`(?:${a})\\s*${amountPattern}\\s*(?:علينا|عليكم|مستحق\\s*علينا)`,"giu")
+      const candidates=[
+        {kind:"receivable",re:new RegExp(`${amount}${sep}${a}${sep}${recv}`,"giu")},
+        {kind:"receivable",re:new RegExp(`${a}${sep}${amount}${sep}${recv}`,"giu")},
+        {kind:"receivable",re:new RegExp(`${recv}${sep}${amount}${sep}${a}`,"giu")},
+        {kind:"payable",re:new RegExp(`${amount}${sep}${a}${sep}${pay}`,"giu")},
+        {kind:"payable",re:new RegExp(`${a}${sep}${amount}${sep}${pay}`,"giu")},
+        {kind:"payable",re:new RegExp(`${pay}${sep}${amount}${sep}${a}`,"giu")}
       ];
-      for(let i=0;i<patterns.length;i+=1){
-        for(const match of text.matchAll(patterns[i])){
-          const value=Math.abs(numberFromText(match[1]));
-          if(!Number.isFinite(value))continue;
+      for(const candidate of candidates){
+        for(const match of raw.matchAll(candidate.re)){
+          const amountValue=Math.abs(numberFromText(match[1]));
+          if(!Number.isFinite(amountValue))continue;
           found=true;
-          if(i<2)receivable=Math.max(receivable,value); else payable=Math.max(payable,value);
+          if(candidate.kind==="receivable")receivable=Math.max(receivable,amountValue);
+          else payable=Math.max(payable,amountValue);
+        }
+      }
+
+      // Fallback for Jad dashboard cards where the flag/icon appears between
+      // the amount and the currency label. Inspect a compact window around the alias.
+      const aliasRe=new RegExp(a,"giu");
+      for(const aliasMatch of raw.matchAll(aliasRe)){
+        const left=raw.slice(Math.max(0,aliasMatch.index-45),aliasMatch.index);
+        const right=raw.slice(aliasMatch.index+aliasMatch[0].length,aliasMatch.index+aliasMatch[0].length+45);
+        const leftAmounts=[...left.matchAll(new RegExp(amount,"g"))];
+        const rightAmounts=[...right.matchAll(new RegExp(amount,"g"))];
+        const valueMatch=leftAmounts.at(-1)||rightAmounts[0];
+        if(!valueMatch)continue;
+        const context=`${left} ${aliasMatch[0]} ${right}`;
+        const amountValue=Math.abs(numberFromText(valueMatch[1]));
+        if(!Number.isFinite(amountValue))continue;
+        if(new RegExp(recv,"iu").test(context)){
+          found=true;receivable=Math.max(receivable,amountValue);
+        }
+        if(new RegExp(pay,"iu").test(context)){
+          found=true;payable=Math.max(payable,amountValue);
         }
       }
     }
@@ -2720,9 +2761,11 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
 
     // Read every currency card from Jad dashboard before navigating to the statement page.
     // Example: 54,981 دولار عليكم / 8,857 يورو لكم.
+    await page.waitForTimeout(1800);
     const authenticatedLandingHtml=await page.content().catch(()=>"");
-    const dashboardCurrencyBalances=parseJadCurrencyBalances(authenticatedLandingHtml);
-    trace.push({label:"dashboard-currency-balances",url:page.url(),time:new Date().toISOString(),balances:dashboardCurrencyBalances});
+    const authenticatedLandingText=await page.locator("body").innerText().catch(()=>"");
+    const dashboardCurrencyBalances=parseJadCurrencyBalances(`${authenticatedLandingText} ${authenticatedLandingHtml}`);
+    trace.push({label:"dashboard-currency-balances",url:page.url(),time:new Date().toISOString(),balances:dashboardCurrencyBalances,preview:safeText(authenticatedLandingText).slice(0,900)});
 
     // Jad commonly exposes the statement on pl.m even when the authenticated
     // landing URL remains /log. Probe the known authenticated endpoint first,
