@@ -2500,34 +2500,127 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     let accountHtml=await page.content();
     if(isJadLoginPage(accountHtml,page.url()))throw await diagnosticError("موقع جاد أعاد صفحة تسجيل الدخول بعد إدخال البيانات؛ الرمز قد يكون منتهيًا أو تم رفض تسجيل الدخول","JAD_LOGIN_REJECTED");
 
-    // Post the exact account form captured from Jad. Retry because the site sometimes
-    // completes its transfer/session initialization a few seconds after navigation.
-    const formPayload={
-      currency:String(partner.accountCurrency||"USD").toLowerCase(),
-      date1:"date",
-      confirm:accountId,
-      date2:start,
-      date3:end
-    };
-    let posted=null;
-    for(let attempt=1;attempt<=3;attempt+=1){
-      posted=await page.evaluate(async({url,payload})=>{
-        const body=new URLSearchParams();
-        for(const [key,value] of Object.entries(payload)){if(value!==undefined&&value!==null&&String(value)!=="")body.set(key,String(value));}
-        const response=await fetch(url,{method:"POST",credentials:"include",redirect:"follow",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8","X-Requested-With":"XMLHttpRequest"},body:body.toString()});
-        return {status:response.status,url:response.url,html:await response.text()};
-      },{url:accountUrl,payload:formPayload});
-      const text=safeText(htmlText(posted.html).slice(0,900));
-      trace.push({label:`account-post-${attempt}`,url:posted.url,status:posted.status,time:new Date().toISOString(),text});
-      if(posted.status>=200&&posted.status<400&&(/<tbody/i.test(posted.html)||/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(text)))break;
-      await page.waitForTimeout(1200*attempt);
-      await page.reload({waitUntil:"domcontentloaded"}).catch(()=>null);
-      await page.waitForLoadState("networkidle",{timeout:8000}).catch(()=>null);
+    // Submit Jad's real account form instead of inventing field meanings.
+    // In Jad, `confirm` is usually the submit control value, not the account number.
+    // Native form submission preserves hidden fields, dynamic tokens and the exact browser behavior.
+    const accountForm=page.locator('form').filter({has:page.locator('[name="currency"], [name="date2"], [name="date3"]')}).first();
+    if(await accountForm.count()===0){
+      const forms=await page.locator('form').evaluateAll(items=>items.map((form,index)=>({
+        index,
+        action:form.action,
+        method:form.method,
+        controls:[...form.elements].map(el=>({name:el.name||"",type:el.type||"",value:el.value||""})).filter(x=>x.name)
+      }))).catch(()=>[]);
+      trace.push({label:"account-forms",url:page.url(),time:new Date().toISOString(),forms});
+      throw await diagnosticError("تم فتح صفحة الحساب، لكن لم يتم العثور على نموذج كشف الحساب الحقيقي","JAD_ACCOUNT_FORM_NOT_FOUND");
     }
-    const html=posted?.html||"";
-    if(!posted||posted.status<200||posted.status>=400)throw await diagnosticError(`تعذر إرسال طلب كشف الحساب إلى جاد (${posted.status})`,"JAD_ACCOUNT_POST_FAILED");
-    if(isJadLoginPage(html,posted.url)&&!/<tbody/i.test(html))throw await diagnosticError("رفض موقع جاد الجلسة عند طلب كشف الحساب؛ أدخل رمز Authenticator جديدًا","JAD_SESSION_REJECTED");
-    if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(htmlText(html)))throw await diagnosticError("تم تسجيل الدخول، لكن استجابة كشف الحساب لا تحتوي جدولًا. تحقق من رقم الحساب الخارجي","JAD_STATEMENT_NOT_FOUND");
+
+    const formInfo=await accountForm.evaluate(form=>({
+      action:form.action,
+      method:(form.method||"POST").toUpperCase(),
+      controls:[...form.elements].map(el=>({
+        name:el.name||"",type:el.type||"",tag:el.tagName||"",value:el.value||"",
+        options:el.tagName==="SELECT"?[...el.options].map(o=>({value:o.value,text:o.text,selected:o.selected})):undefined
+      })).filter(x=>x.name)
+    }));
+    trace.push({label:"account-form-detected",url:page.url(),time:new Date().toISOString(),form:{action:formInfo.action,method:formInfo.method,controls:formInfo.controls.map(c=>({name:c.name,type:c.type,tag:c.tag,value:/pass|token|otp/i.test(c.name)?"[hidden]":safeText(c.value)}))}});
+
+    const setNamedValue=async(name,value)=>{
+      const field=accountForm.locator(`[name="${name}"]`).first();
+      if(await field.count()===0)return false;
+      const tag=await field.evaluate(el=>el.tagName).catch(()=>"");
+      if(tag==="SELECT"){
+        const selected=await field.selectOption(String(value)).catch(()=>[]);
+        if(!selected.length){
+          await field.selectOption({label:String(value)}).catch(()=>[]);
+        }
+      }else{
+        await field.fill(String(value)).catch(async()=>{await field.evaluate((el,v)=>{el.value=v;el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));},String(value));});
+      }
+      return true;
+    };
+
+    await setNamedValue("currency",String(partner.accountCurrency||"USD").toLowerCase());
+    await setNamedValue("date1","date");
+    await setNamedValue("date2",start);
+    await setNamedValue("date3",end);
+
+    // Select the external account only in a genuine account/customer control.
+    // Never overwrite the submit button named `confirm`.
+    if(accountId){
+      const accountCandidates=accountForm.locator('select, input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="date"])');
+      let accountChosen=false;
+      for(let i=0;i<await accountCandidates.count();i+=1){
+        const candidate=accountCandidates.nth(i);
+        const meta=await candidate.evaluate(el=>({name:el.name||"",id:el.id||"",tag:el.tagName||"",type:el.type||"",placeholder:el.placeholder||"",options:el.tagName==="SELECT"?[...el.options].map(o=>({value:o.value,text:o.text})):[]})).catch(()=>({}));
+        if(/^(currency|date1|date2|date3|confirm)$/i.test(meta.name||""))continue;
+        const signature=`${meta.name||""} ${meta.id||""} ${meta.placeholder||""}`;
+        const optionMatch=Array.isArray(meta.options)&&meta.options.some(o=>String(o.value)===accountId||String(o.text).includes(accountId));
+        if(optionMatch||/account|client|customer|cust|member|رقم|حساب|عميل/i.test(signature)){
+          if(meta.tag==="SELECT"){
+            const result=await candidate.selectOption(accountId).catch(()=>[]);
+            if(!result.length)await candidate.selectOption({label:accountId}).catch(()=>[]);
+          }else await candidate.fill(accountId).catch(()=>null);
+          accountChosen=true;
+          trace.push({label:"account-selected",control:meta.name||meta.id||"unknown",time:new Date().toISOString()});
+          break;
+        }
+      }
+      if(!accountChosen)trace.push({label:"account-control-not-found",accountId:"[configured]",time:new Date().toISOString()});
+    }
+
+    let html="";
+    let postedStatus=0;
+    let postedUrl=page.url();
+    for(let attempt=1;attempt<=3;attempt+=1){
+      const submitter=accountForm.locator('[name="confirm"], button[type="submit"], input[type="submit"]').first();
+      let response=null;
+      const responsePromise=page.waitForResponse(r=>{
+        try{return new URL(r.url()).pathname.replace(/\/$/,"").endsWith(`${prefix}/account`)&&r.request().method()==="POST";}catch{return false;}
+      },{timeout:20000}).catch(()=>null);
+      if(await submitter.count()){
+        await Promise.all([
+          page.waitForNavigation({waitUntil:"domcontentloaded",timeout:20000}).catch(()=>null),
+          submitter.click({timeout:10000})
+        ]);
+      }else{
+        await accountForm.evaluate(form=>form.requestSubmit());
+        await page.waitForLoadState("domcontentloaded",{timeout:20000}).catch(()=>null);
+      }
+      response=await responsePromise;
+      await page.waitForLoadState("networkidle",{timeout:10000}).catch(()=>null);
+      await page.waitForTimeout(900);
+      postedUrl=response?.url()||page.url();
+      postedStatus=response?.status()||200;
+      html=await page.content();
+      const text=safeText(htmlText(html).slice(0,900));
+      trace.push({label:`account-native-submit-${attempt}`,url:postedUrl,status:postedStatus,time:new Date().toISOString(),text});
+      if(postedStatus>=200&&postedStatus<400&&(/<tbody/i.test(html)||/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(text)))break;
+
+      // If native submission did not update the page, replay the *actual* FormData without extra AJAX headers.
+      const fallback=await accountForm.evaluate(async form=>{
+        const data=new FormData(form);
+        const submitter=form.querySelector('[name="confirm"],button[type="submit"],input[type="submit"]');
+        if(submitter&&submitter.name&&!data.has(submitter.name))data.append(submitter.name,submitter.value||"");
+        const body=new URLSearchParams();
+        for(const [key,value] of data.entries())body.append(key,String(value));
+        const response=await fetch(form.action||location.href,{method:(form.method||"POST").toUpperCase(),credentials:"include",redirect:"follow",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:body.toString()});
+        return {status:response.status,url:response.url,html:await response.text()};
+      }).catch(()=>null);
+      if(fallback){
+        postedUrl=fallback.url;postedStatus=fallback.status;html=fallback.html;
+        const fallbackText=safeText(htmlText(html).slice(0,900));
+        trace.push({label:`account-formdata-fallback-${attempt}`,url:postedUrl,status:postedStatus,time:new Date().toISOString(),text:fallbackText});
+        if(postedStatus>=200&&postedStatus<400&&(/<tbody/i.test(html)||/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(fallbackText)))break;
+      }
+      await page.goto(accountUrl,{waitUntil:"domcontentloaded"}).catch(()=>null);
+      await page.waitForLoadState("networkidle",{timeout:8000}).catch(()=>null);
+      await page.waitForTimeout(1000*attempt);
+    }
+
+    if(postedStatus<200||postedStatus>=400)throw await diagnosticError(`تعذر إرسال نموذج كشف الحساب الحقيقي إلى جاد (${postedStatus})`,"JAD_ACCOUNT_POST_FAILED");
+    if(isJadLoginPage(html,postedUrl)&&!/<tbody/i.test(html))throw await diagnosticError("رفض موقع جاد الجلسة عند طلب كشف الحساب؛ أدخل رمز Authenticator جديدًا","JAD_SESSION_REJECTED");
+    if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن|حركة/i.test(htmlText(html)))throw await diagnosticError("تم تسجيل الدخول وإرسال النموذج، لكن جاد لم يعرض كشف الحساب. تحقق من رقم الحساب الخارجي أو اختر الحساب الصحيح","JAD_STATEMENT_NOT_FOUND");
     return {...parseJadStatement(html),fromDate:start,toDate:end,mode:"BROWSER",diagnostic:trace.slice(-10)};
   }catch(error){
     if(/Executable doesn't exist|browserType\.launch|Failed to launch|host system is missing dependencies/i.test(String(error?.message||""))){const wrapped=new Error("تعذر تشغيل متصفح جاد على الخادم. تأكد من اكتمال تنزيل Chromium أثناء بناء Render");wrapped.code="JAD_BROWSER_UNAVAILABLE";wrapped.cause=error;throw wrapped;}
