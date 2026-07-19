@@ -3280,6 +3280,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
         ok:true,
         stale:true,
         message:"تعذر تحديث الرصيد الآن؛ تم الاحتفاظ بآخر رصيد ناجح",
+        reason:String(error.message||"تعذر تحديث البيانات مؤقتًا"),
         partner:stalePartner,
         lastSyncAt:stalePartner.lastSyncAt,
         result:{

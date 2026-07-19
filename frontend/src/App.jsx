@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.17 Sync Now & Relative Time";
+const APP_VERSION="v18.6.18 Clear Sync Failure Reasons";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -2944,22 +2944,40 @@ function Partners({open}){
     }
   }
 
+  const syncFailureReason=(data={})=>{
+    const code=String(data.warningCode||data.code||"").toUpperCase();
+    const raw=cleanConnectorMessage(data.reason||data.message||"");
+    if(code==="JAD_OTP_REQUIRED")return "مطلوب رمز Authenticator جديد";
+    if(code==="JAD_LOGIN_REJECTED")return "رفض موقع جاد بيانات الدخول أو رمز Authenticator";
+    if(code==="JAD_SESSION_REJECTED")return "انتهت جلسة جاد ويجب إدخال رمز Authenticator جديد";
+    if(code==="JAD_OTP_FIELD_NOT_FOUND")return "تغيّرت صفحة رمز التحقق في موقع جاد";
+    if(code==="JAD_CHROMIUM_LAUNCH_FAILED"||code==="JAD_BROWSER_UNAVAILABLE")return "تعذر تشغيل متصفح الربط على الخادم";
+    if(/timeout|مهلة/i.test(raw))return "انتهت مهلة الاتصال بموقع جاد";
+    if(/network|fetch|ENOTFOUND|ECONN|اتصال/i.test(raw))return "تعذر الوصول إلى موقع جاد مؤقتًا";
+    return raw||"تعذر تحديث البيانات مؤقتًا";
+  };
+
   async function syncPartner(partner){
     setError("");setMessage("");setSyncingId(partner.id);
     try{
       const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||""});
       setOtpById(current=>({...current,[partner.id]:""}));
-      const syncedCurrencies=Object.entries(response.data.result?.currencies||{}).map(([code,value])=>`${code}: لنا ${money(value?.receivable)} / علينا ${money(value?.payable)}`).join(" — ");
-      setMessage(`${partner.name}: ${response.data.message}${syncedCurrencies?` — ${syncedCurrencies}`:` — الرصيد ${money(response.data.result.balance)} ${partner.accountCurrency||"USD"}`}`);
+      if(response.data?.stale){
+        const reason=syncFailureReason(response.data);
+        setMessage(`${partner.name}: ${reason}. يتم عرض آخر رصيد ناجح${response.data.lastSyncAt?` من ${new Date(response.data.lastSyncAt).toLocaleString("ar-CA")}`:""}.`);
+      }else{
+        const syncedCurrencies=Object.entries(response.data.result?.currencies||{}).map(([code,value])=>`${code}: لنا ${money(value?.receivable)} / علينا ${money(value?.payable)}`).join(" — ");
+        setMessage(`${partner.name}: ${response.data.message}${syncedCurrencies?` — ${syncedCurrencies}`:` — الرصيد ${money(response.data.result.balance)} ${partner.accountCurrency||"USD"}`}`);
+      }
       await load();
     }catch(requestError){
       const data=requestError.response?.data||{};
       if(data.stale&&data.partner){
-        setMessage(`${partner.name}: تعذر تحديث الرصيد الآن، وتم الاحتفاظ بآخر رصيد ناجح${data.lastSyncAt?` بتاريخ ${new Date(data.lastSyncAt).toLocaleString("ar-CA")}`:""}.`);
+        setMessage(`${partner.name}: ${syncFailureReason(data)}. يتم عرض آخر رصيد ناجح${data.lastSyncAt?` من ${new Date(data.lastSyncAt).toLocaleString("ar-CA")}`:""}.`);
         setOtpById(current=>({...current,[partner.id]:""}));
         await load();
       }else{
-        setError(cleanConnectorMessage(data.message||"تعذر جلب الرصيد"));
+        setError(syncFailureReason(data));
         await load().catch(()=>{});
       }
     }
@@ -3009,18 +3027,24 @@ function Partners({open}){
       for(const partner of partners){
         setSyncingId(partner.id);
         try{
-          await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||""});
-          successCount+=1;
-          setOtpById(current=>({...current,[partner.id]:""}));
+          const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||""});
+          if(response.data?.stale){
+            console.warn("Partner sync stale",partner.name,response.data);
+            setMessage(`${partner.name}: ${syncFailureReason(response.data)}. يتم عرض آخر رصيد ناجح.`);
+          }else{
+            successCount+=1;
+            setOtpById(current=>({...current,[partner.id]:""}));
+          }
         }catch(requestError){
           const responseData=requestError.response?.data||{};
-          if(!responseData.stale)console.warn("Partner sync failed",partner.name,responseData);
+          console.warn("Partner sync failed",partner.name,responseData);
+          setMessage(`${partner.name}: ${syncFailureReason(responseData)}${responseData.stale?". يتم عرض آخر رصيد ناجح.":"."}`);
         }
       }
       await load();
       setNowTick(Date.now());
       if(successCount){setMessage(successCount===1?"تمت المزامنة الآن":"تمت مزامنة جميع الشركات الآن");}
-      else{setMessage("تعذر التحديث الآن؛ يتم عرض آخر أرصدة ناجحة");}
+      else if(!message){setMessage("تعذر التحديث الآن؛ راجع السبب الظاهر أعلاه، ويتم عرض آخر أرصدة ناجحة");}
     }finally{
       setSyncingId("");setSyncingAll(false);
     }
