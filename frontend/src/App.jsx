@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.16 Clean Successful Sync Status";
+const APP_VERSION="v18.6.17 Sync Now & Relative Time";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -457,7 +457,11 @@ function Customers({open}){
     }
   }
 
-  useEffect(()=>{load();},[]);
+  useEffect(()=>{
+    load();
+    const timer=setInterval(()=>setNowTick(Date.now()),30000);
+    return()=>clearInterval(timer);
+  },[]);
 
   useEffect(()=>{
     if(activePanel!=="transfer"||!transferForm.currency)return;
@@ -2897,6 +2901,8 @@ function Partners({open}){
   const [error,setError]=useState("");
   const [message,setMessage]=useState("");
   const [syncingId,setSyncingId]=useState("");
+  const [syncingAll,setSyncingAll]=useState(false);
+  const [nowTick,setNowTick]=useState(Date.now());
   const [otpById,setOtpById]=useState({});
   const [form,setForm]=useState({
     name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",
@@ -2977,6 +2983,49 @@ function Partners({open}){
     }catch(requestError){setError(cleanConnectorMessage(requestError.response?.data?.message||"لا يوجد سجل تشخيص متاح"));}
   }
 
+  const relativeSyncTime=value=>{
+    if(!value)return "لم تتم المزامنة بعد";
+    const time=new Date(value).getTime();
+    if(!Number.isFinite(time))return "وقت غير معروف";
+    const seconds=Math.max(0,Math.floor((nowTick-time)/1000));
+    if(seconds<60)return "الآن";
+    const minutes=Math.floor(seconds/60);
+    if(minutes===1)return "قبل دقيقة";
+    if(minutes<60)return `قبل ${minutes} دقائق`;
+    const hours=Math.floor(minutes/60);
+    if(hours===1)return "قبل ساعة";
+    if(hours<24)return `قبل ${hours} ساعات`;
+    const days=Math.floor(hours/24);
+    if(days===1)return "قبل يوم";
+    return `قبل ${days} أيام`;
+  };
+
+  async function syncAllPartners(){
+    const partners=(data.rows||[]).filter(partner=>partner.connectorType==="JAD");
+    if(!partners.length){setError("لا توجد شركة جاد للمزامنة");return;}
+    setError("");setMessage("جاري مزامنة الأرصدة الآن...");setSyncingAll(true);
+    let successCount=0;
+    try{
+      for(const partner of partners){
+        setSyncingId(partner.id);
+        try{
+          await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||""});
+          successCount+=1;
+          setOtpById(current=>({...current,[partner.id]:""}));
+        }catch(requestError){
+          const responseData=requestError.response?.data||{};
+          if(!responseData.stale)console.warn("Partner sync failed",partner.name,responseData);
+        }
+      }
+      await load();
+      setNowTick(Date.now());
+      if(successCount){setMessage(successCount===1?"تمت المزامنة الآن":"تمت مزامنة جميع الشركات الآن");}
+      else{setMessage("تعذر التحديث الآن؛ يتم عرض آخر أرصدة ناجحة");}
+    }finally{
+      setSyncingId("");setSyncingAll(false);
+    }
+  }
+
   const statusLabel=status=>({READY:"متصل",CONFIGURED:"مُعدّ",MANUAL:"يدوي",NOT_CONFIGURED:"غير مكتمل",ERROR:"خطأ"}[status]||"يدوي");
 
   const partnerCurrencyEntries=partner=>{
@@ -3007,7 +3056,7 @@ function Partners({open}){
   </div>;
 
   return <>
-    <div className="page-title-row"><h2>🏢 الشركات والربط الخارجي</h2></div>
+    <div className="page-title-row partner-title-row"><h2>🏢 الشركات والربط الخارجي</h2><button type="button" className="sync-now-button" disabled={syncingAll||Boolean(syncingId)} onClick={syncAllPartners}>{syncingAll?<><span className="sync-spinner"/> جاري المزامنة...</>:"🔄 مزامنة الآن"}</button></div>
     {error&&<div className="card customer-error">{error}</div>}
     {message&&<div className="card rate-message">{message}</div>}
     <div className="stats">
@@ -3052,9 +3101,9 @@ function Partners({open}){
           <td>{(()=>{const effectiveStatus=partner.lastSyncAt&&Number.isFinite(Number(partner.externalBalance))?"READY":partner.connectionStatus;return <span className={`integration-status status-${String(effectiveStatus||"MANUAL").toLowerCase()}`}>{statusLabel(effectiveStatus)}</span>;})()}</td>
           <td><span className="partner-primary-currency">{flagOf(partner.accountCurrency||"USD")} {partner.accountCurrency||"USD"}</span><small className="company-subline">العملة الأساسية فقط</small></td>
           <td><PartnerCurrencyBalances partner={partner}/></td>
-          <td>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar"):"-"}</td>
+          <td><div className="relative-sync-time"><strong>{relativeSyncTime(partner.lastSyncAt)}</strong><small>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar-CA"):"—"}</small></div></td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
-          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{partner.connectorType==="JAD"&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{partner.connectorType==="JAD"&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد الآن"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</td>
+          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{partner.connectorType==="JAD"&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{partner.connectorType==="JAD"&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري المزامنة...":"مزامنة الآن"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</td>
         </tr>):<tr><td colSpan="8">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>
     </div>

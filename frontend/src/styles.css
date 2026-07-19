@@ -4429,3 +4429,5 @@ body.app-language-en aside{
 .partner-receivable{color:#047857}
 .partner-payable{color:#b91c1c}
 @media(max-width:800px){.partner-currency-balances{min-width:330px}.partner-currency-balance{grid-template-columns:66px repeat(3,minmax(78px,1fr));gap:5px;padding:8px}}
+
+.partner-title-row{gap:12px;flex-wrap:wrap}.sync-now-button{display:inline-flex;align-items:center;gap:8px;min-width:145px;justify-content:center;background:#17365d;color:#fff;border:0;border-radius:10px;padding:11px 16px;font-weight:800;cursor:pointer}.sync-now-button:disabled{opacity:.65;cursor:not-allowed}.sync-spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;display:inline-block;animation:sync-spin .8s linear infinite}@keyframes sync-spin{to{transform:rotate(360deg)}}.relative-sync-time{display:flex;flex-direction:column;gap:3px;white-space:nowrap}.relative-sync-time strong{color:#18794e}.relative-sync-time small{font-size:11px;color:#6b7280}
