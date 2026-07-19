@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.9",channel:"jad-form-session-flow-fix",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.3.10",channel:"jad-browser-session-flow-fix",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2040,30 +2040,38 @@ function isJadLoginPage(html,url=""){
   const path=(()=>{try{return new URL(url).pathname.replace(/\/$/,"");}catch{return "";}})();
   return hasRealLoginForm || /\/log$/.test(path);
 }
-function parseSafeHiddenPostForm(html,baseUrl){
+function parseSafeTransitionPostForm(html,baseUrl){
   const source=String(html||"");
   for(const form of source.matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)){
-    if(!/method=["']?post/i.test(form[1]))continue;
-    const inputs=[...form[2].matchAll(/<input\b([^>]*)>/gi)];
-    if(!inputs.length)continue;
-    let safe=true;const body=new URLSearchParams();
-    for(const input of inputs){
-      const attrs=input[1];
-      const name=attrs.match(/name=["']([^"']+)/i)?.[1];
+    const formAttrs=parseHtmlAttributes(form[1]);
+    if(String(formAttrs.method||"GET").toUpperCase()!=="POST")continue;
+    const body=new URLSearchParams();
+    let hasField=false;
+    let unsafe=false;
+    for(const input of form[2].matchAll(/<input\b([^>]*)>/gi)){
+      const attrs=parseHtmlAttributes(input[1]);
+      const name=attrs.name;
       if(!name)continue;
-      const type=(attrs.match(/type=["']([^"']+)/i)?.[1]||"text").toLowerCase();
-      if(type!=="hidden"){safe=false;break;}
-      const value=attrs.match(/value=["']([^"']*)/i)?.[1]||"";
-      body.append(name,htmlText(value));
+      const type=String(attrs.type||"text").toLowerCase();
+      if(["password","text","email","file"].includes(type)){unsafe=true;break;}
+      if(type==="checkbox"||type==="radio"){
+        if(!Object.prototype.hasOwnProperty.call(attrs,"checked"))continue;
+      }
+      if(["hidden","submit","button","image"].includes(type)){
+        body.append(name,attrs.value||"");
+        hasField=true;
+        continue;
+      }
+      unsafe=true;break;
     }
-    if(!safe||![...body.keys()].length)continue;
-    const actionMatch=form[1].match(/action=["']([^"']*)/i);
-    const action=new URL(actionMatch?.[1]||baseUrl,baseUrl).toString();
-    if(/(?:logout|signout)/i.test(action))continue;
+    if(unsafe||!hasField)continue;
+    const action=new URL(formAttrs.action||baseUrl,baseUrl).toString();
+    if(/(?:logout|signout|logoff)/i.test(action))continue;
     return {action,body:body.toString()};
   }
   return null;
 }
+
 async function fetchWithCookies(url,options={},cookie="",settings={}){
   const maxRedirects=Number.isFinite(settings.maxRedirects)?settings.maxRedirects:8;
   let currentUrl=String(url);
@@ -2085,11 +2093,17 @@ async function fetchWithCookies(url,options={},cookie="",settings={}){
     redirects.push({status,from:currentUrl,to:nextUrl});
     const method=String(currentOptions.method||"GET").toUpperCase();
     const shouldSwitchToGet=status===303||((status===301||status===302)&&method!=="GET"&&method!=="HEAD");
+    const nextHeaders={...(currentOptions.headers||{})};
+    try{
+      if(new URL(nextUrl).origin===new URL(currentUrl).origin)nextHeaders.Referer=currentUrl;
+    }catch{}
     if(shouldSwitchToGet){
-      const nextHeaders={...(currentOptions.headers||{})};
       delete nextHeaders["Content-Type"];delete nextHeaders["content-type"];
       delete nextHeaders["Content-Length"];delete nextHeaders["content-length"];
+      delete nextHeaders.Origin;delete nextHeaders.origin;
       currentOptions={...currentOptions,method:"GET",body:undefined,headers:nextHeaders};
+    }else{
+      currentOptions={...currentOptions,headers:nextHeaders};
     }
     currentUrl=nextUrl;
   }
@@ -2168,7 +2182,7 @@ async function followJadPostLoginFlow(step,cookie,browserHeaders,base,prefix){
   let current=step;
   let jar=cookie;
   let html=await current.response.text();
-  for(let attempt=0;attempt<4;attempt+=1){
+  for(let attempt=0;attempt<8;attempt+=1){
     if(isJadLoginPage(html,current.url))return {step:current,cookie:jar,html,loggedOut:true};
 
     const clientRedirect=extractClientRedirect(html,current.url);
@@ -2177,7 +2191,7 @@ async function followJadPostLoginFlow(step,cookie,browserHeaders,base,prefix){
       jar=current.cookie;html=await current.response.text();continue;
     }
 
-    const safeForm=parseSafeHiddenPostForm(html,current.url);
+    const safeForm=parseSafeTransitionPostForm(html,current.url);
     if(safeForm){
       current=await fetchWithCookies(safeForm.action,{
         method:"POST",
@@ -2233,8 +2247,18 @@ async function syncJadPartner(partner,{fromDate,toDate}={}){
   let cookie="";
   const loginUrl=`${base}${prefix}/log`;
 
+  // Browser traffic reaches /log from pl.m. This preflight initializes the same PHP branch
+  // and keeps any session cookies issued before the login form is opened.
+  try{
+    const landing=await fetchWithCookies(`${base}${prefix}/pl.m`,{headers:browserHeaders},cookie,{maxRedirects:6});
+    cookie=landing.cookie;
+    await landing.response.arrayBuffer();
+  }catch(error){
+    console.warn("[JAD] pl.m preflight skipped:",error?.message||error);
+  }
+
   // Read the real login form first. Jad binds the dynamic tok value to the PHP session.
-  let step=await fetchWithCookies(loginUrl,{headers:browserHeaders},cookie,{maxRedirects:6});
+  let step=await fetchWithCookies(loginUrl,{headers:{...browserHeaders,Referer:`${base}${prefix}/pl.m`}},cookie,{maxRedirects:6});
   cookie=step.cookie;
   const loginHtml=await step.response.text();
   const loginForm=parseJadLoginForm(loginHtml,step.url||loginUrl);
