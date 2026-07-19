@@ -3256,17 +3256,42 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
     });
     res.json({message:"تم جلب الرصيد من شركة جاد",partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
   }catch(error){
+    let stalePartner=null;
+    let hasSuccessfulSync=false;
     mutate(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){
-      // إذا توجد مزامنة ناجحة سابقة، نحافظ على حالة الاتصال والرصيد المؤكدين.
-      // الفشل المؤقت (OTP منتهي/انقطاع) يُسجل ولا يمحو آخر نجاح.
-      const hasSuccessfulSync=Boolean(item.lastSyncAt) && Number.isFinite(Number(item.externalBalance));
+      // لا نمسح آخر رصيد ناجح عند انتهاء OTP أو انقطاع جاد مؤقتًا.
+      hasSuccessfulSync=Boolean(item.lastSyncAt) && (
+        Number.isFinite(Number(item.externalBalance)) ||
+        (item.externalBalances && typeof item.externalBalances==="object" && Object.keys(item.externalBalances).length>0)
+      );
       item.connectionStatus=hasSuccessfulSync?"READY":"ERROR";
       item.lastSyncError=String(error.message||error);
       item.lastSyncAttemptErrorAt=now();
       item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];
       item.lastJadArtifacts=error.jadArtifacts||null;
       item.updatedAt=now();
+      if(hasSuccessfulSync){
+        const {passwordEncrypted,...safe}=item;
+        stalePartner={...safe,hasPassword:Boolean(passwordEncrypted)};
+      }
     }});
+    if(hasSuccessfulSync&&stalePartner){
+      return res.json({
+        ok:true,
+        stale:true,
+        message:"تعذر تحديث الرصيد الآن؛ تم الاحتفاظ بآخر رصيد ناجح",
+        partner:stalePartner,
+        lastSyncAt:stalePartner.lastSyncAt,
+        result:{
+          balance:safeNumber(stalePartner.externalBalance),
+          receivable:safeNumber(stalePartner.externalReceivable),
+          payable:safeNumber(stalePartner.externalPayable),
+          currencies:stalePartner.externalBalances&&typeof stalePartner.externalBalances==="object"?stalePartner.externalBalances:{},
+          movements:[]
+        },
+        warningCode:error.code||"JAD_TEMPORARY_ERROR"
+      });
+    }
     res.status(400).json({message:error.message||"تعذر جلب الرصيد",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null,details:error.jadDetails||null});
   }
 });

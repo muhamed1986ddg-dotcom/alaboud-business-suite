@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.14 Clean Partner Sync UI";
+const APP_VERSION="v18.6.15 Stable Last Successful Balances";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -2946,7 +2946,17 @@ function Partners({open}){
       const syncedCurrencies=Object.entries(response.data.result?.currencies||{}).map(([code,value])=>`${code}: لنا ${money(value?.receivable)} / علينا ${money(value?.payable)}`).join(" — ");
       setMessage(`${partner.name}: ${response.data.message}${syncedCurrencies?` — ${syncedCurrencies}`:` — الرصيد ${money(response.data.result.balance)} ${partner.accountCurrency||"USD"}`}`);
       await load();
-    }catch(requestError){setError(cleanConnectorMessage(requestError.response?.data?.message||"تعذر جلب الرصيد"));}
+    }catch(requestError){
+      const data=requestError.response?.data||{};
+      if(data.stale&&data.partner){
+        setMessage(`${partner.name}: تعذر تحديث الرصيد الآن، وتم الاحتفاظ بآخر رصيد ناجح${data.lastSyncAt?` بتاريخ ${new Date(data.lastSyncAt).toLocaleString("ar-CA")}`:""}.`);
+        setOtpById(current=>({...current,[partner.id]:""}));
+        await load();
+      }else{
+        setError(cleanConnectorMessage(data.message||"تعذر جلب الرصيد"));
+        await load().catch(()=>{});
+      }
+    }
     finally{setSyncingId("");}
   }
 
