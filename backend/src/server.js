@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.5.2",channel:"jad-authenticator-otp",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.5.4",channel:"jad-auth-diagnostics",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2374,14 +2374,8 @@ async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
 
 async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
   let chromium;
-  try{
-    ({chromium}=require("playwright"));
-  }catch(error){
-    const wrapped=new Error("موصل المتصفح غير مثبت. نفّذ npm install داخل backend ثم أعد النشر");
-    wrapped.code="JAD_BROWSER_UNAVAILABLE";
-    wrapped.cause=error;
-    throw wrapped;
-  }
+  try{({chromium}=require("playwright"));}
+  catch(error){const wrapped=new Error("موصل المتصفح غير مثبت. نفّذ npm install داخل backend ثم أعد النشر");wrapped.code="JAD_BROWSER_UNAVAILABLE";wrapped.cause=error;throw wrapped;}
 
   const base=normalizeBaseUrl(partner.systemUrl);
   const prefix=String(partner.pathPrefix||"/ssljd/merkez112/1/2").replace(/\/$/,"");
@@ -2394,144 +2388,109 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
   const accountId=String(partner.externalAccountId||"").trim();
   const loginUrl=`${base}${prefix}/log`;
   const accountUrl=`${base}${prefix}/account`;
+  const cleanOtp=String(otp||"").replace(/\D/g,"").slice(0,8);
 
-  const launchOptions={
-    headless:true,
-    args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-zygote"],
-    timeout:45000
-  };
+  const launchOptions={headless:true,args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-zygote"],timeout:45000};
   if(process.env.CHROME_EXECUTABLE_PATH)launchOptions.executablePath=process.env.CHROME_EXECUTABLE_PATH;
 
-  let browser;
+  let browser; let page; const trace=[];
+  const record=async(label)=>{
+    if(!page)return;
+    const entry={label,url:page.url(),title:await page.title().catch(()=>""),time:new Date().toISOString()};
+    entry.text=(await page.locator('body').innerText({timeout:2500}).catch(()=>"" )).replace(/\s+/g," ").slice(0,500);
+    trace.push(entry);
+  };
+  const diagnosticError=async(message,code="JAD_FLOW_ERROR")=>{
+    await record("failure");
+    const error=new Error(message); error.code=code; error.jadTrace=trace.slice(-12); return error;
+  };
   try{
     browser=await chromium.launch(launchOptions);
-    const context=await browser.newContext({
-      locale:"ar",
-      timezoneId:"America/Toronto",
-      userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
-      viewport:{width:1365,height:900},
-      extraHTTPHeaders:{"Accept-Language":"ar,en-US;q=0.9,en;q=0.8"},
-      ignoreHTTPSErrors:true
-    });
-    const page=await context.newPage();
-    page.setDefaultTimeout(25000);
-    page.setDefaultNavigationTimeout(45000);
+    const context=await browser.newContext({locale:"ar",timezoneId:"America/Toronto",userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",viewport:{width:1365,height:900},extraHTTPHeaders:{"Accept-Language":"ar,en-US;q=0.9,en;q=0.8"},ignoreHTTPSErrors:true});
+    page=await context.newPage();
+    page.setDefaultTimeout(25000); page.setDefaultNavigationTimeout(45000);
 
-    // Visit the same landing page used by the real Jad browser flow.
     await page.goto(`${base}${prefix}/pl.m`,{waitUntil:"domcontentloaded"}).catch(()=>null);
+    await record("landing");
     await page.goto(loginUrl,{waitUntil:"domcontentloaded"});
+    await record("login-page");
 
-    const mail=page.locator('input[name="mail"]');
-    const pass=page.locator('input[name="pass"]');
-    if(await mail.count()===0||await pass.count()===0){
-      throw new Error("تعذر العثور على حقول تسجيل الدخول في موقع جاد");
-    }
-    await mail.fill(username);
-    await pass.fill(password);
-
+    const mail=page.locator('input[name="mail"],input[type="email"],input[name*="user" i],input[name*="login" i]').first();
+    const pass=page.locator('input[name="pass"],input[type="password"]').first();
+    if(await mail.count()===0||await pass.count()===0)throw await diagnosticError("تعذر العثور على حقول تسجيل الدخول في موقع جاد");
+    await mail.fill(username); await pass.fill(password);
     const submit=page.locator('button[name="btn-login"],input[name="btn-login"],button[type="submit"],input[type="submit"]').first();
-    if(await submit.count()===0)throw new Error("تعذر العثور على زر تسجيل الدخول في موقع جاد");
+    if(await submit.count()===0)throw await diagnosticError("تعذر العثور على زر تسجيل الدخول في موقع جاد");
+    await Promise.all([page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),submit.click()]);
+    await page.waitForTimeout(1200); await record("after-credentials");
 
-    await Promise.all([
-      page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),
-      submit.click()
-    ]);
-    await page.waitForTimeout(1500);
-
-    // Jad may request a time-based one-time password from Google Authenticator.
-    // The code is supplied by the user for this single request and is never persisted.
-    const otpSelectors=[
-      'input[name="otp"]','input[name="code"]','input[name="token"]',
-      'input[name="verify"]','input[name="verification_code"]',
-      'input[autocomplete="one-time-code"]','input[inputmode="numeric"]'
-    ];
+    // Detect OTP by selectors and by page wording. Jad installations use different field names.
+    const otpPageText=(await page.locator('body').innerText().catch(()=>""));
+    const otpHint=/رمز\s*(?:التحقق|التوثيق|المصادقة)|authenticator|verification\s*code|one[- ]time|otp/i.test(otpPageText);
+    const otpCandidates=page.locator('input:not([type="hidden"]):not([type="password"]):not([type="email"]):not([name="mail"])');
     let otpField=null;
-    for(const selector of otpSelectors){
-      const candidate=page.locator(selector).first();
-      if(await candidate.count()){
-        const visible=await candidate.isVisible().catch(()=>false);
-        if(visible){otpField=candidate;break;}
-      }
+    for(let i=0;i<await otpCandidates.count();i+=1){
+      const c=otpCandidates.nth(i); if(!(await c.isVisible().catch(()=>false)))continue;
+      const meta=await c.evaluate(el=>({name:el.name||"",id:el.id||"",type:el.type||"",inputmode:el.inputMode||"",autocomplete:el.autocomplete||"",placeholder:el.placeholder||"",maxlength:el.maxLength||0})).catch(()=>({}));
+      const signature=Object.values(meta).join(" ");
+      if(/otp|code|token|verify|verification|auth|two|2fa|numeric|one-time/i.test(signature)||meta.maxlength===6||meta.maxlength===8){otpField=c;break;}
+    }
+    if(!otpField&&otpHint){
+      const visibleTextInputs=page.locator('input[type="text"],input:not([type])');
+      for(let i=0;i<await visibleTextInputs.count();i++){const c=visibleTextInputs.nth(i);if(await c.isVisible().catch(()=>false)){otpField=c;break;}}
     }
     if(otpField){
-      const cleanOtp=String(otp||"").replace(/\D/g,"").slice(0,8);
-      if(!/^\d{6,8}$/.test(cleanOtp)){
-        const required=new Error("أدخل رمز Google Authenticator الحالي ثم أعد المحاولة");
-        required.code="JAD_OTP_REQUIRED";
-        throw required;
-      }
+      if(!/^\d{6,8}$/.test(cleanOtp)){const e=await diagnosticError("أدخل رمز Google Authenticator الحالي ثم أعد المحاولة","JAD_OTP_REQUIRED");throw e;}
       await otpField.fill(cleanOtp);
-      const otpSubmit=page.locator('button[type="submit"],input[type="submit"],button[name*="verify" i],button[name*="confirm" i]').first();
-      if(await otpSubmit.count()){
-        await Promise.all([
-          page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),
-          otpSubmit.click()
-        ]);
-      }else{
-        await otpField.press("Enter");
-        await page.waitForLoadState("domcontentloaded").catch(()=>null);
-      }
-      await page.waitForTimeout(1200);
-    }
+      const otpSubmit=page.locator('button[type="submit"],input[type="submit"],button:has-text("تأكيد"),button:has-text("تحقق"),button:has-text("دخول")').first();
+      if(await otpSubmit.count())await Promise.all([page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),otpSubmit.click()]);
+      else {await otpField.press("Enter");await page.waitForLoadState("domcontentloaded").catch(()=>null);}
+      await page.waitForTimeout(1500); await record("after-otp");
+    }else if(otpHint){throw await diagnosticError("ظهرت صفحة رمز التحقق ولكن لم يتمكن البرنامج من تحديد خانة الرمز","JAD_OTP_FIELD_NOT_FOUND");}
 
-    // Jad can perform a JavaScript/meta redirect after the POST.
-    for(let i=0;i<4;i+=1){
-      const current=page.url();
-      if(!/\/log(?:_2)?\/?(?:$|[?#])/i.test(current))break;
-      await page.waitForTimeout(700);
+    // Allow client-side redirects and intermediate transfer pages to finish.
+    for(let i=0;i<8;i+=1){
+      await page.waitForTimeout(650);
+      const html=await page.content(); const url=page.url();
+      if(!isJadLoginPage(html,url)&&!/\/log(?:_2)?\/?(?:$|[?#])/i.test(url))break;
     }
+    await record("authenticated-landing");
 
-    await page.goto(accountUrl,{waitUntil:"domcontentloaded"});
-    await page.waitForTimeout(700);
+    // Prefer a real account link from the authenticated page, then fall back to the known URL.
+    const accountLink=page.locator(`a[href*="/account"],a[href$="account"],a:has-text("كشف الحساب"),a:has-text("الحساب")`).first();
+    if(await accountLink.count()&&await accountLink.isVisible().catch(()=>false)){
+      await Promise.all([page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),accountLink.click()]);
+    }else await page.goto(accountUrl,{waitUntil:"domcontentloaded"});
+    await page.waitForTimeout(900); await record("account-page");
     let accountHtml=await page.content();
-    if(isJadLoginPage(accountHtml,page.url())){
-      throw new Error("رفض موقع جاد جلسة المتصفح بعد تسجيل الدخول؛ تحقق من بيانات الحساب أو قيود الدخول من خادم Render");
-    }
+    if(isJadLoginPage(accountHtml,page.url()))throw await diagnosticError("موقع جاد أعاد صفحة تسجيل الدخول بعد إدخال البيانات؛ الرمز قد يكون منتهيًا أو تم رفض تسجيل الدخول","JAD_LOGIN_REJECTED");
 
     if(accountId){
-      const confirm=page.locator('[name="confirm"]');
+      const confirm=page.locator('[name="confirm"]').first();
       if(await confirm.count()){
-        await confirm.first().fill(accountId);
-        const currency=page.locator('[name="currency"]');
-        if(await currency.count())await currency.first().selectOption(String(partner.accountCurrency||"USD").toLowerCase()).catch(()=>null);
-        const date2=page.locator('[name="date2"]');
-        const date3=page.locator('[name="date3"]');
-        if(await date2.count())await date2.first().fill(start);
-        if(await date3.count())await date3.first().fill(end);
-        await Promise.all([
-          page.waitForLoadState("domcontentloaded").catch(()=>null),
-          confirm.first().press("Enter")
-        ]);
-      }else{
-        await page.evaluate(async ({accountUrl,accountId,start,end,currency})=>{
-          const body=new URLSearchParams({currency,date1:"date",confirm:accountId,date2:start,date3:end});
-          await fetch(accountUrl,{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:body.toString(),credentials:"include"});
-        },{accountUrl,accountId,start,end,currency:String(partner.accountCurrency||"USD").toLowerCase()});
+        await confirm.fill(accountId);
+        const currency=page.locator('[name="currency"]').first(); if(await currency.count())await currency.selectOption(String(partner.accountCurrency||"USD").toLowerCase()).catch(()=>null);
+        const date2=page.locator('[name="date2"]').first(); const date3=page.locator('[name="date3"]').first();
+        if(await date2.count())await date2.fill(start); if(await date3.count())await date3.fill(end);
+        const form=confirm.locator('xpath=ancestor::form[1]');
+        if(await form.count())await Promise.all([page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),form.evaluate(f=>f.submit())]);
+        else await confirm.press("Enter");
+        await page.waitForTimeout(700); await record("account-selected");
       }
-      await page.waitForTimeout(600);
     }
 
-    const query=new URLSearchParams({
-      currency:String(partner.accountCurrency||"USD").toLowerCase(),
-      date1:"date",date2:start,date3:end
-    });
+    const query=new URLSearchParams({currency:String(partner.accountCurrency||"USD").toLowerCase(),date1:"date",date2:start,date3:end});
     await page.goto(`${base}${prefix}/accountprint.php?${query}`,{waitUntil:"domcontentloaded"});
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(700); await record("statement-page");
     const html=await page.content();
-    if(isJadLoginPage(html,page.url())&&!/<tbody/i.test(html))throw new Error("رفض موقع جاد جلسة المتصفح عند طلب كشف الحساب");
-    if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن/i.test(htmlText(html)))throw new Error("تم تسجيل الدخول إلى جاد لكن لم يتم العثور على جدول كشف الحساب");
-    return {...parseJadStatement(html),fromDate:start,toDate:end,mode:"BROWSER"};
+    if(isJadLoginPage(html,page.url())&&!/<tbody/i.test(html))throw await diagnosticError("رفض موقع جاد الجلسة عند طلب كشف الحساب؛ يلزم تسجيل دخول جديد","JAD_SESSION_REJECTED");
+    if(!/<tbody/i.test(html)&&!/كشف\s*حساب|الرصيد|مدين|دائن/i.test(htmlText(html)))throw await diagnosticError("تم تسجيل الدخول، لكن صفحة كشف الحساب في جاد مختلفة عن المتوقع. راجع سجل تشخيص جاد","JAD_STATEMENT_NOT_FOUND");
+    return {...parseJadStatement(html),fromDate:start,toDate:end,mode:"BROWSER",diagnostic:trace.slice(-8)};
   }catch(error){
-    if(/Executable doesn't exist|browserType\.launch|Failed to launch|host system is missing dependencies/i.test(String(error?.message||""))){
-      const wrapped=new Error("تعذر تشغيل متصفح جاد على الخادم. تأكد من اكتمال تنزيل Chromium أثناء بناء Render");
-      wrapped.code="JAD_BROWSER_UNAVAILABLE";
-      wrapped.cause=error;
-      throw wrapped;
-    }
+    if(/Executable doesn't exist|browserType\.launch|Failed to launch|host system is missing dependencies/i.test(String(error?.message||""))){const wrapped=new Error("تعذر تشغيل متصفح جاد على الخادم. تأكد من اكتمال تنزيل Chromium أثناء بناء Render");wrapped.code="JAD_BROWSER_UNAVAILABLE";wrapped.cause=error;throw wrapped;}
+    if(!error.jadTrace)error.jadTrace=trace.slice(-12);
     throw error;
-  }finally{
-    if(browser)await browser.close().catch(()=>{});
-  }
+  }finally{if(browser)await browser.close().catch(()=>{});}
 }
 
 async function syncJadPartner(partner,options={}){
@@ -2701,8 +2660,8 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
     mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.updatedAt=now();}});
     res.json({ok:true,status:"READY",message:"الرابط صالح. اختر موصل الشركة لإجراء مزامنة فعلية."});
   }catch(error){
-    mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.updatedAt=now();}});
-    res.status(400).json({message:error.message||"تعذر اختبار الاتصال"});
+    mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-12):[];item.updatedAt=now();}});
+    res.status(400).json({message:error.message||"تعذر اختبار الاتصال",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-6):[]});
   }
 });
 
@@ -2723,9 +2682,16 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
     });
     res.json({message:"تم جلب الرصيد من شركة جاد",partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
   }catch(error){
-    mutate(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.updatedAt=now();}});
-    res.status(400).json({message:error.message||"تعذر جلب الرصيد"});
+    mutate(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="ERROR";item.lastSyncError=String(error.message||error);item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-12):[];item.updatedAt=now();}});
+    res.status(400).json({message:error.message||"تعذر جلب الرصيد",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-6):[]});
   }
+});
+
+app.get("/api/partners/:id/jad-diagnostic", auth, (req,res)=>{
+  const store=readStore();
+  const partner=(store.partners||[]).find(item=>item.id===req.params.id);
+  if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
+  res.json({message:partner.lastSyncError||"لا يوجد خطأ مسجل",diagnostic:Array.isArray(partner.lastJadDiagnostic)?partner.lastJadDiagnostic:[],lastSyncAt:partner.lastSyncAt||null,status:partner.connectionStatus||"CONFIGURED"});
 });
 
 app.get("/api/partners/:id", auth, (req,res)=>{
