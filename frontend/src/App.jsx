@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.10 Jad Dashboard Currency Parser";
+const APP_VERSION="v18.6.11 Jad EUR Final Parser";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
