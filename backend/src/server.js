@@ -2405,7 +2405,15 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     const error=new Error(message); error.code=code; error.jadTrace=trace.slice(-12); return error;
   };
   try{
-    browser=await chromium.launch(launchOptions);
+    try {
+      browser=await chromium.launch(launchOptions);
+    } catch (launchError) {
+      const executable=chromium.executablePath ? chromium.executablePath() : "";
+      const wrapped=new Error(`تعذر تشغيل Chromium على Render: ${launchError.message}${executable ? ` | المسار: ${executable}` : ""}`);
+      wrapped.code="JAD_CHROMIUM_LAUNCH_FAILED";
+      wrapped.cause=launchError;
+      throw wrapped;
+    }
     const context=await browser.newContext({locale:"ar",timezoneId:"America/Toronto",userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",viewport:{width:1365,height:900},extraHTTPHeaders:{"Accept-Language":"ar,en-US;q=0.9,en;q=0.8"},ignoreHTTPSErrors:true});
     page=await context.newPage();
     page.setDefaultTimeout(25000); page.setDefaultNavigationTimeout(45000);
