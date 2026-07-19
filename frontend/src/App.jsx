@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.7 External Debts By Currency";
+const APP_VERSION="v18.6.8 Multi-Currency Final Net";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -2462,7 +2462,10 @@ function GeneralDebts(){
       setData({
         rows:Array.isArray(data?.rows)?data.rows:[],
         totals:data?.totals||{receivable:0,payable:0,net:0},
-        totalsByCurrency:data?.totalsByCurrency||{}
+        summaryCurrency:data?.summaryCurrency||"CAD",
+        totalsByCurrency:data?.totalsByCurrency||{},
+        missingRates:Array.isArray(data?.missingRates)?data.missingRates:[],
+        ratesUpdatedAt:data?.ratesUpdatedAt||null
       });
     }catch(error){
       setMessage(error.response?.data?.message||"تعذر تحميل الديون");
@@ -2522,18 +2525,23 @@ function GeneralDebts(){
 
     <div className="stats">
       <div className="card receivable-card">
-        <span>دين لنا — CAD 🇨🇦</span>
+        <span>دين لنا — {data.summaryCurrency||"CAD"} 🇨🇦</span>
         <strong>{money(data.totals.receivable)}</strong>
+        <small>بعد تحويل جميع العملات</small>
       </div>
       <div className="card payable-card">
-        <span>دين علينا — CAD 🇨🇦</span>
+        <span>دين علينا — {data.summaryCurrency||"CAD"} 🇨🇦</span>
         <strong>{money(data.totals.payable)}</strong>
+        <small>بعد تحويل جميع العملات</small>
       </div>
       <div className="card final">
-        <span>صافي الديون — CAD 🇨🇦</span>
-        <strong>{money(data.totals.net)}</strong>
+        <span>صافي الديون النهائي — {data.summaryCurrency||"CAD"} 🇨🇦</span>
+        <strong className={Number(data.totals.net)>=0?"positive-net":"negative-net"}>{money(data.totals.net)}</strong>
+        <small>محسوب حسب آخر أسعار الصرف{data.ratesUpdatedAt?` — ${new Date(data.ratesUpdatedAt).toLocaleString("ar-CA")}`:""}</small>
       </div>
     </div>
+
+    {data.missingRates?.length>0&&<div className="card debt-message">تعذر تحويل العملات التالية إلى {data.summaryCurrency||"CAD"}: {data.missingRates.join("، ")}. أضف أسعار صرفها ليكتمل صافي الديون النهائي.</div>}
 
     <div className="card debt-currency-summary">
       <div className="debt-currency-summary-head">

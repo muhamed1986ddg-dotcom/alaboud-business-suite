@@ -1752,11 +1752,101 @@ app.get("/api/general-debts", auth, (req,res)=>{
     };
   }
 
-  const cadTotals = totalsByCurrency.CAD || {receivable:0,payable:0,net:0};
+  // Convert every currency total to the requested base currency for the top summary cards.
+  // Latest exchange rates are treated as quote units per 1 base unit.
+  const summaryCurrency = String(req.query.summaryCurrency || "CAD").toUpperCase();
+  const latestRates = new Map();
+  for (const rate of (Array.isArray(store.exchangeRates) ? store.exchangeRates : [])
+    .slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")))) {
+    const base = String(rate.baseCurrency || "").toUpperCase();
+    const quote = String(rate.quoteCurrency || "").toUpperCase();
+    if (!base || !quote || base===quote) continue;
+    const key = `${base}_${quote}`;
+    if (!latestRates.has(key)) latestRates.set(key, rate);
+  }
+
+  const graph = new Map();
+  const addEdge = (from,to,factor,sourceUpdatedAt)=>{
+    if (!from || !to || !Number.isFinite(factor) || factor<=0) return;
+    if (!graph.has(from)) graph.set(from,[]);
+    graph.get(from).push({to,factor,sourceUpdatedAt});
+  };
+  for (const rate of latestRates.values()) {
+    const base = String(rate.baseCurrency || "").toUpperCase();
+    const quote = String(rate.quoteCurrency || "").toUpperCase();
+    const direct = safeNumber(rate.sellRate, rate.buyRate);
+    if (direct>0) {
+      addEdge(base,quote,direct,rate.createdAt||null);
+      addEdge(quote,base,1/direct,rate.createdAt||null);
+    }
+  }
+
+  const findConversion = (from,to)=>{
+    if (from===to) return {factor:1,path:[from],updatedAt:null};
+    const queue=[{currency:from,factor:1,path:[from],updatedAt:null}];
+    const seen=new Set([from]);
+    while(queue.length){
+      const current=queue.shift();
+      for(const edge of (graph.get(current.currency)||[])){
+        if(seen.has(edge.to)) continue;
+        const next={
+          currency:edge.to,
+          factor:current.factor*edge.factor,
+          path:[...current.path,edge.to],
+          updatedAt:[current.updatedAt,edge.sourceUpdatedAt].filter(Boolean).sort().pop()||null
+        };
+        if(edge.to===to) return next;
+        seen.add(edge.to);
+        queue.push(next);
+      }
+    }
+    return null;
+  };
+
+  let convertedReceivable=0;
+  let convertedPayable=0;
+  const conversionDetails={};
+  const missingRates=[];
+  let ratesUpdatedAt=null;
+  for (const [currency,total] of Object.entries(totalsByCurrency)) {
+    const conversion=findConversion(currency,summaryCurrency);
+    if (!conversion) {
+      missingRates.push(currency);
+      conversionDetails[currency]={available:false,from:currency,to:summaryCurrency};
+      continue;
+    }
+    const receivable=safeNumber(total.receivable)*conversion.factor;
+    const payable=safeNumber(total.payable)*conversion.factor;
+    convertedReceivable+=receivable;
+    convertedPayable+=payable;
+    if(conversion.updatedAt && (!ratesUpdatedAt || conversion.updatedAt>ratesUpdatedAt)) ratesUpdatedAt=conversion.updatedAt;
+    conversionDetails[currency]={
+      available:true,
+      from:currency,
+      to:summaryCurrency,
+      factor:+conversion.factor.toFixed(8),
+      path:conversion.path,
+      receivable:+receivable.toFixed(2),
+      payable:+payable.toFixed(2),
+      net:+(receivable-payable).toFixed(2),
+      updatedAt:conversion.updatedAt
+    };
+  }
+
+  const convertedTotals={
+    receivable:+convertedReceivable.toFixed(2),
+    payable:+convertedPayable.toFixed(2),
+    net:+(convertedReceivable-convertedPayable).toFixed(2)
+  };
+
   res.json({
     rows,
-    totals:cadTotals,
+    totals:convertedTotals,
+    summaryCurrency,
     totalsByCurrency,
+    conversionDetails,
+    missingRates,
+    ratesUpdatedAt,
     automaticTransferDebts:transferRows.length,
     automaticCompanyDebts:partnerRows.length
   });
