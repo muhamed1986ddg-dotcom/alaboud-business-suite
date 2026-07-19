@@ -1,7 +1,11 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.12 Partner Multi-Currency Balances";
+const APP_VERSION="v18.6.13 Partner Currency Flags Fix";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
+const flagOf=code=>{
+  const normalized=String(code||"").toUpperCase();
+  return debtCurrencies.find(item=>item.code===normalized)?.flag||({GBP:"🇬🇧",AED:"🇦🇪"}[normalized]||"🏳️");
+};
 
 function openRegularWhatsApp(phone,message){
   const cleanPhone=String(phone||"").replace(/\D/g,"");
