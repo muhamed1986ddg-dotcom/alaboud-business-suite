@@ -1,6 +1,6 @@
 {
   "name": "alaboud-stable-backend",
-  "version": "18.4.0",
+  "version": "18.4.1",
   "private": true,
   "type": "commonjs",
   "scripts": {
@@ -13,6 +13,6 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.16.3",
-    "playwright-chromium": "^1.61.1"
+    "playwright-chromium": "1.61.1"
   }
 }
