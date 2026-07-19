@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.2 Jad Account Page Discovery";
+const APP_VERSION="v18.6.3 Jad Login Validation & Statement Probe";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 

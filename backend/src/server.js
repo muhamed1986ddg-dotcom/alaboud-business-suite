@@ -2503,6 +2503,32 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     }
     await record("authenticated-landing");
 
+    // Do not treat a failed login page as an authenticated session merely because
+    // the URL or visible text changed. Jad sometimes returns /log with an error.
+    const verifyAuthenticatedSession=async()=>{
+      const html=await page.content().catch(()=>"");
+      const body=htmlText(html);
+      const hasPassword=await page.locator('input[type="password"],input[name="pass"]').count().catch(()=>0);
+      const hasLoginButton=await page.locator('button[name="btn-login"],input[name="btn-login"]').count().catch(()=>0);
+      const rejected=/اسم المستخدم|كلمة المرور|بيانات الدخول|غير صحيحة|خطأ في تسجيل الدخول|invalid|incorrect|failed|رمز.*(?:خاطئ|منتهي)/i.test(body);
+      if((hasPassword&&hasLoginButton)||rejected){
+        const reason=rejected?"رفض موقع جاد بيانات الدخول أو رمز التحقق":"بقيت صفحة تسجيل الدخول ظاهرة بعد الإرسال";
+        throw await diagnosticError(`${reason}. استخدم اسم المستخدم وكلمة المرور الصحيحين ورمز Authenticator جديدًا`,"JAD_LOGIN_REJECTED");
+      }
+      return true;
+    };
+    await verifyAuthenticatedSession();
+
+    // Jad commonly exposes the statement on pl.m even when the authenticated
+    // landing URL remains /log. Probe the known authenticated endpoint first,
+    // preserving the current browser session and cookies.
+    const knownStatementUrls=[
+      `${base}${prefix}/pl.m`,
+      `${base}${prefix}/pl`,
+      `${base}${prefix}/account`,
+      `${base}${prefix}/statement`
+    ];
+
     // Jad often serves the statement form directly on the authenticated landing page
     // (usually /pl.m). Do not leave that page unless no suitable form exists there.
     const findAccountForm=async()=>{
@@ -2523,21 +2549,35 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
         const names=info.controls.map(c=>String(c.name||'').toLowerCase());
         const signature=info.controls.map(c=>`${c.name} ${c.id} ${c.placeholder} ${c.text}`).join(' ');
         let score=0;
-        if(names.includes('currency'))score+=5;
-        if(names.includes('date2'))score+=5;
-        if(names.includes('date3'))score+=5;
+        if(names.includes('currency')||names.some(n=>/curr|coin|money|currency_id/.test(n)))score+=5;
+        if(names.includes('date2')||names.some(n=>/from|start|date_from|firstdate/.test(n)))score+=5;
+        if(names.includes('date3')||names.some(n=>/to|end|date_to|lastdate/.test(n)))score+=5;
         if(/كشف\s*حساب|statement|account|الرصيد|مدين|دائن/i.test(signature))score+=4;
         if(/mail|pass|btn-login|otp|authenticator/i.test(signature))score-=12;
         inspected.push({index:i,action:info.action,method:info.method,score,names:names.filter(Boolean)});
         if(score>bestScore){bestScore=score;best=form;}
       }
       trace.push({label:'account-form-scan',url:page.url(),time:new Date().toISOString(),bestScore,forms:inspected});
-      return bestScore>=10?best:null;
+      return bestScore>=7?best:null;
     };
 
     let accountForm=await findAccountForm();
     if(!accountForm){
       const authenticatedUrl=page.url();
+      for(const target of knownStatementUrls){
+        await page.goto(target,{waitUntil:'domcontentloaded'}).catch(()=>null);
+        await page.waitForTimeout(850);
+        await record(`known-account-page-${target.split('/').pop()||'root'}`);
+        const candidateHtml=await page.content().catch(()=>'');
+        if(!isJadLoginPage(candidateHtml,page.url())){
+          accountForm=await findAccountForm();
+          if(accountForm)break;
+        }
+      }
+      if(!accountForm){
+        await page.goto(authenticatedUrl,{waitUntil:'domcontentloaded'}).catch(()=>null);
+        await page.waitForTimeout(500);
+      }
       const links=await page.locator('a[href]').evaluateAll(items=>items.map((a,index)=>({
         index,href:a.href||'',text:(a.innerText||a.textContent||'').replace(/\s+/g,' ').trim()
       }))).catch(()=>[]);
@@ -2551,7 +2591,7 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
       }).filter(x=>x.score>0).sort((a,b)=>b.score-a.score);
       trace.push({label:'account-link-candidates',url:page.url(),time:new Date().toISOString(),candidates:candidates.slice(0,12)});
 
-      for(const candidate of candidates.slice(0,8)){
+      for(const candidate of candidates.slice(0,12)){
         await page.goto(candidate.href,{waitUntil:'domcontentloaded'}).catch(()=>null);
         await page.waitForTimeout(700);
         await record(`account-candidate-${candidate.index}`);
