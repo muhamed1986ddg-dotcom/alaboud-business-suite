@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.20 JAD Link & Balance Fix";
+const APP_VERSION="v18.6.22 JAD Debt Direction Fix";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
