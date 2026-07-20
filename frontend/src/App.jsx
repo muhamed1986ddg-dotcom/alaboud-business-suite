@@ -1,4 +1,4 @@
-import React,{useEffect,useState}from"react";import api from"./api";import {APP_VERSION} from"./version";
+import React,{useEffect,useRef,useState}from"react";import api from"./api";import {APP_VERSION} from"./version";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -1095,6 +1095,24 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
   }
 
   useEffect(()=>{load();},[]);
+  useEffect(()=>{
+    const timer=setInterval(async()=>{
+      if(autoSyncBusy.current||syncingAll||syncingId)return;
+      try{
+        const center=(await api.get("/partners/sync-center")).data;
+        setSyncCenter(center);
+        const dueSet=new Set(center.duePartnerIds||[]);
+        const duePartner=(data.rows||[]).find(item=>dueSet.has(item.id)&&item.syncEnabled&&["JAD","TAWASUL","KONTORUN"].includes(item.connectorType));
+        if(!duePartner)return;
+        autoSyncBusy.current=true;
+        setSyncingId(duePartner.id);
+        await api.post(`/partners/${duePartner.id}/sync`,{trigger:"AUTO"});
+        await load();
+      }catch(error){console.warn("Automatic partner sync skipped",error.response?.data||error.message);}
+      finally{autoSyncBusy.current=false;setSyncingId("");}
+    },60000);
+    return()=>clearInterval(timer);
+  },[data.rows,syncingAll,syncingId]);
 
 
 
@@ -2932,22 +2950,25 @@ function Partners({open}){
   const [message,setMessage]=useState("");
   const [syncingId,setSyncingId]=useState("");
   const [syncingAll,setSyncingAll]=useState(false);
+  const [syncCenter,setSyncCenter]=useState({stats:{enabled:0,due:0,totalToday:0,successes:0,failures:0,averageDurationMs:0},duePartnerIds:[],logs:[]});
+  const autoSyncBusy=useRef(false);
   const [nowTick,setNowTick]=useState(Date.now());
   const [otpById,setOtpById]=useState({});
   const [editingId,setEditingId]=useState("");
   const emptyPartnerForm={
     name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",
-    systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true
+    systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true,syncIntervalMinutes:5,syncMode:"BALANCE_ONLY"
   };
   const [form,setForm]=useState({
     name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",
-    systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true
+    systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true,syncIntervalMinutes:5,syncMode:"BALANCE_ONLY"
   });
 
   async function load(){
     try{
-      const response=await api.get("/partners");
+      const [response,centerResponse]=await Promise.all([api.get("/partners"),api.get("/partners/sync-center")]);
       setData(response.data);
+      setSyncCenter(centerResponse.data);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل الشركات");
     }
@@ -2965,7 +2986,7 @@ function Partners({open}){
     setEditingId(partner.id);
     setForm({
       name:partner.name||"",contactName:partner.contactName||"",phone:partner.phone||"",whatsapp:partner.whatsapp||"",email:partner.email||"",country:partner.country||"",city:partner.city||"",address:partner.address||"",notes:partner.notes||"",
-      systemUrl:partner.systemUrl||"",connectionType:partner.connectionType||"WEB",accountCurrency:partner.accountCurrency||"USD",integrationName:partner.integrationName||"",username:partner.username||"",password:"",externalAccountId:partner.externalAccountId||"",connectorType:partner.connectorType==="KONTORUN"?"TAWASUL":partner.connectorType||"GENERIC",pathPrefix:partner.pathPrefix||"/ssljd/merkez112/1/2",syncFromDate:partner.syncFromDate||"",syncEnabled:partner.syncEnabled!==false
+      systemUrl:partner.systemUrl||"",connectionType:partner.connectionType||"WEB",accountCurrency:partner.accountCurrency||"USD",integrationName:partner.integrationName||"",username:partner.username||"",password:"",externalAccountId:partner.externalAccountId||"",connectorType:partner.connectorType==="KONTORUN"?"TAWASUL":partner.connectorType||"GENERIC",pathPrefix:partner.pathPrefix||"/ssljd/merkez112/1/2",syncFromDate:partner.syncFromDate||"",syncEnabled:partner.syncEnabled!==false,syncIntervalMinutes:Number(partner.syncIntervalMinutes)||5,syncMode:partner.syncMode||"BALANCE_ONLY"
     });
     window.scrollTo({top:0,behavior:"smooth"});
   }
@@ -3005,7 +3026,7 @@ function Partners({open}){
   async function testConnection(partner){
     setError("");setMessage("");
     try{
-      const response=await api.post(`/partners/${partner.id}/test-connection`,{otp:otpById[partner.id]||""});
+      const response=await api.post(`/partners/${partner.id}/test-connection`,{otp:otpById[partner.id]||"",trigger:"MANUAL"});
       setMessage(`${partner.name}: ${response.data.message}`);
       await load();
     }catch(requestError){
@@ -3033,7 +3054,7 @@ function Partners({open}){
   async function syncPartner(partner){
     setError("");setMessage("");setSyncingId(partner.id);
     try{
-      const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||""});
+      const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||"",trigger:"MANUAL"});
       setOtpById(current=>({...current,[partner.id]:""}));
       if(response.data?.stale){
         const reason=syncFailureReason(response.data);
@@ -3100,7 +3121,7 @@ function Partners({open}){
       for(const partner of partners){
         setSyncingId(partner.id);
         try{
-          const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||""});
+          const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||"",trigger:"MANUAL"});
           if(response.data?.stale){
             console.warn("Partner sync stale",partner.name,response.data);
             setMessage(`${partner.name}: ${syncFailureReason(response.data)}. يتم عرض آخر رصيد ناجح.`);
@@ -3163,6 +3184,24 @@ function Partners({open}){
       <div className="card"><span>عدد الشركات</span><strong>{data.rows.length}</strong></div>
     </div>
 
+    <section className="smart-sync-center">
+      <div className="smart-sync-heading"><div><h3>🔄 مركز المزامنة الذكية</h3><p>يتحقق تلقائيًا من الشركات المستحقة للمزامنة ويحافظ على آخر رصيد ناجح عند فشل الاتصال.</p></div><span className="live-sync-badge">● مباشر</span></div>
+      <div className="sync-metric-grid">
+        <div className="sync-metric"><span>الشركات المفعلة</span><strong>{syncCenter.stats.enabled||0}</strong></div>
+        <div className="sync-metric warning"><span>مستحقة الآن</span><strong>{syncCenter.stats.due||0}</strong></div>
+        <div className="sync-metric success"><span>نجحت اليوم</span><strong>{syncCenter.stats.successes||0}</strong></div>
+        <div className="sync-metric danger"><span>فشلت اليوم</span><strong>{syncCenter.stats.failures||0}</strong></div>
+        <div className="sync-metric"><span>متوسط الاستجابة</span><strong>{syncCenter.stats.averageDurationMs?`${(syncCenter.stats.averageDurationMs/1000).toFixed(1)}ث`:"—"}</strong></div>
+      </div>
+      <div className="sync-log-list">
+        <h4>آخر عمليات المزامنة</h4>
+        {(syncCenter.logs||[]).slice(0,6).map(log=><div className={`sync-log-row ${log.status==="SUCCESS"?"ok":"failed"}`} key={log.id}>
+          <span className="sync-log-state">{log.status==="SUCCESS"?"✓":"!"}</span><div><strong>{log.partnerName}</strong><small>{log.trigger==="AUTO"?"تلقائية":"يدوية"} · {new Date(log.createdAt).toLocaleString("ar-CA")}</small></div><div className="sync-log-change"><b>{log.changed?`${money(log.beforeBalance)} ← ${money(log.afterBalance)}`:"بدون تغيير"}</b><small>{(log.durationMs/1000).toFixed(1)} ثانية</small></div>
+        </div>)}
+        {!syncCenter.logs?.length&&<p className="empty-sync-log">لا يوجد سجل مزامنة بعد.</p>}
+      </div>
+    </section>
+
     <form className="card form company-integration-form" onSubmit={add}>
       <h3>{editingId?"✏️ تعديل معلومات الشركة":"➕ إضافة شركة وربطها"}</h3>
       <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="اسم الشركة" required/>
@@ -3185,6 +3224,12 @@ function Partners({open}){
       <input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="الهاتف"/>
       <input value={form.whatsapp} onChange={e=>setForm({...form,whatsapp:e.target.value})} placeholder="واتساب"/>
       <input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="البريد"/>
+      <select value={form.syncIntervalMinutes} onChange={e=>setForm({...form,syncIntervalMinutes:Number(e.target.value)})}>
+        <option value="1">مزامنة كل دقيقة</option><option value="5">مزامنة كل 5 دقائق</option><option value="15">مزامنة كل 15 دقيقة</option><option value="30">مزامنة كل 30 دقيقة</option><option value="60">مزامنة كل ساعة</option>
+      </select>
+      <select value={form.syncMode} onChange={e=>setForm({...form,syncMode:e.target.value})}>
+        <option value="BALANCE_ONLY">جلب الرصيد فقط</option><option value="BALANCE_AND_STATEMENT">الرصيد وكشف الحساب</option>
+      </select>
       <label className="integration-toggle"><input type="checkbox" checked={form.syncEnabled} onChange={e=>setForm({...form,syncEnabled:e.target.checked})}/><span>تفعيل المزامنة عند توفر موصل الشركة</span></label>
       <div className="partner-form-actions"><button>{editingId?"حفظ التعديلات":"حفظ وربط الشركة"}</button>{editingId&&<button type="button" className="danger-button" onClick={resetPartnerForm}>إلغاء التعديل</button>}</div>
     </form>

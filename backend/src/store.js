@@ -17,11 +17,11 @@ const pool = databaseUrl ? new Pool({
   ssl: databaseUrl.includes("localhost") ? false : { rejectUnauthorized: false }
 }) : null;
 
-const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","notificationActions","auditLogs","devices"];
+const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices"];
 const emptyStore = () => ({
   companies: [], users: [], customers: [], transactions: [], payments: [], expenses: [],
   capitalMovements: [], exchangeRates: [], generalDebts: [], generalDebtPayments: [],
-  partners: [], partnerTransactions: [], partnerPayments: [],
+  partners: [], partnerTransactions: [], partnerPayments: [], partnerSyncLogs: [],
   notificationSettings: { overdueDays: 7, lowCashLimit: 5000, whatsappTemplate: "" },
   companySettings: {}, notificationActions: [], auditLogs: [], devices: []
 });

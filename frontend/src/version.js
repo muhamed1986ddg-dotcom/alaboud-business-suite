@@ -1,2 +1,2 @@
-export const APP_VERSION="v19.0.0 Enterprise Dashboard";
-export const APP_VERSION_NUMBER="19.0.0";
+export const APP_VERSION="v19.1.0 Smart Sync Center";
+export const APP_VERSION_NUMBER="19.1.0";
