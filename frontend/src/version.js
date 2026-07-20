@@ -1,1 +1,1 @@
-export const APP_VERSION="v20.1.0 Currency Manager";
+export const APP_VERSION="v20.2.0 Budget Intelligence";
