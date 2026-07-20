@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.6.25",channel:"expense-edit-delete",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.7.7",channel:"customer-old-balance-general-debt",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -1573,6 +1573,32 @@ app.get("/api/general-debts", auth, (req,res)=>{
     };
   });
 
+  // أرصدة الحساب القديم للعملاء تُعد دينًا لنا وتدخل في مجموع الدين العام.
+  // لا ننشئ سجلاً دائمًا جديدًا حتى لا يحدث تكرار؛ بل نشتق الرصيد مباشرة من بيانات العميل.
+  const customerOldBalanceRows = customers.map((customer)=>{
+    if (!customer || customer.isDeleted || customer.accountResetAt) return null;
+    const amount = Math.max(safeNumber(customer.oldBalance), 0);
+    const paid = Math.min(Math.max(safeNumber(customer.oldBalancePaid), 0), amount);
+    const remaining = Math.max(amount-paid, 0);
+    if (remaining <= 0.001) return null;
+    return {
+      id:`CUSTOMER_OLD_BALANCE:${customer.id}`,
+      type:"RECEIVABLE",
+      partyName:String(customer.name || "عميل بدون اسم"),
+      amount:+amount.toFixed(2),
+      currency:"CAD",
+      dueDate:String(customer.createdAt || "").slice(0,10),
+      description:"الحساب القديم للعميل",
+      reference:"حساب قديم",
+      status:paid>0?"PARTIAL":"OPEN",
+      source:"CUSTOMER_OLD_BALANCE",
+      customerId:customer.id,
+      createdAt:customer.updatedAt || customer.createdAt || now(),
+      paid:+paid.toFixed(2),
+      remaining:+remaining.toFixed(2),
+    };
+  }).filter(Boolean);
+
   const paidByTransaction = new Map();
   for (const payment of payments) {
     paidByTransaction.set(
@@ -1723,7 +1749,7 @@ app.get("/api/general-debts", auth, (req,res)=>{
     }
   }
 
-  const rows = [...manualRows, ...transferRows, ...partnerRows]
+  const rows = [...manualRows, ...customerOldBalanceRows, ...transferRows, ...partnerRows]
     .filter((debt)=>!type || debt.type===type)
     .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
 
@@ -1839,6 +1865,7 @@ app.get("/api/general-debts", auth, (req,res)=>{
     missingRates,
     ratesUpdatedAt,
     automaticTransferDebts:transferRows.length,
+    automaticCustomerOldBalanceDebts:customerOldBalanceRows.length,
     automaticCompanyDebts:partnerRows.length
   });
 });
