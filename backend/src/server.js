@@ -2700,23 +2700,43 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
       wrapped.executablePath=executable;
       throw wrapped;
     }
-    const context=await browser.newContext({locale:"ar",timezoneId:"America/Toronto",userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",viewport:{width:1365,height:900},extraHTTPHeaders:{"Accept-Language":"ar,en-US;q=0.9,en;q=0.8"},ignoreHTTPSErrors:true});
+    let savedStorageState=null;
+    try{
+      const encryptedState=String(partner.jadStorageStateEncrypted||"");
+      if(encryptedState){
+        const decoded=decryptIntegrationSecret(encryptedState);
+        const parsed=JSON.parse(decoded);
+        if(parsed&&Array.isArray(parsed.cookies))savedStorageState=parsed;
+      }
+    }catch(error){console.warn("[JAD][SESSION][STATE_INVALID]",String(error?.message||error));}
+    const contextOptions={locale:"ar",timezoneId:"America/Toronto",userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",viewport:{width:1365,height:900},extraHTTPHeaders:{"Accept-Language":"ar,en-US;q=0.9,en;q=0.8"},ignoreHTTPSErrors:true};
+    if(savedStorageState)contextOptions.storageState=savedStorageState;
+    const context=await browser.newContext(contextOptions);
     page=await context.newPage();
     page.setDefaultTimeout(25000); page.setDefaultNavigationTimeout(45000);
 
     await page.goto(`${base}${prefix}/pl.m`,{waitUntil:"domcontentloaded"}).catch(()=>null);
-    await record("landing");
-    await page.goto(loginUrl,{waitUntil:"domcontentloaded"});
-    await record("login-page");
+    await page.waitForTimeout(900);
+    await record(savedStorageState?"session-probe":"landing");
+    const probeHtml=await page.content().catch(()=>"");
+    const probeText=htmlText(probeHtml);
+    const probeHasLogin=Boolean(await page.locator('input[type="password"],input[name="pass"],button[name="btn-login"],input[name="btn-login"]').count().catch(()=>0));
+    let reusedSession=Boolean(savedStorageState&&!probeHasLogin&&!isJadLoginPage(probeHtml,page.url())&&/الصفحة الرئيسية|الحسابات|الحوالات|يورو|دولار|الرصيد/i.test(probeText));
+    if(reusedSession){
+      trace.push({label:"session-reused",url:page.url(),time:new Date().toISOString()});
+      console.log("[JAD][SESSION][REUSED]",{partnerId:partner.id,url:page.url()});
+    }else{
+      await page.goto(loginUrl,{waitUntil:"domcontentloaded"});
+      await record("login-page");
 
-    const mail=page.locator('input[name="mail"],input[type="email"],input[name*="user" i],input[name*="login" i]').first();
-    const pass=page.locator('input[name="pass"],input[type="password"]').first();
-    if(await mail.count()===0||await pass.count()===0)throw await diagnosticError("تعذر العثور على حقول تسجيل الدخول في موقع جاد");
-    await mail.fill(username); await pass.fill(password);
-    const submit=page.locator('button[name="btn-login"],input[name="btn-login"],button[type="submit"],input[type="submit"]').first();
-    if(await submit.count()===0)throw await diagnosticError("تعذر العثور على زر تسجيل الدخول في موقع جاد");
-    await Promise.all([page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),submit.click()]);
-    await page.waitForTimeout(1200); await record("after-credentials");
+      const mail=page.locator('input[name="mail"],input[type="email"],input[name*="user" i],input[name*="login" i]').first();
+      const pass=page.locator('input[name="pass"],input[type="password"]').first();
+      if(await mail.count()===0||await pass.count()===0)throw await diagnosticError("تعذر العثور على حقول تسجيل الدخول في موقع جاد");
+      await mail.fill(username); await pass.fill(password);
+      const submit=page.locator('button[name="btn-login"],input[name="btn-login"],button[type="submit"],input[type="submit"]').first();
+      if(await submit.count()===0)throw await diagnosticError("تعذر العثور على زر تسجيل الدخول في موقع جاد");
+      await Promise.all([page.waitForNavigation({waitUntil:"domcontentloaded",timeout:30000}).catch(()=>null),submit.click()]);
+      await page.waitForTimeout(1200); await record("after-credentials");
 
     // Detect OTP in the main page or any iframe. Jad may render Authenticator inside a nested frame.
     let otpTarget=null;
@@ -2750,6 +2770,7 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
       else {await otpTarget.press("Enter");await page.waitForLoadState("domcontentloaded").catch(()=>null);}
       await page.waitForTimeout(1800); await record("after-otp");
     }else if(otpHint){throw await diagnosticError("ظهرت صفحة رمز التحقق ولكن لم يتمكن البرنامج من تحديد خانة الرمز","JAD_OTP_FIELD_NOT_FOUND");}
+    }
 
     // Allow client-side redirects and intermediate transfer pages to finish.
     for(let i=0;i<8;i+=1){
@@ -3044,7 +3065,8 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     if(!currencyBalances[statementCurrency] && (statement.receivable||statement.payable||statement.balance)){
       currencyBalances[statementCurrency]={receivable:statement.receivable,payable:statement.payable,balance:statement.balance};
     }
-    return {...statement,currencies:currencyBalances,fromDate:start,toDate:end,mode:"BROWSER",diagnostic:trace.slice(-10)};
+    const freshStorageState=await context.storageState().catch(()=>null);
+    return {...statement,currencies:currencyBalances,fromDate:start,toDate:end,mode:"BROWSER",diagnostic:trace.slice(-10),_storageState:freshStorageState};
   }catch(error){
     if(!error.jadTrace)error.jadTrace=trace.slice(-16);
     if(!error.jadArtifacts)error.jadArtifacts=await saveDiagnosticArtifacts(error.code||"JAD_ERROR");
@@ -3245,10 +3267,13 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
   if(String(partner.connectorType||"").toUpperCase()!=="JAD")return res.status(400).json({message:"لا يوجد موصل فعلي محدد لهذه الشركة"});
   try{
     const result=await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp});
+    const storageState=result?._storageState||null;
+    if(result&&Object.prototype.hasOwnProperty.call(result,"_storageState"))delete result._storageState;
     let publicPartner=null;
     mutate(store=>{
       const item=store.partners.find(x=>x.id===partner.id);if(!item)return;
       item.externalReceivable=result.receivable;item.externalPayable=result.payable;item.externalBalance=result.balance;item.externalBalances=(result.currencies&&typeof result.currencies==="object")?result.currencies:{};
+      if(storageState)item.jadStorageStateEncrypted=encryptIntegrationSecret(JSON.stringify(storageState));
       item.lastSyncAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.connectionStatus="READY";item.updatedAt=now();
       item.lastImportedMovementCount=result.movements.length;
       const {passwordEncrypted,...safe}=item;publicPartner={...safe,hasPassword:Boolean(passwordEncrypted)};
@@ -3266,6 +3291,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
       );
       item.connectionStatus=hasSuccessfulSync?"READY":"ERROR";
       item.lastSyncError=String(error.message||error);
+      if(["JAD_SESSION_REJECTED","JAD_LOGIN_REJECTED"].includes(String(error.code||"")))item.jadStorageStateEncrypted="";
       item.lastSyncAttemptErrorAt=now();
       item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];
       item.lastJadArtifacts=error.jadArtifacts||null;
