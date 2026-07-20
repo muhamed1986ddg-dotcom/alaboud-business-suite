@@ -4826,3 +4826,27 @@ body.app-language-en aside{
   .v20-exchange-board .exchange-board-grid,
   .exchange-board-grid{grid-template-columns:1fr !important;}
 }
+
+
+/* v21.0.2 — Exchange board mobile polish */
+.exchange-rate-spark span em{font-style:normal;white-space:nowrap}
+.exchange-rate-empty{min-height:118px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;margin-top:4px;border:1px dashed rgba(246,201,69,.28);border-radius:12px;background:linear-gradient(180deg,rgba(246,201,69,.06),rgba(255,255,255,.015));text-align:center}
+.exchange-rate-empty-icon{display:grid;place-items:center;width:38px;height:38px;border-radius:50%;background:rgba(246,201,69,.12);border:1px solid rgba(246,201,69,.42);color:#f6c945;font-size:25px;line-height:1}
+.exchange-rate-empty strong{color:#f6d873;font-size:13px}.exchange-rate-empty small{color:#91a4b6;font-size:9px}
+.exchange-board-summary{display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap;margin-top:12px;padding-top:11px;border-top:1px solid rgba(125,157,185,.14);color:#8fa4b7;font-size:10px}
+.exchange-board-summary span{display:inline-flex;align-items:center;gap:4px}.exchange-board-summary b{color:#eef6ff;font-size:12px}
+@media (max-width:980px){
+  .v20-exchange-board .exchange-rate-card{min-height:182px!important}
+  .v20-exchange-board .exchange-rate-card-top{grid-template-columns:30px minmax(0,1fr) auto!important;row-gap:0!important;direction:ltr!important}
+  .v20-exchange-board .exchange-rate-card-top>div{direction:ltr!important}
+  .v20-exchange-board .dashboard-rate-trend,.exchange-rate-card-top .dashboard-rate-trend{grid-column:auto!important;justify-self:end!important;font-size:9px!important;padding:3px 5px!important}
+  .v20-exchange-board .exchange-rate-prices{grid-template-columns:1fr 1fr!important}
+  .v20-exchange-board .exchange-rate-prices div+div{border-top:0!important;border-inline-start:1px solid rgba(255,255,255,.08)!important}
+  .v20-exchange-board .exchange-rate-prices b{font-size:clamp(13px,3.8vw,17px)!important;letter-spacing:-.3px!important}
+  .exchange-rate-spark span{flex-wrap:nowrap!important}.exchange-rate-spark span em{flex:0 0 auto}.exchange-rate-spark span b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .exchange-board-summary{gap:10px;justify-content:space-between}.exchange-board-summary span:last-child{width:100%;justify-content:center}
+}
+@media (max-width:390px){
+  .v20-exchange-board .exchange-rate-card-top{grid-template-columns:30px minmax(0,1fr)!important;row-gap:6px!important}
+  .v20-exchange-board .dashboard-rate-trend,.exchange-rate-card-top .dashboard-rate-trend{grid-column:1/-1!important;justify-self:start!important}
+}

@@ -1,1 +1,1 @@
-export const APP_VERSION="v21.0.0 Enterprise Financial Intelligence";
+export const APP_VERSION="v21.0.2 Exchange Board Mobile Polish";

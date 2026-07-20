@@ -425,9 +425,14 @@ function Dashboard({navigate}){
           const percent=previous?((current-previous)/previous)*100:0;
           return <button className={`exchange-rate-card trend-card-${trend.type}`} key={code} onClick={()=>navigate("rates")}>
             <div className="exchange-rate-card-top"><CurrencyFlag code={code} className="exchange-rate-card-flag"/><div><strong>{code}</strong><small>{currencyMeta.name}</small></div><span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol} {Math.abs(percent).toFixed(2)}%</span></div>
-            {rate?<><div className="exchange-rate-prices"><div><small>شراء</small><b>{Number(rate.buyRate||0).toFixed(code==="SYP"?6:4)}</b></div><div><small>بيع</small><b>{Number(rate.sellRate||0).toFixed(code==="SYP"?6:4)}</b></div></div><div className="exchange-rate-spark"><svg viewBox="0 0 100 38" preserveAspectRatio="none"><polyline points={points}/></svg><span>فرق السعر <b>{Math.abs(Number(rate.sellRate||0)-Number(rate.buyRate||0)).toFixed(code==="SYP"?6:4)}</b></span></div></>:<><div className="exchange-rate-missing">لا يوجد سعر</div><span className="exchange-rate-quote">اضغط لإضافة السعر</span></>}
+            {rate?<><div className="exchange-rate-prices"><div><small>شراء</small><b>{Number(rate.buyRate||0).toFixed(code==="SYP"?6:4)}</b></div><div><small>بيع</small><b>{Number(rate.sellRate||0).toFixed(code==="SYP"?6:4)}</b></div></div><div className="exchange-rate-spark"><svg viewBox="0 0 100 38" preserveAspectRatio="none"><polyline points={points}/></svg><span><em>فرق السعر</em><b>{Math.abs(Number(rate.sellRate||0)-Number(rate.buyRate||0)).toFixed(code==="SYP"?6:4)}</b></span></div></>:<div className="exchange-rate-empty"><span className="exchange-rate-empty-icon">＋</span><strong>إضافة سعر الصرف</strong><small>لم يتم تسجيل سعر {code} بعد</small></div>}
           </button>
         })}
+      </div>
+      <div className="exchange-board-summary">
+        <span><b>{dashboardRates.filter(item=>["USD","CAD","EUR","TRY","SYP","SAR","JOD"].includes(String(item.baseCurrency||"").toUpperCase())).length}</b> عملات محدثة</span>
+        <span><b>{7-dashboardRates.filter(item=>["USD","CAD","EUR","TRY","SYP","SAR","JOD"].includes(String(item.baseCurrency||"").toUpperCase())).length}</b> تحتاج إضافة سعر</span>
+        <span>التحديث الآلي كل 30 دقيقة</span>
       </div>
     </section>
 
