@@ -2907,7 +2907,7 @@ function Partners({open}){
   const [otpById,setOtpById]=useState({});
   const [form,setForm]=useState({
     name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",
-    systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"JAD",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true
+    systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true
   });
 
   async function load(){
@@ -2926,7 +2926,7 @@ function Partners({open}){
     setError("");setMessage("");
     try{
       await api.post("/partners",form);
-      setForm({name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"JAD",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true});
+      setForm({name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true});
       setMessage("تمت إضافة الشركة وظهرت في قسم الشركات");
       await load();
     }catch(requestError){
@@ -3024,8 +3024,8 @@ function Partners({open}){
   };
 
   async function syncAllPartners(){
-    const partners=(data.rows||[]).filter(partner=>["JAD","KONTORUN"].includes(partner.connectorType));
-    if(!partners.length){setError("لا توجد شركة جاد للمزامنة");return;}
+    const partners=(data.rows||[]).filter(partner=>["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType));
+    if(!partners.length){setError("لا توجد شركة مرتبطة للمزامنة");return;}
     setError("");setMessage("جاري مزامنة الأرصدة الآن...");setSyncingAll(true);
     let successCount=0;
     try{
@@ -3104,7 +3104,7 @@ function Partners({open}){
         <option value="WEB">رابط ويب</option><option value="API">API</option><option value="CSV">CSV</option><option value="EXCEL">Excel</option><option value="PDF">PDF</option>
       </select>
       <select value={form.connectorType} onChange={e=>setForm({...form,connectorType:e.target.value})}>
-        <option value="JAD">موصل شركة جاد — جلب الرصيد تلقائيًا</option><option value="KONTORUN">موصل التطبيق الجديد — كشف الحساب والرصيد</option><option value="GENERIC">شركة عامة — بدون مزامنة تلقائية</option>
+        <option value="GENERIC">شركة عامة — بدون مزامنة تلقائية</option><option value="JAD">موصل شركة جاد — جلب الرصيد تلقائيًا</option><option value="TAWASUL">موصل شركة تواصل — كشف الحساب والرصيد</option>
       </select>
       <select value={form.accountCurrency} onChange={e=>setForm({...form,accountCurrency:e.target.value})}>
         {debtCurrencies.map(item=><option key={item.code} value={item.code}>{item.flag} {item.code}</option>)}
@@ -3126,13 +3126,13 @@ function Partners({open}){
         <thead><tr><th>الشركة</th><th>نوع الربط</th><th>الحالة</th><th>العملة الأساسية</th><th>أرصدة العملات</th><th>آخر مزامنة</th><th>الرابط</th><th>الإجراءات</th></tr></thead>
         <tbody>{data.rows.length?data.rows.map(partner=><tr key={partner.id}>
           <td><strong>{partner.name}</strong><small className="company-subline">{partner.contactName||partner.integrationName||"-"}</small></td>
-          <td>{partner.connectionType||"يدوي"}</td>
+          <td>{partner.connectionType||"يدوي"}<small className="company-subline">{partner.connectorType==="TAWASUL"||partner.connectorType==="KONTORUN"?"موصل تواصل":partner.connectorType==="JAD"?"موصل جاد":"بدون موصل"}</small></td>
           <td>{(()=>{const effectiveStatus=partner.lastSyncAt&&Number.isFinite(Number(partner.externalBalance))?"READY":partner.connectionStatus;return <span className={`integration-status status-${String(effectiveStatus||"MANUAL").toLowerCase()}`}>{statusLabel(effectiveStatus)}</span>;})()}</td>
           <td><span className="partner-primary-currency">{flagOf(partner.accountCurrency||"USD")} {partner.accountCurrency||"USD"}</span><small className="company-subline">العملة الأساسية فقط</small></td>
           <td><PartnerCurrencyBalances partner={partner}/></td>
           <td><div className="relative-sync-time"><strong>{relativeSyncTime(partner.lastSyncAt)}</strong><small>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar-CA"):"—"}</small></div></td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
-          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{["JAD","KONTORUN"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{["JAD","KONTORUN"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</td>
+          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</td>
         </tr>):<tr><td colSpan="8">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>
     </div>
