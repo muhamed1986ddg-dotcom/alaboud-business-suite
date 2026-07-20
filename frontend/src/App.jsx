@@ -3405,6 +3405,8 @@ function CapitalOverview(){
   const [error,setError]=useState("");
   const [message,setMessage]=useState("");
   const [editing,setEditing]=useState(null);
+  const [movementFilter,setMovementFilter]=useState("ALL");
+  const [movementSearch,setMovementSearch]=useState("");
   const [form,setForm]=useState({
     type:"IN",
     amount:"",
@@ -3477,13 +3479,38 @@ function CapitalOverview(){
   if(!data)return <><h2>رأس المال الكلي</h2>{error?<div className="card customer-error">{error}</div>:<p>جاري التحميل...</p>}</>;
 
   const efficiency=data.turnoverRate>=3?"ممتاز":data.turnoverRate>=2?"جيد جداً":data.turnoverRate>=1?"جيد":"منخفض";
-  const capitalIn=movements.filter(item=>item.type==="IN").reduce((sum,item)=>sum+Number(item.amount||0),0);
-  const capitalOut=movements.filter(item=>item.type==="OUT").reduce((sum,item)=>sum+Number(item.amount||0),0);
+  const selectedMonthMovements=movements.filter(item=>String(item.date||item.createdAt||"").slice(0,7)===month);
+  const capitalIn=selectedMonthMovements.filter(item=>item.type==="IN").reduce((sum,item)=>sum+Number(item.amount||0),0);
+  const capitalOut=selectedMonthMovements.filter(item=>item.type==="OUT").reduce((sum,item)=>sum+Number(item.amount||0),0);
+  const netCapitalMovement=capitalIn-capitalOut;
+  const totalFlow=capitalIn+capitalOut;
+  const inShare=totalFlow?Math.round((capitalIn/totalFlow)*100):0;
+  const outShare=totalFlow?100-inShare:0;
+  const monthlyNet=Number(data.monthlyProfit||0)-Number(data.monthlyExpenses||0);
+  const liquidityStatus=Number(data.capitalBalance||0)>0?"مستقرة":"تحتاج متابعة";
+  const filteredMovements=movements.filter(item=>{
+    const matchesType=movementFilter==="ALL"||item.type===movementFilter;
+    const text=`${item.description||""} ${item.currency||""} ${item.amount||""} ${item.date||item.createdAt||""}`.toLowerCase();
+    return matchesType&&text.includes(movementSearch.trim().toLowerCase());
+  });
+  const currencySummary=Object.values(selectedMonthMovements.reduce((acc,item)=>{
+    const currency=item.currency||"CAD";
+    acc[currency]??={currency,in:0,out:0};
+    acc[currency][item.type==="IN"?"in":"out"]+=Number(item.amount||0);
+    return acc;
+  },{}));
 
   return <>
-    <div className="page-title-row">
-      <h2>⚖️ الميزانية</h2>
-      <button className="no-print" onClick={()=>window.print()}>طباعة التقرير</button>
+    <div className="page-title-row budget-title-row">
+      <div>
+        <h2>⚖️ الميزانية</h2>
+        <p>نظرة مالية متكاملة على رأس المال والسيولة والأرباح</p>
+      </div>
+      <div className="budget-title-actions no-print">
+        <input type="month" value={month} onChange={e=>setMonth(e.target.value)}/>
+        <button onClick={load}>↻ تحديث</button>
+        <button onClick={()=>window.print()}>🖨️ طباعة التقرير</button>
+      </div>
     </div>
 
     {error&&<div className="card customer-error">{error}</div>}
@@ -3502,11 +3529,37 @@ function CapitalOverview(){
         <span>إجمالي السحوبات</span>
         <strong>{money(capitalOut)} CAD</strong>
       </div>
-      <div className="card">
+      <div className={`card ${netCapitalMovement>=0?"budget-positive":"budget-negative"}`}>
         <span>صافي حركة رأس المال</span>
-        <strong>{money(data.capitalBalance)} CAD</strong>
+        <strong>{money(netCapitalMovement)} CAD</strong>
+        <small>خلال الشهر المحدد</small>
       </div>
     </div>
+
+    <section className="budget-intelligence-grid">
+      <article className="card budget-flow-card">
+        <div className="section-heading"><h3>📊 تدفق رأس المال</h3><small>{month}</small></div>
+        <div className="budget-flow-track"><span style={{width:`${inShare}%`}}></span><b style={{width:`${outShare}%`}}></b></div>
+        <div className="budget-flow-legend"><span>إضافات {inShare}%</span><span>سحوبات {outShare}%</span></div>
+      </article>
+      <article className="card budget-health-card">
+        <div className="section-heading"><h3>💡 المؤشر المالي</h3><small>{liquidityStatus}</small></div>
+        <strong className={monthlyNet>=0?"positive-value":"negative-value"}>{money(monthlyNet)} CAD</strong>
+        <p>صافي أرباح الشهر بعد خصم المصروفات</p>
+      </article>
+      <article className="card budget-turnover-card">
+        <div className="section-heading"><h3>⚡ كفاءة رأس المال</h3><small>{efficiency}</small></div>
+        <strong>{Number(data.turnoverRate).toFixed(2)}×</strong>
+        <div className="budget-score"><span style={{width:`${Math.min(100,Number(data.turnoverRate||0)*25)}%`}}></span></div>
+      </article>
+    </section>
+
+    {currencySummary.length>0&&<section className="card budget-currency-summary">
+      <div className="section-heading"><h3>💱 حركة رأس المال حسب العملة</h3><small>الشهر المحدد</small></div>
+      <div className="budget-currency-grid">{currencySummary.map(item=><div key={item.currency}>
+        <strong>{item.currency}</strong><span className="positive-value">+ {money(item.in)}</span><span className="negative-value">- {money(item.out)}</span>
+      </div>)}</div>
+    </section>}
 
     <form className="card form capital-manage-form no-print" onSubmit={addCapital}>
       <h3>➕ إضافة رأس مال أو سحب</h3>
@@ -3551,7 +3604,13 @@ function CapitalOverview(){
     </form>}
 
     <div className="card tablewrap capital-movements-table">
-      <h3>📋 سجل رأس المال</h3>
+      <div className="capital-table-toolbar">
+        <div><h3>📋 سجل رأس المال</h3><small>{filteredMovements.length} حركة</small></div>
+        <div className="capital-table-filters no-print">
+          <input value={movementSearch} onChange={e=>setMovementSearch(e.target.value)} placeholder="ابحث في السجل..."/>
+          <select value={movementFilter} onChange={e=>setMovementFilter(e.target.value)}><option value="ALL">جميع الحركات</option><option value="IN">الإضافات فقط</option><option value="OUT">السحوبات فقط</option></select>
+        </div>
+      </div>
       <table>
         <thead>
           <tr>
@@ -3563,7 +3622,7 @@ function CapitalOverview(){
             <th className="no-print">الإجراءات</th>
           </tr>
         </thead>
-        <tbody>{movements.length?movements.map(item=><tr key={item.id}>
+        <tbody>{filteredMovements.length?filteredMovements.map(item=><tr key={item.id}>
           <td>{item.date||String(item.createdAt||"").slice(0,10)}</td>
           <td><span className={`capital-type-badge ${item.type==="IN"?"capital-in":"capital-out"}`}>
             {item.type==="IN"?"إضافة":"سحب"}
@@ -3577,12 +3636,6 @@ function CapitalOverview(){
           </td>
         </tr>):<tr><td colSpan="6">لا توجد حركات رأس مال مسجلة.</td></tr>}</tbody>
       </table>
-    </div>
-
-    <div className="card form no-print">
-      <label>اختيار الشهر للتقرير</label>
-      <input type="month" value={month} onChange={e=>setMonth(e.target.value)}/>
-      <button onClick={load}>تحديث التقرير</button>
     </div>
 
     <div className="stats">
