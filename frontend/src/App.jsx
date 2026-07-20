@@ -3593,20 +3593,41 @@ function SettingsPanel(){
 
   async function enableBiometric(){
     setMessage("");
+    const native=window.AlAboudNative;
+    if(!native){setMessage("تفعيل البصمة متاح داخل تطبيق الهاتف فقط");return}
     try{
       const {data}=await api.post("/auth/biometric-token");
-      window.AlAboudNative.enableBiometricLogin(data.token,localStorage.getItem("afs_user")||"{}");
-    }catch(error){setMessage(error.response?.data?.message||"تعذر تفعيل الدخول بالبصمة أو الوجه")}
+      const userJson=localStorage.getItem("afs_user")||"{}";
+      if(typeof native.enableBiometricLogin==="function"){
+        native.enableBiometricLogin(data.token,userJson);
+      }else if(typeof native.enableBiometric==="function"){
+        native.saveBiometricToken?.(data.token,userJson);
+        native.enableBiometric();
+      }else{
+        throw new Error("إصدار تطبيق الهاتف لا يدعم تفعيل البصمة");
+      }
+    }catch(error){setMessage(error.response?.data?.message||error.message||"تعذر تفعيل الدخول بالبصمة أو الوجه")}
   }
   function disableBiometric(){
-    window.AlAboudNative?.disableBiometricLogin?.();
+    const native=window.AlAboudNative;
+    if(typeof native?.disableBiometricLogin==="function")native.disableBiometricLogin();
+    else native?.disableBiometric?.();
     setBiometricEnabled(false);
     setMessage("تم تعطيل الدخول بالبصمة أو الوجه");
   }
   useEffect(()=>{
-    const handler=event=>{setBiometricEnabled(Boolean(event.detail?.enabled));setMessage("تم تفعيل الدخول بالبصمة أو الوجه بنجاح")};
+    const handler=event=>{
+      const enabled=Boolean(event.detail?.enabled);
+      setBiometricEnabled(enabled);
+      setMessage(event.detail?.message||(enabled?"تم تفعيل الدخول بالبصمة أو الوجه بنجاح":"تم تعطيل الدخول بالبصمة أو الوجه"));
+    };
     window.addEventListener("alaboud-biometric-status",handler);
-    return()=>window.removeEventListener("alaboud-biometric-status",handler);
+    window.addEventListener("alaboud-biometric-enable-result",handler);
+    window.AlAboudNative?.getBiometricStatus?.();
+    return()=>{
+      window.removeEventListener("alaboud-biometric-status",handler);
+      window.removeEventListener("alaboud-biometric-enable-result",handler);
+    };
   },[]);
 
   async function checkUpdates(){
