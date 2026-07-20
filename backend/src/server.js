@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.6.20",channel:"stable-jad-connector",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.6.20",channel:"jad-url-balance-fix",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2173,22 +2173,37 @@ function decryptIntegrationSecret(value){
   decipher.setAuthTag(Buffer.from(tag64,"base64"));
   return Buffer.concat([decipher.update(Buffer.from(data64,"base64")),decipher.final()]).toString("utf8");
 }
-function normalizeJadConnection(systemUrl,pathPrefix=""){
-  const raw=String(systemUrl||"").trim();
-  if(!raw)throw Object.assign(new Error("رابط شركة جاد مطلوب"),{code:"JAD_URL_REQUIRED"});
-  let parsed;
-  try{parsed=new URL(/^https?:\/\//i.test(raw)?raw:`https://${raw}`);}catch{throw Object.assign(new Error("رابط شركة جاد غير صحيح"),{code:"JAD_URL_INVALID"});}
-  if(!/^https?:$/.test(parsed.protocol))throw Object.assign(new Error("يجب أن يبدأ رابط جاد بـ https://"),{code:"JAD_URL_INVALID"});
+function normalizeBaseUrl(value){
+  let raw=String(value||"").trim();
+  if(!raw)throw new Error("رابط شركة جاد مطلوب");
+  if(!/^https?:\/\//i.test(raw))raw=`https://${raw.replace(/^\/+/,"")}`;
+  const parsed=new URL(raw);
+  if(!["http:","https:"].includes(parsed.protocol))throw new Error("رابط شركة جاد يجب أن يبدأ بـ http أو https");
+  return `${parsed.protocol}//${parsed.host}`;
+}
+function resolveJadConnection(partner={}){
+  let raw=String(partner.systemUrl||"").trim();
+  if(!raw)throw new Error("رابط شركة جاد مطلوب");
+  if(!/^https?:\/\//i.test(raw))raw=`https://${raw.replace(/^\/+/,"")}`;
+  const parsed=new URL(raw);
+  if(!["http:","https:"].includes(parsed.protocol))throw new Error("رابط شركة جاد غير صالح");
+
   const base=`${parsed.protocol}//${parsed.host}`;
-  let prefix=String(pathPrefix||"").trim();
-  const detected=parsed.pathname.match(/^(.*?\/ssljd\/[^/]+\/\d+\/\d+)/i);
-  if((!prefix||prefix==="/")&&detected)prefix=detected[1];
+  const configured=String(partner.pathPrefix||"").trim();
+  let prefix=configured;
+  const pathname=decodeURIComponent(parsed.pathname||"").replace(/\/+$/,"");
+
+  // Accept the complete Jad URL pasted by the user, including /log, /pl.m,
+  // /account or /accountprint.php, and derive the installation prefix from it.
+  const endpointMatch=pathname.match(/^(.*?)(?:\/(?:log(?:_2)?|pl(?:\.m)?|account|accountprint\.php|statement))$/i);
+  const candidate=(endpointMatch?.[1]||pathname).replace(/\/+$/,"");
+  if(/\/ssljd\//i.test(candidate))prefix=candidate;
   if(!prefix)prefix="/ssljd/merkez112/1/2";
   if(!prefix.startsWith("/"))prefix=`/${prefix}`;
-  prefix=prefix.replace(/\/+$/g,"");
-  return {base,pathPrefix:prefix};
+  prefix=prefix.replace(/\/{2,}/g,"/").replace(/\/+$/,"");
+
+  return {base,prefix,loginUrl:`${base}${prefix}/log`,accountUrl:`${base}${prefix}/account`,landingUrl:`${base}${prefix}/pl.m`};
 }
-function normalizeBaseUrl(value){return normalizeJadConnection(value).base;}
 function htmlText(value){return String(value||"").replace(/<br\s*\/?\s*>/gi," ").replace(/<[^>]+>/g," ").replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&#039;/g,"'").replace(/&quot;/g,'"').replace(/\s+/g," ").trim();}
 function numberFromText(value){
   const normalized=htmlText(value)
@@ -2500,9 +2515,7 @@ function parseJadStatement(html){
   return {movements,balance:+balance.toFixed(2),payable:+payable.toFixed(2),receivable:+receivable.toFixed(2)};
 }
 async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
-  const connection=normalizeJadConnection(partner.systemUrl,partner.pathPrefix);
-  const base=connection.base;
-  const prefix=connection.pathPrefix;
+  const {base,prefix,loginUrl,accountUrl,landingUrl}=resolveJadConnection(partner);
   const username=String(partner.username||"").trim();
   const password=decryptIntegrationSecret(partner.passwordEncrypted);
   if(!username||!password)throw new Error("اسم المستخدم وكلمة المرور مطلوبان للربط");
@@ -2517,12 +2530,11 @@ async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
   };
 
   let cookie="";
-  const loginUrl=`${base}${prefix}/log`;
 
   // Browser traffic reaches /log from pl.m. This preflight initializes the same PHP branch
   // and keeps any session cookies issued before the login form is opened.
   try{
-    const landing=await fetchWithCookies(`${base}${prefix}/pl.m`,{headers:browserHeaders},cookie,{maxRedirects:6});
+    const landing=await fetchWithCookies(landingUrl,{headers:browserHeaders},cookie,{maxRedirects:6});
     cookie=landing.cookie;
     await landing.response.arrayBuffer();
   }catch(error){
@@ -2649,9 +2661,7 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
   try{({chromium}=require("playwright"));}
   catch(error){const wrapped=new Error("موصل المتصفح غير مثبت. نفّذ npm install داخل backend ثم أعد النشر");wrapped.code="JAD_BROWSER_UNAVAILABLE";wrapped.cause=error;throw wrapped;}
 
-  const connection=normalizeJadConnection(partner.systemUrl,partner.pathPrefix);
-  const base=connection.base;
-  const prefix=connection.pathPrefix;
+  const {base,prefix,loginUrl,accountUrl,landingUrl}=resolveJadConnection(partner);
   const username=String(partner.username||"").trim();
   const password=decryptIntegrationSecret(partner.passwordEncrypted);
   if(!username||!password)throw new Error("اسم المستخدم وكلمة المرور مطلوبان للربط");
@@ -2659,8 +2669,6 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
   const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*24*3600*1000).toISOString().slice(0,10);
   const end=toDate||new Date().toISOString().slice(0,10);
   const accountId=String(partner.externalAccountId||"").trim();
-  const loginUrl=`${base}${prefix}/log`;
-  const accountUrl=`${base}${prefix}/account`;
   const cleanOtp=String(otp||"").replace(/\D/g,"").slice(0,8);
 
   const launchOptions={headless:true,args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-zygote"],timeout:60000};
@@ -2732,7 +2740,7 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     page=await context.newPage();
     page.setDefaultTimeout(25000); page.setDefaultNavigationTimeout(45000);
 
-    await page.goto(`${base}${prefix}/pl.m`,{waitUntil:"domcontentloaded"}).catch(()=>null);
+    await page.goto(landingUrl,{waitUntil:"domcontentloaded"}).catch(()=>null);
     await page.waitForTimeout(900);
     await record(savedStorageState?"session-probe":"landing");
     const probeHtml=await page.content().catch(()=>"");
@@ -3096,31 +3104,6 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
   }
 }
 
-const jadSyncLocks=new Map();
-async function withJadSyncLock(partnerId,work){
-  const key=String(partnerId||"jad");
-  if(jadSyncLocks.has(key)){
-    const error=new Error("توجد مزامنة جارية لهذه الشركة. انتظر حتى تنتهي ثم حاول مرة أخرى");
-    error.code="JAD_SYNC_IN_PROGRESS";
-    throw error;
-  }
-  jadSyncLocks.set(key,true);
-  try{return await work();}finally{jadSyncLocks.delete(key);}
-}
-function friendlyJadError(error){
-  const code=String(error?.code||"JAD_ERROR");
-  const raw=String(error?.message||error||"");
-  if(code==="JAD_OTP_REQUIRED")return "مطلوب رمز Google Authenticator الحالي لإكمال تسجيل الدخول";
-  if(code==="JAD_LOGIN_REJECTED")return "رفض موقع جاد بيانات الدخول أو رمز Authenticator. تحقق من البيانات وأدخل رمزًا جديدًا";
-  if(code==="JAD_SESSION_REJECTED")return "انتهت جلسة جاد. أدخل رمز Authenticator جديدًا لإعادة تسجيل الدخول";
-  if(code==="JAD_SYNC_IN_PROGRESS")return raw;
-  if(code==="JAD_ACCOUNT_FORM_NOT_FOUND"||code==="JAD_STATEMENT_NOT_FOUND")return "تم تسجيل الدخول إلى جاد، لكن لم يتم العثور على كشف الحساب. تحقق من رقم الحساب الخارجي ومسار الربط";
-  if(code==="JAD_CHROMIUM_LAUNCH_FAILED"||code==="JAD_BROWSER_UNAVAILABLE")return "تعذر تشغيل متصفح الربط على الخادم. أعد نشر الخدمة بعد تثبيت Chromium";
-  if(/timeout|مهلة/i.test(raw))return "انتهت مهلة الاتصال بموقع جاد. حاول مرة أخرى بعد قليل";
-  if(/ENOTFOUND|ECONN|fetch failed|network/i.test(raw))return "تعذر الوصول إلى موقع جاد بسبب مشكلة في الشبكة أو الرابط";
-  return raw||"تعذر مزامنة شركة جاد";
-}
-
 async function syncJadPartner(partner,options={}){
   const mode=String(process.env.JAD_CONNECTOR_MODE||"browser").toLowerCase();
   if(mode==="http")return syncJadPartnerHttp(partner,options);
@@ -3245,7 +3228,6 @@ app.post("/api/partners", auth, (req,res)=>{
       createdAt:now(),
       createdBy:req.user.id
     };
-    if(item.connectorType==="JAD"&&item.systemUrl){const normalized=normalizeJadConnection(item.systemUrl,item.pathPrefix);item.systemUrl=normalized.base;item.pathPrefix=normalized.pathPrefix;}
     store.partners.push(item);
     audit(store,req.user.id,"CREATE","PARTNER",item.id,{name:item.name});
     return item;
@@ -3267,7 +3249,6 @@ app.patch("/api/partners/:id", auth, (req,res)=>{
     }
     partner.connectionType=String(partner.connectionType||"WEB").toUpperCase();
     partner.accountCurrency=String(partner.accountCurrency||"CAD").toUpperCase();
-    if(String(partner.connectorType||"").toUpperCase()==="JAD"&&partner.systemUrl){const normalized=normalizeJadConnection(partner.systemUrl,partner.pathPrefix);partner.systemUrl=normalized.base;partner.pathPrefix=normalized.pathPrefix;}
     partner.connectionStatus=String(partner.systemUrl||"").trim()?"CONFIGURED":"MANUAL";
     partner.updatedAt=now();
     audit(store,req.user.id,"UPDATE","PARTNER",partner.id,{integration:true});
@@ -3282,16 +3263,9 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
   if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
   try{
     if(String(partner.connectorType||"").toUpperCase()==="JAD"){
-      const result=await withJadSyncLock(partner.id,()=>syncJadPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp}));
-      const storageState=result?._storageState||null;
-      if(result&&Object.prototype.hasOwnProperty.call(result,"_storageState"))delete result._storageState;
-      mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){
-        item.externalReceivable=result.receivable;item.externalPayable=result.payable;item.externalBalance=result.balance;
-        item.externalBalances=(result.currencies&&typeof result.currencies==="object")?result.currencies:{};
-        if(storageState)item.jadStorageStateEncrypted=encryptIntegrationSecret(JSON.stringify(storageState));
-        item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.updatedAt=now();
-      }});
-      return res.json({ok:true,status:"READY",message:`تم الاتصال وتحديث الرصيد بنجاح: ${result.balance} ${partner.accountCurrency||"USD"}`,result});
+      const result=await syncJadPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp});
+      mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.updatedAt=now();}});
+      return res.json({ok:true,status:"READY",message:`تم الاتصال بنجاح، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
     }
     normalizeBaseUrl(partner.systemUrl);
     mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.updatedAt=now();}});
@@ -3302,13 +3276,13 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
       // نحفظ خطأ المحاولة الأخيرة كسجل تحذيري فقط، وتبقى الحالة "متصل" حتى تنجح/تفشل مزامنة فعلية جديدة دون أي نجاح سابق.
       const hasSuccessfulSync=Boolean(item.lastSyncAt) && Number.isFinite(Number(item.externalBalance));
       item.connectionStatus=hasSuccessfulSync?"READY":"ERROR";
-      item.lastSyncError=friendlyJadError(error);
+      item.lastSyncError=String(error.message||error);
       item.lastConnectionTestErrorAt=now();
       item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];
       item.lastJadArtifacts=error.jadArtifacts||null;
       item.updatedAt=now();
     }});
-    res.status(error.code==="JAD_SYNC_IN_PROGRESS"?409:400).json({message:friendlyJadError(error),code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null,details:error.jadDetails||null});
+    res.status(400).json({message:error.message||"تعذر اختبار الاتصال",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null,details:error.jadDetails||null});
   }
 });
 
@@ -3317,7 +3291,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
   if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
   if(String(partner.connectorType||"").toUpperCase()!=="JAD")return res.status(400).json({message:"لا يوجد موصل فعلي محدد لهذه الشركة"});
   try{
-    const result=await withJadSyncLock(partner.id,()=>syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp}));
+    const result=await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp});
     const storageState=result?._storageState||null;
     if(result&&Object.prototype.hasOwnProperty.call(result,"_storageState"))delete result._storageState;
     let publicPartner=null;
@@ -3341,7 +3315,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
         (item.externalBalances && typeof item.externalBalances==="object" && Object.keys(item.externalBalances).length>0)
       );
       item.connectionStatus=hasSuccessfulSync?"READY":"ERROR";
-      item.lastSyncError=friendlyJadError(error);
+      item.lastSyncError=String(error.message||error);
       if(["JAD_SESSION_REJECTED","JAD_LOGIN_REJECTED"].includes(String(error.code||"")))item.jadStorageStateEncrypted="";
       item.lastSyncAttemptErrorAt=now();
       item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];
@@ -3357,7 +3331,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
         ok:true,
         stale:true,
         message:"تعذر تحديث الرصيد الآن؛ تم الاحتفاظ بآخر رصيد ناجح",
-        reason:friendlyJadError(error),
+        reason:String(error.message||"تعذر تحديث البيانات مؤقتًا"),
         partner:stalePartner,
         lastSyncAt:stalePartner.lastSyncAt,
         result:{
@@ -3370,7 +3344,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
         warningCode:error.code||"JAD_TEMPORARY_ERROR"
       });
     }
-    res.status(error.code==="JAD_SYNC_IN_PROGRESS"?409:400).json({message:friendlyJadError(error),code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null,details:error.jadDetails||null});
+    res.status(400).json({message:error.message||"تعذر جلب الرصيد",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null,details:error.jadDetails||null});
   }
 });
 
