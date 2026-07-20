@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.6.21",channel:"jad-simple-balance-sync",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.6.24",channel:"jad-usd-eur-only",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2440,71 +2440,78 @@ function parseJadCurrencyBalances(html){
   ];
   const out={};
   const esc=value=>String(value).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
-  const amount='([+-]?[0-9][0-9,٬]*(?:[.٫][0-9]+)?)';
-  const sep='(?:\\s|[^\\p{L}\\p{N}]){0,12}';
-  const recv='(?:لنا|لكم|مستحق\\s*لنا|دائن\\s*(?:لنا|لكم))';
-  const pay='(?:علينا|عليكم|مستحق\\s*علينا|مدين\\s*(?:علينا|عليكم))';
+  const amountPattern='([+-]?[0-9][0-9,٬]*(?:[.٫][0-9]+)?)';
+  const receivableWords=/(?:^|\s)(?:لنا|لكم|مستحق\s*لنا|دائن\s*(?:لنا|لكم))(?:\s|$)/iu;
+  const payableWords=/(?:^|\s)(?:علينا|عليكم|مستحق\s*علينا|مدين\s*(?:علينا|عليكم))(?:\s|$)/iu;
 
-  for(const item of aliases){
-    let receivable=0,payable=0,found=false;
-    for(const alias of item.patterns){
-      const a=esc(alias);
-      const candidates=[
-        {kind:"receivable",re:new RegExp(`${amount}${sep}${a}${sep}${recv}`,"giu")},
-        {kind:"receivable",re:new RegExp(`${a}${sep}${amount}${sep}${recv}`,"giu")},
-        {kind:"receivable",re:new RegExp(`${recv}${sep}${amount}${sep}${a}`,"giu")},
-        {kind:"payable",re:new RegExp(`${amount}${sep}${a}${sep}${pay}`,"giu")},
-        {kind:"payable",re:new RegExp(`${a}${sep}${amount}${sep}${pay}`,"giu")},
-        {kind:"payable",re:new RegExp(`${pay}${sep}${amount}${sep}${a}`,"giu")}
-      ];
-      for(const candidate of candidates){
-        for(const match of raw.matchAll(candidate.re)){
-          const amountValue=Math.abs(numberFromText(match[1]));
-          if(!Number.isFinite(amountValue))continue;
-          found=true;
-          if(candidate.kind==="receivable")receivable=Math.max(receivable,amountValue);
-          else payable=Math.max(payable,amountValue);
-        }
-      }
+  // Jad dashboard cards carry the accounting direction in their visible label:
+  // "يورو لكم" means receivable, while "دولار عليكم" means payable.
+  // Parse each direction word with only its nearest preceding currency and amount,
+  // so text from neighbouring cards can never assign the same value to both sides.
+  const directionRe=/(?:مستحق\s*لنا|دائن\s*(?:لنا|لكم)|مستحق\s*علينا|مدين\s*(?:علينا|عليكم)|لنا|لكم|علينا|عليكم)/giu;
+  for(const directionMatch of raw.matchAll(directionRe)){
+    const direction=directionMatch[0];
+    const isReceivable=receivableWords.test(` ${direction} `);
+    const isPayable=payableWords.test(` ${direction} `);
+    if(!isReceivable&&!isPayable)continue;
 
-      // Direct Jad card pattern: amount, optional icon/flag, currency label, direction.
-      // Example: 8,857 [EU icon] يورو لكم.
-      const directCardPatterns=[
-        {kind:"receivable",re:new RegExp(`${amount}[^\p{L}\p{N}]{0,30}${a}\s*${recv}`,"giu")},
-        {kind:"payable",re:new RegExp(`${amount}[^\p{L}\p{N}]{0,30}${a}\s*${pay}`,"giu")}
-      ];
-      for(const candidate of directCardPatterns){
-        for(const match of raw.matchAll(candidate.re)){
-          const amountValue=Math.abs(numberFromText(match[1]));
-          if(!Number.isFinite(amountValue))continue;
-          found=true;
-          if(candidate.kind==="receivable")receivable=Math.max(receivable,amountValue);
-          else payable=Math.max(payable,amountValue);
-        }
-      }
-
-      // Fallback for Jad dashboard cards where the flag/icon appears between
-      // the amount and the currency label. Inspect a compact window around the alias.
-      const aliasRe=new RegExp(a,"giu");
-      for(const aliasMatch of raw.matchAll(aliasRe)){
-        const left=raw.slice(Math.max(0,aliasMatch.index-45),aliasMatch.index);
-        const right=raw.slice(aliasMatch.index+aliasMatch[0].length,aliasMatch.index+aliasMatch[0].length+45);
-        const leftAmounts=[...left.matchAll(new RegExp(amount,"g"))];
-        const rightAmounts=[...right.matchAll(new RegExp(amount,"g"))];
-        const valueMatch=leftAmounts.at(-1)||rightAmounts[0];
+    const before=raw.slice(Math.max(0,directionMatch.index-120),directionMatch.index).trim();
+    let selected=null;
+    for(const item of aliases){
+      for(const alias of item.patterns){
+        const aliasRe=new RegExp(`(?:^|\\s)${esc(alias)}(?:\\s|$)`,`giu`);
+        const aliasMatches=[...before.matchAll(aliasRe)];
+        const aliasMatch=aliasMatches.at(-1);
+        if(!aliasMatch)continue;
+        const aliasStart=aliasMatch.index;
+        const afterAlias=before.slice(aliasStart+aliasMatch[0].length).trim();
+        // A different number after the currency means this direction belongs to another card.
+        if(new RegExp(amountPattern,"u").test(afterAlias))continue;
+        const amountArea=before.slice(0,aliasStart);
+        const amounts=[...amountArea.matchAll(new RegExp(amountPattern,"gu"))];
+        const valueMatch=amounts.at(-1);
         if(!valueMatch)continue;
-        const context=`${left} ${aliasMatch[0]} ${right}`;
-        const amountValue=Math.abs(numberFromText(valueMatch[1]));
-        if(!Number.isFinite(amountValue))continue;
-        if(new RegExp(recv,"iu").test(context)){
-          found=true;receivable=Math.max(receivable,amountValue);
-        }
-        if(new RegExp(pay,"iu").test(context)){
-          found=true;payable=Math.max(payable,amountValue);
+        const distance=before.length-(valueMatch.index+valueMatch[0].length);
+        if(distance>90)continue;
+        if(!selected||distance<selected.distance){
+          selected={code:item.code,amount:Math.abs(numberFromText(valueMatch[1])),distance};
         }
       }
     }
-    if(found)out[item.code]=normalizeJadCurrencyDebt(receivable,payable,{prefer:"RECEIVABLE"});
+    if(!selected||!Number.isFinite(selected.amount))continue;
+    const current=out[selected.code]||{receivable:0,payable:0,balance:0};
+    if(isReceivable)current.receivable=Math.max(current.receivable,selected.amount);
+    if(isPayable)current.payable=Math.max(current.payable,selected.amount);
+    current.balance=+(current.receivable-current.payable).toFixed(2);
+    out[selected.code]=current;
+  }
+
+  // Compatibility fallback for older Jad layouts. It is used only for currencies
+  // that were not already found with an explicit "لكم/عليكم" card label.
+  const sep='(?:\\s|[^\\p{L}\\p{N}]){0,18}';
+  const recv='(?:لنا|لكم|مستحق\\s*لنا|دائن\\s*(?:لنا|لكم))';
+  const pay='(?:علينا|عليكم|مستحق\\s*علينا|مدين\\s*(?:علينا|عليكم))';
+  for(const item of aliases){
+    if(out[item.code])continue;
+    let receivable=0,payable=0;
+    for(const alias of item.patterns){
+      const a=esc(alias);
+      const candidates=[
+        {kind:"receivable",re:new RegExp(`${amountPattern}${sep}${a}${sep}${recv}`,"giu")},
+        {kind:"receivable",re:new RegExp(`${a}${sep}${amountPattern}${sep}${recv}`,"giu")},
+        {kind:"payable",re:new RegExp(`${amountPattern}${sep}${a}${sep}${pay}`,"giu")},
+        {kind:"payable",re:new RegExp(`${a}${sep}${amountPattern}${sep}${pay}`,"giu")}
+      ];
+      for(const candidate of candidates){
+        for(const match of raw.matchAll(candidate.re)){
+          const value=Math.abs(numberFromText(match[1]));
+          if(!Number.isFinite(value))continue;
+          if(candidate.kind==="receivable")receivable=Math.max(receivable,value);
+          else payable=Math.max(payable,value);
+        }
+      }
+    }
+    if(receivable||payable)out[item.code]=normalizeJadCurrencyDebt(receivable,payable,{prefer:payable&&!receivable?"PAYABLE":"RECEIVABLE"});
   }
   return out;
 }
@@ -3327,8 +3334,11 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
       const item=store.partners.find(x=>x.id===partner.id);if(!item)return;
       const mainDebt=normalizeJadCurrencyDebt(result.receivable,result.payable,{prefer:safeNumber(result.balance)<0?"PAYABLE":"RECEIVABLE"});
       const normalizedCurrencies={};
+      const allowedExternalDebtCurrencies=new Set(["USD","EUR"]);
       for(const [currency,value] of Object.entries((result.currencies&&typeof result.currencies==="object")?result.currencies:{})){
-        normalizedCurrencies[String(currency).toUpperCase()]=normalizeJadCurrencyDebt(value?.receivable,value?.payable,{prefer:safeNumber(value?.balance)<0?"PAYABLE":"RECEIVABLE"});
+        const code=String(currency).toUpperCase();
+        if(!allowedExternalDebtCurrencies.has(code))continue;
+        normalizedCurrencies[code]=normalizeJadCurrencyDebt(value?.receivable,value?.payable,{prefer:safeNumber(value?.balance)<0?"PAYABLE":"RECEIVABLE"});
       }
       result.receivable=mainDebt.receivable;result.payable=mainDebt.payable;result.balance=mainDebt.balance;result.currencies=normalizedCurrencies;
       item.externalReceivable=result.receivable;item.externalPayable=result.payable;item.externalBalance=result.balance;item.externalBalances=normalizedCurrencies;
