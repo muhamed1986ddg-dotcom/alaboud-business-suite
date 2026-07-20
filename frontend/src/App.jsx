@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.19 Persistent Jad Session Sync";
+const APP_VERSION="v18.6.20 Stable Jad Connector";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -524,6 +524,7 @@ function Customers({open}){
       setCustomerForm({name:"",phone:"",email:"",oldBalance:""});
       setActivePanel("");
       await load();
+      window.dispatchEvent(new CustomEvent("alaboud-partner-sync-complete"));
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر إضافة العميل");
     }
@@ -2952,6 +2953,8 @@ function Partners({open}){
     if(code==="JAD_SESSION_REJECTED")return "انتهت جلسة جاد ويجب إدخال رمز Authenticator جديد";
     if(code==="JAD_OTP_FIELD_NOT_FOUND")return "تغيّرت صفحة رمز التحقق في موقع جاد";
     if(code==="JAD_CHROMIUM_LAUNCH_FAILED"||code==="JAD_BROWSER_UNAVAILABLE")return "تعذر تشغيل متصفح الربط على الخادم";
+    if(code==="JAD_SYNC_IN_PROGRESS")return "توجد مزامنة جارية الآن؛ انتظر حتى تنتهي";
+    if(code==="JAD_ACCOUNT_FORM_NOT_FOUND"||code==="JAD_STATEMENT_NOT_FOUND")return "تم الدخول إلى جاد لكن لم يتم العثور على كشف الحساب؛ تحقق من رقم الحساب الخارجي";
     if(/timeout|مهلة/i.test(raw))return "انتهت مهلة الاتصال بموقع جاد";
     if(/network|fetch|ENOTFOUND|ECONN|اتصال/i.test(raw))return "تعذر الوصول إلى موقع جاد مؤقتًا";
     return raw||"تعذر تحديث البيانات مؤقتًا";
@@ -2970,6 +2973,8 @@ function Partners({open}){
         setMessage(`${partner.name}: ${response.data.message}${syncedCurrencies?` — ${syncedCurrencies}`:` — الرصيد ${money(response.data.result.balance)} ${partner.accountCurrency||"USD"}`}`);
       }
       await load();
+      setNowTick(Date.now());
+      window.dispatchEvent(new CustomEvent("alaboud-partner-sync-complete"));
     }catch(requestError){
       const data=requestError.response?.data||{};
       if(data.stale&&data.partner){
