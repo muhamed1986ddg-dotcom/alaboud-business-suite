@@ -97,7 +97,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/18.1.0"
+            userAgentString = "$userAgentString AlAboudMobile/18.6.26"
         }
 
         CookieManager.getInstance().apply {
@@ -553,10 +553,54 @@ class MainActivity : AppCompatActivity() {
     )
 
     private fun saveBiometricCredential(token: String, userJson: String) {
-        securePreferences().edit().putString("biometric_token", token).putString("biometric_user", userJson).apply()
+        securePreferences().edit()
+            .putString("biometric_token", token)
+            .putString("biometric_user", userJson)
+            .putBoolean("biometric_enabled", true)
+            .apply()
+    }
+
+    private fun isBiometricEnabled(): Boolean =
+        securePreferences().getBoolean("biometric_enabled", false) &&
+            !securePreferences().getString("biometric_token", null).isNullOrBlank()
+
+    private fun disableBiometricLogin() {
+        securePreferences().edit()
+            .remove("biometric_token")
+            .remove("biometric_user")
+            .putBoolean("biometric_enabled", false)
+            .apply()
+        Toast.makeText(this, "تم تعطيل الدخول بالبصمة أو الوجه", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun enableBiometricLogin(token: String, userJson: String) {
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        val manager = BiometricManager.from(this)
+        if (manager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
+            Toast.makeText(this, "فعّل البصمة أو الوجه أو قفل الشاشة من إعدادات الهاتف أولًا", Toast.LENGTH_LONG).show()
+            return
+        }
+        val prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                super.onAuthenticationSucceeded(result)
+                saveBiometricCredential(token, userJson)
+                Toast.makeText(this@MainActivity, "تم تفعيل الدخول بالبصمة أو الوجه", Toast.LENGTH_SHORT).show()
+                webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('alaboud-biometric-status',{detail:{enabled:true}}));", null)
+            }
+        })
+        val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("تفعيل الدخول بالبصمة أو الوجه")
+            .setSubtitle("أكد هويتك لتفعيل الدخول السريع")
+            .setAllowedAuthenticators(authenticators)
+            .build()
+        prompt.authenticate(info)
     }
 
     private fun requestBiometricLogin() {
+        if (!isBiometricEnabled()) {
+            Toast.makeText(this, "الدخول بالبصمة أو الوجه غير مفعّل", Toast.LENGTH_LONG).show()
+            return
+        }
         val token = securePreferences().getString("biometric_token", null)
         if (token.isNullOrBlank()) {
             Toast.makeText(this, "سجّل الدخول مرة واحدة بكلمة المرور لتفعيل البصمة", Toast.LENGTH_LONG).show()
@@ -590,6 +634,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     class NativeBridge(private val activity: MainActivity) {
+
+        @JavascriptInterface
+        fun isBiometricEnabled(): Boolean = activity.isBiometricEnabled()
+
+        @JavascriptInterface
+        fun enableBiometricLogin(token: String, userJson: String) {
+            activity.runOnUiThread { activity.enableBiometricLogin(token, userJson) }
+        }
+
+        @JavascriptInterface
+        fun disableBiometricLogin() {
+            activity.runOnUiThread { activity.disableBiometricLogin() }
+        }
 
         @JavascriptInterface
         fun saveBiometricToken(token: String, userJson: String) {
