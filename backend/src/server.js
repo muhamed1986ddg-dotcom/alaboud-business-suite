@@ -3259,11 +3259,25 @@ async function kontorunJsonp(base,route,{cookie="",csrf="",params={}}={}){
   return {data:parseJsonpPayload(text),cookie:result.cookie,url:result.url};
 }
 function parseKontorunAmount(value){
-  const text=String(value??"").replace(/[\s,]/g,"").replace(/[^0-9+\-.]/g,"");
+  let text=String(value??"").trim().replace(/\s/g,"").replace(/[^0-9+,\-.]/g,"");
+  if(!text)return 0;
+  // The Tawasul API may return Arabic/European decimals such as 187,00.
+  if(text.includes(",")&&!text.includes(".")){
+    const parts=text.split(",");
+    text=(parts.length===2&&parts[1].length<=2)?`${parts[0]}.${parts[1]}`:parts.join("");
+  }else text=text.replace(/,/g,"");
   const number=Number(text);return Number.isFinite(number)?number:0;
 }
+function kontorunRows(payload){
+  if(Array.isArray(payload))return payload;
+  if(!payload||typeof payload!=="object")return [];
+  for(const key of ["data","rows","result","balances","amounts","AMS"]){
+    if(Array.isArray(payload[key]))return payload[key];
+  }
+  return [];
+}
 function mapKontorunCurrency(item={}){
-  const raw=String(item.CUR||item.CName||item.Currency||item.CURID||"").toUpperCase();
+  const raw=String(item.CName||item.CURN||item.Currency||item.CUR||item.CURID||"").toUpperCase();
   const aliases={"دولار":"USD","دولار أمريكي":"USD","USD":"USD","يورو":"EUR","EUR":"EUR","ليرة تركية":"TRY","TRY":"TRY","ليرة سورية":"SYP","SYP":"SYP","دولار كندي":"CAD","CAD":"CAD"};
   for(const [name,code] of Object.entries(aliases))if(raw.includes(name.toUpperCase()))return code;
   return /^[A-Z]{3}$/.test(raw)?raw:"USD";
@@ -3285,9 +3299,16 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
     if(String(profile.ID)==="0")throw Object.assign(new Error("رمز التحقق غير صحيح أو منتهي"),{code:"KONTORUN_OTP_REJECTED"});
   }
   csrf=String(profile.CSRF||profile.csrf||"");
-  const balancesResponse=await kontorunJsonp(base,"/api/index.php?p=mt&f=GA",{cookie,csrf});cookie=balancesResponse.cookie;
-  const rows=Array.isArray(balancesResponse.data)?balancesResponse.data:[];
+  // The dedicated balances screen in the official Tawasul app uses f=ams.
+  // Keep GA only as a fallback because some older server versions expose balances there.
+  let balancesResponse=await kontorunJsonp(base,"/api/index.php?p=mt&f=ams",{cookie,csrf});cookie=balancesResponse.cookie;
+  let rows=kontorunRows(balancesResponse.data);
+  if(!rows.length){
+    const fallback=await kontorunJsonp(base,"/api/index.php?p=mt&f=GA",{cookie,csrf});cookie=fallback.cookie;
+    balancesResponse=fallback;rows=kontorunRows(fallback.data);
+  }
   if(!rows.length&&String(balancesResponse.data?.ID||"")==="0")throw Object.assign(new Error("انتهت جلسة الشركة؛ أعد إدخال رمز التحقق"),{code:"KONTORUN_SESSION_REJECTED"});
+  if(!rows.length)throw Object.assign(new Error("تم تسجيل الدخول لكن لم تُرجع شركة تواصل قائمة الأرصدة"),{code:"KONTORUN_BALANCES_EMPTY"});
   const currencies={};
   for(const item of rows){
     const currency=mapKontorunCurrency(item);const balance=parseKontorunAmount(item.AMS??item.Amount??item.Balance);
@@ -3303,7 +3324,7 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
     const list=Array.isArray(statement.data)?statement.data:[];
     movements=list.map(item=>({externalId:String(item.ID||""),date:String(item.Date||""),name:String(item.Name||""),phone:String(item.Phone||""),amount:parseKontorunAmount(item.Value),fees:parseKontorunAmount(item.Fees),balance:parseKontorunAmount(item.AM),currency:mapKontorunCurrency(item),raw:item}));
   }catch{}
-  return {balance:main.balance,receivable:main.receivable,payable:main.payable,currencies,movements,profile:{id:profile.ID||"",name:profile.Name||""}};
+  return {balance:main.balance,receivable:main.receivable,payable:main.payable,currencies,movements,profile:{id:profile.ID||"",name:profile.Name||""},balanceRows:rows.map(item=>({currency:mapKontorunCurrency(item),name:item.CName||item.CURN||"",amount:parseKontorunAmount(item.AMS??item.Amount??item.Balance)}))};
 }
 
 app.post("/api/partners", auth, (req,res)=>{
