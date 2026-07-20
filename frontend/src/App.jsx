@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.26 Expense Edit/Delete";
+const APP_VERSION="v18.6.27 Expense Edit/Delete";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
