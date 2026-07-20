@@ -3304,11 +3304,36 @@ function kontorunAmountFromItem(item={}){
   }
   return 0;
 }
+function normalizeKontorunCurrencyLabel(value){
+  return String(value??"")
+    .normalize("NFKC")
+    .replace(/[\u00A0\u2000-\u200D\u202F\u205F\u3000]/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
 function mapKontorunCurrency(item={}){
-  const raw=String(item.CName||item.cname||item.CURN||item.CurName||item.CurrencyName||item.Currency||item.currency||item.CUR||item.CURID||"").toUpperCase();
-  const aliases={"دولار":"USD","دولار أمريكي":"USD","USD":"USD","يورو":"EUR","EUR":"EUR","ليرة تركية":"TRY","TRY":"TRY","ليرة سورية":"SYP","SYP":"SYP","دولار كندي":"CAD","CAD":"CAD"};
-  for(const [name,code] of Object.entries(aliases))if(raw.includes(name.toUpperCase()))return code;
-  return /^[A-Z]{3}$/.test(raw)?raw:"USD";
+  const raw=normalizeKontorunCurrencyLabel(item.CName||item.cname||item.CURN||item.CurName||item.CurrencyName||item.Currency||item.currency||item.CUR||item.CURID||"");
+  const upper=raw.toUpperCase();
+  // Match the most specific Arabic labels first so "ليرة سورية جديدة" never falls through to USD.
+  const aliases=[
+    ["ليرة سورية جديدة","SYP"],
+    ["ليرة سورية","SYP"],
+    ["ليرة تركية","TRY"],
+    ["دولار كندي","CAD"],
+    ["دولار أمريكي","USD"],
+    ["دولار امريكي","USD"],
+    ["دولار","USD"],
+    ["يورو","EUR"],
+    ["USD","USD"],
+    ["EUR","EUR"],
+    ["TRY","TRY"],
+    ["SYP","SYP"],
+    ["CAD","CAD"]
+  ];
+  for(const [name,code] of aliases){
+    if(upper.includes(name.toUpperCase()))return code;
+  }
+  return /^[A-Z]{3}$/.test(upper)?upper:"UNKNOWN";
 }
 async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
   const base=kontorunBaseUrl(partner);
@@ -3338,10 +3363,22 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
   if(!rows.length&&String(balancesResponse.data?.ID||"")==="0")throw Object.assign(new Error("انتهت جلسة الشركة؛ أعد إدخال رمز التحقق"),{code:"KONTORUN_SESSION_REJECTED"});
   if(!rows.length)throw Object.assign(new Error("تم تسجيل الدخول لكن لم تُرجع شركة تواصل قائمة الأرصدة"),{code:"KONTORUN_BALANCES_EMPTY"});
   const currencies={};
+  const balanceDiagnostics=[];
   for(const item of rows){
-    const currency=mapKontorunCurrency(item);const balance=kontorunAmountFromItem(item);
-    currencies[currency]={balance:+balance.toFixed(2),receivable:balance>0?+balance.toFixed(2):0,payable:balance<0?+Math.abs(balance).toFixed(2):0};
+    const currency=mapKontorunCurrency(item);
+    const balance=kontorunAmountFromItem(item);
+    const label=normalizeKontorunCurrencyLabel(item.CName||item.cname||item.CURN||item.CurName||item.CurrencyName||"");
+    balanceDiagnostics.push({label,currency,balance});
+    if(currency==="UNKNOWN")continue;
+    const current=currencies[currency]||{balance:0,receivable:0,payable:0};
+    const nextBalance=+(current.balance+balance).toFixed(2);
+    currencies[currency]={
+      balance:nextBalance,
+      receivable:nextBalance>0?nextBalance:0,
+      payable:nextBalance<0?+Math.abs(nextBalance).toFixed(2):0
+    };
   }
+  console.info("[TAWASUL_BALANCE_ROWS]",JSON.stringify({partnerId:partner.id,rows:balanceDiagnostics,currencies}));
   const preferred=String(partner.accountCurrency||"USD").toUpperCase();
   const main=currencies[preferred]||Object.values(currencies)[0]||{balance:0,receivable:0,payable:0};
   const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*86400000).toISOString().slice(0,10);
@@ -3352,7 +3389,7 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
     const list=Array.isArray(statement.data)?statement.data:[];
     movements=list.map(item=>({externalId:String(item.ID||""),date:String(item.Date||""),name:String(item.Name||""),phone:String(item.Phone||""),amount:parseKontorunAmount(item.Value),fees:parseKontorunAmount(item.Fees),balance:parseKontorunAmount(item.AM),currency:mapKontorunCurrency(item),raw:item}));
   }catch{}
-  return {balance:main.balance,receivable:main.receivable,payable:main.payable,currencies,movements,profile:{id:profile.ID||"",name:profile.Name||""},balanceRows:rows.map(item=>({currency:mapKontorunCurrency(item),name:item.CName||item.CURN||"",amount:kontorunAmountFromItem(item)}))};
+  return {balance:main.balance,receivable:main.receivable,payable:main.payable,currencies,movements,profile:{id:profile.ID||"",name:profile.Name||""},balanceRows:rows.map(item=>({currency:mapKontorunCurrency(item),name:normalizeKontorunCurrencyLabel(item.CName||item.CURN||""),amount:kontorunAmountFromItem(item)})),balanceDiagnostics};
 }
 
 app.post("/api/partners", auth, (req,res)=>{
