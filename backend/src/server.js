@@ -2400,6 +2400,25 @@ async function followJadPostLoginFlow(step,cookie,browserHeaders,base,prefix){
   return {step:current,cookie:jar,html,loggedOut:isJadLoginPage(html,current.url)};
 }
 
+function normalizeJadCurrencyDebt(receivableValue,payableValue,{prefer="RECEIVABLE"}={}){
+  let receivable=Math.max(safeNumber(receivableValue),0);
+  let payable=Math.max(safeNumber(payableValue),0);
+
+  // بعض صفحات جاد تكرر بطاقة الرصيد نفسها قرب كلمتي «لنا» و«علينا»،
+  // فيلتقط المحلل الرقم نفسه في العمودين. لا يجوز عندها إظهار دينين متساويين
+  // وصافي صفر. نحتفظ بالقيمة في جهة واحدة فقط.
+  if(receivable>0.001&&payable>0.001&&Math.abs(receivable-payable)<0.01){
+    if(String(prefer).toUpperCase()==="PAYABLE")receivable=0;
+    else payable=0;
+  }
+
+  return {
+    receivable:+receivable.toFixed(2),
+    payable:+payable.toFixed(2),
+    balance:+(receivable-payable).toFixed(2)
+  };
+}
+
 function parseJadCurrencyBalances(html){
   const raw=htmlText(String(html||""))
     .replace(/[٠-٩]/g,ch=>"٠١٢٣٤٥٦٧٨٩".indexOf(ch))
@@ -2485,7 +2504,7 @@ function parseJadCurrencyBalances(html){
         }
       }
     }
-    if(found)out[item.code]={receivable:+receivable.toFixed(2),payable:+payable.toFixed(2),balance:+(receivable-payable).toFixed(2)};
+    if(found)out[item.code]=normalizeJadCurrencyDebt(receivable,payable,{prefer:"RECEIVABLE"});
   }
   return out;
 }
@@ -2512,7 +2531,8 @@ function parseJadStatement(html){
     const pageText=htmlText(source);
     if(/دائن\s*علينا|دولار\s*عليكم/.test(pageText))payable=Math.abs(balance);else receivable=Math.abs(balance);
   }
-  return {movements,balance:+balance.toFixed(2),payable:+payable.toFixed(2),receivable:+receivable.toFixed(2)};
+  const normalized=normalizeJadCurrencyDebt(receivable,payable,{prefer:balance<0?"PAYABLE":"RECEIVABLE"});
+  return {movements,balance:normalized.balance,payable:normalized.payable,receivable:normalized.receivable};
 }
 async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
   const {base,prefix,loginUrl,accountUrl,landingUrl}=resolveJadConnection(partner);
@@ -3305,7 +3325,13 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
     let publicPartner=null;
     mutate(store=>{
       const item=store.partners.find(x=>x.id===partner.id);if(!item)return;
-      item.externalReceivable=result.receivable;item.externalPayable=result.payable;item.externalBalance=result.balance;item.externalBalances=(result.currencies&&typeof result.currencies==="object")?result.currencies:{};
+      const mainDebt=normalizeJadCurrencyDebt(result.receivable,result.payable,{prefer:safeNumber(result.balance)<0?"PAYABLE":"RECEIVABLE"});
+      const normalizedCurrencies={};
+      for(const [currency,value] of Object.entries((result.currencies&&typeof result.currencies==="object")?result.currencies:{})){
+        normalizedCurrencies[String(currency).toUpperCase()]=normalizeJadCurrencyDebt(value?.receivable,value?.payable,{prefer:safeNumber(value?.balance)<0?"PAYABLE":"RECEIVABLE"});
+      }
+      result.receivable=mainDebt.receivable;result.payable=mainDebt.payable;result.balance=mainDebt.balance;result.currencies=normalizedCurrencies;
+      item.externalReceivable=result.receivable;item.externalPayable=result.payable;item.externalBalance=result.balance;item.externalBalances=normalizedCurrencies;
       if(storageState)item.jadStorageStateEncrypted=encryptIntegrationSecret(JSON.stringify(storageState));
       item.lastSyncAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.connectionStatus="READY";item.updatedAt=now();
       item.lastImportedMovementCount=result.movements.length;
