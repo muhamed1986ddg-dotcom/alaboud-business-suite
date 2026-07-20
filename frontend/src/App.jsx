@@ -3401,7 +3401,12 @@ function Partners({open}){
 function CapitalOverview(){
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
   const [data,setData]=useState(null);
+  const [previousData,setPreviousData]=useState(null);
   const [movements,setMovements]=useState([]);
+  const [goals,setGoals]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem("alaboud-budget-goals")||"")||{profit:25000,expenses:10000,capital:50000};}
+    catch{return {profit:25000,expenses:10000,capital:50000};}
+  });
   const [error,setError]=useState("");
   const [message,setMessage]=useState("");
   const [editing,setEditing]=useState(null);
@@ -3418,11 +3423,16 @@ function CapitalOverview(){
   async function load(){
     setError("");
     try{
-      const [overviewResponse,movementsResponse]=await Promise.all([
+      const selectedDate=new Date(`${month}-01T00:00:00`);
+      selectedDate.setMonth(selectedDate.getMonth()-1);
+      const previousMonth=selectedDate.toISOString().slice(0,7);
+      const [overviewResponse,previousResponse,movementsResponse]=await Promise.all([
         api.get("/capital-overview",{params:{month}}),
+        api.get("/capital-overview",{params:{month:previousMonth}}),
         api.get("/capital")
       ]);
       setData(overviewResponse.data);
+      setPreviousData(previousResponse.data);
       setMovements(Array.isArray(movementsResponse.data)?movementsResponse.data:[]);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل رأس المال");
@@ -3500,6 +3510,39 @@ function CapitalOverview(){
     return acc;
   },{}));
 
+  const today=new Date();
+  const selectedDate=new Date(`${month}-01T00:00:00`);
+  const isCurrentMonth=today.getFullYear()===selectedDate.getFullYear()&&today.getMonth()===selectedDate.getMonth();
+  const daysInMonth=new Date(selectedDate.getFullYear(),selectedDate.getMonth()+1,0).getDate();
+  const elapsedDays=isCurrentMonth?Math.max(1,today.getDate()):daysInMonth;
+  const projectedProfit=(Number(data.monthlyProfit||0)/elapsedDays)*daysInMonth;
+  const projectedExpenses=(Number(data.monthlyExpenses||0)/elapsedDays)*daysInMonth;
+  const projectedNet=projectedProfit-projectedExpenses;
+  const netWorth=Number(data.capitalBalance||0)+Number(data.receivables||0)+Number(data.generalReceivable||0)-Number(data.generalPayable||0)+monthlyNet;
+  const profitChange=previousData&&Number(previousData.monthlyProfit||0)!==0?((Number(data.monthlyProfit||0)-Number(previousData.monthlyProfit||0))/Math.abs(Number(previousData.monthlyProfit||0)))*100:null;
+  const expenseChange=previousData&&Number(previousData.monthlyExpenses||0)!==0?((Number(data.monthlyExpenses||0)-Number(previousData.monthlyExpenses||0))/Math.abs(Number(previousData.monthlyExpenses||0)))*100:null;
+  const netPrevious=Number(previousData?.monthlyProfit||0)-Number(previousData?.monthlyExpenses||0);
+  const netChange=netPrevious!==0?((monthlyNet-netPrevious)/Math.abs(netPrevious))*100:null;
+  const liquidityRatio=Number(data.generalPayable||0)>0?(Number(data.receivables||0)+Number(data.generalReceivable||0))/Number(data.generalPayable||0):3;
+  const profitMargin=Number(data.monthlyTransferValue||0)>0?monthlyNet/Number(data.monthlyTransferValue||0):0;
+  const healthScore=Math.max(0,Math.min(100,Math.round(
+    (monthlyNet>=0?30:8)+
+    Math.min(25,Math.max(0,liquidityRatio*10))+
+    Math.min(20,Math.max(0,Number(data.turnoverRate||0)*6))+
+    Math.min(15,Math.max(0,profitMargin*400))+
+    (netCapitalMovement>=0?10:3)
+  )));
+  const healthLabel=healthScore>=85?"ممتاز":healthScore>=70?"جيد جداً":healthScore>=55?"جيد":healthScore>=40?"يحتاج متابعة":"حرج";
+  const alerts=[];
+  if(monthlyNet<0)alerts.push({level:"danger",text:"صافي الشهر سالب؛ المصروفات تجاوزت الأرباح."});
+  if(expenseChange!=null&&expenseChange>15)alerts.push({level:"warning",text:`المصروفات ارتفعت ${expenseChange.toFixed(1)}% عن الشهر السابق.`});
+  if(Number(data.generalPayable||0)>Number(data.generalReceivable||0)+Number(data.receivables||0))alerts.push({level:"danger",text:"الديون علينا أعلى من إجمالي المبالغ المستحقة لنا."});
+  if(Number(data.turnoverRate||0)<1)alerts.push({level:"warning",text:"معدل دوران رأس المال منخفض عن مرة واحدة."});
+  if(projectedNet>monthlyNet&&isCurrentMonth)alerts.push({level:"info",text:`التوقع الحالي لصافي نهاية الشهر ${money(projectedNet)} CAD.`});
+  if(!alerts.length)alerts.push({level:"success",text:"المؤشرات المالية مستقرة ولا توجد تنبيهات حرجة."});
+  const saveGoals=next=>{setGoals(next);localStorage.setItem("alaboud-budget-goals",JSON.stringify(next));};
+  const progress=(value,target)=>Math.max(0,Math.min(100,target>0?(Number(value||0)/Number(target))*100:0));
+
   return <>
     <div className="page-title-row budget-title-row">
       <div>
@@ -3535,6 +3578,56 @@ function CapitalOverview(){
         <small>خلال الشهر المحدد</small>
       </div>
     </div>
+
+    <section className="budget-command-grid">
+      <article className="card company-health-card">
+        <div className="section-heading"><h3>🏥 صحة الشركة</h3><small>{healthLabel}</small></div>
+        <div className="health-score-ring" style={{"--score":`${healthScore*3.6}deg`}}><strong>{healthScore}</strong><span>/100</span></div>
+        <p>مؤشر مركب من السيولة والربحية والدوران وحركة رأس المال.</p>
+      </article>
+      <article className="card net-worth-card">
+        <div className="section-heading"><h3>💎 صافي الثروة</h3><small>القيمة المالية الفعلية</small></div>
+        <strong className={netWorth>=0?"positive-value":"negative-value"}>{money(netWorth)} CAD</strong>
+        <div className="net-worth-breakdown"><span>رأس المال {money(data.capitalBalance)}</span><span>لنا {money(Number(data.receivables||0)+Number(data.generalReceivable||0))}</span><span>علينا {money(data.generalPayable)}</span></div>
+      </article>
+      <article className="card forecast-card">
+        <div className="section-heading"><h3>🔮 توقع نهاية الشهر</h3><small>{isCurrentMonth?`${elapsedDays}/${daysInMonth} يوم` : "شهر مكتمل"}</small></div>
+        <strong className={projectedNet>=0?"positive-value":"negative-value"}>{money(projectedNet)} CAD</strong>
+        <div className="forecast-pairs"><span>أرباح متوقعة <b>{money(projectedProfit)}</b></span><span>مصروفات متوقعة <b>{money(projectedExpenses)}</b></span></div>
+      </article>
+    </section>
+
+    <section className="budget-comparison-grid">
+      <article className="card comparison-card"><span>الأرباح مقارنة بالشهر السابق</span><strong className={(profitChange??0)>=0?"positive-value":"negative-value"}>{profitChange==null?"—":`${profitChange>=0?"+":""}${profitChange.toFixed(1)}%`}</strong><small>{money(data.monthlyProfit)} مقابل {money(previousData?.monthlyProfit)}</small></article>
+      <article className="card comparison-card"><span>المصروفات مقارنة بالشهر السابق</span><strong className={(expenseChange??0)<=0?"positive-value":"negative-value"}>{expenseChange==null?"—":`${expenseChange>=0?"+":""}${expenseChange.toFixed(1)}%`}</strong><small>{money(data.monthlyExpenses)} مقابل {money(previousData?.monthlyExpenses)}</small></article>
+      <article className="card comparison-card"><span>صافي الربح مقارنة بالشهر السابق</span><strong className={(netChange??0)>=0?"positive-value":"negative-value"}>{netChange==null?"—":`${netChange>=0?"+":""}${netChange.toFixed(1)}%`}</strong><small>{money(monthlyNet)} مقابل {money(netPrevious)}</small></article>
+    </section>
+
+    <section className="budget-pro-grid">
+      <article className="card budget-goals-card no-print">
+        <div className="section-heading"><h3>🎯 الأهداف المالية</h3><small>تُحفظ على الجهاز</small></div>
+        <label><span>هدف الأرباح</span><input type="number" value={goals.profit} onChange={e=>saveGoals({...goals,profit:Number(e.target.value)})}/></label>
+        <div className="goal-track"><span style={{width:`${progress(data.monthlyProfit,goals.profit)}%`}}></span></div>
+        <small>{progress(data.monthlyProfit,goals.profit).toFixed(0)}% من الهدف</small>
+        <label><span>الحد الأعلى للمصروفات</span><input type="number" value={goals.expenses} onChange={e=>saveGoals({...goals,expenses:Number(e.target.value)})}/></label>
+        <div className="goal-track expense-goal"><span style={{width:`${progress(data.monthlyExpenses,goals.expenses)}%`}}></span></div>
+        <small>{progress(data.monthlyExpenses,goals.expenses).toFixed(0)}% مستخدم</small>
+        <label><span>هدف صافي رأس المال</span><input type="number" value={goals.capital} onChange={e=>saveGoals({...goals,capital:Number(e.target.value)})}/></label>
+        <div className="goal-track capital-goal"><span style={{width:`${progress(netWorth,goals.capital)}%`}}></span></div>
+        <small>{progress(netWorth,goals.capital).toFixed(0)}% من الهدف</small>
+      </article>
+      <article className="card budget-alerts-card">
+        <div className="section-heading"><h3>🔔 التنبيهات الذكية</h3><small>{alerts.length} ملاحظة</small></div>
+        <div className="smart-alert-list">{alerts.map((alert,index)=><div key={index} className={`smart-alert ${alert.level}`}>{alert.text}</div>)}</div>
+      </article>
+      <article className="card executive-summary-card">
+        <div className="section-heading"><h3>🤖 ملخص المدير</h3><small>تحليل فوري</small></div>
+        <p>{monthlyNet>=0?"الشركة تحقق صافيًا إيجابيًا خلال الشهر المحدد.":"يجب مراجعة المصروفات لأن صافي الشهر سلبي."}</p>
+        <p>{profitChange==null?"لا توجد بيانات كافية للمقارنة الشهرية.":profitChange>=0?`الأرباح ارتفعت ${profitChange.toFixed(1)}% عن الشهر السابق.`:`الأرباح انخفضت ${Math.abs(profitChange).toFixed(1)}% عن الشهر السابق.`}</p>
+        <p>{liquidityRatio>=1.5?"تغطية الالتزامات جيدة وفق المبالغ المستحقة.":"تغطية الالتزامات تحتاج متابعة وتحصيل أسرع."}</p>
+        <p>كفاءة دوران رأس المال مصنفة: <strong>{efficiency}</strong>.</p>
+      </article>
+    </section>
 
     <section className="budget-intelligence-grid">
       <article className="card budget-flow-card">

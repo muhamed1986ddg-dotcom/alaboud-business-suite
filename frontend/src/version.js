@@ -1,1 +1,1 @@
-export const APP_VERSION="v20.2.0 Budget Intelligence";
+export const APP_VERSION="v21.0.0 Enterprise Financial Intelligence";
