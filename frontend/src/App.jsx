@@ -2712,7 +2712,7 @@ function GeneralDebts(){
                     {item.type==="RECEIVABLE"?"دين لنا":"دين علينا"}
                   </span>
                 </td>
-                <td>{item.source==="PARTNER"?"شركة":item.source==="TRANSFER"?"حوالة":"يدوي"}</td>
+                <td>{item.source==="PARTNER"||item.source==="PARTNER_EXTERNAL"?"شركة":item.source==="TRANSFER"?"حوالة":item.source==="CUSTOMER_OLD_BALANCE"?"حساب عميل قديم":"يدوي"}</td>
                 <td>{item.partyName}</td>
                 <td>{money(item.amount)}</td>
                 <td>{money(item.paid)}</td>
