@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.6.24",channel:"jad-usd-eur-only",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.6.25",channel:"expense-edit-delete",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -3658,6 +3658,33 @@ app.post("/api/ai/assistant",auth,(req,res)=>{
 
 app.get("/api/expenses", auth, (_req,res)=>res.json(readStore().expenses.slice().reverse()));
 app.post("/api/expenses", auth, (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=mutate(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
+app.put("/api/expenses/:id", auth, (req,res)=>{
+  const {title,amount,currency="CAD",exchangeRate=1,category="Other",date}=req.body||{};
+  const n=Number(amount),rate=Number(exchangeRate),normalizedCurrency=String(currency||"CAD").toUpperCase();
+  if(!title||!date||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"بيانات المصروف غير صحيحة"});
+  const updated=mutate(s=>{
+    const index=s.expenses.findIndex(x=>String(x.id)===String(req.params.id));
+    if(index<0)return null;
+    const previous=s.expenses[index];
+    const next={...previous,title:String(title).trim(),amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,updatedAt:now(),updatedBy:req.user.id};
+    s.expenses[index]=next;
+    audit(s,req.user.id,"UPDATE","EXPENSE",next.id,{before:{title:previous.title,amount:previous.amount,currency:previous.currency},after:{title:next.title,amount:next.amount,currency:next.currency}});
+    return next;
+  });
+  if(!updated)return res.status(404).json({message:"المصروف غير موجود"});
+  res.json(updated);
+});
+app.delete("/api/expenses/:id", auth, (req,res)=>{
+  const removed=mutate(s=>{
+    const index=s.expenses.findIndex(x=>String(x.id)===String(req.params.id));
+    if(index<0)return null;
+    const [expense]=s.expenses.splice(index,1);
+    audit(s,req.user.id,"DELETE","EXPENSE",expense.id,{title:expense.title,amount:expense.amount,currency:expense.currency});
+    return expense;
+  });
+  if(!removed)return res.status(404).json({message:"المصروف غير موجود"});
+  res.json({ok:true,expense:removed});
+});
 app.get("/api/capital", auth, (_req,res)=>res.json(readStore().capitalMovements.slice().reverse()));
 app.post("/api/capital", auth, (req,res)=>{const {type="IN",amount,currency="CAD",description="",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount);if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid capital movement"});const m=mutate(s=>{const x={id:id(),type,amount:+n.toFixed(2),currency,description,date,createdAt:now(),createdBy:req.user.id};s.capitalMovements.push(x);audit(s,req.user.id,"CREATE","CAPITAL",x.id);return x;});res.status(201).json(m);});
 
