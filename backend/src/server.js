@@ -3259,25 +3259,53 @@ async function kontorunJsonp(base,route,{cookie="",csrf="",params={}}={}){
   return {data:parseJsonpPayload(text),cookie:result.cookie,url:result.url};
 }
 function parseKontorunAmount(value){
-  let text=String(value??"").trim().replace(/\s/g,"").replace(/[^0-9+,\-.]/g,"");
+  let text=String(value??"").trim();
   if(!text)return 0;
-  // The Tawasul API may return Arabic/European decimals such as 187,00.
-  if(text.includes(",")&&!text.includes(".")){
+  const arabicDigits={"٠":"0","١":"1","٢":"2","٣":"3","٤":"4","٥":"5","٦":"6","٧":"7","٨":"8","٩":"9","۰":"0","۱":"1","۲":"2","۳":"3","۴":"4","۵":"5","۶":"6","۷":"7","۸":"8","۹":"9"};
+  text=text.replace(/[٠-٩۰-۹]/g,ch=>arabicDigits[ch]||ch).replace(/٫/g,".").replace(/٬/g,",");
+  const negative=/^\(.*\)$/.test(text)||/-\s*$/.test(text)||/^\s*-/.test(text);
+  text=text.replace(/[()]/g,"").replace(/-\s*$/g,"").replace(/^\s*-/,"").replace(/\s/g,"").replace(/[^0-9+,.-]/g,"");
+  if(!text)return 0;
+  const lastComma=text.lastIndexOf(","),lastDot=text.lastIndexOf(".");
+  if(lastComma>=0&&lastDot>=0){
+    const decimalPos=Math.max(lastComma,lastDot);
+    const integer=text.slice(0,decimalPos).replace(/[.,]/g,"");
+    const fraction=text.slice(decimalPos+1).replace(/[.,]/g,"");
+    text=`${integer}.${fraction}`;
+  }else if(lastComma>=0){
     const parts=text.split(",");
-    text=(parts.length===2&&parts[1].length<=2)?`${parts[0]}.${parts[1]}`:parts.join("");
-  }else text=text.replace(/,/g,"");
-  const number=Number(text);return Number.isFinite(number)?number:0;
+    text=(parts.length===2&&parts[1].length<=3)?`${parts[0]}.${parts[1]}`:parts.join("");
+  }else if((text.match(/\./g)||[]).length>1){
+    const parts=text.split(".");
+    const fraction=parts.pop();
+    text=fraction.length<=3?`${parts.join("")}.${fraction}`:[...parts,fraction].join("");
+  }
+  const number=Number(text);
+  return Number.isFinite(number)?(negative?-Math.abs(number):number):0;
 }
 function kontorunRows(payload){
   if(Array.isArray(payload))return payload;
   if(!payload||typeof payload!=="object")return [];
-  for(const key of ["data","rows","result","balances","amounts","AMS"]){
+  for(const key of ["data","rows","result","balances","amounts","AMS","items","list"]){
     if(Array.isArray(payload[key]))return payload[key];
+  }
+  for(const value of Object.values(payload)){
+    if(Array.isArray(value)&&value.some(item=>item&&typeof item==="object"))return value;
+    if(value&&typeof value==="object"){
+      const nested=kontorunRows(value);if(nested.length)return nested;
+    }
   }
   return [];
 }
+function kontorunAmountFromItem(item={}){
+  const preferredKeys=["AMS","ams","Balance","balance","Amount","amount","AM","NET","Net","net","Value","value","TOTAL","Total","total"];
+  for(const key of preferredKeys){
+    if(item[key]!==undefined&&item[key]!==null&&String(item[key]).trim()!=="")return parseKontorunAmount(item[key]);
+  }
+  return 0;
+}
 function mapKontorunCurrency(item={}){
-  const raw=String(item.CName||item.CURN||item.Currency||item.CUR||item.CURID||"").toUpperCase();
+  const raw=String(item.CName||item.cname||item.CURN||item.CurName||item.CurrencyName||item.Currency||item.currency||item.CUR||item.CURID||"").toUpperCase();
   const aliases={"دولار":"USD","دولار أمريكي":"USD","USD":"USD","يورو":"EUR","EUR":"EUR","ليرة تركية":"TRY","TRY":"TRY","ليرة سورية":"SYP","SYP":"SYP","دولار كندي":"CAD","CAD":"CAD"};
   for(const [name,code] of Object.entries(aliases))if(raw.includes(name.toUpperCase()))return code;
   return /^[A-Z]{3}$/.test(raw)?raw:"USD";
@@ -3311,7 +3339,7 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
   if(!rows.length)throw Object.assign(new Error("تم تسجيل الدخول لكن لم تُرجع شركة تواصل قائمة الأرصدة"),{code:"KONTORUN_BALANCES_EMPTY"});
   const currencies={};
   for(const item of rows){
-    const currency=mapKontorunCurrency(item);const balance=parseKontorunAmount(item.AMS??item.Amount??item.Balance);
+    const currency=mapKontorunCurrency(item);const balance=kontorunAmountFromItem(item);
     currencies[currency]={balance:+balance.toFixed(2),receivable:balance>0?+balance.toFixed(2):0,payable:balance<0?+Math.abs(balance).toFixed(2):0};
   }
   const preferred=String(partner.accountCurrency||"USD").toUpperCase();
@@ -3324,7 +3352,7 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
     const list=Array.isArray(statement.data)?statement.data:[];
     movements=list.map(item=>({externalId:String(item.ID||""),date:String(item.Date||""),name:String(item.Name||""),phone:String(item.Phone||""),amount:parseKontorunAmount(item.Value),fees:parseKontorunAmount(item.Fees),balance:parseKontorunAmount(item.AM),currency:mapKontorunCurrency(item),raw:item}));
   }catch{}
-  return {balance:main.balance,receivable:main.receivable,payable:main.payable,currencies,movements,profile:{id:profile.ID||"",name:profile.Name||""},balanceRows:rows.map(item=>({currency:mapKontorunCurrency(item),name:item.CName||item.CURN||"",amount:parseKontorunAmount(item.AMS??item.Amount??item.Balance)}))};
+  return {balance:main.balance,receivable:main.receivable,payable:main.payable,currencies,movements,profile:{id:profile.ID||"",name:profile.Name||""},balanceRows:rows.map(item=>({currency:mapKontorunCurrency(item),name:item.CName||item.CURN||"",amount:kontorunAmountFromItem(item)}))};
 }
 
 app.post("/api/partners", auth, (req,res)=>{
