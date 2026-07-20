@@ -197,7 +197,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.6.20",channel:"jad-url-balance-fix",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.6.21",channel:"jad-simple-balance-sync",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -2812,7 +2812,7 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
       const body=htmlText(html);
       const hasPassword=await page.locator('input[type="password"],input[name="pass"]').count().catch(()=>0);
       const hasLoginButton=await page.locator('button[name="btn-login"],input[name="btn-login"]').count().catch(()=>0);
-      const rejected=/اسم المستخدم|كلمة المرور|بيانات الدخول|غير صحيحة|خطأ في تسجيل الدخول|invalid|incorrect|failed|رمز.*(?:خاطئ|منتهي)/i.test(body);
+      const rejected=/(?:اسم المستخدم|كلمة المرور|بيانات الدخول).{0,35}(?:غير صحيحة|خاطئة|مرفوضة)|خطأ في تسجيل الدخول|invalid credentials|incorrect password|login failed|رمز.{0,20}(?:خاطئ|منتهي)/i.test(body);
       if((hasPassword&&hasLoginButton)||rejected){
         const reason=rejected?"رفض موقع جاد بيانات الدخول أو رمز التحقق":"بقيت صفحة تسجيل الدخول ظاهرة بعد الإرسال";
         throw await diagnosticError(`${reason}. استخدم اسم المستخدم وكلمة المرور الصحيحين ورمز Authenticator جديدًا`,"JAD_LOGIN_REJECTED");
@@ -3110,6 +3110,14 @@ async function syncJadPartner(partner,options={}){
   try{
     return await syncJadPartnerBrowser(partner,options);
   }catch(error){
+    // إذا رفض جاد الجلسة المحفوظة، نعيد المحاولة مرة واحدة بجلسة جديدة.
+    // هذا يعيد سلوك الربط البسيط الذي كان أكثر استقرارًا في الإصدارات القديمة.
+    const hasSavedSession=Boolean(partner?.jadStorageStateEncrypted);
+    if(hasSavedSession && ["JAD_SESSION_REJECTED","JAD_LOGIN_REJECTED"].includes(String(error?.code||""))){
+      console.warn("[JAD][SESSION][RETRY_FRESH]",{partnerId:partner.id,code:error.code});
+      const freshPartner={...partner,jadStorageStateEncrypted:""};
+      return await syncJadPartnerBrowser(freshPartner,options);
+    }
     const allowFallback=String(process.env.JAD_HTTP_FALLBACK||"false").toLowerCase()==="true";
     if(!allowFallback||error?.code!=="JAD_BROWSER_UNAVAILABLE")throw error;
     console.warn("[JAD] Browser connector unavailable; falling back to HTTP connector:",error?.message||error);
