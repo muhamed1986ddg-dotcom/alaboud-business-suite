@@ -242,6 +242,8 @@ function Dashboard({navigate}){
   const [recent,setRecent]=useState([]);
   const [dashboardRates,setDashboardRates]=useState([]);
   const [dashboardRateHistory,setDashboardRateHistory]=useState([]);
+  const [ratesRefreshing,setRatesRefreshing]=useState(false);
+  const [ratesError,setRatesError]=useState("");
   const [open,setOpen]=useState(false);
   const [intelligence,setIntelligence]=useState(null);
   const [lastRefresh,setLastRefresh]=useState(new Date());
@@ -255,7 +257,7 @@ function Dashboard({navigate}){
     let active=true;
     const loadDashboard=async(refreshRates=false)=>{
       try{
-        if(refreshRates)await api.post("/exchange-rates/refresh");
+        if(refreshRates){setRatesRefreshing(true);setRatesError("");await api.post("/exchange-rates/refresh");}
         const [dashboardResponse,notificationResponse,transactionsResponse,ratesResponse,historyResponse,intelligenceResponse,customersResponse,expensesResponse]=await Promise.all([
           api.get("/dashboard"),
           api.get("/notifications"),
@@ -288,7 +290,11 @@ function Dashboard({navigate}){
         setDashboardRateHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
         setIntelligence(intelligenceResponse.data||null);
         setLastRefresh(new Date());
-      }catch{}
+      }catch(error){
+        if(refreshRates)setRatesError(error.response?.data?.message||"تعذر تحديث أسعار الصرف. تم الاحتفاظ بآخر أسعار صحيحة.");
+      }finally{
+        if(refreshRates)setRatesRefreshing(false);
+      }
     };
     loadDashboard(false);
     const live=setInterval(()=>loadDashboard(false),60*1000);
@@ -359,6 +365,44 @@ function Dashboard({navigate}){
       <div className="enterprise-health-meta"><span>🔄 تحديث مباشر كل دقيقة</span><span>آخر تحديث {lastRefresh.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}</span></div>
     </section>
 
+    <section className="dashboard-exchange-board panel-dark">
+      <div className="exchange-board-header">
+        <div>
+          <span className="exchange-board-kicker">LIVE EXCHANGE BOARD</span>
+          <h2>💱 لوحة أسعار الصرف</h2>
+          <p>شراء وبيع العملات الرئيسية مقابل الدولار الكندي</p>
+        </div>
+        <div className="exchange-board-actions">
+          <span className="exchange-board-updated">آخر تحديث: {lastRefresh.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}</span>
+          <button disabled={ratesRefreshing} onClick={async()=>{
+            try{
+              setRatesRefreshing(true);setRatesError("");
+              await api.post("/exchange-rates/refresh");
+              const [ratesResponse,historyResponse]=await Promise.all([api.get("/exchange-rates"),api.get("/exchange-rates/history")]);
+              const order=["USD","CAD","EUR","TRY","SYP","SAR","JOD"];
+              const latest=new Map();
+              (Array.isArray(ratesResponse.data)?ratesResponse.data:[]).filter(rate=>order.includes(String(rate.baseCurrency||"").toUpperCase())).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).forEach(rate=>{const code=String(rate.baseCurrency||"").toUpperCase();if(!latest.has(code))latest.set(code,rate)});
+              setDashboardRates(order.map(code=>latest.get(code)).filter(Boolean));
+              setDashboardRateHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
+              setLastRefresh(new Date());
+            }catch(error){setRatesError(error.response?.data?.message||"تعذر تحديث أسعار الصرف. تم الاحتفاظ بآخر أسعار صحيحة.")}finally{setRatesRefreshing(false)}
+          }}>{ratesRefreshing?"جاري التحديث…":"↻ تحديث الآن"}</button>
+          <button className="exchange-board-all" onClick={()=>navigate("rates")}>عرض التفاصيل</button>
+        </div>
+      </div>
+      {ratesError&&<div className="exchange-board-error">⚠️ {ratesError}</div>}
+      <div className="exchange-board-grid">
+        {["USD","CAD","EUR","TRY","SYP","SAR","JOD"].map(code=>{
+          const rate=dashboardRates.find(item=>String(item.baseCurrency||"").toUpperCase()===code);
+          const trend=rate?rateTrend(rate,dashboardRateHistory):{type:"same",symbol:"—"};
+          return <button className={`exchange-rate-card trend-card-${trend.type}`} key={code} onClick={()=>navigate("rates")}>
+            <div className="exchange-rate-card-top"><CurrencyFlag code={code} className="exchange-rate-card-flag"/><strong>{code}</strong><span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol}</span></div>
+            {rate?<><div className="exchange-rate-prices"><div><small>شراء</small><b>{Number(rate.buyRate||0).toFixed(code==="SYP"?6:4)}</b></div><div><small>بيع</small><b>{Number(rate.sellRate||0).toFixed(code==="SYP"?6:4)}</b></div></div><span className="exchange-rate-quote">مقابل {rate.quoteCurrency||"CAD"}</span></>:<><div className="exchange-rate-missing">لا يوجد سعر</div><span className="exchange-rate-quote">اضغط لإضافة السعر</span></>}
+          </button>
+        })}
+      </div>
+    </section>
+
     <section className="enterprise-decision-grid">
       <div className="enterprise-decisions panel-dark">
         <div className="section-heading"><h3>🧠 مركز القرارات الذكية</h3><button onClick={()=>navigate("ai-center")}>فتح المركز الذكي</button></div>
@@ -382,7 +426,7 @@ function Dashboard({navigate}){
       </button>)}
     </section>
 
-    <section className="premium-grid">
+    <section className="premium-grid premium-grid-single">
       <div className="premium-recent panel-dark">
         <div className="section-heading">
           <h3>أحدث الحوالات</h3>
@@ -396,32 +440,6 @@ function Dashboard({navigate}){
         </button>):<p className="empty-state">لا توجد حوالات حديثة.</p>}
       </div>
 
-      <div className="premium-summary panel-dark dashboard-price-bulletin">
-        <div className="section-heading">
-          <h3>نشرة أسعار الصرف</h3>
-          <button onClick={()=>navigate("rates")}>عرض الكل</button>
-        </div>
-        <div className="dashboard-rate-list">
-          {dashboardRates.length?dashboardRates.map(rate=><button
-            className="dashboard-rate-row"
-            key={rate.id||`${rate.baseCurrency}-${rate.quoteCurrency}`}
-            onClick={()=>navigate("rates")}
-          >
-            {(()=>{
-              const trend=rateTrend(rate,dashboardRateHistory);
-              return <>
-                <strong className="dashboard-rate-pair">
-                  <CurrencyFlag code={rate.baseCurrency} className="dashboard-rate-flag"/>
-                  <span>{rate.baseCurrency}/{rate.quoteCurrency}</span>
-                  <span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol}</span>
-                </strong>
-                <span>شراء <b>{Number(rate.buyRate||0).toFixed(4)}</b></span>
-                <span>بيع <b>{Number(rate.sellRate||0).toFixed(4)}</b></span>
-              </>;
-            })()}
-          </button>):<p className="empty-state">لا توجد أسعار صرف مسجلة.</p>}
-        </div>
-      </div>
     </section>
 
     <section className="dashboard-pro-analysis">
@@ -2315,12 +2333,12 @@ function Profits(){
       <button type="button" onClick={load}>عرض التقرير</button>
     </div>
     <div className="stats">
-      <div className="card"><span>عدد الحوالات</span><strong>{data.transactionCount}</strong></div>
-      <div className="card"><span>ربح فرق السعر</span><strong>{money(data.exchangeProfit)}</strong></div>
-      <div className="card"><span>أجور الحوالات</span><strong>{money(data.transferFees)}</strong></div>
-      <div className="card"><span>إجمالي الربح</span><strong>{money(data.grossProfit)}</strong></div>
-      <div className="card"><span>المصروفات</span><strong>{money(data.expenses)}</strong></div>
-      <div className="card final"><span>صافي الربح</span><strong>{money(data.netProfit)}</strong></div>
+      <div className="card metric-card metric-count"><span>عدد الحوالات</span><strong>{data.transactionCount}</strong></div>
+      <div className="card metric-card metric-profit"><span>ربح فرق السعر</span><strong>{money(data.exchangeProfit)}</strong></div>
+      <div className="card metric-card metric-fees"><span>أجور الحوالات</span><strong>{money(data.transferFees)}</strong></div>
+      <div className="card metric-card metric-total"><span>إجمالي الربح</span><strong>{money(data.grossProfit)}</strong></div>
+      <div className="card metric-card metric-expense"><span>المصروفات</span><strong>{money(data.expenses)}</strong></div>
+      <div className={`card final metric-card metric-net ${Number(data.netProfit||0)<0?"value-negative":"value-positive"}`}><span>صافي الربح</span><strong>{money(data.netProfit)}</strong></div>
     </div>
     <div className="card tablewrap">
       <h3>الأرباح الشهرية</h3>
@@ -2332,7 +2350,7 @@ function Profits(){
           <td>{money(x.transferFees)}</td>
           <td>{money(x.grossProfit)}</td>
           <td>{money(x.expenses)}</td>
-          <td><b>{money(x.netProfit)}</b></td>
+          <td className={`table-total-value ${Number(x.netProfit||0)<0?"value-negative":"value-positive"}`}><b>{money(x.netProfit)}</b></td>
         </tr>)}</tbody>
       </table>
     </div>
@@ -3570,7 +3588,7 @@ function MonthlyReport(){
       <div className="card"><span>ربح فرق السعر</span><strong>{money(s.exchangeProfit)}</strong></div>
       <div className="card"><span>إجمالي الربح</span><strong>{money(s.grossProfit)}</strong></div>
       <div className="card payable-card"><span>المصروفات</span><strong>{money(s.expenses)}</strong></div>
-      <div className="card final"><span>صافي الربح</span><strong>{money(s.netProfit)}</strong></div>
+      <div className={`card final metric-card metric-net ${Number(s.netProfit||0)<0?"value-negative":"value-positive"}`}><span>صافي الربح</span><strong>{money(s.netProfit)}</strong></div>
     </div>
 
     <div className="stats">
@@ -4035,7 +4053,7 @@ function AICommandCenter({navigate}){
   if(!overview)return <div className="premium-loading">جاري تشغيل مركز الذكاء…</div>;
   return <section className="ai-center">
     <div className="ai-hero"><div><span>🤖</span><div><h2>مركز القيادة الذكي</h2><p>ALABOUD AI — تحليل الأعمال واتخاذ القرار</p></div></div><b className={overview.healthScore>=75?"good":overview.healthScore>=50?"warn":"bad"}>صحة الشركة {overview.healthScore}/100</b></div>
-    <div className="ai-kpis"><article><span>صافي اليوم</span><strong>{cad(overview.today.netProfit)}</strong></article><article><span>صافي الشهر</span><strong>{cad(overview.month.netProfit)}</strong></article><article><span>الديون لنا</span><strong>{cad(overview.finance.receivables)}</strong></article><article><span>توقع الشهر القادم</span><strong>{cad(overview.forecast.nextMonthNet)}</strong></article></div>
+    <div className="ai-kpis"><article className={Number(overview.today.netProfit||0)<0?"value-negative":"value-positive"}><span>صافي اليوم</span><strong>{cad(overview.today.netProfit)}</strong></article><article className={Number(overview.month.netProfit||0)<0?"value-negative":"value-positive"}><span>صافي الشهر</span><strong>{cad(overview.month.netProfit)}</strong></article><article className="value-receivable"><span>الديون لنا</span><strong>{cad(overview.finance.receivables)}</strong></article><article className={Number(overview.forecast.nextMonthNet||0)<0?"value-negative":"value-positive"}><span>توقع الشهر القادم</span><strong>{cad(overview.forecast.nextMonthNet)}</strong></article></div>
     <div className="ai-intelligence-grid">
       <article className="card ai-trend-card"><div className="section-heading"><h3>📊 اتجاه الأداء خلال 6 أشهر</h3><small>الأرباح والمصروفات وصافي النتيجة</small></div><div className="ai-trend-bars">{overview.monthlyTrend.map((item)=>{const max=Math.max(1,...overview.monthlyTrend.flatMap(x=>[Math.abs(x.profit||0),Math.abs(x.expenses||0),Math.abs(x.net||0)]));return <div className="ai-trend-column" key={item.month}><div className="ai-trend-stack"><i className="profit" style={{height:`${Math.max(6,Math.abs(item.profit||0)/max*100)}%`}} title={`الأرباح ${cad(item.profit)}`}></i><i className="expense" style={{height:`${Math.max(6,Math.abs(item.expenses||0)/max*100)}%`}} title={`المصروفات ${cad(item.expenses)}`}></i><i className={item.net>=0?"net positive":"net negative"} style={{height:`${Math.max(6,Math.abs(item.net||0)/max*100)}%`}} title={`الصافي ${cad(item.net)}`}></i></div><span>{item.month.slice(5)}</span></div>})}</div><div className="ai-chart-legend"><span>● الأرباح</span><span>● المصروفات</span><span>● الصافي</span></div></article>
       <article className="card ai-decision-card"><div className="section-heading"><h3>🎯 مركز القرارات</h3><small>إجراءات مقترحة الآن</small></div>{overview.recommendations.slice(0,4).map((x,i)=><button key={i} onClick={()=>{if(/دين|تحصيل/.test(x))navigate("customers");else if(/مصروف/.test(x))navigate("expenses");else if(/سيولة|رأس/.test(x))navigate("capital-overview");else navigate("monthly-report")}}><span>{i+1}</span><p>{x}</p><b>تنفيذ ›</b></button>)}</article>
