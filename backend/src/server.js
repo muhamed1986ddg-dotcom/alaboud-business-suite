@@ -47,7 +47,7 @@ function seedAdmin(){
       admin.companyId=company.id;
     }
 
-    const tenantArrays=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","notificationActions","auditLogs","devices"];
+    const tenantArrays=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices"];
     for(const key of tenantArrays){
       for(const item of store[key]||[]){
         if(item&&!item.companyId)item.companyId=company.id;
@@ -76,6 +76,29 @@ function audit(store, userId, action, entityType, entityId, details = {}) {
   const entry={ id:id(), userId, action, entityType, entityId, details, createdAt:now(), previousHash:previous };
   entry.integrityHash=sha256(JSON.stringify(entry)); logs.push(entry);
 }
+
+function recordPartnerSyncLog(store, partner, payload={}) {
+  if(!Array.isArray(store.partnerSyncLogs))store.partnerSyncLogs=[];
+  const entry={
+    id:id(),
+    partnerId:partner.id,
+    partnerName:partner.name,
+    connector:resolvePartnerConnector(partner),
+    status:payload.status||"SUCCESS",
+    trigger:payload.trigger||"MANUAL",
+    durationMs:Math.max(0,Number(payload.durationMs)||0),
+    beforeBalance:safeNumber(payload.beforeBalance),
+    afterBalance:safeNumber(payload.afterBalance),
+    changed:Boolean(payload.changed),
+    importedCount:Math.max(0,Number(payload.importedCount)||0),
+    message:String(payload.message||""),
+    createdAt:now()
+  };
+  store.partnerSyncLogs.push(entry);
+  if(store.partnerSyncLogs.length>500)store.partnerSyncLogs.splice(0,store.partnerSyncLogs.length-500);
+  return entry;
+}
+
 
 
 function base32Encode(buffer){
@@ -3445,7 +3468,9 @@ app.post("/api/partners", auth, (req,res)=>{
     connectorType="GENERIC",
     pathPrefix="/ssljd/merkez112/1/2",
     syncFromDate="",
-    syncEnabled=false
+    syncEnabled=false,
+    syncIntervalMinutes=5,
+    syncMode="BALANCE_ONLY"
   }=req.body||{};
 
   if(!name)return res.status(400).json({message:"اسم المورد أو الشركة مطلوب"});
@@ -3474,6 +3499,8 @@ app.post("/api/partners", auth, (req,res)=>{
       syncFromDate:String(syncFromDate||""),
       externalReceivable:0,externalPayable:0,externalBalance:0,
       syncEnabled:Boolean(syncEnabled),
+      syncIntervalMinutes:Math.max(1,Math.min(1440,Number(syncIntervalMinutes)||5)),
+      syncMode:["BALANCE_ONLY","BALANCE_AND_STATEMENT"].includes(String(syncMode).toUpperCase())?String(syncMode).toUpperCase():"BALANCE_ONLY",
       connectionStatus:String(systemUrl||"").trim()?"CONFIGURED":"MANUAL",
       lastSyncAt:null,
       createdAt:now(),
@@ -3488,7 +3515,7 @@ app.post("/api/partners", auth, (req,res)=>{
 });
 
 app.patch("/api/partners/:id", auth, (req,res)=>{
-  const allowed=["name","contactName","phone","whatsapp","email","country","city","address","notes","systemUrl","connectionType","accountCurrency","integrationName","username","externalAccountId","connectorType","pathPrefix","syncFromDate","syncEnabled"];
+  const allowed=["name","contactName","phone","whatsapp","email","country","city","address","notes","systemUrl","connectionType","accountCurrency","integrationName","username","externalAccountId","connectorType","pathPrefix","syncFromDate","syncEnabled","syncIntervalMinutes","syncMode"];
   let updated=null;
   mutate(store=>{
     const partner=store.partners.find(item=>item.id===req.params.id);
@@ -3496,7 +3523,7 @@ app.patch("/api/partners/:id", auth, (req,res)=>{
     if(req.body?.password)partner.passwordEncrypted=encryptIntegrationSecret(req.body.password);
     for(const key of allowed){
       if(req.body?.[key]===undefined)continue;
-      partner[key]=key==="syncEnabled"?Boolean(req.body[key]):String(req.body[key]??"");
+      partner[key]=key==="syncEnabled"?Boolean(req.body[key]):key==="syncIntervalMinutes"?Math.max(1,Math.min(1440,Number(req.body[key])||5)):String(req.body[key]??"");
     }
     partner.connectionType=String(partner.connectionType||"WEB").toUpperCase();
     partner.accountCurrency=String(partner.accountCurrency||"CAD").toUpperCase();
@@ -3523,6 +3550,27 @@ app.delete("/api/partners/:id", auth, (req,res)=>{
   });
   if(!deleted)return res.status(404).json({message:"الشركة غير موجودة"});
   res.json({ok:true,message:"تم حذف الشركة وحركاتها ودفعاتها المرتبطة",partner:deleted});
+});
+
+app.get("/api/partners/sync-center", auth, (req,res)=>{
+  const store=readStore();
+  const partners=Array.isArray(store.partners)?store.partners:[];
+  const logs=(Array.isArray(store.partnerSyncLogs)?store.partnerSyncLogs:[])
+    .slice().sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+  const today=new Date().toISOString().slice(0,10);
+  const todayLogs=logs.filter(item=>String(item.createdAt||"").slice(0,10)===today);
+  const successes=todayLogs.filter(item=>item.status==="SUCCESS").length;
+  const failures=todayLogs.filter(item=>item.status==="FAILED").length;
+  const durations=todayLogs.map(item=>safeNumber(item.durationMs)).filter(value=>value>0);
+  const averageDurationMs=durations.length?Math.round(durations.reduce((sum,value)=>sum+value,0)/durations.length):0;
+  const enabled=partners.filter(item=>item.syncEnabled&&["JAD","TAWASUL"].includes(resolvePartnerConnector(item))).length;
+  const due=partners.filter(item=>{
+    if(!item.syncEnabled||!["JAD","TAWASUL"].includes(resolvePartnerConnector(item)))return false;
+    const interval=Math.max(1,Number(item.syncIntervalMinutes)||5)*60000;
+    const last=new Date(item.lastSyncAt||0).getTime();
+    return !last||Date.now()-last>=interval;
+  }).map(item=>item.id);
+  res.json({stats:{enabled,due:due.length,totalToday:todayLogs.length,successes,failures,averageDurationMs},duePartnerIds:due,logs:logs.slice(0,30)});
 });
 
 app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
@@ -3559,6 +3607,8 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
 });
 
 app.post("/api/partners/:id/sync", auth, async (req,res)=>{
+  const syncStartedAt=Date.now();
+  const syncTrigger=String(req.body?.trigger||"MANUAL").toUpperCase();
   const snapshot=readStore();const partner=(snapshot.partners||[]).find(item=>item.id===req.params.id);
   if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
   const connector=resolvePartnerConnector(partner);
@@ -3588,6 +3638,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
       item.lastImportedMovementCount=result.movements.length;
       const {passwordEncrypted,...safe}=item;publicPartner={...safe,hasPassword:Boolean(passwordEncrypted)};
       audit(store,req.user.id,"SYNC","PARTNER",item.id,{connector,balance:result.balance,receivable:result.receivable,payable:result.payable,currencies:Object.keys(result.currencies||{}),count:result.movements.length});
+      recordPartnerSyncLog(store,item,{status:"SUCCESS",trigger:syncTrigger,durationMs:Date.now()-syncStartedAt,beforeBalance:safeNumber(partner.externalBalance),afterBalance:result.balance,changed:Math.abs(safeNumber(partner.externalBalance)-safeNumber(result.balance))>0.0001,importedCount:result.movements.length,message:"تمت المزامنة بنجاح"});
     });
     res.json({message:connector==="TAWASUL"?"تم جلب الرصيد من شركة تواصل":"تم جلب الرصيد من شركة جاد",partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
   }catch(error){
@@ -3606,6 +3657,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
       item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];
       item.lastJadArtifacts=error.jadArtifacts||null;
       item.updatedAt=now();
+      recordPartnerSyncLog(store,item,{status:"FAILED",trigger:syncTrigger,durationMs:Date.now()-syncStartedAt,beforeBalance:safeNumber(partner.externalBalance),afterBalance:safeNumber(item.externalBalance),changed:false,importedCount:0,message:String(error.message||"تعذر جلب الرصيد")});
       if(hasSuccessfulSync){
         const {passwordEncrypted,...safe}=item;
         stalePartner={...safe,hasPassword:Boolean(passwordEncrypted)};
@@ -3976,7 +4028,7 @@ if (!fs.existsSync(indexFile)) {
 }
 
 
-const BACKUP_ARRAYS=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","notificationActions"];
+const BACKUP_ARRAYS=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions"];
 
 app.get("/api/backup", auth, (req,res)=>{
   const store=readStore();
