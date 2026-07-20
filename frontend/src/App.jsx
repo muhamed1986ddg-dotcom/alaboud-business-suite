@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.27 Expense Edit/Delete";
+const APP_VERSION="v18.6.28 Expense Edit/Delete";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -3505,7 +3505,7 @@ function SettingsPanel(){
   const [devices,setDevices]=useState([]);
   const [twoFactorInfo,setTwoFactorInfo]=useState({secret:"",code:"",enabled:Boolean(savedUser.twoFactorEnabled)});
   const [biometricEnabled,setBiometricEnabled]=useState(Boolean(window.AlAboudNative?.isBiometricEnabled?.()));
-  const biometricAvailable=Boolean(window.AlAboudNative?.enableBiometricLogin);
+  const biometricAvailable=Boolean(typeof window!=="undefined"&&(window.AlAboudNative||navigator.userAgent.includes("AlAboudMobile")));
 
   useEffect(()=>{
     api.get("/company-profile").then(({data})=>setCompanyProfile(data)).catch(()=>{});
