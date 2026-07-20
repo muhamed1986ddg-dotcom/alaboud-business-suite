@@ -399,7 +399,7 @@ function Dashboard({navigate}){
         {["USD","CAD","EUR","TRY","SYP","SAR","JOD"].map(code=>{
           const rate=dashboardRates.find(item=>String(item.baseCurrency||"").toUpperCase()===code);
           const trend=rate?rateTrend(rate,dashboardRateHistory):{type:"same",symbol:"—"};
-          const currencyMeta=CURRENCIES.find(item=>item.code===code)||{name:code};
+          const currencyMeta=debtCurrencies.find(item=>item.code===code)||{name:code};
           const pairHistory=rate?dashboardRateHistory.filter(item=>String(item.baseCurrency||"").toUpperCase()===code).sort((a,b)=>String(a.createdAt||"").localeCompare(String(b.createdAt||""))).slice(-7):[];
           const values=pairHistory.map(item=>Number(item.sellRate||item.buyRate||0)).filter(Number.isFinite);
           const low=Math.min(...values,0),high=Math.max(...values,1),range=Math.max(high-low,.000001);

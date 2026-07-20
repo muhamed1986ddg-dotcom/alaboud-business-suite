@@ -1,1 +1,1 @@
-export const APP_VERSION="v20.0.0 Enterprise UI";
+export const APP_VERSION="v20.0.1 Currencies Fix";
