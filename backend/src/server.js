@@ -3208,6 +3208,80 @@ app.get("/api/partners", auth, (_req,res)=>{
   });
 });
 
+
+function parseJsonpPayload(text){
+  const raw=String(text||"").trim();
+  if(!raw)throw Object.assign(new Error("استجابة فارغة من شركة الحوالات"),{code:"KONTORUN_EMPTY_RESPONSE"});
+  try{return JSON.parse(raw)}catch{}
+  const match=raw.match(/^[^(]*\(([\s\S]*)\)\s*;?\s*$/);
+  if(!match)throw Object.assign(new Error("تعذر قراءة استجابة شركة الحوالات"),{code:"KONTORUN_INVALID_RESPONSE"});
+  try{return JSON.parse(match[1])}catch{throw Object.assign(new Error("صيغة استجابة شركة الحوالات غير صالحة"),{code:"KONTORUN_INVALID_JSON"})}
+}
+function kontorunBaseUrl(partner={}){
+  const raw=String(partner.systemUrl||"https://www.krs47n92t.com").trim()||"https://www.krs47n92t.com";
+  const withProtocol=/^https?:\/\//i.test(raw)?raw:`https://${raw}`;
+  const parsed=new URL(withProtocol);
+  return `${parsed.protocol}//${parsed.host}`;
+}
+async function kontorunJsonp(base,route,{cookie="",csrf="",params={}}={}){
+  const url=new URL(route,base);
+  url.searchParams.set("callback",`alaboud_${Date.now()}_${Math.random().toString(16).slice(2)}`);
+  for(const [key,value] of Object.entries(params||{}))if(value!==undefined&&value!==null&&String(value)!=="")url.searchParams.set(key,String(value));
+  const headers={Accept:"*/*","User-Agent":"AlAboud-Business-Suite/18.7.0"};
+  if(csrf)headers["X-CSRF-Token"]=csrf;
+  const result=await fetchWithCookies(url.toString(),{method:"GET",headers},cookie,{maxRedirects:4});
+  const text=await result.response.text();
+  if(!result.response.ok)throw Object.assign(new Error(`فشل اتصال شركة الحوالات (${result.response.status})`),{code:"KONTORUN_HTTP_ERROR"});
+  return {data:parseJsonpPayload(text),cookie:result.cookie,url:result.url};
+}
+function parseKontorunAmount(value){
+  const text=String(value??"").replace(/[\s,]/g,"").replace(/[^0-9+\-.]/g,"");
+  const number=Number(text);return Number.isFinite(number)?number:0;
+}
+function mapKontorunCurrency(item={}){
+  const raw=String(item.CUR||item.CName||item.Currency||item.CURID||"").toUpperCase();
+  const aliases={"دولار":"USD","دولار أمريكي":"USD","USD":"USD","يورو":"EUR","EUR":"EUR","ليرة تركية":"TRY","TRY":"TRY","ليرة سورية":"SYP","SYP":"SYP","دولار كندي":"CAD","CAD":"CAD"};
+  for(const [name,code] of Object.entries(aliases))if(raw.includes(name.toUpperCase()))return code;
+  return /^[A-Z]{3}$/.test(raw)?raw:"USD";
+}
+async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
+  const base=kontorunBaseUrl(partner);
+  const username=String(partner.username||"").trim();
+  const password=decryptIntegrationSecret(partner.passwordEncrypted);
+  if(!username||!password)throw Object.assign(new Error("اسم المستخدم وكلمة المرور مطلوبان"),{code:"KONTORUN_CREDENTIALS_REQUIRED"});
+  let cookie="",csrf="";
+  let login=await kontorunJsonp(base,"/api/index.php?p=l&f=in",{cookie,params:{username,password}});cookie=login.cookie;
+  let profile=login.data||{};
+  if(String(profile.ID)==="0")throw Object.assign(new Error("بيانات الدخول غير صحيحة"),{code:"KONTORUN_LOGIN_REJECTED"});
+  if(String(profile.ID).toUpperCase()==="OK"){
+    const token=profile.token||profile.Token||profile.TOKEN;
+    const cleanOtp=String(otp||"").replace(/\D/g,"");
+    if(!cleanOtp)throw Object.assign(new Error("مطلوب رمز التحقق من تطبيق التوثيق"),{code:"KONTORUN_OTP_REQUIRED"});
+    const verified=await kontorunJsonp(base,"/api/index.php?p=l&f=a",{cookie,params:{pin:cleanOtp,token}});cookie=verified.cookie;profile=verified.data||{};
+    if(String(profile.ID)==="0")throw Object.assign(new Error("رمز التحقق غير صحيح أو منتهي"),{code:"KONTORUN_OTP_REJECTED"});
+  }
+  csrf=String(profile.CSRF||profile.csrf||"");
+  const balancesResponse=await kontorunJsonp(base,"/api/index.php?p=mt&f=GA",{cookie,csrf});cookie=balancesResponse.cookie;
+  const rows=Array.isArray(balancesResponse.data)?balancesResponse.data:[];
+  if(!rows.length&&String(balancesResponse.data?.ID||"")==="0")throw Object.assign(new Error("انتهت جلسة الشركة؛ أعد إدخال رمز التحقق"),{code:"KONTORUN_SESSION_REJECTED"});
+  const currencies={};
+  for(const item of rows){
+    const currency=mapKontorunCurrency(item);const balance=parseKontorunAmount(item.AMS??item.Amount??item.Balance);
+    currencies[currency]={balance:+balance.toFixed(2),receivable:balance>0?+balance.toFixed(2):0,payable:balance<0?+Math.abs(balance).toFixed(2):0};
+  }
+  const preferred=String(partner.accountCurrency||"USD").toUpperCase();
+  const main=currencies[preferred]||Object.values(currencies)[0]||{balance:0,receivable:0,payable:0};
+  const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*86400000).toISOString().slice(0,10);
+  const end=toDate||new Date().toISOString().slice(0,10);
+  let movements=[];
+  try{
+    const statement=await kontorunJsonp(base,"/api/index.php?p=mt&f=aspro",{cookie,csrf,params:{cur:partner.externalAccountId||"1",fr:start,to:end}});
+    const list=Array.isArray(statement.data)?statement.data:[];
+    movements=list.map(item=>({externalId:String(item.ID||""),date:String(item.Date||""),name:String(item.Name||""),phone:String(item.Phone||""),amount:parseKontorunAmount(item.Value),fees:parseKontorunAmount(item.Fees),balance:parseKontorunAmount(item.AM),currency:mapKontorunCurrency(item),raw:item}));
+  }catch{}
+  return {balance:main.balance,receivable:main.receivable,payable:main.payable,currencies,movements,profile:{id:profile.ID||"",name:profile.Name||""}};
+}
+
 app.post("/api/partners", auth, (req,res)=>{
   const {
     name,
@@ -3302,6 +3376,11 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
       mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.updatedAt=now();}});
       return res.json({ok:true,status:"READY",message:`تم الاتصال بنجاح، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
     }
+    if(String(partner.connectorType||"").toUpperCase()==="KONTORUN"){
+      const result=await syncKontorunPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp});
+      mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.updatedAt=now();}});
+      return res.json({ok:true,status:"READY",message:`تم الاتصال بنجاح، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
+    }
     normalizeBaseUrl(partner.systemUrl);
     mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.updatedAt=now();}});
     res.json({ok:true,status:"READY",message:"الرابط صالح. اختر موصل الشركة لإجراء مزامنة فعلية."});
@@ -3324,9 +3403,12 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
 app.post("/api/partners/:id/sync", auth, async (req,res)=>{
   const snapshot=readStore();const partner=(snapshot.partners||[]).find(item=>item.id===req.params.id);
   if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
-  if(String(partner.connectorType||"").toUpperCase()!=="JAD")return res.status(400).json({message:"لا يوجد موصل فعلي محدد لهذه الشركة"});
+  const connector=String(partner.connectorType||"").toUpperCase();
+  if(!["JAD","KONTORUN"].includes(connector))return res.status(400).json({message:"لا يوجد موصل فعلي محدد لهذه الشركة"});
   try{
-    const result=await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp});
+    const result=connector==="KONTORUN"
+      ? await syncKontorunPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp})
+      : await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp});
     const storageState=result?._storageState||null;
     if(result&&Object.prototype.hasOwnProperty.call(result,"_storageState"))delete result._storageState;
     let publicPartner=null;
@@ -3346,9 +3428,9 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
       item.lastSyncAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.connectionStatus="READY";item.updatedAt=now();
       item.lastImportedMovementCount=result.movements.length;
       const {passwordEncrypted,...safe}=item;publicPartner={...safe,hasPassword:Boolean(passwordEncrypted)};
-      audit(store,req.user.id,"SYNC","PARTNER",item.id,{connector:"JAD",balance:result.balance,receivable:result.receivable,payable:result.payable,currencies:Object.keys(result.currencies||{}),count:result.movements.length});
+      audit(store,req.user.id,"SYNC","PARTNER",item.id,{connector,balance:result.balance,receivable:result.receivable,payable:result.payable,currencies:Object.keys(result.currencies||{}),count:result.movements.length});
     });
-    res.json({message:"تم جلب الرصيد من شركة جاد",partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
+    res.json({message:connector==="KONTORUN"?"تم جلب الرصيد من الشركة الجديدة":"تم جلب الرصيد من شركة جاد",partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
   }catch(error){
     let stalePartner=null;
     let hasSuccessfulSync=false;

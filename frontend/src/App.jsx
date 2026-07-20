@@ -2953,6 +2953,10 @@ function Partners({open}){
     if(code==="JAD_SESSION_REJECTED")return "انتهت جلسة جاد ويجب إدخال رمز Authenticator جديد";
     if(code==="JAD_OTP_FIELD_NOT_FOUND")return "تغيّرت صفحة رمز التحقق في موقع جاد";
     if(code==="JAD_CHROMIUM_LAUNCH_FAILED"||code==="JAD_BROWSER_UNAVAILABLE")return "تعذر تشغيل متصفح الربط على الخادم";
+    if(code==="KONTORUN_OTP_REQUIRED")return "مطلوب رمز التحقق من تطبيق التوثيق";
+    if(code==="KONTORUN_OTP_REJECTED")return "رمز التحقق غير صحيح أو منتهي";
+    if(code==="KONTORUN_LOGIN_REJECTED")return "اسم المستخدم أو كلمة المرور غير صحيحة";
+    if(code==="KONTORUN_SESSION_REJECTED")return "انتهت جلسة الشركة، أدخل رمز تحقق جديد";
     if(/timeout|مهلة/i.test(raw))return "انتهت مهلة الاتصال بموقع جاد";
     if(/network|fetch|ENOTFOUND|ECONN|اتصال/i.test(raw))return "تعذر الوصول إلى موقع جاد مؤقتًا";
     return raw||"تعذر تحديث البيانات مؤقتًا";
@@ -3020,7 +3024,7 @@ function Partners({open}){
   };
 
   async function syncAllPartners(){
-    const partners=(data.rows||[]).filter(partner=>partner.connectorType==="JAD");
+    const partners=(data.rows||[]).filter(partner=>["JAD","KONTORUN"].includes(partner.connectorType));
     if(!partners.length){setError("لا توجد شركة جاد للمزامنة");return;}
     setError("");setMessage("جاري مزامنة الأرصدة الآن...");setSyncingAll(true);
     let successCount=0;
@@ -3100,7 +3104,7 @@ function Partners({open}){
         <option value="WEB">رابط ويب</option><option value="API">API</option><option value="CSV">CSV</option><option value="EXCEL">Excel</option><option value="PDF">PDF</option>
       </select>
       <select value={form.connectorType} onChange={e=>setForm({...form,connectorType:e.target.value})}>
-        <option value="JAD">موصل شركة جاد — جلب الرصيد تلقائيًا</option><option value="GENERIC">شركة عامة — بدون مزامنة تلقائية</option>
+        <option value="JAD">موصل شركة جاد — جلب الرصيد تلقائيًا</option><option value="KONTORUN">موصل التطبيق الجديد — كشف الحساب والرصيد</option><option value="GENERIC">شركة عامة — بدون مزامنة تلقائية</option>
       </select>
       <select value={form.accountCurrency} onChange={e=>setForm({...form,accountCurrency:e.target.value})}>
         {debtCurrencies.map(item=><option key={item.code} value={item.code}>{item.flag} {item.code}</option>)}
@@ -3128,7 +3132,7 @@ function Partners({open}){
           <td><PartnerCurrencyBalances partner={partner}/></td>
           <td><div className="relative-sync-time"><strong>{relativeSyncTime(partner.lastSyncAt)}</strong><small>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar-CA"):"—"}</small></div></td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
-          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{partner.connectorType==="JAD"&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{partner.connectorType==="JAD"&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</td>
+          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button>{["JAD","KONTORUN"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{["JAD","KONTORUN"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</td>
         </tr>):<tr><td colSpan="8">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>
     </div>
