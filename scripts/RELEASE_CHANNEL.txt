@@ -1,3 +1,1 @@
-Version: 13.0.0-alpha.1
-Channel: Enterprise Alpha
-Production ready: NO
+v18.7.6 Tawasul Balance + Version Fix
