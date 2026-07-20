@@ -3663,11 +3663,13 @@ app.put("/api/expenses/:id", auth, (req,res)=>{
   const n=Number(amount),rate=Number(exchangeRate),normalizedCurrency=String(currency||"CAD").toUpperCase();
   if(!title||!date||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"بيانات المصروف غير صحيحة"});
   const updated=mutate(s=>{
-    const index=s.expenses.findIndex(x=>String(x.id)===String(req.params.id));
+    const rows=Array.from(s.expenses||[]);
+    const index=rows.findIndex(x=>String(x.id)===String(req.params.id));
     if(index<0)return null;
-    const previous=s.expenses[index];
+    const previous=rows[index];
     const next={...previous,title:String(title).trim(),amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,updatedAt:now(),updatedBy:req.user.id};
-    s.expenses[index]=next;
+    rows[index]=next;
+    s.expenses=rows;
     audit(s,req.user.id,"UPDATE","EXPENSE",next.id,{before:{title:previous.title,amount:previous.amount,currency:previous.currency},after:{title:next.title,amount:next.amount,currency:next.currency}});
     return next;
   });
@@ -3676,9 +3678,11 @@ app.put("/api/expenses/:id", auth, (req,res)=>{
 });
 app.delete("/api/expenses/:id", auth, (req,res)=>{
   const removed=mutate(s=>{
-    const index=s.expenses.findIndex(x=>String(x.id)===String(req.params.id));
+    const rows=Array.from(s.expenses||[]);
+    const index=rows.findIndex(x=>String(x.id)===String(req.params.id));
     if(index<0)return null;
-    const [expense]=s.expenses.splice(index,1);
+    const expense=rows[index];
+    s.expenses=rows.filter((_,rowIndex)=>rowIndex!==index);
     audit(s,req.user.id,"DELETE","EXPENSE",expense.id,{title:expense.title,amount:expense.amount,currency:expense.currency});
     return expense;
   });
