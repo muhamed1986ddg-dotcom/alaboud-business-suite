@@ -3392,6 +3392,21 @@ app.patch("/api/partners/:id", auth, (req,res)=>{
   res.json(updated);
 });
 
+app.delete("/api/partners/:id", auth, (req,res)=>{
+  let deleted=null;
+  mutate(store=>{
+    const partner=(store.partners||[]).find(item=>item.id===req.params.id);
+    if(!partner)return;
+    deleted={id:partner.id,name:partner.name};
+    store.partners=(store.partners||[]).filter(item=>item.id!==req.params.id);
+    store.partnerTransactions=(store.partnerTransactions||[]).filter(item=>item.partnerId!==req.params.id);
+    store.partnerPayments=(store.partnerPayments||[]).filter(item=>item.partnerId!==req.params.id);
+    audit(store,req.user.id,"DELETE","PARTNER",partner.id,{name:partner.name,relatedRecordsRemoved:true});
+  });
+  if(!deleted)return res.status(404).json({message:"الشركة غير موجودة"});
+  res.json({ok:true,message:"تم حذف الشركة وحركاتها ودفعاتها المرتبطة",partner:deleted});
+});
+
 app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
   const store=readStore();const partner=(store.partners||[]).find(item=>item.id===req.params.id);
   if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
