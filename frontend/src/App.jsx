@@ -40,6 +40,22 @@ const cleanConnectorMessage=value=>{
   return text.length>260?`${text.slice(0,257)}...`:text;
 };
 
+
+const EXCHANGE_CURRENCY_CATALOG=[
+  {code:"USD",name:"دولار أمريكي",flag:"🇺🇸"},{code:"CAD",name:"دولار كندي",flag:"🇨🇦"},
+  {code:"EUR",name:"يورو",flag:"🇪🇺"},{code:"TRY",name:"ليرة تركية",flag:"🇹🇷"},
+  {code:"SYP",name:"ليرة سورية",flag:"🇸🇾"},{code:"SAR",name:"ريال سعودي",flag:"🇸🇦"},
+  {code:"JOD",name:"دينار أردني",flag:"🇯🇴"},{code:"GBP",name:"جنيه إسترليني",flag:"🇬🇧"},
+  {code:"AED",name:"درهم إماراتي",flag:"🇦🇪"},{code:"LBP",name:"ليرة لبنانية",flag:"🇱🇧"},
+  {code:"EGP",name:"جنيه مصري",flag:"🇪🇬"},{code:"IQD",name:"دينار عراقي",flag:"🇮🇶"},
+  {code:"KWD",name:"دينار كويتي",flag:"🇰🇼"},{code:"QAR",name:"ريال قطري",flag:"🇶🇦"},
+  {code:"BHD",name:"دينار بحريني",flag:"🇧🇭"},{code:"OMR",name:"ريال عُماني",flag:"🇴🇲"},
+  {code:"CHF",name:"فرنك سويسري",flag:"🇨🇭"},{code:"AUD",name:"دولار أسترالي",flag:"🇦🇺"},
+  {code:"NZD",name:"دولار نيوزيلندي",flag:"🇳🇿"},{code:"CNY",name:"يوان صيني",flag:"🇨🇳"},
+  {code:"JPY",name:"ين ياباني",flag:"🇯🇵"},{code:"INR",name:"روبية هندية",flag:"🇮🇳"},
+  {code:"SEK",name:"كرونة سويدية",flag:"🇸🇪"},{code:"NOK",name:"كرونة نرويجية",flag:"🇳🇴"}
+];
+
 const debtCurrencies=[
     {code:"USD",flag:"🇺🇸",name:"دولار أمريكي",symbol:"$"},
     {code:"CAD",flag:"🇨🇦",name:"دولار كندي",symbol:"$"},
@@ -2376,6 +2392,17 @@ function ExchangeRates(){
   const [goldForm,setGoldForm]=useState({baseCurrency:"XAU24",quoteCurrency:"CAD",buyRate:"",sellRate:"",notes:"سعر غرام الذهب"});
   const [refreshing,setRefreshing]=useState(false);
   const [message,setMessage]=useState("");
+  const [currencySearch,setCurrencySearch]=useState("");
+  const [showCurrencyManager,setShowCurrencyManager]=useState(false);
+  const [customCurrency,setCustomCurrency]=useState({code:"",name:"",flag:"🏳️"});
+  const [enabledCurrencies,setEnabledCurrencies]=useState(()=>{
+    try{
+      const saved=JSON.parse(localStorage.getItem("alaboud_exchange_currencies")||"null");
+      return Array.isArray(saved)&&saved.length?saved:EXCHANGE_CURRENCY_CATALOG.slice(0,9);
+    }catch{return EXCHANGE_CURRENCY_CATALOG.slice(0,9)}
+  });
+
+  useEffect(()=>{localStorage.setItem("alaboud_exchange_currencies",JSON.stringify(enabledCurrencies))},[enabledCurrencies]);
 
   const trendFor=(rate)=>rateTrend(rate,history);
   const isGoldRate=rate=>String(rate.baseCurrency||"").startsWith("XAU");
@@ -2397,13 +2424,23 @@ function ExchangeRates(){
     const date=new Date(value||Date.now());
     return Number.isNaN(date.getTime())?"—":date.toLocaleString("ar-CA");
   };
-  const currencyInfo={
-    CAD:{name:"الدولار الكندي",flag:"🇨🇦"},USD:{name:"الدولار الأمريكي",flag:"🇺🇸"},
-    EUR:{name:"اليورو",flag:"🇪🇺"},SYP:{name:"الليرة السورية",flag:"🇸🇾"},
-    AED:{name:"الدرهم الإماراتي",flag:"🇦🇪"},GBP:{name:"الجنيه الإسترليني",flag:"🇬🇧"},
-    TRY:{name:"الليرة التركية",flag:"🇹🇷"}
-  };
+  const currencyInfo=Object.fromEntries([...EXCHANGE_CURRENCY_CATALOG,...enabledCurrencies].map(item=>[item.code,item]));
   const currencyLabel=(code)=>`${currencyInfo[code]?.flag||"🏳️"} ${currencyInfo[code]?.name||code} (${code})`;
+  const currencyCodes=[...new Set(enabledCurrencies.map(item=>item.code))];
+  const filteredCatalog=EXCHANGE_CURRENCY_CATALOG.filter(item=>{
+    const q=currencySearch.trim().toLowerCase();
+    return !q||`${item.code} ${item.name}`.toLowerCase().includes(q);
+  });
+  const toggleCurrency=item=>setEnabledCurrencies(current=>current.some(x=>x.code===item.code)?current.filter(x=>x.code!==item.code):[...current,item]);
+  const addCustomCurrency=()=>{
+    const code=customCurrency.code.trim().toUpperCase().replace(/[^A-Z]/g,"").slice(0,5);
+    const name=customCurrency.name.trim();
+    if(code.length<3||!name){setMessage("أدخل رمز عملة من 3 أحرف واسم العملة");return}
+    if(enabledCurrencies.some(item=>item.code===code)){setMessage("هذه العملة مضافة مسبقًا");return}
+    setEnabledCurrencies(current=>[...current,{code,name,flag:customCurrency.flag||"🏳️"}]);
+    setCustomCurrency({code:"",name:"",flag:"🏳️"});
+    setMessage(`تمت إضافة ${name} إلى قائمة العملات`);
+  };
 
   const load=async()=>{
     setMessage("");
@@ -2505,14 +2542,32 @@ function ExchangeRates(){
 
     {message&&<div className="card rate-message">{message}</div>}
 
+    <div className="card currency-manager-card">
+      <div className="currency-manager-head">
+        <div><h3>➕ إدارة العملات</h3><p>أضف العملات التي تريد استخدامها في لوحة الصرف، وابحث عنها بسرعة.</p></div>
+        <button type="button" className="currency-manager-toggle" onClick={()=>setShowCurrencyManager(value=>!value)}>{showCurrencyManager?"إغلاق":"إضافة عملات"}</button>
+      </div>
+      <div className="enabled-currency-chips">{enabledCurrencies.map(item=><button type="button" key={item.code} onClick={()=>toggleCurrency(item)} title="اضغط للإزالة"><span>{item.flag}</span><b>{item.code}</b><small>{item.name}</small><i>×</i></button>)}</div>
+      {showCurrencyManager&&<div className="currency-manager-body">
+        <input className="currency-search-input" value={currencySearch} onChange={e=>setCurrencySearch(e.target.value)} placeholder="ابحث بالاسم أو الرمز..."/>
+        <div className="currency-catalog-grid">{filteredCatalog.map(item=>{const active=enabledCurrencies.some(x=>x.code===item.code);return <button type="button" key={item.code} className={active?"active":""} onClick={()=>toggleCurrency(item)}><span>{item.flag}</span><div><b>{item.code}</b><small>{item.name}</small></div><strong>{active?"✓":"+"}</strong></button>})}</div>
+        <div className="custom-currency-row">
+          <input value={customCurrency.flag} onChange={e=>setCustomCurrency({...customCurrency,flag:e.target.value})} placeholder="العلم" maxLength="4"/>
+          <input value={customCurrency.code} onChange={e=>setCustomCurrency({...customCurrency,code:e.target.value})} placeholder="الرمز مثل MXN" maxLength="5"/>
+          <input value={customCurrency.name} onChange={e=>setCustomCurrency({...customCurrency,name:e.target.value})} placeholder="اسم العملة"/>
+          <button type="button" onClick={addCustomCurrency}>إضافة عملة مخصصة</button>
+        </div>
+      </div>}
+    </div>
+
     <div className="rates-entry-grid">
       <form className="card form" onSubmit={add}>
         <h3>💱 إضافة سعر عملة</h3>
         <select value={f.baseCurrency} onChange={e=>setF({...f,baseCurrency:e.target.value})}>
-          {["CAD","USD","EUR","SYP","AED","GBP","TRY"].map(x=><option key={x} value={x}>{currencyLabel(x)}</option>)}
+          {currencyCodes.map(x=><option key={x} value={x}>{currencyLabel(x)}</option>)}
         </select>
         <select value={f.quoteCurrency} onChange={e=>setF({...f,quoteCurrency:e.target.value})}>
-          {["USD","CAD","EUR","SYP","AED","GBP","TRY"].map(x=><option key={x} value={x}>{currencyLabel(x)}</option>)}
+          {currencyCodes.map(x=><option key={x} value={x}>{currencyLabel(x)}</option>)}
         </select>
         <input type="number" step=".000001" value={f.buyRate} onChange={e=>setF({...f,buyRate:e.target.value})} placeholder="سعر الشراء" required/>
         <input type="number" step=".000001" value={f.sellRate} onChange={e=>setF({...f,sellRate:e.target.value})} placeholder="سعر البيع" required/>
