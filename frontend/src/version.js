@@ -1,1 +1,1 @@
-export const APP_VERSION="v19.2.2 Priority Exchange Rate Board";
+export const APP_VERSION="v20.0.0 Enterprise UI";

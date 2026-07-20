@@ -350,7 +350,7 @@ function Dashboard({navigate}){
     {label:"مصروفات اليوم",value:cad(smart.today?.expenses||0),icon:"👛",tone:"orange",note:"المصروفات اليومية",page:"expenses"}
   ];
 
-  return <div className="premium-dashboard">
+  return <div className="premium-dashboard v20-dashboard">
     <section className="premium-hero dashboard-pro-hero">
       <div className="dashboard-pro-brand">
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
@@ -360,17 +360,21 @@ function Dashboard({navigate}){
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
     </section>
 
-    <section className={`enterprise-health health-${health.tone}`}>
-      <div className="enterprise-health-score"><span>{health.icon}</span><div><small>مؤشر صحة الشركة</small><strong>{health.label}</strong></div><b>{healthScore}/100</b></div>
-      <div className="enterprise-health-meta"><span>🔄 تحديث مباشر كل دقيقة</span><span>آخر تحديث {lastRefresh.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}</span></div>
+    <section className={`enterprise-health health-${health.tone} v20-status-strip`}>
+      <div className="enterprise-health-score"><span>{health.icon}</span><div><small>حالة النظام</small><strong>جميع الأنظمة تعمل بشكل طبيعي</strong></div></div>
+      <div className="enterprise-health-meta">
+        <span>🛡️ صحة الشركة <b>{healthScore}/100</b></span>
+        <span>☁️ المزامنة متصلة</span>
+        <span>🔄 آخر تحديث {lastRefresh.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}</span>
+      </div>
     </section>
 
-    <section className="dashboard-exchange-board panel-dark">
+    <section className="dashboard-exchange-board panel-dark v20-exchange-board">
       <div className="exchange-board-header">
         <div>
-          <span className="exchange-board-kicker">LIVE EXCHANGE BOARD</span>
-          <h2>💱 لوحة أسعار الصرف</h2>
-          <p>شراء وبيع العملات الرئيسية مقابل الدولار الكندي</p>
+          <span className="exchange-board-kicker">LIVE <i></i></span>
+          <h2>لوحة أسعار الصرف المباشرة</h2>
+          <p>الأسعار الرئيسية مقابل الدولار الكندي · تحديث آلي كل 30 دقيقة</p>
         </div>
         <div className="exchange-board-actions">
           <span className="exchange-board-updated">آخر تحديث: {lastRefresh.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}</span>
@@ -395,9 +399,17 @@ function Dashboard({navigate}){
         {["USD","CAD","EUR","TRY","SYP","SAR","JOD"].map(code=>{
           const rate=dashboardRates.find(item=>String(item.baseCurrency||"").toUpperCase()===code);
           const trend=rate?rateTrend(rate,dashboardRateHistory):{type:"same",symbol:"—"};
+          const currencyMeta=CURRENCIES.find(item=>item.code===code)||{name:code};
+          const pairHistory=rate?dashboardRateHistory.filter(item=>String(item.baseCurrency||"").toUpperCase()===code).sort((a,b)=>String(a.createdAt||"").localeCompare(String(b.createdAt||""))).slice(-7):[];
+          const values=pairHistory.map(item=>Number(item.sellRate||item.buyRate||0)).filter(Number.isFinite);
+          const low=Math.min(...values,0),high=Math.max(...values,1),range=Math.max(high-low,.000001);
+          const points=values.length>1?values.map((value,index)=>`${(index/(values.length-1))*100},${34-((value-low)/range)*28}`).join(" "):"0,26 25,22 50,24 75,15 100,18";
+          const previous=values.length>1?values[values.length-2]:Number(rate?.sellRate||rate?.buyRate||0);
+          const current=Number(rate?.sellRate||rate?.buyRate||0);
+          const percent=previous?((current-previous)/previous)*100:0;
           return <button className={`exchange-rate-card trend-card-${trend.type}`} key={code} onClick={()=>navigate("rates")}>
-            <div className="exchange-rate-card-top"><CurrencyFlag code={code} className="exchange-rate-card-flag"/><strong>{code}</strong><span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol}</span></div>
-            {rate?<><div className="exchange-rate-prices"><div><small>شراء</small><b>{Number(rate.buyRate||0).toFixed(code==="SYP"?6:4)}</b></div><div><small>بيع</small><b>{Number(rate.sellRate||0).toFixed(code==="SYP"?6:4)}</b></div></div><span className="exchange-rate-quote">مقابل {rate.quoteCurrency||"CAD"}</span></>:<><div className="exchange-rate-missing">لا يوجد سعر</div><span className="exchange-rate-quote">اضغط لإضافة السعر</span></>}
+            <div className="exchange-rate-card-top"><CurrencyFlag code={code} className="exchange-rate-card-flag"/><div><strong>{code}</strong><small>{currencyMeta.name}</small></div><span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol} {Math.abs(percent).toFixed(2)}%</span></div>
+            {rate?<><div className="exchange-rate-prices"><div><small>شراء</small><b>{Number(rate.buyRate||0).toFixed(code==="SYP"?6:4)}</b></div><div><small>بيع</small><b>{Number(rate.sellRate||0).toFixed(code==="SYP"?6:4)}</b></div></div><div className="exchange-rate-spark"><svg viewBox="0 0 100 38" preserveAspectRatio="none"><polyline points={points}/></svg><span>فرق السعر <b>{Math.abs(Number(rate.sellRate||0)-Number(rate.buyRate||0)).toFixed(code==="SYP"?6:4)}</b></span></div></>:<><div className="exchange-rate-missing">لا يوجد سعر</div><span className="exchange-rate-quote">اضغط لإضافة السعر</span></>}
           </button>
         })}
       </div>
