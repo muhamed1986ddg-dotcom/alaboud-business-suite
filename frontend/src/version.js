@@ -1,1 +1,1 @@
-export const APP_VERSION="v19.2.0 Executive Intelligence Center";
+export const APP_VERSION="v19.2.2 Priority Exchange Rate Board";

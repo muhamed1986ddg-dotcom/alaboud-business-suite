@@ -4474,3 +4474,183 @@ body.app-language-en aside{
 .global-search-results{padding:10px;overflow:auto;max-height:60vh}.global-search-results button{width:100%;border:0;border-radius:13px;background:transparent;color:white;padding:11px;display:grid;grid-template-columns:65px 1fr auto;gap:12px;align-items:center;text-align:right;cursor:pointer}.global-search-results button:hover{background:rgba(255,255,255,.07)}.global-search-results i{font-style:normal;padding:5px 7px;border-radius:8px;background:rgba(83,139,255,.15);text-align:center;font-size:12px}.global-search-results span{display:grid}.global-search-results small{opacity:.6}.global-search-results b{font-size:12px}.global-search-help{padding:35px;text-align:center}.global-search-help p{opacity:.65}
 @media(max-width:980px){.executive-intelligence-grid{grid-template-columns:1fr 1fr}.executive-comparison{grid-column:1/-1}}
 @media(max-width:640px){.executive-intelligence-grid{grid-template-columns:1fr}.executive-comparison{grid-column:auto}.customer-ranking button{grid-template-columns:28px 1fr 34px}.customer-ranking em{grid-column:2/4}.currency-profit-list>div{grid-template-columns:70px 1fr}.currency-profit-list b{grid-column:2}.global-search-overlay{padding-top:5vh}.global-search-modal{max-height:84vh}}
+
+
+/* =========================================================
+   v19.2.1 - Settings contrast and semantic financial totals
+   ========================================================= */
+.settings-page,
+.settings-page .settings-card,
+.settings-page .settings-card p,
+.settings-page .settings-card label,
+.settings-page .settings-card small,
+.settings-page .settings-card summary,
+.settings-page .settings-card details,
+.settings-page .settings-card strong{
+  text-rendering:optimizeLegibility;
+  -webkit-font-smoothing:antialiased;
+}
+.settings-page .settings-card{
+  background:linear-gradient(145deg,#171b22 0%,#0b0f15 100%) !important;
+  border-color:rgba(240,200,91,.48) !important;
+}
+.settings-page .settings-card-title h3,
+.settings-page .settings-subtitle h3{
+  color:#ffd86b !important;
+  font-weight:900 !important;
+  letter-spacing:.1px;
+}
+.settings-page .settings-help,
+.settings-page .settings-label,
+.settings-page .settings-card p,
+.settings-page .settings-card small,
+.settings-page .notification-settings-embedded label,
+.settings-page .notification-settings-embedded p{
+  color:#eef2f7 !important;
+  opacity:1 !important;
+  font-weight:600;
+  line-height:1.8;
+}
+.settings-page .settings-card strong,
+.settings-page .admin-row strong{
+  color:#ffffff !important;
+}
+.settings-page input,
+.settings-page select,
+.settings-page textarea{
+  color:#ffffff !important;
+  background:#0b111a !important;
+  border-color:#64748b !important;
+  caret-color:#ffd86b;
+}
+.settings-page input::placeholder,
+.settings-page textarea::placeholder{
+  color:#cbd5e1 !important;
+  opacity:1 !important;
+}
+.settings-page option{
+  color:#ffffff;
+  background:#101722;
+}
+.settings-page .update-current-version{
+  background:linear-gradient(135deg,#101722,#0b1118) !important;
+  border:1px solid rgba(255,216,107,.42) !important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.025);
+}
+.settings-page .update-current-version span{
+  color:#f8fafc !important;
+  font-weight:800;
+}
+.settings-page .update-current-version strong{
+  color:#5ee891 !important;
+  font-size:1.05rem;
+  text-shadow:0 0 16px rgba(94,232,145,.24);
+}
+.settings-page .settings-primary-button,
+.settings-page .settings-form-modern button{
+  color:#111827 !important;
+  text-shadow:none !important;
+}
+
+/* Financial totals: final and important values are visually distinct. */
+.metric-card strong,
+.stats .final strong,
+.table-total-value b,
+.ai-kpis strong,
+.expenses-cad-total strong,
+.transfer-total-card strong{
+  font-variant-numeric:tabular-nums;
+  letter-spacing:.2px;
+  font-weight:900 !important;
+}
+.metric-card.metric-count strong{color:#a78bfa !important}
+.metric-card.metric-profit strong{color:#34d399 !important}
+.metric-card.metric-fees strong{color:#fbbf24 !important}
+.metric-card.metric-total strong{color:#38bdf8 !important}
+.metric-card.metric-expense strong{color:#fb923c !important}
+.metric-card.metric-net.value-positive strong,
+.value-positive strong,
+.table-total-value.value-positive b{color:#22c55e !important}
+.metric-card.metric-net.value-negative strong,
+.value-negative strong,
+.table-total-value.value-negative b{color:#ef4444 !important}
+.value-receivable strong{color:#2dd4bf !important}
+.stats .final,
+.metric-card.metric-total,
+.expenses-cad-total,
+.transfer-total-card{
+  position:relative;
+  overflow:hidden;
+}
+.stats .final::after,
+.metric-card.metric-total::after,
+.expenses-cad-total::after,
+.transfer-total-card::after{
+  content:"";
+  position:absolute;
+  inset-inline-end:0;
+  top:0;
+  bottom:0;
+  width:4px;
+  background:currentColor;
+  opacity:.72;
+}
+.table-total-value{
+  background:rgba(56,189,248,.06);
+  border-radius:8px;
+}
+.ai-kpis article.value-positive{border-color:rgba(34,197,94,.45)}
+.ai-kpis article.value-negative{border-color:rgba(239,68,68,.48)}
+.ai-kpis article.value-receivable{border-color:rgba(45,212,191,.45)}
+
+@media (max-width:768px){
+  .settings-page .settings-card p,
+  .settings-page .settings-help,
+  .settings-page .settings-label{font-size:14px}
+  .metric-card strong,.stats .final strong{font-size:24px !important}
+}
+
+/* v19.2.2 — Priority exchange-rate board */
+.dashboard-exchange-board{
+  margin:14px 0 18px;
+  padding:18px;
+  border:1px solid rgba(250,204,21,.42) !important;
+  background:linear-gradient(145deg,#07111d 0%,#0a1725 55%,#10151d 100%) !important;
+  box-shadow:0 18px 45px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.04);
+}
+.exchange-board-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}
+.exchange-board-header h2{margin:2px 0;color:#fff;font-size:24px}
+.exchange-board-header p{margin:0;color:#b9c4d2;font-weight:600}
+.exchange-board-kicker{color:#facc15;font-size:10px;font-weight:900;letter-spacing:1.8px}
+.exchange-board-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.exchange-board-actions button{min-height:38px;padding:8px 13px;border-radius:10px;font-weight:900}
+.exchange-board-actions button:disabled{opacity:.6;cursor:wait}
+.exchange-board-all{background:transparent !important;color:#f8fafc !important}
+.exchange-board-updated{color:#aab7c7;font-size:12px;font-weight:700}
+.exchange-board-error{margin:0 0 12px;padding:10px 12px;border-radius:10px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.38);color:#fecaca;font-weight:800}
+.exchange-board-grid{display:grid;grid-template-columns:repeat(7,minmax(120px,1fr));gap:10px}
+.exchange-rate-card{min-height:126px;padding:13px;border-radius:15px;background:linear-gradient(160deg,rgba(255,255,255,.065),rgba(255,255,255,.018)) !important;border:1px solid rgba(148,163,184,.23) !important;color:#fff !important;text-align:initial;box-shadow:none !important}
+.exchange-rate-card:hover{transform:translateY(-2px);border-color:rgba(250,204,21,.62) !important;background:linear-gradient(160deg,rgba(250,204,21,.12),rgba(255,255,255,.025)) !important}
+.exchange-rate-card-top{display:flex;align-items:center;gap:7px;margin-bottom:12px;direction:ltr}
+.exchange-rate-card-top strong{font-size:17px;color:#fff}
+.exchange-rate-card-flag{font-size:23px !important}
+.exchange-rate-card-top .dashboard-rate-trend{margin-left:auto;font-size:18px !important}
+.exchange-rate-prices{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.exchange-rate-prices div{padding:7px 5px;border-radius:9px;background:rgba(0,0,0,.22);text-align:center}
+.exchange-rate-prices small{display:block;color:#aeb9c8;font-size:10px;margin-bottom:3px}
+.exchange-rate-prices b{display:block;color:#fff;font-size:14px;font-variant-numeric:tabular-nums;direction:ltr}
+.exchange-rate-quote{display:block;margin-top:8px;color:#7f8ea1;font-size:10px;text-align:center}
+.exchange-rate-missing{display:grid;place-items:center;height:55px;border-radius:9px;background:rgba(239,68,68,.08);color:#fca5a5;font-weight:800}
+.trend-card-up{border-bottom:3px solid #22c55e !important}.trend-card-down{border-bottom:3px solid #ef4444 !important}.trend-card-same{border-bottom:3px solid #facc15 !important}
+.premium-grid-single{grid-template-columns:1fr !important}
+@media(max-width:1250px){.exchange-board-grid{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:760px){
+  .dashboard-exchange-board{padding:12px;margin-top:10px}
+  .exchange-board-header{align-items:flex-start;flex-direction:column}
+  .exchange-board-actions{width:100%;justify-content:stretch}
+  .exchange-board-actions button{flex:1}
+  .exchange-board-updated{width:100%}
+  .exchange-board-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .exchange-rate-card{min-height:116px;padding:10px}
+  .exchange-rate-prices b{font-size:12px}
+}
