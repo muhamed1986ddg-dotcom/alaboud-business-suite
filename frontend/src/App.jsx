@@ -245,24 +245,34 @@ function Dashboard({navigate}){
   const [open,setOpen]=useState(false);
   const [intelligence,setIntelligence]=useState(null);
   const [lastRefresh,setLastRefresh]=useState(new Date());
+  const [allTransactions,setAllTransactions]=useState([]);
+  const [customers,setCustomers]=useState([]);
+  const [expenses,setExpenses]=useState([]);
+  const [globalSearch,setGlobalSearch]=useState("");
+  const [searchOpen,setSearchOpen]=useState(false);
 
   useEffect(()=>{
     let active=true;
     const loadDashboard=async(refreshRates=false)=>{
       try{
         if(refreshRates)await api.post("/exchange-rates/refresh");
-        const [dashboardResponse,notificationResponse,transactionsResponse,ratesResponse,historyResponse,intelligenceResponse]=await Promise.all([
+        const [dashboardResponse,notificationResponse,transactionsResponse,ratesResponse,historyResponse,intelligenceResponse,customersResponse,expensesResponse]=await Promise.all([
           api.get("/dashboard"),
           api.get("/notifications"),
           api.get("/transactions"),
           api.get("/exchange-rates"),
           api.get("/exchange-rates/history"),
-          api.get("/ai/overview")
+          api.get("/ai/overview"),
+          api.get("/customers"),
+          api.get("/expenses")
         ]);
         if(!active)return;
         setData(dashboardResponse.data);
         setNoticeData(notificationResponse.data);
         const rows=Array.isArray(transactionsResponse.data)?transactionsResponse.data:[];
+        setAllTransactions(rows);
+        setCustomers(Array.isArray(customersResponse.data)?customersResponse.data:[]);
+        setExpenses(Array.isArray(expensesResponse.data)?expensesResponse.data:[]);
         setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
         const rateRows=Array.isArray(ratesResponse.data)?ratesResponse.data:[];
         const dashboardCurrencyOrder=["USD","CAD","EUR","TRY","SYP","SAR","JOD"];
@@ -286,6 +296,17 @@ function Dashboard({navigate}){
     return ()=>{active=false;clearInterval(live);clearInterval(hourly)};
   },[]);
 
+  useEffect(()=>{
+    const onKey=event=>{
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="k"){
+        event.preventDefault();setSearchOpen(true);
+      }
+      if(event.key==="Escape")setSearchOpen(false);
+    };
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[]);
+
   if(!data)return <div className="premium-loading">جاري تحميل لوحة التحكم…</div>;
 
   const smart=intelligence||{};
@@ -294,6 +315,26 @@ function Dashboard({navigate}){
   const netProfit=Number(smart.today?.netProfit??data.todayProfit??0);
   const netDebt=Number(smart.finance?.receivables??data.receivables??0);
   const profitTrend=Number(smart.month?.profitTrend||0);
+  const todayKey=new Date().toISOString().slice(0,10);
+  const last7=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(6-i));return d.toISOString().slice(0,10)});
+  const chartData=last7.map(date=>{
+    const dayRows=allTransactions.filter(item=>String(item.transferDate||item.createdAt||"").slice(0,10)===date);
+    return {date,total:dayRows.reduce((sum,item)=>sum+Number(item.totalCustomerDue||item.amount||0),0),profit:dayRows.reduce((sum,item)=>sum+Number(item.profit||item.netProfit||0),0)};
+  });
+  const chartMax=Math.max(1,...chartData.map(item=>Math.max(item.total,item.profit)));
+  const customerScores=customers.map(customer=>{
+    const customerRows=allTransactions.filter(item=>String(item.customerId)===String(customer.id));
+    const profit=customerRows.reduce((sum,item)=>sum+Number(item.profit||item.netProfit||0),0);
+    const volume=customerRows.reduce((sum,item)=>sum+Number(item.totalCustomerDue||item.amount||0),0);
+    const debt=Number(customer.finalBalance||0);
+    const grade=profit>=1000&&debt<=0?"A":profit>=300?"B":"C";
+    return {...customer,profit,volume,debt,grade,operations:customerRows.length};
+  }).sort((a,b)=>b.profit-a.profit);
+  const monthlyRows=allTransactions.filter(item=>String(item.transferDate||item.createdAt||"").slice(0,7)===todayKey.slice(0,7));
+  const currencyProfit=Object.entries(monthlyRows.reduce((acc,item)=>{const c=String(item.currency||"CAD").toUpperCase();acc[c]=(acc[c]||0)+Number(item.profit||item.netProfit||0);return acc},{})).sort((a,b)=>b[1]-a[1]);
+  const query=globalSearch.trim().toLowerCase();
+  const searchResults=query?[...customers.map(x=>({type:"عميل",title:x.name||"عميل",subtitle:`الرصيد ${cad(x.finalBalance||0)}`,page:"customers"})),...allTransactions.map(x=>({type:"حوالة",title:x.number||x.customerName||"حوالة",subtitle:`${x.amount||0} ${x.currency||""}`,page:"transactions"})),...expenses.map(x=>({type:"مصروف",title:x.title||x.description||"مصروف",subtitle:cad(x.amount||0),page:"expenses"}))].filter(x=>`${x.title} ${x.subtitle} ${x.type}`.toLowerCase().includes(query)).slice(0,12):[];
+
   const kpis=[
     {label:"صافي الأرباح",value:cad(netProfit),icon:"📈",tone:netProfit>=0?"green":"red",note:`${profitTrend>=0?"▲":"▼"} ${Math.abs(profitTrend).toFixed(1)}% هذا الشهر`,page:"profits"},
     {label:"صافي الدين",value:cad(netDebt),icon:"💸",tone:netDebt>0?"red":"green",note:`${smart.finance?.overdueCount??noticeData.overdueCount??0} عملاء متأخرون`,page:"general-debts"},
@@ -309,7 +350,7 @@ function Dashboard({navigate}){
         <img src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/>
         <div><h2>شركة العبود التجارية</h2><p>{APP_VERSION} <span>● متصل</span></p></div>
       </div>
-      <div className="dashboard-pro-search">⌕ <span>بحث سريع...</span><kbd>Ctrl + K</kbd></div>
+      <button className="dashboard-pro-search" onClick={()=>setSearchOpen(true)}>⌕ <span>بحث عالمي...</span><kbd>Ctrl + K</kbd></button>
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
     </section>
 
@@ -388,8 +429,8 @@ function Dashboard({navigate}){
         <div className="section-heading"><h3>ملخص الأداء (آخر 7 أيام)</h3><span className="dashboard-pro-period">آخر 7 أيام</span></div>
         <div className="dashboard-pro-chart">
           <div className="dashboard-pro-grid"><i/><i/><i/><i/><i/></div>
-          <div className="dashboard-pro-bars">{[38,54,61,69,82,66,77].map((value,index)=><div className="dashboard-pro-bar-col" key={index}><div className="dashboard-pro-bar" style={{height:`${value}%`}}/><small>{index+8}/7</small></div>)}</div>
-          <svg viewBox="0 0 700 220" preserveAspectRatio="none"><polyline points="50,160 150,115 250,102 350,78 450,42 550,85 650,65"/></svg>
+          <div className="dashboard-pro-bars">{chartData.map((item,index)=><div className="dashboard-pro-bar-col" key={item.date} title={`${item.date} — ${cad(item.total)}`}><div className="dashboard-pro-bar" style={{height:`${Math.max(3,(item.total/chartMax)*100)}%`}}/><small>{item.date.slice(5)}</small></div>)}</div>
+          <svg viewBox="0 0 700 220" preserveAspectRatio="none"><polyline points={chartData.map((item,index)=>`${50+index*100},${205-(item.profit/chartMax)*165}`).join(" ")}/></svg>
         </div>
         <div className="dashboard-pro-legend"><span>● إجمالي الحوالات (CAD)</span><span>● إجمالي الأرباح</span></div>
       </div>
@@ -412,6 +453,24 @@ function Dashboard({navigate}){
       </div>
     </section>
 
+    <section className="executive-intelligence-grid">
+      <article className="panel-dark intelligence-card">
+        <div className="section-heading"><h3>🏆 أفضل العملاء ربحًا</h3><button onClick={()=>navigate("customers")}>عرض العملاء</button></div>
+        <div className="customer-ranking">{customerScores.slice(0,5).map((customer,index)=><button key={customer.id||index} onClick={()=>navigate("customers")}><i>{index+1}</i><span><strong>{customer.name}</strong><small>{customer.operations} عمليات · حجم {cad(customer.volume)}</small></span><b className={`grade-${customer.grade}`}>{customer.grade}</b><em>{cad(customer.profit)}</em></button>)}{!customerScores.length&&<p className="empty-state">لا توجد بيانات عملاء للتحليل.</p>}</div>
+      </article>
+      <article className="panel-dark intelligence-card">
+        <div className="section-heading"><h3>💹 تحليل الربح حسب العملة</h3><button onClick={()=>navigate("profits")}>تقرير الأرباح</button></div>
+        <div className="currency-profit-list">{currencyProfit.slice(0,6).map(([currency,profit],index)=><div key={currency}><span><CurrencyFlag code={currency}/><strong>{currency}</strong></span><progress max={Math.max(1,currencyProfit[0]?.[1]||1)} value={Math.max(0,profit)}/><b>{cad(profit)}</b></div>)}{!currencyProfit.length&&<p className="empty-state">لا توجد أرباح مسجلة هذا الشهر.</p>}</div>
+      </article>
+      <article className="panel-dark intelligence-card executive-comparison">
+        <div className="section-heading"><h3>📌 مقارنة تنفيذية</h3><span>هذا الشهر</span></div>
+        <p><span>إجمالي الحوالات</span><strong>{monthlyRows.length}</strong></p>
+        <p><span>حجم الأعمال</span><strong>{cad(monthlyRows.reduce((s,x)=>s+Number(x.totalCustomerDue||x.amount||0),0))}</strong></p>
+        <p><span>إجمالي الربح</span><strong>{cad(monthlyRows.reduce((s,x)=>s+Number(x.profit||x.netProfit||0),0))}</strong></p>
+        <p><span>مصروفات مسجلة</span><strong>{cad(expenses.filter(x=>String(x.expenseDate||x.createdAt||"").slice(0,7)===todayKey.slice(0,7)).reduce((s,x)=>s+Number(x.amount||0),0))}</strong></p>
+      </article>
+    </section>
+
     <section className="premium-quick">
       <button onClick={()=>navigate("transactions")}><span>💱</span><strong>إضافة حوالة</strong></button>
       <button onClick={()=>navigate("expenses")}><span>👛</span><strong>إضافة مصروف</strong></button>
@@ -425,6 +484,8 @@ function Dashboard({navigate}){
       <strong>{noticeData.count?`${noticeData.count} تنبيهات تحتاج المراجعة`:"لا توجد تنبيهات جديدة"}</strong>
       <b>‹</b>
     </button>
+
+    {searchOpen&&<div className="global-search-overlay" onClick={()=>setSearchOpen(false)}><div className="global-search-modal" onClick={event=>event.stopPropagation()}><div className="global-search-input"><span>⌕</span><input autoFocus value={globalSearch} onChange={event=>setGlobalSearch(event.target.value)} placeholder="ابحث عن عميل، حوالة أو مصروف..."/><kbd>ESC</kbd></div><div className="global-search-results">{query?searchResults.map((result,index)=><button key={`${result.type}-${index}`} onClick={()=>{navigate(result.page);setSearchOpen(false)}}><i>{result.type}</i><span><strong>{result.title}</strong><small>{result.subtitle}</small></span><b>فتح ‹</b></button>):<div className="global-search-help"><strong>بحث عالمي سريع</strong><p>اكتب الاسم أو رقم الحوالة أو وصف المصروف.</p></div>}{query&&!searchResults.length&&<p className="empty-state">لا توجد نتائج مطابقة.</p>}</div></div></div>}
 
     {open&&<div className="panel-dark premium-notifications">
       <div className="section-heading"><h3>مركز التنبيهات</h3><button onClick={()=>setOpen(false)}>إغلاق</button></div>
