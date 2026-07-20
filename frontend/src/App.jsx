@@ -1,5 +1,5 @@
 import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.6.18 Clear Sync Failure Reasons";
+const APP_VERSION="v18.6.19 Persistent Jad Session Sync";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
