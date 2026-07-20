@@ -243,18 +243,21 @@ function Dashboard({navigate}){
   const [dashboardRates,setDashboardRates]=useState([]);
   const [dashboardRateHistory,setDashboardRateHistory]=useState([]);
   const [open,setOpen]=useState(false);
+  const [intelligence,setIntelligence]=useState(null);
+  const [lastRefresh,setLastRefresh]=useState(new Date());
 
   useEffect(()=>{
     let active=true;
     const loadDashboard=async(refreshRates=false)=>{
       try{
         if(refreshRates)await api.post("/exchange-rates/refresh");
-        const [dashboardResponse,notificationResponse,transactionsResponse,ratesResponse,historyResponse]=await Promise.all([
+        const [dashboardResponse,notificationResponse,transactionsResponse,ratesResponse,historyResponse,intelligenceResponse]=await Promise.all([
           api.get("/dashboard"),
           api.get("/notifications"),
           api.get("/transactions"),
           api.get("/exchange-rates"),
-          api.get("/exchange-rates/history")
+          api.get("/exchange-rates/history"),
+          api.get("/ai/overview")
         ]);
         if(!active)return;
         setData(dashboardResponse.data);
@@ -273,20 +276,31 @@ function Dashboard({navigate}){
           });
         setDashboardRates(dashboardCurrencyOrder.map(code=>latestByCurrency.get(code)).filter(Boolean));
         setDashboardRateHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
+        setIntelligence(intelligenceResponse.data||null);
+        setLastRefresh(new Date());
       }catch{}
     };
     loadDashboard(false);
+    const live=setInterval(()=>loadDashboard(false),60*1000);
     const hourly=setInterval(()=>loadDashboard(true),60*60*1000);
-    return ()=>{active=false;clearInterval(hourly)};
+    return ()=>{active=false;clearInterval(live);clearInterval(hourly)};
   },[]);
 
   if(!data)return <div className="premium-loading">جاري تحميل لوحة التحكم…</div>;
 
+  const smart=intelligence||{};
+  const healthScore=Number(smart.healthScore??100);
+  const health=healthScore>=85?{label:"ممتاز",tone:"excellent",icon:"🟢"}:healthScore>=65?{label:"جيد",tone:"good",icon:"🟡"}:healthScore>=40?{label:"يحتاج متابعة",tone:"attention",icon:"🟠"}:{label:"خطر",tone:"danger",icon:"🔴"};
+  const netProfit=Number(smart.today?.netProfit??data.todayProfit??0);
+  const netDebt=Number(smart.finance?.receivables??data.receivables??0);
+  const profitTrend=Number(smart.month?.profitTrend||0);
   const kpis=[
-    {label:"إجمالي الحوالات",value:data.todayTransactions||0,icon:"💱",tone:"green",note:"حوالات اليوم"},
-    {label:"إجمالي الأرباح",value:cad(data.todayProfit),icon:"📈",tone:"blue",note:"الربح اليومي"},
-    {label:"المصروفات",value:cad(data.todayExpenses||0),icon:"👛",tone:"orange",note:"مصروفات اليوم"},
-    {label:"العملاء",value:data.customers||0,icon:"👥",tone:"purple",note:`${noticeData.overdueCount||0} متأخر`}
+    {label:"صافي الأرباح",value:cad(netProfit),icon:"📈",tone:netProfit>=0?"green":"red",note:`${profitTrend>=0?"▲":"▼"} ${Math.abs(profitTrend).toFixed(1)}% هذا الشهر`,page:"profits"},
+    {label:"صافي الدين",value:cad(netDebt),icon:"💸",tone:netDebt>0?"red":"green",note:`${smart.finance?.overdueCount??noticeData.overdueCount??0} عملاء متأخرون`,page:"general-debts"},
+    {label:"رصيد الصندوق",value:cad(smart.finance?.capital??data.capital??0),icon:"🏦",tone:Number(smart.finance?.capital??data.capital??0)>=0?"blue":"red",note:"الرصيد الحالي",page:"capital-overview"},
+    {label:"حوالات اليوم",value:data.todayTransactions||0,icon:"💱",tone:"purple",note:"إجمالي العمليات اليوم",page:"transactions"},
+    {label:"عدد العملاء",value:data.customers||0,icon:"👥",tone:"blue",note:"العملاء المسجلون",page:"customers"},
+    {label:"مصروفات اليوم",value:cad(smart.today?.expenses||0),icon:"👛",tone:"orange",note:"المصروفات اليومية",page:"expenses"}
   ];
 
   return <div className="premium-dashboard">
@@ -299,13 +313,29 @@ function Dashboard({navigate}){
       <div className="dashboard-pro-clock"><strong>{new Date().toLocaleTimeString("en-CA",{hour:"2-digit",minute:"2-digit"})}</strong><small>{new Date().toLocaleDateString("ar-CA",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</small></div>
     </section>
 
+    <section className={`enterprise-health health-${health.tone}`}>
+      <div className="enterprise-health-score"><span>{health.icon}</span><div><small>مؤشر صحة الشركة</small><strong>{health.label}</strong></div><b>{healthScore}/100</b></div>
+      <div className="enterprise-health-meta"><span>🔄 تحديث مباشر كل دقيقة</span><span>آخر تحديث {lastRefresh.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}</span></div>
+    </section>
+
+    <section className="enterprise-decision-grid">
+      <div className="enterprise-decisions panel-dark">
+        <div className="section-heading"><h3>🧠 مركز القرارات الذكية</h3><button onClick={()=>navigate("ai-center")}>فتح المركز الذكي</button></div>
+        <div className="enterprise-decision-list">
+          {(smart.anomalies||[]).slice(0,3).map((item,index)=><article className={`decision-${item.level||"warning"}`} key={`${item.title}-${index}`}><span>{item.level==="danger"?"!":"i"}</span><div><strong>{item.title}</strong><small>{item.message}</small></div></article>)}
+          {!(smart.anomalies||[]).length&&<article className="decision-success"><span>✓</span><div><strong>الوضع مستقر</strong><small>لا توجد حالات حرجة تحتاج تدخلاً الآن.</small></div></article>}
+        </div>
+      </div>
+      <div className="enterprise-tasks panel-dark">
+        <div className="section-heading"><h3>✅ مهام اليوم الذكية</h3><span>{(smart.recommendations||[]).length} مهام</span></div>
+        <div className="enterprise-task-list">
+          {(smart.recommendations||["راجع الحوالات والديون المفتوحة اليوم."]).slice(0,4).map((task,index)=><button key={index} onClick={()=>navigate(index===0&&smart.finance?.overdueCount?"customers":"ai")}><i>{index+1}</i><span>{task}</span><b>‹</b></button>)}
+        </div>
+      </div>
+    </section>
+
     <section className="premium-kpis">
-      {kpis.map(item=><button key={item.label} className={`premium-kpi ${item.tone}`} onClick={()=>{
-        if(item.label==="إجمالي الحوالات")navigate("transactions");
-        else if(item.label==="إجمالي الأرباح")navigate("profits");
-        else if(item.label==="المصروفات")navigate("expenses");
-        else navigate("customers");
-      }}>
+      {kpis.map(item=><button key={item.label} className={`premium-kpi ${item.tone}`} onClick={()=>navigate(item.page)}>
         <div className="premium-kpi-icon">{item.icon}</div>
         <div><span>{item.label}</span><strong>{item.value}</strong><small>{item.note}</small></div>
       </button>)}

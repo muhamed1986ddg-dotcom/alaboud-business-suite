@@ -1,2 +1,2 @@
-export const APP_VERSION="v18.7.7 Customer Old Balance Debt Fix";
-export const APP_VERSION_NUMBER="18.7.7";
+export const APP_VERSION="v19.0.0 Enterprise Dashboard";
+export const APP_VERSION_NUMBER="19.0.0";
