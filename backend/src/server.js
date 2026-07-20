@@ -3304,36 +3304,29 @@ function kontorunAmountFromItem(item={}){
   }
   return 0;
 }
-function normalizeKontorunCurrencyLabel(value){
+function normalizeKontorunText(value){
   return String(value??"")
     .normalize("NFKC")
-    .replace(/[\u00A0\u2000-\u200D\u202F\u205F\u3000]/g," ")
+    .replace(/[\u00A0\u2007\u202F]/g," ")
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g,"")
     .replace(/\s+/g," ")
     .trim();
 }
 function mapKontorunCurrency(item={}){
-  const raw=normalizeKontorunCurrencyLabel(item.CName||item.cname||item.CURN||item.CurName||item.CurrencyName||item.Currency||item.currency||item.CUR||item.CURID||"");
-  const upper=raw.toUpperCase();
-  // Match the most specific Arabic labels first so "ليرة سورية جديدة" never falls through to USD.
+  const raw=normalizeKontorunText(item.CName||item.cname||item.CURN||item.CurName||item.CurrencyName||item.Currency||item.currency||item.CUR||item.CURID).toUpperCase();
   const aliases=[
-    ["ليرة سورية جديدة","SYP"],
-    ["ليرة سورية","SYP"],
-    ["ليرة تركية","TRY"],
-    ["دولار كندي","CAD"],
-    ["دولار أمريكي","USD"],
-    ["دولار امريكي","USD"],
-    ["دولار","USD"],
-    ["يورو","EUR"],
-    ["USD","USD"],
-    ["EUR","EUR"],
-    ["TRY","TRY"],
-    ["SYP","SYP"],
-    ["CAD","CAD"]
+    ["ليرة سورية جديدة","SYP"],["الليرة السورية الجديدة","SYP"],
+    ["ليرة سورية","SYP"],["الليرة السورية","SYP"],
+    ["ليرة تركية","TRY"],["الليرة التركية","TRY"],
+    ["دولار كندي","CAD"],["الدولار الكندي","CAD"],
+    ["دولار أمريكي","USD"],["الدولار الأمريكي","USD"],
+    ["دولار","USD"],["يورو","EUR"],
+    ["USD","USD"],["EUR","EUR"],["TRY","TRY"],["SYP","SYP"],["CAD","CAD"]
   ];
   for(const [name,code] of aliases){
-    if(upper.includes(name.toUpperCase()))return code;
+    if(raw.includes(normalizeKontorunText(name).toUpperCase()))return code;
   }
-  return /^[A-Z]{3}$/.test(upper)?upper:"UNKNOWN";
+  return /^[A-Z]{3}$/.test(raw)?raw:"UNKNOWN";
 }
 async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
   const base=kontorunBaseUrl(partner);
@@ -3363,24 +3356,36 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
   if(!rows.length&&String(balancesResponse.data?.ID||"")==="0")throw Object.assign(new Error("انتهت جلسة الشركة؛ أعد إدخال رمز التحقق"),{code:"KONTORUN_SESSION_REJECTED"});
   if(!rows.length)throw Object.assign(new Error("تم تسجيل الدخول لكن لم تُرجع شركة تواصل قائمة الأرصدة"),{code:"KONTORUN_BALANCES_EMPTY"});
   const currencies={};
-  const balanceDiagnostics=[];
-  for(const item of rows){
-    const currency=mapKontorunCurrency(item);
-    const balance=kontorunAmountFromItem(item);
-    const label=normalizeKontorunCurrencyLabel(item.CName||item.cname||item.CURN||item.CurName||item.CurrencyName||"");
-    balanceDiagnostics.push({label,currency,balance});
-    if(currency==="UNKNOWN")continue;
-    const current=currencies[currency]||{balance:0,receivable:0,payable:0};
-    const nextBalance=+(current.balance+balance).toFixed(2);
-    currencies[currency]={
-      balance:nextBalance,
-      receivable:nextBalance>0?nextBalance:0,
-      payable:nextBalance<0?+Math.abs(nextBalance).toFixed(2):0
-    };
+  const balanceRows=rows.map(item=>({
+    currency:mapKontorunCurrency(item),
+    name:normalizeKontorunText(item.CName||item.CURN||item.CurrencyName||item.Currency||""),
+    amount:kontorunAmountFromItem(item)
+  }));
+  for(const row of balanceRows){
+    if(row.currency==="UNKNOWN")continue;
+    if(!currencies[row.currency])currencies[row.currency]={balance:0,receivable:0,payable:0};
+    currencies[row.currency].balance+=row.amount;
+    if(row.amount>0)currencies[row.currency].receivable+=row.amount;
+    if(row.amount<0)currencies[row.currency].payable+=Math.abs(row.amount);
   }
-  console.info("[TAWASUL_BALANCE_ROWS]",JSON.stringify({partnerId:partner.id,rows:balanceDiagnostics,currencies}));
+  for(const value of Object.values(currencies)){
+    value.balance=+value.balance.toFixed(2);
+    value.receivable=+value.receivable.toFixed(2);
+    value.payable=+value.payable.toFixed(2);
+  }
   const preferred=String(partner.accountCurrency||"USD").toUpperCase();
+  // Tawasul may return a correct row (for example "دولار = 187") while an older
+  // aggregate field is zero. Always derive the stored partner balance from rows.
+  const preferredRows=balanceRows.filter(row=>row.currency===preferred);
+  const preferredBalance=preferredRows.reduce((sum,row)=>sum+row.amount,0);
   const main=currencies[preferred]||Object.values(currencies)[0]||{balance:0,receivable:0,payable:0};
+  if(preferredRows.length){
+    main.balance=+preferredBalance.toFixed(2);
+    main.receivable=preferredBalance>0?+preferredBalance.toFixed(2):0;
+    main.payable=preferredBalance<0?+Math.abs(preferredBalance).toFixed(2):0;
+    currencies[preferred]={...main};
+  }
+  console.info("[TAWASUL_BALANCE_ROWS]",JSON.stringify({partnerId:partner.id,preferred,balanceRows,currencies,selected:main}));
   const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*86400000).toISOString().slice(0,10);
   const end=toDate||new Date().toISOString().slice(0,10);
   let movements=[];
@@ -3389,7 +3394,7 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
     const list=Array.isArray(statement.data)?statement.data:[];
     movements=list.map(item=>({externalId:String(item.ID||""),date:String(item.Date||""),name:String(item.Name||""),phone:String(item.Phone||""),amount:parseKontorunAmount(item.Value),fees:parseKontorunAmount(item.Fees),balance:parseKontorunAmount(item.AM),currency:mapKontorunCurrency(item),raw:item}));
   }catch{}
-  return {balance:main.balance,receivable:main.receivable,payable:main.payable,currencies,movements,profile:{id:profile.ID||"",name:profile.Name||""},balanceRows:rows.map(item=>({currency:mapKontorunCurrency(item),name:normalizeKontorunCurrencyLabel(item.CName||item.CURN||""),amount:kontorunAmountFromItem(item)})),balanceDiagnostics};
+  return {balance:main.balance,receivable:main.receivable,payable:main.payable,currencies,movements,profile:{id:profile.ID||"",name:profile.Name||""},balanceRows};
 }
 
 app.post("/api/partners", auth, (req,res)=>{

@@ -1,5 +1,4 @@
-import React,{useEffect,useState}from"react";import api from"./api";
-const APP_VERSION="v18.7.5 Tawasul Balance Mapping Fix";
+import React,{useEffect,useState}from"react";import api from"./api";import {APP_VERSION} from"./version";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
