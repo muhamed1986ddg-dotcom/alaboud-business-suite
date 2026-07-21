@@ -1,6 +1,6 @@
 {
   "name": "alaboud-business-suite-cloud",
-  "version": "22.3.1",
+  "version": "22.3.3",
   "private": true,
   "scripts": {
     "install:all": "npm ci --prefix backend --no-audit --no-fund && npm run install:chromium && npm ci --prefix frontend --no-audit --no-fund",
@@ -8,7 +8,10 @@
     "start": "node backend/src/server.js",
     "render-build": "npm run install:all && npm run build",
     "selftest": "node backend/src/selftest_v8.js",
-    "install:chromium": "cd backend && PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium"
+    "install:chromium": "cd backend && PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium",
+    "migrate": "node backend/src/migration/cli.js migrate",
+    "migrate:verify": "node backend/src/migration/cli.js verify",
+    "migrate:rollback": "node backend/src/migration/cli.js rollback"
   },
   "engines": {
     "node": ">=20 <23"

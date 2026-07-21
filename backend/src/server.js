@@ -275,7 +275,7 @@ function customerSummary(store, c) {
 
 app.get("/api/health", async (_req,res)=>{
   const database=await databaseHealth();
-  res.status(database.ok?200:503).json({ok:database.ok,version:"22.3.0",database,time:now()});
+  res.status(database.ok?200:503).json({ok:database.ok,version:"22.3.3",database,time:now()});
 });
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
@@ -4320,7 +4320,7 @@ async function startServer(){
   await initStore();
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v22.3.0 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v22.3.3 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{

@@ -1,13 +1,18 @@
 {
   "name": "alaboud-stable-backend",
-  "version": "22.3.1",
+  "version": "22.3.3",
   "private": true,
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
     "test": "node src/selftest.js",
     "postinstall": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium",
-    "check": "node --check src/server.js && node --check src/store.js && node --check src/database/DatabaseService.js && node --check src/database/MigrationRunner.js && node --check src/database/adapters/PostgresStateAdapter.js"
+    "check": "node --check src/server.js && node --check src/store.js && node --check src/database/DatabaseService.js && node --check src/database/MigrationRunner.js && node --check src/database/adapters/PostgresStateAdapter.js && node --check src/migration/StateToRelationalMapper.js && node --check src/migration/RelationalMigrationEngine.js && node --check src/migration/cli.js && node --check src/repositories/RelationalProjector.js",
+    "migrate": "node src/migration/cli.js migrate",
+    "migrate:verify": "node src/migration/cli.js verify",
+    "migrate:rollback": "node src/migration/cli.js rollback",
+    "test:migration": "node src/migration/selftest.js",
+    "test:projector": "node src/repositories/RelationalProjector.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

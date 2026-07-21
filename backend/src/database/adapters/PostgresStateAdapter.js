@@ -1,12 +1,15 @@
 const { Pool } = require("pg");
 const MigrationRunner = require("../MigrationRunner");
+const { RelationalProjector } = require("../../repositories/RelationalProjector");
 
 class PostgresStateAdapter {
   constructor({ connectionString, normalize, logger = console }) {
     this.connectionString = connectionString;
     this.normalize = normalize;
     this.logger = logger;
-    this.mode = "postgres-state";
+    this.mode = "postgres-native-transition";
+    this.relationalMirrorEnabled = String(process.env.RELATIONAL_MIRROR_ENABLED || "true").toLowerCase() !== "false";
+    this.projector = new RelationalProjector({ logger });
     this.pool = new Pool({
       connectionString,
       ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
@@ -32,19 +35,30 @@ class PostgresStateAdapter {
   }
 
   async save(snapshot) {
-    await this.pool.query(
-      `INSERT INTO app_state (state_key,payload,updated_at)
-       VALUES ('main',$1::jsonb,NOW())
-       ON CONFLICT (state_key)
-       DO UPDATE SET payload=EXCLUDED.payload,updated_at=NOW()`,
-      [JSON.stringify(snapshot)]
-    );
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO app_state (state_key,payload,updated_at)
+         VALUES ('main',$1::jsonb,NOW())
+         ON CONFLICT (state_key)
+         DO UPDATE SET payload=EXCLUDED.payload,updated_at=NOW()`,
+        [JSON.stringify(snapshot)]
+      );
+      if (this.relationalMirrorEnabled) await this.projector.project(client, snapshot);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async health() {
     const startedAt = Date.now();
     await this.pool.query("SELECT 1");
-    return { ok: true, mode: this.mode, latencyMs: Date.now() - startedAt };
+    return { ok: true, mode: this.mode, relationalMirrorEnabled: this.relationalMirrorEnabled, latencyMs: Date.now() - startedAt };
   }
 
   async close() {
