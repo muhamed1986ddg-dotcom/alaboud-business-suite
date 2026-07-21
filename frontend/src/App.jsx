@@ -3134,10 +3134,6 @@ function Partners({open}){
   const [nowTick,setNowTick]=useState(Date.now());
   const [otpById,setOtpById]=useState({});
   const [editingId,setEditingId]=useState("");
-  const todayIso=new Date().toISOString().slice(0,10);
-  const monthStartIso=`${todayIso.slice(0,7)}-01`;
-  const [feeFilter,setFeeFilter]=useState({partnerId:"",fromDate:monthStartIso,toDate:todayIso});
-  const [feeReport,setFeeReport]=useState(null);
   const emptyPartnerForm={
     name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",
     systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true,syncIntervalMinutes:5,syncMode:"BALANCE_ONLY"
@@ -3258,21 +3254,6 @@ function Partners({open}){
         await load().catch(()=>{});
       }
     }
-    finally{setSyncingId("");}
-  }
-
-  async function fetchJadFees(partner,selectedFilter=feeFilter){
-    if(!selectedFilter.fromDate||!selectedFilter.toDate){setError("اختر تاريخ البداية والنهاية");return;}
-    if(selectedFilter.fromDate>selectedFilter.toDate){setError("تاريخ البداية يجب أن يسبق تاريخ النهاية");return;}
-    setError("");setMessage("");setSyncingId(partner.id);
-    try{
-      const response=await api.post(`/partners/${partner.id}/sync`,{fromDate:selectedFilter.fromDate,toDate:selectedFilter.toDate,otp:otpById[partner.id]||"",trigger:"FEE_REPORT"});
-      const result=response.data?.result||{};
-      setFeeReport({partnerId:partner.id,partnerName:partner.name,currency:partner.accountCurrency||"USD",fromDate:result.fromDate||selectedFilter.fromDate,toDate:result.toDate||selectedFilter.toDate,totalFees:Number(result.totalFees||0),rows:result.feeMovements||[]});
-      setOtpById(current=>({...current,[partner.id]:""}));
-      setMessage(`تم جلب إجمالي الأجور لشركة ${partner.name} حسب الفترة المطلوبة`);
-      await load();
-    }catch(requestError){setError(syncFailureReason(requestError.response?.data||{}));}
     finally{setSyncingId("");}
   }
 
@@ -3400,12 +3381,7 @@ function Partners({open}){
       </div>
     </section>
 
-    {feeReport&&<section className="card jad-fee-report jad-fee-total-only">
-      <div className="jad-fee-report-head">
-        <div><h3>💵 إجمالي الأجور</h3><p>من {feeReport.fromDate} إلى {feeReport.toDate}</p></div>
-        <strong>{money(feeReport.totalFees)} {feeReport.currency}</strong>
-      </div>
-    </section>}
+
 
     <form className="card form company-integration-form" onSubmit={add}>
       <h3>{editingId?"✏️ تعديل معلومات الشركة":"➕ إضافة شركة وربطها"}</h3>
@@ -3450,7 +3426,7 @@ function Partners({open}){
           <td><PartnerCurrencyBalances partner={partner}/></td>
           <td><div className="relative-sync-time"><strong>{relativeSyncTime(partner.lastSyncAt)}</strong><small>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar-CA"):"—"}</small></div></td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
-          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button><button type="button" onClick={()=>startEditPartner(partner)}>✏️ تعديل</button><button type="button" className="danger-button" onClick={()=>deletePartner(partner)}>🗑️ حذف</button>{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<><div className="jad-fee-controls"><input type="date" value={feeFilter.partnerId===partner.id?feeFilter.fromDate:monthStartIso} onChange={e=>setFeeFilter(current=>({...current,partnerId:partner.id,fromDate:e.target.value}))} title="من تاريخ"/><input type="date" value={feeFilter.partnerId===partner.id?feeFilter.toDate:todayIso} onChange={e=>setFeeFilter(current=>({...current,partnerId:partner.id,toDate:e.target.value}))} title="إلى تاريخ"/><button type="button" disabled={syncingId===partner.id} onClick={()=>{const selected=feeFilter.partnerId===partner.id?feeFilter:{partnerId:partner.id,fromDate:monthStartIso,toDate:todayIso};setFeeFilter(selected);fetchJadFees(partner,selected);}}>جلب الأجور</button></div><button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button></>}</td>
+          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button><button type="button" onClick={()=>startEditPartner(partner)}>✏️ تعديل</button><button type="button" className="danger-button" onClick={()=>deletePartner(partner)}>🗑️ حذف</button>{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</td>
         </tr>):<tr><td colSpan="8">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>
     </div>
