@@ -3470,6 +3470,7 @@ function CapitalOverview(){
   const [error,setError]=useState("");
   const [message,setMessage]=useState("");
   const [editing,setEditing]=useState(null);
+  const [financialDetails,setFinancialDetails]=useState(null);
   const [movementFilter,setMovementFilter]=useState("ALL");
   const [movementSearch,setMovementSearch]=useState("");
   const [form,setForm]=useState({
@@ -3604,7 +3605,8 @@ function CapitalOverview(){
   const debtOnUs=Number(data.totalPayables ?? data.generalPayable ?? 0);
   const netDebt=Number(data.netDebt ?? (debtForUs-debtOnUs));
   const totalMoney=Number(data.totalMoney ?? (Number(data.capitalBalance||0)+Number(data.accumulatedProfit||0)+debtForUs));
-  const netCapital=Number(data.netCapital ?? (totalMoney-Number(data.accumulatedExpenses||0)-debtOnUs));
+  const totalLiabilities=Number(data.totalLiabilities ?? (Number(data.accumulatedExpenses||0)+debtOnUs));
+  const netCapital=Number(data.netCapital ?? (totalMoney-totalLiabilities));
   const estimatedCapital=Number(data.estimatedCapital ?? data.totalCapital ?? netCapital);
   const netWorth=estimatedCapital;
   const profitChange=previousData&&Number(previousData.monthlyProfit||0)!==0?((Number(data.monthlyProfit||0)-Number(previousData.monthlyProfit||0))/Math.abs(Number(previousData.monthlyProfit||0)))*100:null;
@@ -3647,41 +3649,69 @@ function CapitalOverview(){
     {error&&<div className="card customer-error">{error}</div>}
     {message&&<div className="card rate-message">{message}</div>}
 
-    <div className="stats capital-management-stats">
-      <div className="card final">
-        <span>رأس المال الفعلي</span>
-        <strong>{money(data.capitalBalance)} CAD</strong>
-        <small>الإيداعات ناقص السحوبات</small>
-      </div>
-      <div className="card final">
-        <span>المال الكلي</span>
+    <section className="financial-summary-grid" aria-label="ملخص الميزانية">
+      <button type="button" className="card financial-summary-card assets-card" onClick={()=>setFinancialDetails("assets")}>
+        <span className="financial-card-icon">💰</span>
+        <div><small>إجمالي الأصول</small><h3>المال الكلي</h3></div>
         <strong>{money(totalMoney)} CAD</strong>
-        <small>رأس المال + الأرباح + جميع الديون لنا</small>
-      </div>
-      <div className={`card ${debtOnUs>0?"payable-card":"budget-positive"}`}>
-        <span>إجمالي ديون علينا</span>
-        <strong>{money(debtOnUs)} CAD</strong>
-        <small>كل الديون اليدوية وأرصدة الشركات بعد التحويل</small>
-      </div>
-      <div className={`card ${netCapital>=0?"budget-positive":"budget-negative"}`}>
-        <span>صافي رأس المال بعد خصم كل شيء</span>
+        <p>رأس المال + الأرباح + الدين لنا</p>
+        <em>اضغط لعرض التفاصيل</em>
+      </button>
+      <button type="button" className="card financial-summary-card liabilities-card" onClick={()=>setFinancialDetails("liabilities")}>
+        <span className="financial-card-icon">📉</span>
+        <div><small>إجمالي الخصومات</small><h3>إجمالي الالتزامات</h3></div>
+        <strong>{money(totalLiabilities)} CAD</strong>
+        <p>الدين علينا + المصروفات</p>
+        <em>اضغط لعرض التفاصيل</em>
+      </button>
+      <button type="button" className={`card financial-summary-card net-capital-card ${netCapital<0?"is-negative":""}`} onClick={()=>setFinancialDetails("net")}>
+        <span className="financial-card-icon">💎</span>
+        <div><small>المجموع النهائي</small><h3>صافي رأس المال</h3></div>
         <strong>{money(netCapital)} CAD</strong>
-        <small>المال الكلي − المصاريف − جميع الديون علينا</small>
-      </div>
-    </div>
+        <p>المال الكلي − إجمالي الالتزامات</p>
+        <em>اضغط لعرض الحساب الكامل</em>
+      </button>
+    </section>
 
-    <section className="card capital-formula-card">
-      <div className="section-heading"><h3>🧮 تفاصيل احتساب رأس المال</h3><small>جميع القيم بالدولار الكندي CAD</small></div>
-      <div className="net-worth-breakdown capital-formula-breakdown">
-        <span>رأس المال الفعلي <b>{money(data.capitalBalance)}</b></span>
-        <span>الأرباح المتراكمة <b className="positive-value">+{money(data.accumulatedProfit||0)}</b></span>
-        <span>ديون لنا <b className="positive-value">+{money(debtForUs)}</b></span>
-        <span>المال الكلي <b>{money(totalMoney)}</b></span>
-        <span>المصاريف المتراكمة <b className="negative-value">−{money(data.accumulatedExpenses||0)}</b></span>
-        <span>جميع ديون علينا <b className="negative-value">−{money(debtOnUs)}</b></span>
-        <span>صافي رأس المال بعد خصم كل شيء <b>{money(netCapital)}</b></span>
+    <section className="card financial-equation-card">
+      <div className="section-heading"><h3>🧮 معادلة صافي رأس المال</h3><small>جميع القيم محوّلة إلى الدولار الكندي CAD</small></div>
+      <div className="financial-equation-row">
+        <span><small>المال الكلي</small><b>{money(totalMoney)}</b></span>
+        <i>−</i>
+        <span><small>إجمالي الالتزامات</small><b>{money(totalLiabilities)}</b></span>
+        <i>=</i>
+        <span className={netCapital>=0?"equation-result positive":"equation-result negative"}><small>صافي رأس المال</small><b>{money(netCapital)} CAD</b></span>
       </div>
     </section>
+
+    {financialDetails&&<div className="financial-details-overlay" onClick={()=>setFinancialDetails(null)}>
+      <section className="card financial-details-modal" role="dialog" aria-modal="true" aria-label="تفاصيل الميزانية" onClick={event=>event.stopPropagation()}>
+        <div className="financial-details-head">
+          <div>
+            <small>تفاصيل مالية دقيقة — CAD</small>
+            <h3>{financialDetails==="assets"?"💰 تفاصيل المال الكلي":financialDetails==="liabilities"?"📉 تفاصيل إجمالي الالتزامات":"💎 تفاصيل صافي رأس المال"}</h3>
+          </div>
+          <button type="button" onClick={()=>setFinancialDetails(null)} aria-label="إغلاق">×</button>
+        </div>
+        {(financialDetails==="assets"||financialDetails==="net")&&<div className="financial-detail-group assets-detail-group">
+          <h4>الأصول</h4>
+          <p><span>رأس المال المضاف</span><b>+ {money(data.capitalBalance)} CAD</b></p>
+          <p><span>الأرباح المتراكمة</span><b>+ {money(data.accumulatedProfit||0)} CAD</b></p>
+          <p><span>الدين لنا</span><b>+ {money(debtForUs)} CAD</b></p>
+          <p className="detail-total"><span>المال الكلي</span><strong>{money(totalMoney)} CAD</strong></p>
+        </div>}
+        {(financialDetails==="liabilities"||financialDetails==="net")&&<div className="financial-detail-group liabilities-detail-group">
+          <h4>الالتزامات</h4>
+          <p><span>الدين علينا</span><b>− {money(debtOnUs)} CAD</b></p>
+          <p><span>المصروفات المتراكمة</span><b>− {money(data.accumulatedExpenses||0)} CAD</b></p>
+          <p className="detail-total"><span>إجمالي الالتزامات</span><strong>{money(totalLiabilities)} CAD</strong></p>
+        </div>}
+        {financialDetails==="net"&&<div className={`financial-final-result ${netCapital>=0?"positive":"negative"}`}>
+          <span>المال الكلي {money(totalMoney)} − الالتزامات {money(totalLiabilities)}</span>
+          <strong>صافي رأس المال: {money(netCapital)} CAD</strong>
+        </div>}
+      </section>
+    </div>}
 
     <section className="budget-command-grid">
       <article className="card company-health-card">
@@ -3692,7 +3722,7 @@ function CapitalOverview(){
       <article className="card net-worth-card">
         <div className="section-heading"><h3>💎 صافي الثروة</h3><small>بعد خصم جميع الالتزامات</small></div>
         <strong className={netWorth>=0?"positive-value":"negative-value"}>{money(netWorth)} CAD</strong>
-        <div className="net-worth-breakdown"><span>المال الكلي {money(totalMoney)}</span><span>المصاريف {money(data.accumulatedExpenses||0)}</span><span>ديون علينا {money(debtOnUs)}</span></div>
+        <div className="net-worth-breakdown"><span>المال الكلي {money(totalMoney)}</span><span>إجمالي الالتزامات {money(totalLiabilities)}</span><span>صافي رأس المال {money(netCapital)}</span></div>
       </article>
       <article className="card forecast-card">
         <div className="section-heading"><h3>🔮 توقع نهاية الشهر</h3><small>{isCurrentMonth?`${elapsedDays}/${daysInMonth} يوم` : "شهر مكتمل"}</small></div>
