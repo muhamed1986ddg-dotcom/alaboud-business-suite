@@ -1,4 +1,5 @@
 const { Pool } = require("pg");
+const MigrationRunner = require("../MigrationRunner");
 
 class PostgresStateAdapter {
   constructor({ connectionString, normalize, logger = console }) {
@@ -16,6 +17,8 @@ class PostgresStateAdapter {
   }
 
   async init() {
+    const runner = new MigrationRunner({ pool: this.pool, logger: this.logger });
+    await runner.run();
     await this.pool.query(`CREATE TABLE IF NOT EXISTS app_state (
       state_key TEXT PRIMARY KEY,
       payload JSONB NOT NULL,
