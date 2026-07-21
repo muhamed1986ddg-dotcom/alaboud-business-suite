@@ -3600,7 +3600,12 @@ function CapitalOverview(){
   const projectedProfit=(Number(data.monthlyProfit||0)/elapsedDays)*daysInMonth;
   const projectedExpenses=(Number(data.monthlyExpenses||0)/elapsedDays)*daysInMonth;
   const projectedNet=projectedProfit-projectedExpenses;
-  const netWorth=Number(data.capitalBalance||0)+Number(data.receivables||0)+Number(data.generalReceivable||0)-Number(data.generalPayable||0)+monthlyNet;
+  const debtForUs=Number(data.totalReceivables ?? (Number(data.receivables||0)+Number(data.generalReceivable||0)));
+  const debtOnUs=Number(data.totalPayables ?? data.generalPayable ?? 0);
+  const netDebt=Number(data.netDebt ?? (debtForUs-debtOnUs));
+  const netCapital=Number(data.netCapital ?? (Number(data.capitalBalance||0)+Number(data.accumulatedProfit||data.monthlyProfit||0)-Number(data.accumulatedExpenses||data.monthlyExpenses||0)));
+  const estimatedCapital=Number(data.estimatedCapital ?? data.totalCapital ?? (netCapital+netDebt));
+  const netWorth=estimatedCapital;
   const profitChange=previousData&&Number(previousData.monthlyProfit||0)!==0?((Number(data.monthlyProfit||0)-Number(previousData.monthlyProfit||0))/Math.abs(Number(previousData.monthlyProfit||0)))*100:null;
   const expenseChange=previousData&&Number(previousData.monthlyExpenses||0)!==0?((Number(data.monthlyExpenses||0)-Number(previousData.monthlyExpenses||0))/Math.abs(Number(previousData.monthlyExpenses||0)))*100:null;
   const netPrevious=Number(previousData?.monthlyProfit||0)-Number(previousData?.monthlyExpenses||0);
@@ -3643,23 +3648,39 @@ function CapitalOverview(){
 
     <div className="stats capital-management-stats">
       <div className="card final">
-        <span>رأس المال الكلي التقديري</span>
-        <strong>{money(data.totalCapital)} CAD</strong>
+        <span>رأس المال الفعلي</span>
+        <strong>{money(data.capitalBalance)} CAD</strong>
+        <small>الإيداعات ناقص السحوبات</small>
       </div>
-      <div className="card receivable-card">
-        <span>إجمالي الإضافات</span>
-        <strong>{money(capitalIn)} CAD</strong>
+      <div className={`card ${netCapital>=0?"budget-positive":"budget-negative"}`}>
+        <span>صافي رأس المال</span>
+        <strong>{money(netCapital)} CAD</strong>
+        <small>الفعلي + الأرباح − المصاريف</small>
       </div>
-      <div className="card payable-card">
-        <span>إجمالي السحوبات</span>
-        <strong>{money(capitalOut)} CAD</strong>
+      <div className={`card ${netDebt>=0?"receivable-card":"payable-card"}`}>
+        <span>صافي الديون</span>
+        <strong>{money(netDebt)} CAD</strong>
+        <small>لنا {money(debtForUs)} − علينا {money(debtOnUs)}</small>
       </div>
-      <div className={`card ${netCapitalMovement>=0?"budget-positive":"budget-negative"}`}>
-        <span>صافي حركة رأس المال</span>
-        <strong>{money(netCapitalMovement)} CAD</strong>
-        <small>خلال الشهر المحدد</small>
+      <div className={`card ${estimatedCapital>=0?"budget-positive":"budget-negative"}`}>
+        <span>رأس المال التقديري</span>
+        <strong>{money(estimatedCapital)} CAD</strong>
+        <small>صافي رأس المال + صافي الديون</small>
       </div>
     </div>
+
+    <section className="card capital-formula-card">
+      <div className="section-heading"><h3>🧮 تفاصيل احتساب رأس المال</h3><small>جميع القيم بالدولار الكندي CAD</small></div>
+      <div className="net-worth-breakdown capital-formula-breakdown">
+        <span>رأس المال الفعلي <b>{money(data.capitalBalance)}</b></span>
+        <span>الأرباح المتراكمة <b className="positive-value">+{money(data.accumulatedProfit||0)}</b></span>
+        <span>المصاريف المتراكمة <b className="negative-value">−{money(data.accumulatedExpenses||0)}</b></span>
+        <span>صافي رأس المال <b>{money(netCapital)}</b></span>
+        <span>ديون لنا <b className="positive-value">+{money(debtForUs)}</b></span>
+        <span>ديون علينا <b className="negative-value">−{money(debtOnUs)}</b></span>
+        <span>رأس المال التقديري <b>{money(estimatedCapital)}</b></span>
+      </div>
+    </section>
 
     <section className="budget-command-grid">
       <article className="card company-health-card">
@@ -3670,7 +3691,7 @@ function CapitalOverview(){
       <article className="card net-worth-card">
         <div className="section-heading"><h3>💎 صافي الثروة</h3><small>القيمة المالية الفعلية</small></div>
         <strong className={netWorth>=0?"positive-value":"negative-value"}>{money(netWorth)} CAD</strong>
-        <div className="net-worth-breakdown"><span>رأس المال {money(data.capitalBalance)}</span><span>لنا {money(Number(data.receivables||0)+Number(data.generalReceivable||0))}</span><span>علينا {money(data.generalPayable)}</span></div>
+        <div className="net-worth-breakdown"><span>صافي رأس المال {money(netCapital)}</span><span>ديون لنا {money(debtForUs)}</span><span>ديون علينا {money(debtOnUs)}</span></div>
       </article>
       <article className="card forecast-card">
         <div className="section-heading"><h3>🔮 توقع نهاية الشهر</h3><small>{isCurrentMonth?`${elapsedDays}/${daysInMonth} يوم` : "شهر مكتمل"}</small></div>

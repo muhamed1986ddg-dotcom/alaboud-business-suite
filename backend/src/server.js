@@ -753,14 +753,33 @@ app.get("/api/capital-overview", auth, (req,res)=>{
     if(debt.type==="PAYABLE")generalPayable+=remaining;
   }
 
-  const totalCapital=capitalBalance+monthlyProfit-monthlyExpenses+receivables+generalReceivable-generalPayable;
-  const turnoverBase=Math.abs(capitalBalance)>0?Math.abs(capitalBalance):Math.abs(totalCapital);
+  // Financial capital indicators (all values normalized to CAD).
+  // Net capital excludes debts; estimated capital includes receivables and payables.
+  const accumulatedProfit=transactions.reduce(
+    (sum,item)=>sum+safeNumber(item.totalProfit),0
+  );
+  const accumulatedExpenses=expenses.reduce(
+    (sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0
+  );
+  const netCapital=capitalBalance+accumulatedProfit-accumulatedExpenses;
+  const totalReceivables=receivables+generalReceivable;
+  const netDebt=totalReceivables-generalPayable;
+  const estimatedCapital=netCapital+netDebt;
+  const totalCapital=estimatedCapital;
+  const turnoverBase=Math.abs(capitalBalance)>0?Math.abs(capitalBalance):Math.abs(estimatedCapital);
   const turnoverRate=turnoverBase>0?monthlyTransferValue/turnoverBase:0;
   const averageTransfer=monthTransactions.length?monthlyTransferValue/monthTransactions.length:0;
 
   res.json({
     month:requestedMonth,
     capitalBalance:+capitalBalance.toFixed(2),
+    accumulatedProfit:+accumulatedProfit.toFixed(2),
+    accumulatedExpenses:+accumulatedExpenses.toFixed(2),
+    netCapital:+netCapital.toFixed(2),
+    totalReceivables:+totalReceivables.toFixed(2),
+    totalPayables:+generalPayable.toFixed(2),
+    netDebt:+netDebt.toFixed(2),
+    estimatedCapital:+estimatedCapital.toFixed(2),
     totalCapital:+totalCapital.toFixed(2),
     monthlyTransferValue:+monthlyTransferValue.toFixed(2),
     monthlyTransferCount:monthTransactions.length,
