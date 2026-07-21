@@ -4852,3 +4852,9 @@ body.app-language-en aside{
 }
 
 .jad-fee-controls{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px}.jad-fee-controls input{min-width:132px;padding:8px}.jad-fee-report{margin:16px 0}.jad-fee-report-head{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:12px}.jad-fee-report-head h3,.jad-fee-report-head p{margin:0}.jad-fee-report-head strong{font-size:1.35rem}.jad-fee-report .tablewrap{margin:0}@media(max-width:700px){.jad-fee-controls{flex-direction:column;align-items:stretch}.jad-fee-controls input,.jad-fee-controls button{width:100%}.jad-fee-report-head{align-items:flex-start;flex-direction:column}}
+
+/* v21.0.5 — عرض إجمالي أجور جاد فقط مع إبقاء زر جلب الرصيد */
+.jad-fee-total-only{max-width:620px;margin-inline:auto;text-align:center}
+.jad-fee-total-only .jad-fee-report-head{align-items:center;justify-content:space-between;gap:18px}
+.jad-fee-total-only .jad-fee-report-head strong{font-size:clamp(1.6rem,4vw,2.5rem);white-space:nowrap}
+@media (max-width:640px){.jad-fee-total-only .jad-fee-report-head{flex-direction:column}.jad-fee-total-only .jad-fee-report-head strong{width:100%;text-align:center}}
