@@ -385,12 +385,12 @@ function Dashboard({navigate}){
       </div>
     </section>
 
-    <section className="dashboard-exchange-board panel-dark v20-exchange-board">
+    <section className="dashboard-exchange-board panel-dark v20-exchange-board usd-base-board">
       <div className="exchange-board-header">
         <div>
-          <span className="exchange-board-kicker">LIVE <i></i></span>
-          <h2>لوحة أسعار الصرف المباشرة</h2>
-          <p>الأسعار الرئيسية مقابل الدولار الكندي · تحديث آلي كل 30 دقيقة</p>
+          <span className="exchange-board-kicker">USD BASE <i></i></span>
+          <h2>لوحة أسعار الصرف مقابل الدولار</h2>
+          <p>الدولار الأمريكي هو العملة الأساسية الثابتة · تحديث آلي كل 30 دقيقة</p>
         </div>
         <div className="exchange-board-actions">
           <span className="exchange-board-updated">آخر تحديث: {lastRefresh.toLocaleTimeString("ar-CA",{hour:"2-digit",minute:"2-digit"})}</span>
@@ -411,28 +411,27 @@ function Dashboard({navigate}){
         </div>
       </div>
       {ratesError&&<div className="exchange-board-error">⚠️ {ratesError}</div>}
-      <div className="exchange-board-grid">
-        {["USD","CAD","EUR","TRY","SYP","SAR","JOD"].map(code=>{
-          const rate=dashboardRates.find(item=>String(item.baseCurrency||"").toUpperCase()===code);
-          const trend=rate?rateTrend(rate,dashboardRateHistory):{type:"same",symbol:"—"};
-          const currencyMeta=debtCurrencies.find(item=>item.code===code)||{name:code};
-          const pairHistory=rate?dashboardRateHistory.filter(item=>String(item.baseCurrency||"").toUpperCase()===code).sort((a,b)=>String(a.createdAt||"").localeCompare(String(b.createdAt||""))).slice(-7):[];
-          const values=pairHistory.map(item=>Number(item.sellRate||item.buyRate||0)).filter(Number.isFinite);
-          const low=Math.min(...values,0),high=Math.max(...values,1),range=Math.max(high-low,.000001);
-          const points=values.length>1?values.map((value,index)=>`${(index/(values.length-1))*100},${34-((value-low)/range)*28}`).join(" "):"0,26 25,22 50,24 75,15 100,18";
-          const previous=values.length>1?values[values.length-2]:Number(rate?.sellRate||rate?.buyRate||0);
-          const current=Number(rate?.sellRate||rate?.buyRate||0);
-          const percent=previous?((current-previous)/previous)*100:0;
-          return <button className={`exchange-rate-card trend-card-${trend.type}`} key={code} onClick={()=>navigate("rates")}>
-            <div className="exchange-rate-card-top"><CurrencyFlag code={code} className="exchange-rate-card-flag"/><div><strong>{code}</strong><small>{currencyMeta.name}</small></div><span className={`dashboard-rate-trend trend-${trend.type}`}>{trend.symbol} {Math.abs(percent).toFixed(2)}%</span></div>
-            {rate?<><div className="exchange-rate-prices"><div><small>شراء</small><b>{Number(rate.buyRate||0).toFixed(code==="SYP"?6:4)}</b></div><div><small>بيع</small><b>{Number(rate.sellRate||0).toFixed(code==="SYP"?6:4)}</b></div></div><div className="exchange-rate-spark"><svg viewBox="0 0 100 38" preserveAspectRatio="none"><polyline points={points}/></svg><span><em>فرق السعر</em><b>{Math.abs(Number(rate.sellRate||0)-Number(rate.buyRate||0)).toFixed(code==="SYP"?6:4)}</b></span></div></>:<div className="exchange-rate-empty"><span className="exchange-rate-empty-icon">＋</span><strong>إضافة سعر الصرف</strong><small>لم يتم تسجيل سعر {code} بعد</small></div>}
+      <div className="usd-base-rate-list">
+        {["CAD","EUR","TRY","SAR","JOD","SYP"].map(code=>{
+          const usdRate=dashboardRates.find(item=>String(item.baseCurrency||"").toUpperCase()==="USD");
+          const targetRate=dashboardRates.find(item=>String(item.baseCurrency||"").toUpperCase()===code);
+          const usdCad=Number(usdRate?.sellRate||usdRate?.buyRate||0);
+          const targetCad=code==="CAD"?1:Number(targetRate?.sellRate||targetRate?.buyRate||0);
+          const quote=usdCad>0&&targetCad>0?usdCad/targetCad:null;
+          const decimals=code==="SYP"?0:code==="TRY"?2:4;
+          const targetMeta=debtCurrencies.find(item=>item.code===code)||{name:code};
+          return <button className={`usd-base-rate-row ${quote?"":"missing"}`} key={code} onClick={()=>navigate("rates")}>
+            <span className="usd-base-side usd-side"><CurrencyFlag code="USD"/><strong>USD</strong><small>1</small></span>
+            <span className="usd-base-equals">=</span>
+            <span className="usd-base-value">{quote?quote.toLocaleString("en-CA",{minimumFractionDigits:decimals,maximumFractionDigits:decimals}):"—"}</span>
+            <span className="usd-base-side target-side"><CurrencyFlag code={code}/><strong>{code}</strong><small>{targetMeta.name}</small></span>
           </button>
         })}
       </div>
-      <div className="exchange-board-summary">
-        <span><b>{dashboardRates.filter(item=>["USD","CAD","EUR","TRY","SYP","SAR","JOD"].includes(String(item.baseCurrency||"").toUpperCase())).length}</b> عملات محدثة</span>
-        <span><b>{7-dashboardRates.filter(item=>["USD","CAD","EUR","TRY","SYP","SAR","JOD"].includes(String(item.baseCurrency||"").toUpperCase())).length}</b> تحتاج إضافة سعر</span>
-        <span>التحديث الآلي كل 30 دقيقة</span>
+      <div className="exchange-board-summary usd-base-summary">
+        <span><b>USD</b> العملة الأساسية</span>
+        <span><b>{dashboardRates.filter(item=>["USD","EUR","TRY","SYP","SAR","JOD"].includes(String(item.baseCurrency||"").toUpperCase())).length}</b> أسعار متوفرة</span>
+        <span>القيم محسوبة مباشرة من أحدث سعر مسجل مقابل CAD</span>
       </div>
     </section>
 
