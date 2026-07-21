@@ -7,6 +7,7 @@ const { hashPassword, verifyPassword, isScryptHash, passwordPolicy, encryptJson,
 const path = require("path");
 const fs = require("fs");
 const { readStore, mutate, id, now, runWithTenant, initStore } = require("./store");
+const { sendPasswordResetEmail } = require("./mailer");
 
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -273,7 +274,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"18.7.7",channel:"customer-old-balance-general-debt",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"22.0.0",channel:"password-reset-email-foundation",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -287,6 +288,66 @@ app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   }
   mutate(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;if(!isScryptHash(u.passwordHash))u.passwordHash=hashPassword(password);u.lastLoginAt=now();audit(root,u.id,"LOGIN_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
   res.json(issueSession(user,company));
+});
+
+
+app.post("/api/auth/forgot-password", rateLimit("forgot-password",5,15*60*1000), async (req,res)=>{
+  const email=String(req.body?.email||"").trim().toLowerCase();
+  const generic={message:"إذا كان البريد مسجلاً، فستصلك تعليمات إعادة تعيين كلمة المرور"};
+  if(!email||!email.includes("@"))return res.json(generic);
+
+  const store=readStore();
+  const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active);
+  if(!user)return res.json(generic);
+
+  const rawToken=crypto.randomBytes(32).toString("hex");
+  const tokenHash=sha256(rawToken);
+  const expiresAt=new Date(Date.now()+15*60*1000).toISOString();
+  mutate(root=>{
+    const u=root.users.find(x=>x.id===user.id);
+    u.passwordResetTokenHash=tokenHash;
+    u.passwordResetExpiresAt=expiresAt;
+    u.passwordResetRequestedAt=now();
+    audit(root,u.id,"PASSWORD_RESET_REQUESTED","AUTH",u.id,{ip:req.ip,requestId:req.requestId});
+  });
+
+  const appBase=String(process.env.APP_BASE_URL||`${req.protocol}://${req.get("host")}`).replace(/\/$/,"");
+  const resetUrl=`${appBase}/?resetToken=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(email)}`;
+  try{ await sendPasswordResetEmail({to:user.email,name:user.name,resetUrl,expiresMinutes:15}); }
+  catch(error){ console.error("[PASSWORD RESET EMAIL]",error.message); }
+
+  if(!IS_PROD && String(process.env.RETURN_RESET_TOKEN||"").toLowerCase()==="true"){
+    return res.json({...generic,devResetToken:rawToken,expiresAt});
+  }
+  res.json(generic);
+});
+
+app.post("/api/auth/reset-password", rateLimit("reset-password",10,15*60*1000),(req,res)=>{
+  const email=String(req.body?.email||"").trim().toLowerCase();
+  const token=String(req.body?.token||"").trim();
+  const newPassword=String(req.body?.newPassword||"");
+  const policy=passwordPolicy(newPassword);
+  if(!policy.ok)return res.status(400).json({message:policy.message});
+  if(!email||!token)return res.status(400).json({message:"بيانات إعادة التعيين غير مكتملة"});
+
+  try{
+    mutate(store=>{
+      const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active);
+      const valid=user&&user.passwordResetTokenHash&&crypto.timingSafeEqual(Buffer.from(user.passwordResetTokenHash),Buffer.from(sha256(token)));
+      const unexpired=valid&&new Date(user.passwordResetExpiresAt||0).getTime()>Date.now();
+      if(!valid||!unexpired)throw new Error("رابط إعادة التعيين غير صالح أو منتهي");
+      user.passwordHash=hashPassword(newPassword);
+      user.mustChangePassword=false;
+      user.failedLoginAttempts=0;
+      user.lockedUntil=null;
+      delete user.passwordResetTokenHash;
+      delete user.passwordResetExpiresAt;
+      delete user.passwordResetRequestedAt;
+      user.passwordChangedAt=now();
+      audit(store,user.id,"PASSWORD_RESET_COMPLETED","AUTH",user.id,{ip:req.ip,requestId:req.requestId});
+    });
+    res.json({message:"تم تعيين كلمة المرور الجديدة بنجاح"});
+  }catch(error){res.status(400).json({message:error.message||"تعذر إعادة تعيين كلمة المرور"});}
 });
 
 app.post("/api/auth/2fa/verify",rateLimit("2fa",10,10*60*1000),(req,res)=>{
