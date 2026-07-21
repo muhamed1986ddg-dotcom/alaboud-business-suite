@@ -1,1 +1,1 @@
-export const APP_VERSION="v21.0.5 Jad Fees Total Only";
+export const APP_VERSION="v21.2.0 USD Base Exchange Board";

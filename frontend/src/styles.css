@@ -4858,3 +4858,44 @@ body.app-language-en aside{
 .jad-fee-total-only .jad-fee-report-head{align-items:center;justify-content:space-between;gap:18px}
 .jad-fee-total-only .jad-fee-report-head strong{font-size:clamp(1.6rem,4vw,2.5rem);white-space:nowrap}
 @media (max-width:640px){.jad-fee-total-only .jad-fee-report-head{flex-direction:column}.jad-fee-total-only .jad-fee-report-head strong{width:100%;text-align:center}}
+
+/* v21.2.0 — USD Base Exchange Board */
+.usd-base-board{border-color:rgba(59,130,246,.42)!important;background:linear-gradient(145deg,#06111f 0%,#071a2d 55%,#0b1622 100%)!important}
+.usd-base-rate-list{display:grid;gap:9px}
+.usd-base-rate-row{display:grid;grid-template-columns:minmax(118px,1fr) 28px minmax(110px,.8fr) minmax(150px,1fr);align-items:center;gap:12px;width:100%;min-height:70px;padding:12px 16px;border:1px solid rgba(148,163,184,.2)!important;border-radius:14px;background:linear-gradient(90deg,rgba(255,255,255,.055),rgba(255,255,255,.018))!important;color:#f8fafc!important;text-align:initial;overflow:hidden}
+.usd-base-rate-row:hover{transform:translateY(-1px);border-color:rgba(59,130,246,.62)!important;background:linear-gradient(90deg,rgba(59,130,246,.14),rgba(255,255,255,.025))!important}
+.usd-base-side{display:grid;grid-template-columns:32px auto;grid-template-rows:auto auto;align-items:center;column-gap:9px;min-width:0;direction:ltr}
+.usd-base-side .currency-flag-image{grid-row:1/3;width:30px;height:21px;object-fit:cover;border-radius:4px;box-shadow:0 0 0 1px rgba(255,255,255,.14)}
+.usd-base-side strong{font-size:16px;line-height:1.15;white-space:nowrap}
+.usd-base-side small{font-size:11px;color:#91a0b3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.usd-side small{font-size:13px;color:#facc15;font-weight:900}
+.usd-base-equals{text-align:center;color:#718198;font-size:22px;font-weight:800}
+.usd-base-value{text-align:center;direction:ltr;font-size:23px;font-weight:950;font-variant-numeric:tabular-nums;color:#fff;white-space:nowrap;letter-spacing:.2px}
+.target-side{justify-self:end;min-width:145px}
+.usd-base-rate-row.missing .usd-base-value{color:#fca5a5}
+.usd-base-summary{margin-top:12px}
+@media(max-width:760px){
+  .usd-base-board{padding:11px!important}
+  .usd-base-board .exchange-board-header{gap:10px}
+  .usd-base-board .exchange-board-header h2{font-size:18px}
+  .usd-base-board .exchange-board-header p{font-size:12px;line-height:1.55}
+  .usd-base-rate-list{gap:7px}
+  .usd-base-rate-row{grid-template-columns:84px 18px minmax(76px,1fr) 94px;gap:5px;min-height:60px;padding:9px 8px;border-radius:11px}
+  .usd-base-side{grid-template-columns:25px minmax(0,1fr);column-gap:5px}
+  .usd-base-side .currency-flag-image{width:24px;height:17px}
+  .usd-base-side strong{font-size:13px}
+  .usd-base-side small{font-size:9px}
+  .usd-side small{font-size:11px}
+  .usd-base-equals{font-size:17px}
+  .usd-base-value{font-size:17px}
+  .target-side{min-width:0;justify-self:stretch}
+  .usd-base-summary{grid-template-columns:1fr!important}
+}
+@media(max-width:390px){
+  .usd-base-rate-row{grid-template-columns:76px 14px minmax(65px,1fr) 80px;padding-inline:6px}
+  .usd-base-side{grid-template-columns:22px minmax(0,1fr)}
+  .usd-base-side .currency-flag-image{width:21px;height:15px}
+  .usd-base-value{font-size:15px}
+  .usd-base-side strong{font-size:12px}
+  .target-side small{display:none}
+}
