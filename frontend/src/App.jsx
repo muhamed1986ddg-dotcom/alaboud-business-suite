@@ -3134,6 +3134,10 @@ function Partners({open}){
   const [nowTick,setNowTick]=useState(Date.now());
   const [otpById,setOtpById]=useState({});
   const [editingId,setEditingId]=useState("");
+  const todayIso=new Date().toISOString().slice(0,10);
+  const monthStartIso=`${todayIso.slice(0,7)}-01`;
+  const [feeFilter,setFeeFilter]=useState({partnerId:"",fromDate:monthStartIso,toDate:todayIso});
+  const [feeReport,setFeeReport]=useState(null);
   const emptyPartnerForm={
     name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",
     systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true,syncIntervalMinutes:5,syncMode:"BALANCE_ONLY"
@@ -3254,6 +3258,21 @@ function Partners({open}){
         await load().catch(()=>{});
       }
     }
+    finally{setSyncingId("");}
+  }
+
+  async function fetchJadFees(partner,selectedFilter=feeFilter){
+    if(!selectedFilter.fromDate||!selectedFilter.toDate){setError("اختر تاريخ البداية والنهاية");return;}
+    if(selectedFilter.fromDate>selectedFilter.toDate){setError("تاريخ البداية يجب أن يسبق تاريخ النهاية");return;}
+    setError("");setMessage("");setSyncingId(partner.id);
+    try{
+      const response=await api.post(`/partners/${partner.id}/sync`,{fromDate:selectedFilter.fromDate,toDate:selectedFilter.toDate,otp:otpById[partner.id]||"",trigger:"FEE_REPORT"});
+      const result=response.data?.result||{};
+      setFeeReport({partnerId:partner.id,partnerName:partner.name,currency:partner.accountCurrency||"USD",fromDate:result.fromDate||selectedFilter.fromDate,toDate:result.toDate||selectedFilter.toDate,totalFees:Number(result.totalFees||0),rows:result.feeMovements||[]});
+      setOtpById(current=>({...current,[partner.id]:""}));
+      setMessage(`تم جلب إجمالي الأجور لشركة ${partner.name} حسب الفترة المطلوبة`);
+      await load();
+    }catch(requestError){setError(syncFailureReason(requestError.response?.data||{}));}
     finally{setSyncingId("");}
   }
 
@@ -3381,7 +3400,12 @@ function Partners({open}){
       </div>
     </section>
 
-
+    {feeReport&&<section className="card jad-fee-report jad-fee-total-only">
+      <div className="jad-fee-report-head">
+        <div><h3>💵 إجمالي الأجور</h3><p>من {feeReport.fromDate} إلى {feeReport.toDate}</p></div>
+        <strong>{money(feeReport.totalFees)} {feeReport.currency}</strong>
+      </div>
+    </section>}
 
     <form className="card form company-integration-form" onSubmit={add}>
       <h3>{editingId?"✏️ تعديل معلومات الشركة":"➕ إضافة شركة وربطها"}</h3>
@@ -3426,7 +3450,7 @@ function Partners({open}){
           <td><PartnerCurrencyBalances partner={partner}/></td>
           <td><div className="relative-sync-time"><strong>{relativeSyncTime(partner.lastSyncAt)}</strong><small>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar-CA"):"—"}</small></div></td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
-          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button><button type="button" onClick={()=>startEditPartner(partner)}>✏️ تعديل</button><button type="button" className="danger-button" onClick={()=>deletePartner(partner)}>🗑️ حذف</button>{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</td>
+          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button><button type="button" onClick={()=>startEditPartner(partner)}>✏️ تعديل</button><button type="button" className="danger-button" onClick={()=>deletePartner(partner)}>🗑️ حذف</button>{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<><div className="jad-fee-controls"><input type="date" value={feeFilter.partnerId===partner.id?feeFilter.fromDate:monthStartIso} onChange={e=>setFeeFilter(current=>({...current,partnerId:partner.id,fromDate:e.target.value}))} title="من تاريخ"/><input type="date" value={feeFilter.partnerId===partner.id?feeFilter.toDate:todayIso} onChange={e=>setFeeFilter(current=>({...current,partnerId:partner.id,toDate:e.target.value}))} title="إلى تاريخ"/><button type="button" disabled={syncingId===partner.id} onClick={()=>{const selected=feeFilter.partnerId===partner.id?feeFilter:{partnerId:partner.id,fromDate:monthStartIso,toDate:todayIso};setFeeFilter(selected);fetchJadFees(partner,selected);}}>جلب الأجور</button></div><button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button></>}</td>
         </tr>):<tr><td colSpan="8">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>
     </div>
@@ -3579,8 +3603,9 @@ function CapitalOverview(){
   const debtForUs=Number(data.totalReceivables ?? (Number(data.receivables||0)+Number(data.generalReceivable||0)));
   const debtOnUs=Number(data.totalPayables ?? data.generalPayable ?? 0);
   const netDebt=Number(data.netDebt ?? (debtForUs-debtOnUs));
-  const netCapital=Number(data.netCapital ?? (Number(data.capitalBalance||0)+Number(data.accumulatedProfit||data.monthlyProfit||0)-Number(data.accumulatedExpenses||data.monthlyExpenses||0)));
-  const estimatedCapital=Number(data.estimatedCapital ?? data.totalCapital ?? (netCapital+netDebt));
+  const totalMoney=Number(data.totalMoney ?? (Number(data.capitalBalance||0)+Number(data.accumulatedProfit||0)+debtForUs));
+  const netCapital=Number(data.netCapital ?? (totalMoney-Number(data.accumulatedExpenses||0)-debtOnUs));
+  const estimatedCapital=Number(data.estimatedCapital ?? data.totalCapital ?? netCapital);
   const netWorth=estimatedCapital;
   const profitChange=previousData&&Number(previousData.monthlyProfit||0)!==0?((Number(data.monthlyProfit||0)-Number(previousData.monthlyProfit||0))/Math.abs(Number(previousData.monthlyProfit||0)))*100:null;
   const expenseChange=previousData&&Number(previousData.monthlyExpenses||0)!==0?((Number(data.monthlyExpenses||0)-Number(previousData.monthlyExpenses||0))/Math.abs(Number(previousData.monthlyExpenses||0)))*100:null;
@@ -3628,20 +3653,20 @@ function CapitalOverview(){
         <strong>{money(data.capitalBalance)} CAD</strong>
         <small>الإيداعات ناقص السحوبات</small>
       </div>
+      <div className="card final">
+        <span>المال الكلي</span>
+        <strong>{money(totalMoney)} CAD</strong>
+        <small>رأس المال + الأرباح + جميع الديون لنا</small>
+      </div>
+      <div className={`card ${debtOnUs>0?"payable-card":"budget-positive"}`}>
+        <span>إجمالي ديون علينا</span>
+        <strong>{money(debtOnUs)} CAD</strong>
+        <small>كل الديون اليدوية وأرصدة الشركات بعد التحويل</small>
+      </div>
       <div className={`card ${netCapital>=0?"budget-positive":"budget-negative"}`}>
-        <span>صافي رأس المال</span>
+        <span>صافي رأس المال بعد خصم كل شيء</span>
         <strong>{money(netCapital)} CAD</strong>
-        <small>الفعلي + الأرباح − المصاريف</small>
-      </div>
-      <div className={`card ${netDebt>=0?"receivable-card":"payable-card"}`}>
-        <span>صافي الديون</span>
-        <strong>{money(netDebt)} CAD</strong>
-        <small>لنا {money(debtForUs)} − علينا {money(debtOnUs)}</small>
-      </div>
-      <div className={`card ${estimatedCapital>=0?"budget-positive":"budget-negative"}`}>
-        <span>رأس المال التقديري</span>
-        <strong>{money(estimatedCapital)} CAD</strong>
-        <small>صافي رأس المال + صافي الديون</small>
+        <small>المال الكلي − المصاريف − جميع الديون علينا</small>
       </div>
     </div>
 
@@ -3650,11 +3675,11 @@ function CapitalOverview(){
       <div className="net-worth-breakdown capital-formula-breakdown">
         <span>رأس المال الفعلي <b>{money(data.capitalBalance)}</b></span>
         <span>الأرباح المتراكمة <b className="positive-value">+{money(data.accumulatedProfit||0)}</b></span>
-        <span>المصاريف المتراكمة <b className="negative-value">−{money(data.accumulatedExpenses||0)}</b></span>
-        <span>صافي رأس المال <b>{money(netCapital)}</b></span>
         <span>ديون لنا <b className="positive-value">+{money(debtForUs)}</b></span>
-        <span>ديون علينا <b className="negative-value">−{money(debtOnUs)}</b></span>
-        <span>رأس المال التقديري <b>{money(estimatedCapital)}</b></span>
+        <span>المال الكلي <b>{money(totalMoney)}</b></span>
+        <span>المصاريف المتراكمة <b className="negative-value">−{money(data.accumulatedExpenses||0)}</b></span>
+        <span>جميع ديون علينا <b className="negative-value">−{money(debtOnUs)}</b></span>
+        <span>صافي رأس المال بعد خصم كل شيء <b>{money(netCapital)}</b></span>
       </div>
     </section>
 
@@ -3665,9 +3690,9 @@ function CapitalOverview(){
         <p>مؤشر مركب من السيولة والربحية والدوران وحركة رأس المال.</p>
       </article>
       <article className="card net-worth-card">
-        <div className="section-heading"><h3>💎 صافي الثروة</h3><small>القيمة المالية الفعلية</small></div>
+        <div className="section-heading"><h3>💎 صافي الثروة</h3><small>بعد خصم جميع الالتزامات</small></div>
         <strong className={netWorth>=0?"positive-value":"negative-value"}>{money(netWorth)} CAD</strong>
-        <div className="net-worth-breakdown"><span>صافي رأس المال {money(netCapital)}</span><span>ديون لنا {money(debtForUs)}</span><span>ديون علينا {money(debtOnUs)}</span></div>
+        <div className="net-worth-breakdown"><span>المال الكلي {money(totalMoney)}</span><span>المصاريف {money(data.accumulatedExpenses||0)}</span><span>ديون علينا {money(debtOnUs)}</span></div>
       </article>
       <article className="card forecast-card">
         <div className="section-heading"><h3>🔮 توقع نهاية الشهر</h3><small>{isCurrentMonth?`${elapsedDays}/${daysInMonth} يوم` : "شهر مكتمل"}</small></div>
