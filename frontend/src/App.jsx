@@ -3242,7 +3242,7 @@ function Partners({open}){
       const result=response.data?.result||{};
       setFeeReport({partnerId:partner.id,partnerName:partner.name,currency:partner.accountCurrency||"USD",fromDate:result.fromDate||selectedFilter.fromDate,toDate:result.toDate||selectedFilter.toDate,totalFees:Number(result.totalFees||0),rows:result.feeMovements||[]});
       setOtpById(current=>({...current,[partner.id]:""}));
-      setMessage(`تم جلب أجور حوالات ${partner.name} حسب الفترة المطلوبة`);
+      setMessage(`تم جلب إجمالي الأجور لشركة ${partner.name} حسب الفترة المطلوبة`);
       await load();
     }catch(requestError){setError(syncFailureReason(requestError.response?.data||{}));}
     finally{setSyncingId("");}
@@ -3372,11 +3372,11 @@ function Partners({open}){
       </div>
     </section>
 
-    {feeReport&&<section className="card jad-fee-report">
-      <div className="jad-fee-report-head"><div><h3>💵 أجور حوالات {feeReport.partnerName}</h3><p>من {feeReport.fromDate} إلى {feeReport.toDate}</p></div><strong>{money(feeReport.totalFees)} {feeReport.currency}</strong></div>
-      <div className="tablewrap"><table><thead><tr><th>التاريخ</th><th>رقم الحركة</th><th>البيان</th><th>الأجور</th><th>العملة</th></tr></thead><tbody>
-        {feeReport.rows.length?feeReport.rows.map((item,index)=><tr key={`${item.sequence||item.movementNumber||index}-${index}`}><td>{item.date||"—"}</td><td>{item.movementNumber||item.sequence||"—"}</td><td>{item.notes||item.movementType||"أجور حوالة"}</td><td>{money(item.fee)}</td><td>{feeReport.currency}</td></tr>):<tr><td colSpan="5">لم يتم العثور على حركات أجور ضمن الفترة المختارة.</td></tr>}
-      </tbody></table></div>
+    {feeReport&&<section className="card jad-fee-report jad-fee-total-only">
+      <div className="jad-fee-report-head">
+        <div><h3>💵 إجمالي الأجور</h3><p>من {feeReport.fromDate} إلى {feeReport.toDate}</p></div>
+        <strong>{money(feeReport.totalFees)} {feeReport.currency}</strong>
+      </div>
     </section>}
 
     <form className="card form company-integration-form" onSubmit={add}>
@@ -3422,7 +3422,7 @@ function Partners({open}){
           <td><PartnerCurrencyBalances partner={partner}/></td>
           <td><div className="relative-sync-time"><strong>{relativeSyncTime(partner.lastSyncAt)}</strong><small>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar-CA"):"—"}</small></div></td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
-          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button><button type="button" onClick={()=>startEditPartner(partner)}>✏️ تعديل</button><button type="button" className="danger-button" onClick={()=>deletePartner(partner)}>🗑️ حذف</button>{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<><div className="jad-fee-controls"><input type="date" value={feeFilter.partnerId===partner.id?feeFilter.fromDate:monthStartIso} onChange={e=>setFeeFilter(current=>({...current,partnerId:partner.id,fromDate:e.target.value}))} title="من تاريخ"/><input type="date" value={feeFilter.partnerId===partner.id?feeFilter.toDate:todayIso} onChange={e=>setFeeFilter(current=>({...current,partnerId:partner.id,toDate:e.target.value}))} title="إلى تاريخ"/><button type="button" disabled={syncingId===partner.id} onClick={()=>{const selected=feeFilter.partnerId===partner.id?feeFilter:{partnerId:partner.id,fromDate:monthStartIso,toDate:todayIso};setFeeFilter(selected);fetchJadFees(partner,selected);}}>جلب أجور الحوالات</button></div><button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button></>}</td>
+          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button><button type="button" onClick={()=>startEditPartner(partner)}>✏️ تعديل</button><button type="button" className="danger-button" onClick={()=>deletePartner(partner)}>🗑️ حذف</button>{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{["JAD","TAWASUL","KONTORUN"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<><div className="jad-fee-controls"><input type="date" value={feeFilter.partnerId===partner.id?feeFilter.fromDate:monthStartIso} onChange={e=>setFeeFilter(current=>({...current,partnerId:partner.id,fromDate:e.target.value}))} title="من تاريخ"/><input type="date" value={feeFilter.partnerId===partner.id?feeFilter.toDate:todayIso} onChange={e=>setFeeFilter(current=>({...current,partnerId:partner.id,toDate:e.target.value}))} title="إلى تاريخ"/><button type="button" disabled={syncingId===partner.id} onClick={()=>{const selected=feeFilter.partnerId===partner.id?feeFilter:{partnerId:partner.id,fromDate:monthStartIso,toDate:todayIso};setFeeFilter(selected);fetchJadFees(partner,selected);}}>جلب الأجور</button></div><button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button></>}</td>
         </tr>):<tr><td colSpan="8">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>
     </div>

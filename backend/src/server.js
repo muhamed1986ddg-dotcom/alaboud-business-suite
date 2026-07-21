@@ -2582,10 +2582,17 @@ function parseJadStatement(html){
       sequence:cells[0]||"",date:cells[1]||"",movementType:cells[2]||"",movementNumber:cells[3]||"",notes:cells[4]||"",
       payable:numberFromText(cells[5]),receivable:numberFromText(cells[6]),balance:numberFromText(cells[7]??cells[cells.length-1]),raw:cells
     };
-    const labelledAsFee=feeLabelPattern.test(`${movement.movementType} ${movement.notes}`);
+    const movementText=`${movement.movementType} ${movement.notes}`;
+    const labelledAsFee=feeLabelPattern.test(movementText);
     const explicitFee=feeHeaderIndex>=0&&feeHeaderIndex<cells.length?Math.abs(numberFromText(cells[feeHeaderIndex])):0;
-    movement.fee=explicitFee||(labelledAsFee?Math.max(Math.abs(movement.payable),Math.abs(movement.receivable)):0);
-    movement.isFee=movement.fee>0;
+    const paidLabel=/(?:مدفوع(?:ة)?|مسدد(?:ة)?|تم\s*الدفع|خصم|مقتطع|paid|settled|charged)/i.test(movementText);
+    // أجور كشف الحساب المدفوعة هي المبالغ التي خُصمت من الحساب (عمود علينا/المدين)،
+    // أو قيمة عمولة صريحة أثبتها موقع جاد داخل عمود الأجور.
+    const debitedFee=labelledAsFee?Math.abs(safeNumber(movement.payable)):0;
+    movement.fee=explicitFee||debitedFee;
+    movement.isPaidFee=movement.fee>0&&(explicitFee>0||debitedFee>0||paidLabel);
+    movement.isFee=movement.isPaidFee;
+    movement.feeStatus=movement.isPaidFee?"PAID":"UNPAID";
     return movement;
   });
   const last=movements[movements.length-1]||{};
@@ -2599,7 +2606,7 @@ function parseJadStatement(html){
     if(/دائن\s*علينا|دولار\s*عليكم/.test(pageText))payable=Math.abs(balance);else receivable=Math.abs(balance);
   }
   const normalized=normalizeJadCurrencyDebt(receivable,payable,{prefer:balance<0?"PAYABLE":"RECEIVABLE"});
-  const feeMovements=movements.filter(item=>item.isFee);
+  const feeMovements=movements.filter(item=>item.isPaidFee);
   const totalFees=+feeMovements.reduce((sum,item)=>sum+safeNumber(item.fee),0).toFixed(2);
   return {movements,feeMovements,totalFees,balance:normalized.balance,payable:normalized.payable,receivable:normalized.receivable};
 }
