@@ -6,8 +6,7 @@ const crypto = require("crypto");
 const { hashPassword, verifyPassword, isScryptHash, passwordPolicy, encryptJson, decryptJson, sha256 } = require("./security");
 const path = require("path");
 const fs = require("fs");
-const { readStore, mutate, id, now, runWithTenant, initStore } = require("./store");
-const { sendPasswordResetEmail } = require("./mailer");
+const { readStore, mutate, id, now, runWithTenant, initStore, databaseHealth, closeStore } = require("./store");
 
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -274,7 +273,10 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"22.1.0",channel:"jest-supertest-foundation",cloud:true}));
+app.get("/api/health", async (_req,res)=>{
+  const database=await databaseHealth();
+  res.status(database.ok?200:503).json({ok:database.ok,version:"22.3.0",database,time:now()});
+});
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -288,66 +290,6 @@ app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   }
   mutate(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;if(!isScryptHash(u.passwordHash))u.passwordHash=hashPassword(password);u.lastLoginAt=now();audit(root,u.id,"LOGIN_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
   res.json(issueSession(user,company));
-});
-
-
-app.post("/api/auth/forgot-password", rateLimit("forgot-password",5,15*60*1000), async (req,res)=>{
-  const email=String(req.body?.email||"").trim().toLowerCase();
-  const generic={message:"إذا كان البريد مسجلاً، فستصلك تعليمات إعادة تعيين كلمة المرور"};
-  if(!email||!email.includes("@"))return res.json(generic);
-
-  const store=readStore();
-  const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active);
-  if(!user)return res.json(generic);
-
-  const rawToken=crypto.randomBytes(32).toString("hex");
-  const tokenHash=sha256(rawToken);
-  const expiresAt=new Date(Date.now()+15*60*1000).toISOString();
-  mutate(root=>{
-    const u=root.users.find(x=>x.id===user.id);
-    u.passwordResetTokenHash=tokenHash;
-    u.passwordResetExpiresAt=expiresAt;
-    u.passwordResetRequestedAt=now();
-    audit(root,u.id,"PASSWORD_RESET_REQUESTED","AUTH",u.id,{ip:req.ip,requestId:req.requestId});
-  });
-
-  const appBase=String(process.env.APP_BASE_URL||`${req.protocol}://${req.get("host")}`).replace(/\/$/,"");
-  const resetUrl=`${appBase}/?resetToken=${encodeURIComponent(rawToken)}&email=${encodeURIComponent(email)}`;
-  try{ await sendPasswordResetEmail({to:user.email,name:user.name,resetUrl,expiresMinutes:15}); }
-  catch(error){ console.error("[PASSWORD RESET EMAIL]",error.message); }
-
-  if(!IS_PROD && String(process.env.RETURN_RESET_TOKEN||"").toLowerCase()==="true"){
-    return res.json({...generic,devResetToken:rawToken,expiresAt});
-  }
-  res.json(generic);
-});
-
-app.post("/api/auth/reset-password", rateLimit("reset-password",10,15*60*1000),(req,res)=>{
-  const email=String(req.body?.email||"").trim().toLowerCase();
-  const token=String(req.body?.token||"").trim();
-  const newPassword=String(req.body?.newPassword||"");
-  const policy=passwordPolicy(newPassword);
-  if(!policy.ok)return res.status(400).json({message:policy.message});
-  if(!email||!token)return res.status(400).json({message:"بيانات إعادة التعيين غير مكتملة"});
-
-  try{
-    mutate(store=>{
-      const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active);
-      const valid=user&&user.passwordResetTokenHash&&crypto.timingSafeEqual(Buffer.from(user.passwordResetTokenHash),Buffer.from(sha256(token)));
-      const unexpired=valid&&new Date(user.passwordResetExpiresAt||0).getTime()>Date.now();
-      if(!valid||!unexpired)throw new Error("رابط إعادة التعيين غير صالح أو منتهي");
-      user.passwordHash=hashPassword(newPassword);
-      user.mustChangePassword=false;
-      user.failedLoginAttempts=0;
-      user.lockedUntil=null;
-      delete user.passwordResetTokenHash;
-      delete user.passwordResetExpiresAt;
-      delete user.passwordResetRequestedAt;
-      user.passwordChangedAt=now();
-      audit(store,user.id,"PASSWORD_RESET_COMPLETED","AUTH",user.id,{ip:req.ip,requestId:req.requestId});
-    });
-    res.json({message:"تم تعيين كلمة المرور الجديدة بنجاح"});
-  }catch(error){res.status(400).json({message:error.message||"تعذر إعادة تعيين كلمة المرور"});}
 });
 
 app.post("/api/auth/2fa/verify",rateLimit("2fa",10,10*60*1000),(req,res)=>{
@@ -4374,57 +4316,38 @@ app.use((err,_req,res,_next)=>{
   res.status(400).json({message:err.message||"Request failed"});
 });
 
-let serverInstance = null;
-let hourlyRefreshTimeout = null;
-let hourlyRefreshInterval = null;
-let initialized = false;
-
-async function initializeApp(){
-  if(initialized)return app;
+async function startServer(){
   await initStore();
   seedAdmin();
-  initialized=true;
-  return app;
-}
+  app.listen(PORT,"0.0.0.0",()=>{
+  console.log(`AlAboud Enterprise Cloud v22.3.0 running on port ${PORT}`);
+  console.log(`Frontend directory: ${publicDir}`);
 
-async function startServer(){
-  await initializeApp();
-  if(serverInstance)return serverInstance;
-  serverInstance=app.listen(PORT,"0.0.0.0",()=>{
-    console.log(`AlAboud Enterprise Cloud v22.1.0 running on port ${PORT}`);
-    console.log(`Frontend directory: ${publicDir}`);
+  const runHourlyRateRefresh=async()=>{
+    try{
+      const results=await refreshAutomaticRates("SYSTEM_HOURLY");
+      const successCount=results.filter(item=>item.ok).length;
+      console.log(`Hourly exchange-rate refresh: ${successCount}/${results.length} updated`);
+    }catch(error){
+      console.error("Hourly exchange-rate refresh failed:",error.message);
+    }
+  };
 
-    const runHourlyRateRefresh=async()=>{
-      try{
-        const results=await refreshAutomaticRates("SYSTEM_HOURLY");
-        const successCount=results.filter(item=>item.ok).length;
-        console.log(`Hourly exchange-rate refresh: ${successCount}/${results.length} updated`);
-      }catch(error){
-        console.error("Hourly exchange-rate refresh failed:",error.message);
-      }
-    };
-
-    hourlyRefreshTimeout=setTimeout(runHourlyRateRefresh,60*1000);
-    hourlyRefreshInterval=setInterval(runHourlyRateRefresh,60*60*1000);
-  });
-  return serverInstance;
-}
-
-async function stopServer(){
-  if(hourlyRefreshTimeout)clearTimeout(hourlyRefreshTimeout);
-  if(hourlyRefreshInterval)clearInterval(hourlyRefreshInterval);
-  hourlyRefreshTimeout=null;
-  hourlyRefreshInterval=null;
-  if(!serverInstance)return;
-  await new Promise(resolve=>serverInstance.close(resolve));
-  serverInstance=null;
-}
-
-if(require.main===module){
-  startServer().catch(error=>{
-    console.error("Server startup failed:",error);
-    process.exit(1);
+  setTimeout(runHourlyRateRefresh,60*1000);
+  setInterval(runHourlyRateRefresh,60*60*1000);
   });
 }
 
-module.exports={app,initializeApp,startServer,stopServer};
+let shuttingDown=false;
+async function shutdown(signal){
+  if(shuttingDown)return;
+  shuttingDown=true;
+  console.log(`${signal} received: flushing database writes`);
+  try{await closeStore();process.exit(0)}catch(error){console.error("Graceful shutdown failed:",error);process.exit(1)}
+}
+process.on("SIGTERM",()=>shutdown("SIGTERM"));
+process.on("SIGINT",()=>shutdown("SIGINT"));
+startServer().catch(error=>{
+  console.error("Server startup failed:",error);
+  process.exit(1);
+});
