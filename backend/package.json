@@ -1,11 +1,14 @@
 {
   "name": "alaboud-stable-backend",
-  "version": "22.0.0",
+  "version": "22.2.0",
   "private": true,
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node src/selftest.js",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --runInBand --coverage",
+    "test:legacy": "node src/selftest.js",
     "postinstall": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium"
   },
   "dependencies": {
@@ -16,5 +19,9 @@
     "pg": "^8.16.3",
     "playwright": "1.61.1",
     "nodemailer": "^6.10.1"
+  },
+  "devDependencies": {
+    "jest": "^30.0.5",
+    "supertest": "^7.1.4"
   }
 }

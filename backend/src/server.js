@@ -274,7 +274,7 @@ function customerSummary(store, c) {
   };
 }
 
-app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"22.0.0",channel:"password-reset-email-foundation",cloud:true}));
+app.get("/api/health", (_req,res)=>res.json({status:"ok",version:"22.1.0",channel:"jest-supertest-foundation",cloud:true}));
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -4374,28 +4374,57 @@ app.use((err,_req,res,_next)=>{
   res.status(400).json({message:err.message||"Request failed"});
 });
 
-async function startServer(){
+let serverInstance = null;
+let hourlyRefreshTimeout = null;
+let hourlyRefreshInterval = null;
+let initialized = false;
+
+async function initializeApp(){
+  if(initialized)return app;
   await initStore();
   seedAdmin();
-  app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v17.0.1 running on port ${PORT}`);
-  console.log(`Frontend directory: ${publicDir}`);
+  initialized=true;
+  return app;
+}
 
-  const runHourlyRateRefresh=async()=>{
-    try{
-      const results=await refreshAutomaticRates("SYSTEM_HOURLY");
-      const successCount=results.filter(item=>item.ok).length;
-      console.log(`Hourly exchange-rate refresh: ${successCount}/${results.length} updated`);
-    }catch(error){
-      console.error("Hourly exchange-rate refresh failed:",error.message);
-    }
-  };
+async function startServer(){
+  await initializeApp();
+  if(serverInstance)return serverInstance;
+  serverInstance=app.listen(PORT,"0.0.0.0",()=>{
+    console.log(`AlAboud Enterprise Cloud v22.1.0 running on port ${PORT}`);
+    console.log(`Frontend directory: ${publicDir}`);
 
-  setTimeout(runHourlyRateRefresh,60*1000);
-  setInterval(runHourlyRateRefresh,60*60*1000);
+    const runHourlyRateRefresh=async()=>{
+      try{
+        const results=await refreshAutomaticRates("SYSTEM_HOURLY");
+        const successCount=results.filter(item=>item.ok).length;
+        console.log(`Hourly exchange-rate refresh: ${successCount}/${results.length} updated`);
+      }catch(error){
+        console.error("Hourly exchange-rate refresh failed:",error.message);
+      }
+    };
+
+    hourlyRefreshTimeout=setTimeout(runHourlyRateRefresh,60*1000);
+    hourlyRefreshInterval=setInterval(runHourlyRateRefresh,60*60*1000);
+  });
+  return serverInstance;
+}
+
+async function stopServer(){
+  if(hourlyRefreshTimeout)clearTimeout(hourlyRefreshTimeout);
+  if(hourlyRefreshInterval)clearInterval(hourlyRefreshInterval);
+  hourlyRefreshTimeout=null;
+  hourlyRefreshInterval=null;
+  if(!serverInstance)return;
+  await new Promise(resolve=>serverInstance.close(resolve));
+  serverInstance=null;
+}
+
+if(require.main===module){
+  startServer().catch(error=>{
+    console.error("Server startup failed:",error);
+    process.exit(1);
   });
 }
-startServer().catch(error=>{
-  console.error("Server startup failed:",error);
-  process.exit(1);
-});
+
+module.exports={app,initializeApp,startServer,stopServer};

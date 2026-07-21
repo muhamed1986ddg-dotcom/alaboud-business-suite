@@ -1,6 +1,6 @@
 {
   "name": "alaboud-business-suite-cloud",
-  "version": "22.0.0",
+  "version": "22.2.0",
   "private": true,
   "scripts": {
     "install:all": "npm ci --prefix backend --no-audit --no-fund && npm run install:chromium && npm ci --prefix frontend --no-audit --no-fund",
@@ -10,7 +10,8 @@
     "selftest": "node backend/src/selftest_v8.js",
     "install:chromium": "cd backend && PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium",
     "test": "npm test --prefix backend",
-    "test:ci": "npm test --prefix backend && npm run build"
+    "test:ci": "npm run test:coverage --prefix backend && npm run build",
+    "test:coverage": "npm run test:coverage --prefix backend"
   },
   "engines": {
     "node": ">=20 <23"
