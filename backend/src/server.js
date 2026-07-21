@@ -818,7 +818,8 @@ app.get("/api/capital-overview", auth, (req,res)=>{
   const totalReceivables=receivables+generalReceivable+partnerReceivable;
   const totalPayables=generalPayable+partnerPayable;
   const totalMoney=capitalBalance+accumulatedProfit+totalReceivables;
-  const netCapital=totalMoney-accumulatedExpenses-totalPayables;
+  const totalLiabilities=accumulatedExpenses+totalPayables;
+  const netCapital=totalMoney-totalLiabilities;
   const netDebt=totalReceivables-totalPayables;
   const estimatedCapital=netCapital;
   const totalCapital=netCapital;
@@ -832,6 +833,7 @@ app.get("/api/capital-overview", auth, (req,res)=>{
     accumulatedProfit:+accumulatedProfit.toFixed(2),
     accumulatedExpenses:+accumulatedExpenses.toFixed(2),
     totalMoney:+totalMoney.toFixed(2),
+    totalLiabilities:+totalLiabilities.toFixed(2),
     netCapital:+netCapital.toFixed(2),
     totalReceivables:+totalReceivables.toFixed(2),
     totalPayables:+totalPayables.toFixed(2),
