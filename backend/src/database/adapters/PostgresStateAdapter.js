@@ -55,6 +55,10 @@ class PostgresStateAdapter {
     }
   }
 
+  async query(text, params = []) {
+    return this.pool.query(text, params);
+  }
+
   async health() {
     const startedAt = Date.now();
     await this.pool.query("SELECT 1");

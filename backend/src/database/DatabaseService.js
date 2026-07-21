@@ -83,6 +83,11 @@ class DatabaseService {
     }
   }
 
+  getQueryFunction() {
+    if (!this.initialized || !this.adapter || typeof this.adapter.query !== "function") return null;
+    return this.adapter.query.bind(this.adapter);
+  }
+
   async close() {
     await this.flush();
     if (this.adapter) await this.adapter.close();

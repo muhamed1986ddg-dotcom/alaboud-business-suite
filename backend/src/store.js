@@ -115,4 +115,5 @@ function id(){return crypto.randomUUID()}
 function now(){return new Date().toISOString()}
 async function databaseHealth(){return database.health()}
 async function closeStore(){return database.close()}
-module.exports={readStore,writeStore,mutate,id,now,dataFile,runWithTenant,readRootStore,initStore,databaseHealth,closeStore};
+function getDatabaseQuery(){return database.getQueryFunction()}
+module.exports={readStore,writeStore,mutate,id,now,dataFile,runWithTenant,readRootStore,initStore,databaseHealth,closeStore,getDatabaseQuery};

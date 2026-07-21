@@ -6,13 +6,15 @@ const crypto = require("crypto");
 const { hashPassword, verifyPassword, isScryptHash, passwordPolicy, encryptJson, decryptJson, sha256 } = require("./security");
 const path = require("path");
 const fs = require("fs");
-const { readStore, mutate, id, now, runWithTenant, initStore, databaseHealth, closeStore } = require("./store");
+const { readStore, mutate, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
+const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === "production";
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
 if (IS_PROD && JWT_SECRET === "LOCAL_TRIAL_CHANGE_ME_6_0") { throw new Error("JWT_SECRET قوي ومخصص مطلوب في الإنتاج"); }
 const app = express();
+let nativeRepositories = new NativeRepositoryRegistry();
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.use((req,res,next)=>{ req.requestId=crypto.randomUUID(); res.setHeader("X-Request-ID",req.requestId); next(); });
@@ -275,7 +277,7 @@ function customerSummary(store, c) {
 
 app.get("/api/health", async (_req,res)=>{
   const database=await databaseHealth();
-  res.status(database.ok?200:503).json({ok:database.ok,version:"22.3.3",database,time:now()});
+  res.status(database.ok?200:503).json({ok:database.ok,version:"22.3.4",database,nativeReads:nativeRepositories.enabled,time:now()});
 });
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
@@ -953,7 +955,11 @@ app.get("/api/monthly-report", auth, (req,res)=>{
 });
 
 
-app.get("/api/customers", auth, (_req,res)=>{ const s=readStore(); res.json(s.customers.filter(c=>!c?.isDeleted).map(c=>customerSummary(s,c)).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))); });
+app.get("/api/customers", auth, async (req,res)=>{
+  const s=readStore();
+  const customers=await nativeRepositories.withFallback("customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId),()=>Array.from(s.customers));
+  res.json(customers.filter(c=>!c?.isDeleted).map(c=>customerSummary(s,c)).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))));
+});
 app.post("/api/customers", auth, (req,res)=>{
   const {name,phone="",email="",identityNumber="",notes="",oldBalance=0}=req.body||{};
   if(!String(name).trim()) return res.status(400).json({message:"Customer name is required"});
@@ -1656,21 +1662,23 @@ app.post("/api/exchange-rates/refresh", auth, async (req,res)=>{
   }
 });
 
-app.get("/api/exchange-rates", auth, (_req,res)=>{
+app.get("/api/exchange-rates", auth, async (req,res)=>{
   const s = readStore();
+  const rates=await nativeRepositories.withFallback("exchange-rates",()=>nativeRepositories.exchangeRates.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(s.exchangeRates));
   const latest = new Map();
-  for (const rate of s.exchangeRates.slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt))) {
+  for (const rate of rates.slice().sort((a,b)=>String(b.createdAt||b.effectiveAt||"").localeCompare(String(a.createdAt||a.effectiveAt||"")))) {
     const key = `${rate.baseCurrency}_${rate.quoteCurrency}`;
     if (!latest.has(key)) latest.set(key, rate);
   }
   res.json(Array.from(latest.values()).sort((a,b)=>a.baseCurrency.localeCompare(b.baseCurrency)));
 });
 
-app.get("/api/exchange-rates/history", auth, (req,res)=>{
+app.get("/api/exchange-rates/history", auth, async (req,res)=>{
   const s = readStore();
+  const rates=await nativeRepositories.withFallback("exchange-rates-history",()=>nativeRepositories.exchangeRates.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(s.exchangeRates));
   const base = String(req.query.base || "");
   const quote = String(req.query.quote || "");
-  const list = s.exchangeRates.filter((r)=>
+  const list = rates.filter((r)=>
     (!base || r.baseCurrency===base) &&
     (!quote || r.quoteCurrency===quote)
   ).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
@@ -3359,9 +3367,9 @@ async function syncJadPartner(partner,options={}){
 }
 
 
-app.get("/api/partners", auth, (_req,res)=>{
+app.get("/api/partners", auth, async (req,res)=>{
   const store=readStore();
-  const partners=Array.isArray(store.partners)?store.partners:[];
+  const partners=await nativeRepositories.withFallback("partners",()=>nativeRepositories.partners.listByCompany(req.user.companyId,{orderBy:"name ASC"}),()=>Array.from(store.partners||[]));
   const transactions=Array.isArray(store.partnerTransactions)?store.partnerTransactions:[];
   const payments=Array.isArray(store.partnerPayments)?store.partnerPayments:[];
 
@@ -4318,9 +4326,10 @@ app.use((err,_req,res,_next)=>{
 
 async function startServer(){
   await initStore();
+  nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v22.3.3 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v22.3.4 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{
