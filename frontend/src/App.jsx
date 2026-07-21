@@ -3462,6 +3462,7 @@ function CapitalOverview(){
   const [data,setData]=useState(null);
   const [previousData,setPreviousData]=useState(null);
   const [movements,setMovements]=useState([]);
+  const [exchangeRates,setExchangeRates]=useState([]);
   const [goals,setGoals]=useState(()=>{
     try{return JSON.parse(localStorage.getItem("alaboud-budget-goals")||"")||{profit:25000,expenses:10000,capital:50000};}
     catch{return {profit:25000,expenses:10000,capital:50000};}
@@ -3485,14 +3486,16 @@ function CapitalOverview(){
       const selectedDate=new Date(`${month}-01T00:00:00`);
       selectedDate.setMonth(selectedDate.getMonth()-1);
       const previousMonth=selectedDate.toISOString().slice(0,7);
-      const [overviewResponse,previousResponse,movementsResponse]=await Promise.all([
+      const [overviewResponse,previousResponse,movementsResponse,ratesResponse]=await Promise.all([
         api.get("/capital-overview",{params:{month}}),
         api.get("/capital-overview",{params:{month:previousMonth}}),
-        api.get("/capital")
+        api.get("/capital"),
+        api.get("/exchange-rates")
       ]);
       setData(overviewResponse.data);
       setPreviousData(previousResponse.data);
       setMovements(Array.isArray(movementsResponse.data)?movementsResponse.data:[]);
+      setExchangeRates(Array.isArray(ratesResponse.data)?ratesResponse.data:[]);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل رأس المال");
     }
@@ -3545,12 +3548,32 @@ function CapitalOverview(){
     }
   }
 
+  function cadRateFor(currency){
+    const from=String(currency||"CAD").toUpperCase();
+    if(from==="CAD")return 1;
+    const latest=new Map();
+    [...exchangeRates].sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).forEach(rate=>{
+      const base=String(rate.baseCurrency||"").toUpperCase();
+      const quote=String(rate.quoteCurrency||"").toUpperCase();
+      const key=`${base}_${quote}`;
+      if(base&&quote&&!latest.has(key))latest.set(key,rate);
+    });
+    const graph=new Map();
+    const add=(a,b,f)=>{if(!Number.isFinite(f)||f<=0)return;(graph.get(a)||graph.set(a,[]).get(a)).push({to:b,factor:f});};
+    latest.forEach(rate=>{const base=String(rate.baseCurrency||"").toUpperCase(),quote=String(rate.quoteCurrency||"").toUpperCase(),factor=Number(rate.sellRate||rate.buyRate);if(factor>0){add(base,quote,factor);add(quote,base,1/factor);}});
+    const queue=[{currency:from,factor:1}],seen=new Set([from]);
+    while(queue.length){const current=queue.shift();for(const edge of graph.get(current.currency)||[]){if(seen.has(edge.to))continue;const factor=current.factor*edge.factor;if(edge.to==="CAD")return factor;seen.add(edge.to);queue.push({currency:edge.to,factor});}}
+    return null;
+  }
+  const formCadRate=cadRateFor(form.currency);
+  const formCadAmount=formCadRate&&Number(form.amount)>0?Number(form.amount)*formCadRate:null;
+
   if(!data)return <><h2>رأس المال الكلي</h2>{error?<div className="card customer-error">{error}</div>:<p>جاري التحميل...</p>}</>;
 
   const efficiency=data.turnoverRate>=3?"ممتاز":data.turnoverRate>=2?"جيد جداً":data.turnoverRate>=1?"جيد":"منخفض";
   const selectedMonthMovements=movements.filter(item=>String(item.date||item.createdAt||"").slice(0,7)===month);
-  const capitalIn=selectedMonthMovements.filter(item=>item.type==="IN").reduce((sum,item)=>sum+Number(item.amount||0),0);
-  const capitalOut=selectedMonthMovements.filter(item=>item.type==="OUT").reduce((sum,item)=>sum+Number(item.amount||0),0);
+  const capitalIn=selectedMonthMovements.filter(item=>item.type==="IN").reduce((sum,item)=>sum+Number((item.cadAmount ?? item.amount ?? 0)),0);
+  const capitalOut=selectedMonthMovements.filter(item=>item.type==="OUT").reduce((sum,item)=>sum+Number((item.cadAmount ?? item.amount ?? 0)),0);
   const netCapitalMovement=capitalIn-capitalOut;
   const totalFlow=capitalIn+capitalOut;
   const inShare=totalFlow?Math.round((capitalIn/totalFlow)*100):0;
@@ -3736,7 +3759,12 @@ function CapitalOverview(){
         <input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/>
       </label>
       <input value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="الوصف أو سبب الإضافة / السحب"/>
-      <button>{form.type==="IN"?"إضافة رأس المال":"تسجيل السحب"}</button>
+      <div className={`capital-conversion-preview ${form.currency!=="CAD"&&!formCadRate?"conversion-missing":""}`}>
+        <span>القيمة المعتمدة في الميزانية</span>
+        <strong>{formCadAmount!=null?`${money(formCadAmount)} CAD`:(form.currency==="CAD"?"0.00 CAD":"سعر الصرف غير متوفر")}</strong>
+        {form.currency!=="CAD"&&formCadRate&&<small>1 {form.currency} = {Number(formCadRate).toFixed(6)} CAD</small>}
+      </div>
+      <button disabled={form.currency!=="CAD"&&!formCadRate}>{form.type==="IN"?"إضافة رأس المال":"تسجيل السحب"}</button>
     </form>
 
     {editing&&<form className="card form edit-panel capital-edit-form no-print" onSubmit={saveEdit}>
@@ -3768,8 +3796,10 @@ function CapitalOverview(){
           <tr>
             <th>التاريخ</th>
             <th>النوع</th>
-            <th>المبلغ</th>
+            <th>المبلغ الأصلي</th>
             <th>العملة</th>
+            <th>سعر التحويل</th>
+            <th>القيمة CAD</th>
             <th>الوصف</th>
             <th className="no-print">الإجراءات</th>
           </tr>
@@ -3781,12 +3811,14 @@ function CapitalOverview(){
           </span></td>
           <td><strong>{money(item.amount)}</strong></td>
           <td>{item.currency||"CAD"}</td>
+          <td>{Number(item.exchangeRate||1).toFixed(6)}</td>
+          <td><strong>{item.cadAmount!=null?money(item.cadAmount):"—"} CAD</strong></td>
           <td>{item.description||"-"}</td>
           <td className="actions no-print">
             <button type="button" onClick={()=>setEditing({...item})}>تعديل</button>
             <button type="button" className="danger-button" onClick={()=>deleteCapital(item)}>حذف</button>
           </td>
-        </tr>):<tr><td colSpan="6">لا توجد حركات رأس مال مسجلة.</td></tr>}</tbody>
+        </tr>):<tr><td colSpan="8">لا توجد حركات رأس مال مسجلة.</td></tr>}</tbody>
       </table>
     </div>
 

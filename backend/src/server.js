@@ -128,6 +128,59 @@ function safeNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function latestExchangeGraph(store) {
+  const latest = new Map();
+  for (const rate of (Array.isArray(store.exchangeRates) ? store.exchangeRates : [])
+    .slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")))) {
+    const base=String(rate.baseCurrency||"").toUpperCase();
+    const quote=String(rate.quoteCurrency||"").toUpperCase();
+    if(!base||!quote||base===quote)continue;
+    const key=`${base}_${quote}`;
+    if(!latest.has(key))latest.set(key,rate);
+  }
+  const graph=new Map();
+  const add=(from,to,factor,updatedAt)=>{
+    if(!Number.isFinite(factor)||factor<=0)return;
+    if(!graph.has(from))graph.set(from,[]);
+    graph.get(from).push({to,factor,updatedAt});
+  };
+  for(const rate of latest.values()){
+    const base=String(rate.baseCurrency||"").toUpperCase();
+    const quote=String(rate.quoteCurrency||"").toUpperCase();
+    const factor=safeNumber(rate.sellRate,rate.buyRate);
+    if(factor>0){add(base,quote,factor,rate.createdAt||null);add(quote,base,1/factor,rate.createdAt||null);}
+  }
+  return graph;
+}
+
+function currencyConversion(store, fromCurrency, toCurrency="CAD") {
+  const from=String(fromCurrency||"CAD").toUpperCase();
+  const to=String(toCurrency||"CAD").toUpperCase();
+  if(from===to)return {factor:1,path:[from],updatedAt:null};
+  const graph=latestExchangeGraph(store);
+  const queue=[{currency:from,factor:1,path:[from],updatedAt:null}];
+  const seen=new Set([from]);
+  while(queue.length){
+    const current=queue.shift();
+    for(const edge of (graph.get(current.currency)||[])){
+      if(seen.has(edge.to))continue;
+      const next={currency:edge.to,factor:current.factor*edge.factor,path:[...current.path,edge.to],updatedAt:edge.updatedAt||current.updatedAt};
+      if(edge.to===to)return next;
+      seen.add(edge.to);queue.push(next);
+    }
+  }
+  return null;
+}
+
+function capitalCadAmount(store,item){
+  const saved=Number(item?.cadAmount);
+  if(Number.isFinite(saved))return saved;
+  const currency=String(item?.currency||"CAD").toUpperCase();
+  if(currency==="CAD")return safeNumber(item?.amount);
+  const conversion=currencyConversion(store,currency,"CAD");
+  return conversion?safeNumber(item?.amount)*conversion.factor:0;
+}
+
 function recordTime(value, fallback = "") {
   const text = String(value || fallback || "").trim();
   if (!text) return 0;
@@ -470,7 +523,7 @@ app.get("/api/dashboard", auth, (_req,res)=>{
   const todayExpenses = s.expenses.filter((e)=>e.date===today).reduce((a,e)=>a+Number(e.cadAmount??e.amount),0);
   const totalProfit = todayTx.reduce((a,t)=>a+Number(t.totalProfit||0),0)-todayExpenses;
   const receivables = s.customers.reduce((a,c)=>a+customerSummary(s,c).finalBalance,0);
-  const capital = s.capitalMovements.reduce((a,m)=>a+(m.type==="IN"?Number(m.amount):-Number(m.amount)),0);
+  const capital = s.capitalMovements.reduce((a,m)=>a+(m.type==="IN"?capitalCadAmount(s,m):-capitalCadAmount(s,m)),0);
   res.json({customers:s.customers.length,todayTransactions:todayTx.length,todayProfit:+totalProfit.toFixed(2),receivables:+receivables.toFixed(2),capital:+capital.toFixed(2),recent:todayTx.slice(-8).reverse()});
 });
 
@@ -516,7 +569,7 @@ app.get("/api/notifications", auth, (_req,res)=>{
     .sort((a,b)=>b.overdueDays-a.overdueDays);
 
   const capital=(Array.isArray(store.capitalMovements)?store.capitalMovements:[])
-    .reduce((sum,item)=>sum+(item.type==="IN"?safeNumber(item.amount):-safeNumber(item.amount)),0);
+    .reduce((sum,item)=>sum+(item.type==="IN"?capitalCadAmount(store,item):-capitalCadAmount(store,item)),0);
   const lowCashLimit=Math.max(0,safeNumber(store.notificationSettings?.lowCashLimit,5000));
 
   const notifications=[];
@@ -667,7 +720,7 @@ app.get("/api/capital-overview", auth, (req,res)=>{
   const debtPayments=Array.isArray(store.generalDebtPayments)?store.generalDebtPayments:[];
 
   const capitalBalance=capitalMovements.reduce(
-    (sum,item)=>sum+(item.type==="IN"?safeNumber(item.amount):-safeNumber(item.amount)),0
+    (sum,item)=>sum+(item.type==="IN"?capitalCadAmount(store,item):-capitalCadAmount(store,item)),0
   );
 
   const monthTransactions=transactions.filter(item=>
@@ -3917,7 +3970,7 @@ function aiAnalytics(store){
   const previousNet=txProfit(previousTx)-expenseCad(previousExpenses);
   const receivables=customers.reduce((a,c)=>a+safeNumber(c.finalBalance),0);
   const overdue=customers.filter(c=>c.overdue).sort((a,b)=>b.finalBalance-a.finalBalance);
-  const capital=(store.capitalMovements||[]).reduce((a,m)=>a+(m.type==="IN"?safeNumber(m.amount):-safeNumber(m.amount)),0);
+  const capital=(store.capitalMovements||[]).reduce((a,m)=>a+(m.type==="IN"?capitalCadAmount(store,m):-capitalCadAmount(store,m)),0);
   const categoryTotals={};
   for(const e of monthExpenses){const k=e.category||"Other";categoryTotals[k]=(categoryTotals[k]||0)+safeNumber(e.cadAmount,e.amount)}
   const currencyTotals={};
@@ -4002,8 +4055,31 @@ app.delete("/api/expenses/:id", auth, (req,res)=>{
   if(!removed)return res.status(404).json({message:"المصروف غير موجود"});
   res.json({ok:true,expense:removed});
 });
-app.get("/api/capital", auth, (_req,res)=>res.json(readStore().capitalMovements.slice().reverse()));
-app.post("/api/capital", auth, (req,res)=>{const {type="IN",amount,currency="CAD",description="",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount);if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid capital movement"});const m=mutate(s=>{const x={id:id(),type,amount:+n.toFixed(2),currency,description,date,createdAt:now(),createdBy:req.user.id};s.capitalMovements.push(x);audit(s,req.user.id,"CREATE","CAPITAL",x.id);return x;});res.status(201).json(m);});
+app.get("/api/capital", auth, (_req,res)=>{
+  const store=readStore();
+  const rows=(store.capitalMovements||[]).slice().reverse().map(item=>{
+    const currency=String(item.currency||"CAD").toUpperCase();
+    const conversion=currencyConversion(store,currency,"CAD");
+    const exchangeRate=Number.isFinite(Number(item.exchangeRate))?Number(item.exchangeRate):(conversion?.factor||null);
+    const cadAmount=Number.isFinite(Number(item.cadAmount))?Number(item.cadAmount):(exchangeRate?safeNumber(item.amount)*exchangeRate:(currency==="CAD"?safeNumber(item.amount):null));
+    return {...item,currency,baseCurrency:"CAD",exchangeRate,cadAmount:Number.isFinite(cadAmount)?+cadAmount.toFixed(2):null};
+  });
+  res.json(rows);
+});
+app.post("/api/capital", auth, (req,res)=>{
+  const {type="IN",amount,currency="CAD",description="",date=new Date().toISOString().slice(0,10)}=req.body||{};
+  const n=Number(amount), normalizedCurrency=String(currency||"CAD").toUpperCase();
+  if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0)return res.status(400).json({message:"بيانات حركة رأس المال غير صحيحة"});
+  const m=mutate(s=>{
+    const conversion=currencyConversion(s,normalizedCurrency,"CAD");
+    if(!conversion)return {error:"لا يوجد سعر صرف لهذه العملة إلى CAD. يرجى تحديث أسعار الصرف أولًا."};
+    const exchangeRate=conversion.factor;
+    const x={id:id(),type,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+exchangeRate.toFixed(6),baseCurrency:"CAD",cadAmount:+(n*exchangeRate).toFixed(2),conversionPath:conversion.path,rateUpdatedAt:conversion.updatedAt||null,description:String(description||""),date,createdAt:now(),createdBy:req.user.id};
+    s.capitalMovements.push(x);audit(s,req.user.id,"CREATE","CAPITAL",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;
+  });
+  if(m?.error)return res.status(400).json({message:m.error});
+  res.status(201).json(m);
+});
 
 app.patch("/api/capital/:id", auth, (req,res)=>{
   const {type,amount,currency,description,date}=req.body||{};
@@ -4014,9 +4090,17 @@ app.patch("/api/capital/:id", auth, (req,res)=>{
   const updated=mutate(store=>{
     const item=store.capitalMovements.find(entry=>entry.id===req.params.id);
     if(!item)return null;
+    const normalizedCurrency=String(currency||"CAD").toUpperCase();
+    const conversion=currencyConversion(store,normalizedCurrency,"CAD");
+    if(!conversion)return {error:"لا يوجد سعر صرف لهذه العملة إلى CAD. يرجى تحديث أسعار الصرف أولًا."};
     item.type=type;
     item.amount=+n.toFixed(2);
-    item.currency=String(currency||"CAD").toUpperCase();
+    item.currency=normalizedCurrency;
+    item.exchangeRate=+conversion.factor.toFixed(6);
+    item.baseCurrency="CAD";
+    item.cadAmount=+(n*conversion.factor).toFixed(2);
+    item.conversionPath=conversion.path;
+    item.rateUpdatedAt=conversion.updatedAt||null;
     item.description=String(description||"");
     item.date=date||new Date().toISOString().slice(0,10);
     item.updatedAt=now();
@@ -4025,6 +4109,7 @@ app.patch("/api/capital/:id", auth, (req,res)=>{
     return item;
   });
   if(!updated)return res.status(404).json({message:"حركة رأس المال غير موجودة"});
+  if(updated.error)return res.status(400).json({message:updated.error});
   res.json(updated);
 });
 
