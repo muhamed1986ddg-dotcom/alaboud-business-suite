@@ -1,1 +1,1 @@
-export const APP_VERSION="v21.0.2 Exchange Board Mobile Polish";
+export const APP_VERSION="v21.0.3 Exchange Board Mobile Polish";
