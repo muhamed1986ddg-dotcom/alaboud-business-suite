@@ -747,25 +747,81 @@ app.get("/api/capital-overview", auth, (req,res)=>{
   }
   let generalReceivable=0;
   let generalPayable=0;
+  const missingDebtRates=new Set();
+  const toCad=(amount,currency="CAD")=>{
+    const normalized=String(currency||"CAD").toUpperCase();
+    if(normalized==="CAD")return safeNumber(amount);
+    const conversion=currencyConversion(store,normalized,"CAD");
+    if(!conversion){missingDebtRates.add(normalized);return 0;}
+    return safeNumber(amount)*conversion.factor;
+  };
   for(const debt of debts){
     const remaining=Math.max(safeNumber(debt.amount)-safeNumber(debtPaidById.get(debt.id)),0);
-    if(debt.type==="RECEIVABLE")generalReceivable+=remaining;
-    if(debt.type==="PAYABLE")generalPayable+=remaining;
+    const cadRemaining=toCad(remaining,debt.currency||"CAD");
+    if(debt.type==="RECEIVABLE")generalReceivable+=cadRemaining;
+    if(debt.type==="PAYABLE")generalPayable+=cadRemaining;
+  }
+
+  // Include every company/partner balance shown in the general-debts page.
+  let partnerReceivable=0;
+  let partnerPayable=0;
+  const partners=Array.isArray(store.partners)?store.partners:[];
+  const partnerTransactions=Array.isArray(store.partnerTransactions)?store.partnerTransactions:[];
+  const partnerPayments=Array.isArray(store.partnerPayments)?store.partnerPayments:[];
+  for(const partner of partners){
+    const txs=partnerTransactions.filter(item=>item.partnerId===partner.id);
+    const pays=partnerPayments.filter(item=>item.partnerId===partner.id);
+    const currencies=new Set([
+      ...txs.map(item=>String(item.currency||"CAD").toUpperCase()),
+      ...pays.map(item=>String(item.currency||"CAD").toUpperCase())
+    ]);
+    for(const currency of currencies){
+      const receivable=txs.filter(item=>item.type==="RECEIVABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      const payable=txs.filter(item=>item.type==="PAYABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      const received=pays.filter(item=>item.direction==="RECEIVED"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      const paid=pays.filter(item=>item.direction==="PAID"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      partnerReceivable+=toCad(Math.max(receivable-received,0),currency);
+      partnerPayable+=toCad(Math.max(payable-paid,0),currency);
+    }
+
+    const multi=partner.externalBalances&&typeof partner.externalBalances==="object"?partner.externalBalances:null;
+    const entries=multi?Object.entries(multi).filter(([currency,value])=>currency&&value&&typeof value==="object"):[];
+    if(entries.length){
+      for(const [currency,value] of entries){
+        partnerReceivable+=toCad(Math.max(safeNumber(value.receivable),0),currency);
+        partnerPayable+=toCad(Math.max(safeNumber(value.payable),0),currency);
+      }
+    }else{
+      const currency=String(partner.accountCurrency||"USD").toUpperCase();
+      const extReceivable=Math.max(safeNumber(partner.externalReceivable),0);
+      const extPayable=Math.max(safeNumber(partner.externalPayable),0);
+      if(extReceivable>0.001||extPayable>0.001){
+        partnerReceivable+=toCad(extReceivable,currency);
+        partnerPayable+=toCad(extPayable,currency);
+      }else{
+        const balance=safeNumber(partner.externalBalance);
+        if(balance>0.001)partnerReceivable+=toCad(balance,currency);
+        if(balance<-0.001)partnerPayable+=toCad(Math.abs(balance),currency);
+      }
+    }
   }
 
   // Financial capital indicators (all values normalized to CAD).
-  // Net capital excludes debts; estimated capital includes receivables and payables.
+  // Total money includes capital, accumulated profit and all receivables.
+  // Net capital after everything deducts accumulated expenses and every payable.
   const accumulatedProfit=transactions.reduce(
     (sum,item)=>sum+safeNumber(item.totalProfit),0
   );
   const accumulatedExpenses=expenses.reduce(
     (sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0
   );
-  const netCapital=capitalBalance+accumulatedProfit-accumulatedExpenses;
-  const totalReceivables=receivables+generalReceivable;
-  const netDebt=totalReceivables-generalPayable;
-  const estimatedCapital=netCapital+netDebt;
-  const totalCapital=estimatedCapital;
+  const totalReceivables=receivables+generalReceivable+partnerReceivable;
+  const totalPayables=generalPayable+partnerPayable;
+  const totalMoney=capitalBalance+accumulatedProfit+totalReceivables;
+  const netCapital=totalMoney-accumulatedExpenses-totalPayables;
+  const netDebt=totalReceivables-totalPayables;
+  const estimatedCapital=netCapital;
+  const totalCapital=netCapital;
   const turnoverBase=Math.abs(capitalBalance)>0?Math.abs(capitalBalance):Math.abs(estimatedCapital);
   const turnoverRate=turnoverBase>0?monthlyTransferValue/turnoverBase:0;
   const averageTransfer=monthTransactions.length?monthlyTransferValue/monthTransactions.length:0;
@@ -775,9 +831,13 @@ app.get("/api/capital-overview", auth, (req,res)=>{
     capitalBalance:+capitalBalance.toFixed(2),
     accumulatedProfit:+accumulatedProfit.toFixed(2),
     accumulatedExpenses:+accumulatedExpenses.toFixed(2),
+    totalMoney:+totalMoney.toFixed(2),
     netCapital:+netCapital.toFixed(2),
     totalReceivables:+totalReceivables.toFixed(2),
-    totalPayables:+generalPayable.toFixed(2),
+    totalPayables:+totalPayables.toFixed(2),
+    partnerReceivable:+partnerReceivable.toFixed(2),
+    partnerPayable:+partnerPayable.toFixed(2),
+    missingDebtRates:[...missingDebtRates],
     netDebt:+netDebt.toFixed(2),
     estimatedCapital:+estimatedCapital.toFixed(2),
     totalCapital:+totalCapital.toFixed(2),
@@ -2824,7 +2884,7 @@ async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
 }
 
 
-async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp,balanceOnly=false}={}){
+async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
   let chromium;
   try{({chromium}=require("playwright"));}
   catch(error){const wrapped=new Error("موصل المتصفح غير مثبت. نفّذ npm install داخل backend ثم أعد النشر");wrapped.code="JAD_BROWSER_UNAVAILABLE";wrapped.cause=error;throw wrapped;}
@@ -3021,30 +3081,6 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp,balanceOnly=fa
       }
     }
     trace.push({label:"dashboard-currency-balances",url:page.url(),time:new Date().toISOString(),balances:dashboardCurrencyBalances,preview:safeText(htmlText(dashboardCurrencySource)).slice(0,1400)});
-
-    // جلب الرصيد فقط: نعيد أرصدة بطاقات لوحة جاد مباشرة دون فتح كشف الحساب أو حساب الأجور.
-    // هذا يقلل زمن الطلب ويمنع إلغاءه في المتصفح عند تأخر صفحة كشف الحساب.
-    if(balanceOnly){
-      if(!Object.keys(dashboardCurrencyBalances).length){
-        throw await diagnosticError("تم تسجيل الدخول إلى جاد لكن لم تظهر بطاقات الرصيد","JAD_BALANCE_CARDS_NOT_FOUND");
-      }
-      const primaryCode=String(partner.accountCurrency||"USD").toUpperCase();
-      const primary=dashboardCurrencyBalances[primaryCode]||dashboardCurrencyBalances.USD||dashboardCurrencyBalances.EUR||Object.values(dashboardCurrencyBalances)[0];
-      const freshStorageState=await context.storageState().catch(()=>null);
-      return {
-        receivable:safeNumber(primary?.receivable),
-        payable:safeNumber(primary?.payable),
-        balance:safeNumber(primary?.balance),
-        currencies:dashboardCurrencyBalances,
-        movements:[],
-        totalFees:0,
-        fromDate:"",
-        toDate:"",
-        mode:"BROWSER_BALANCE_ONLY",
-        diagnostic:trace.slice(-10),
-        _storageState:freshStorageState
-      };
-    }
 
     // Jad commonly exposes the statement on pl.m even when the authenticated
     // landing URL remains /log. Probe the known authenticated endpoint first,
@@ -3731,7 +3767,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
   try{
     const result=connector==="TAWASUL"
       ? await syncKontorunPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp})
-      : await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp,balanceOnly:syncTrigger!=="FEE_REPORT"});
+      : await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp});
     const storageState=result?._storageState||null;
     if(result&&Object.prototype.hasOwnProperty.call(result,"_storageState"))delete result._storageState;
     let publicPartner=null;
