@@ -1,1 +1,1 @@
-export const APP_VERSION="v21.2.0 USD Base Exchange Board";
+export const APP_VERSION="v21.3.0 Premium Exchange Design";
