@@ -293,16 +293,9 @@ function Dashboard({navigate}){
         setExpenses(Array.isArray(expensesResponse.data)?expensesResponse.data:[]);
         setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
         const rateRows=Array.isArray(ratesResponse.data)?ratesResponse.data:[];
-        const dashboardCurrencyOrder=["USD","CAD","EUR","TRY","SYP","SAR","JOD"];
-        const latestByCurrency=new Map();
-        rateRows
-          .filter(rate=>dashboardCurrencyOrder.includes(String(rate.baseCurrency||"").toUpperCase()))
-          .sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")))
-          .forEach(rate=>{
-            const code=String(rate.baseCurrency||"").toUpperCase();
-            if(!latestByCurrency.has(code))latestByCurrency.set(code,rate);
-          });
-        setDashboardRates(dashboardCurrencyOrder.map(code=>latestByCurrency.get(code)).filter(Boolean));
+        // Keep every latest currency pair. Grouping only by base currency caused
+        // CAD/USD to be treated as CAD/CAD and produced incorrect cross-rates.
+        setDashboardRates(rateRows);
         setDashboardRateHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
         setIntelligence(intelligenceResponse.data||null);
         setLastRefresh(new Date());
@@ -399,10 +392,7 @@ function Dashboard({navigate}){
               setRatesRefreshing(true);setRatesError("");
               await api.post("/exchange-rates/refresh");
               const [ratesResponse,historyResponse]=await Promise.all([api.get("/exchange-rates"),api.get("/exchange-rates/history")]);
-              const order=["USD","CAD","EUR","TRY","SYP","SAR","JOD"];
-              const latest=new Map();
-              (Array.isArray(ratesResponse.data)?ratesResponse.data:[]).filter(rate=>order.includes(String(rate.baseCurrency||"").toUpperCase())).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).forEach(rate=>{const code=String(rate.baseCurrency||"").toUpperCase();if(!latest.has(code))latest.set(code,rate)});
-              setDashboardRates(order.map(code=>latest.get(code)).filter(Boolean));
+              setDashboardRates(Array.isArray(ratesResponse.data)?ratesResponse.data:[]);
               setDashboardRateHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
               setLastRefresh(new Date());
             }catch(error){setRatesError(error.response?.data?.message||"تعذر تحديث أسعار الصرف. تم الاحتفاظ بآخر أسعار صحيحة.")}finally{setRatesRefreshing(false)}
@@ -413,11 +403,24 @@ function Dashboard({navigate}){
       {ratesError&&<div className="exchange-board-error">⚠️ {ratesError}</div>}
       <div className="usd-base-rate-list">
         {["CAD","EUR","TRY","SAR","JOD","SYP"].map(code=>{
-          const usdRate=dashboardRates.find(item=>String(item.baseCurrency||"").toUpperCase()==="USD");
-          const targetRate=dashboardRates.find(item=>String(item.baseCurrency||"").toUpperCase()===code);
-          const usdCad=Number(usdRate?.sellRate||usdRate?.buyRate||0);
-          const targetCad=code==="CAD"?1:Number(targetRate?.sellRate||targetRate?.buyRate||0);
-          const quote=usdCad>0&&targetCad>0?usdCad/targetCad:null;
+          const pairRate=(base,quote)=>dashboardRates.find(item=>
+            String(item.baseCurrency||"").toUpperCase()===base&&
+            String(item.quoteCurrency||"").toUpperCase()===quote
+          );
+          const numericRate=item=>Number(item?.sellRate||item?.buyRate||0);
+          const direct=numericRate(pairRate("USD",code));
+          const inverse=numericRate(pairRate(code,"USD"));
+          let quote=direct>0?direct:(inverse>0?1/inverse:null);
+          // Fallback through CAD only when a direct USD pair is unavailable.
+          if(!quote){
+            const usdCadDirect=numericRate(pairRate("USD","CAD"));
+            const cadUsdInverse=numericRate(pairRate("CAD","USD"));
+            const usdCad=usdCadDirect>0?usdCadDirect:(cadUsdInverse>0?1/cadUsdInverse:null);
+            const targetCadDirect=numericRate(pairRate(code,"CAD"));
+            const cadTargetInverse=numericRate(pairRate("CAD",code));
+            const targetCad=code==="CAD"?1:(targetCadDirect>0?targetCadDirect:(cadTargetInverse>0?1/cadTargetInverse:null));
+            quote=usdCad&&targetCad?usdCad/targetCad:null;
+          }
           const decimals=code==="SYP"?0:code==="TRY"?2:4;
           const targetMeta=debtCurrencies.find(item=>item.code===code)||{name:code};
           return <button className={`usd-base-rate-row ${quote?"":"missing"}`} key={code} onClick={()=>navigate("rates")}>
@@ -431,7 +434,7 @@ function Dashboard({navigate}){
       <div className="exchange-board-summary usd-base-summary">
         <span><b>USD</b> العملة الأساسية</span>
         <span><b>{dashboardRates.filter(item=>["USD","EUR","TRY","SYP","SAR","JOD"].includes(String(item.baseCurrency||"").toUpperCase())).length}</b> أسعار متوفرة</span>
-        <span>القيم محسوبة مباشرة من أحدث سعر مسجل مقابل CAD</span>
+        <span>القيم تستخدم زوج USD المباشر أولاً، ثم التحويل المتقاطع الموثوق عند الحاجة</span>
       </div>
     </section>
 
@@ -2398,6 +2401,9 @@ function ExchangeRates(){
   const [message,setMessage]=useState("");
   const [currencySearch,setCurrencySearch]=useState("");
   const [showCurrencyManager,setShowCurrencyManager]=useState(false);
+  const [rateViewSearch,setRateViewSearch]=useState("");
+  const [rateViewFilter,setRateViewFilter]=useState("ALL");
+  const [rateFavorites,setRateFavorites]=useState(()=>{try{return JSON.parse(localStorage.getItem("alaboud_rate_favorites")||"[]")}catch{return []}});
   const [customCurrency,setCustomCurrency]=useState({code:"",name:"",flag:"🏳️"});
   const [enabledCurrencies,setEnabledCurrencies]=useState(()=>{
     try{
@@ -2407,6 +2413,7 @@ function ExchangeRates(){
   });
 
   useEffect(()=>{localStorage.setItem("alaboud_exchange_currencies",JSON.stringify(enabledCurrencies))},[enabledCurrencies]);
+  useEffect(()=>{localStorage.setItem("alaboud_rate_favorites",JSON.stringify(rateFavorites))},[rateFavorites]);
 
   const trendFor=(rate)=>rateTrend(rate,history);
   const isGoldRate=rate=>String(rate.baseCurrency||"").startsWith("XAU");
@@ -2599,24 +2606,46 @@ function ExchangeRates(){
       </form>
     </div>
 
-    <div className="card tablewrap currency-rates-table">
-      <h3>💱 أسعار العملات</h3>
-      <table>
-        <thead><tr><th>من</th><th>إلى</th><th>شراء</th><th>بيع</th><th>الحركة</th><th>المصدر</th><th>آخر تحديث</th></tr></thead>
-        <tbody>{currencyRates.length?currencyRates.map(r=>{
+    <section className="premium-rates-board">
+      <div className="premium-rates-toolbar">
+        <div className="premium-rates-title">
+          <div><span>💱</span><h3>العملات وأسعار الصرف</h3></div>
+          <small>آخر تحديث: {currencyRates.length?safeDateText(currencyRates[0]?.createdAt):"—"}</small>
+        </div>
+        <div className="premium-rates-search"><span>⌕</span><input value={rateViewSearch} onChange={e=>setRateViewSearch(e.target.value)} placeholder="ابحث عن عملة أو رمز العملة..."/></div>
+        <div className="premium-rates-filters">
+          {[
+            ["ALL","▦","الكل"],
+            ["FAVORITES","★","المفضلة"],
+            ["USD","🇺🇸","USD"],
+            ["CAD","🇨🇦","CAD"],
+            ["OTHER","•••","أخرى"]
+          ].map(([key,icon,label])=><button type="button" key={key} className={rateViewFilter===key?"active":""} onClick={()=>setRateViewFilter(key)}><span>{icon}</span>{label}</button>)}
+        </div>
+      </div>
+      <div className="premium-rate-list">
+        {currencyRates.filter(r=>{
+          const q=rateViewSearch.trim().toLowerCase();
+          const key=`${r.baseCurrency} ${r.quoteCurrency} ${currencyInfo[r.baseCurrency]?.name||""} ${currencyInfo[r.quoteCurrency]?.name||""}`.toLowerCase();
+          const favorite=rateFavorites.includes(String(r.id));
+          const matchesSearch=!q||key.includes(q);
+          const matchesFilter=rateViewFilter==="ALL"||(rateViewFilter==="FAVORITES"&&favorite)||(rateViewFilter==="USD"&&(r.baseCurrency==="USD"||r.quoteCurrency==="USD"))||(rateViewFilter==="CAD"&&(r.baseCurrency==="CAD"||r.quoteCurrency==="CAD"))||(rateViewFilter==="OTHER"&&!([r.baseCurrency,r.quoteCurrency].includes("USD")||[r.baseCurrency,r.quoteCurrency].includes("CAD")));
+          return matchesSearch&&matchesFilter;
+        }).map(r=>{
           const trend=trendFor(r);
-          return <tr key={r.id} className={`rate-row rate-${trend.type} ${r.baseCurrency==="SYP"||r.quoteCurrency==="SYP"?"syp-highlight":""}`}>
-            <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.baseCurrency}/><span>{currencyInfo[r.baseCurrency]?.name||r.baseCurrency}</span><small>{r.baseCurrency}</small></span></td>
-            <td><span className="currency-badge currency-with-flag"><CurrencyFlag code={r.quoteCurrency}/><span>{currencyInfo[r.quoteCurrency]?.name||r.quoteCurrency}</span><small>{r.quoteCurrency}</small></span></td>
-            <td className="buy-rate">{r.sypPlaceholder?"أدخل السعر":Number(r.buyRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</td>
-            <td className="sell-rate"><strong>{r.sypPlaceholder?"أدخل السعر":Number(r.sellRate).toFixed(6).replace(/0+$/,"").replace(/\.$/,"")}</strong></td>
-            <td><span className={`trend trend-${r.sypPlaceholder?"new":trend.type}`}>{r.sypPlaceholder?"● بانتظار السعر":`${trend.symbol} ${trend.label}`}</span></td>
-            <td><span className={`source-badge ${["FRANKFURTER","EXCHANGE_RATE_API","GOLD_API"].includes(r.source)?"auto":"manual"}`}>{r.sypPlaceholder?"سوري":r.source==="FRANKFURTER"?"تلقائي":"يدوي"}</span></td>
-            <td>{safeDateText(r.createdAt)}</td>
-          </tr>
-        }):<tr><td colSpan="7">لا توجد أسعار عملات مسجلة.</td></tr>}</tbody>
-      </table>
-    </div>
+          const favorite=rateFavorites.includes(String(r.id));
+          const value=r.sypPlaceholder?null:Number(r.sellRate||r.buyRate||0);
+          return <article className={`premium-rate-card rate-${trend.type}`} key={r.id}>
+            <button type="button" className={`premium-rate-favorite ${favorite?"active":""}`} onClick={()=>setRateFavorites(current=>favorite?current.filter(id=>id!==String(r.id)):[...current,String(r.id)])}>{favorite?"★":"☆"}</button>
+            <div className="premium-rate-currency premium-rate-from"><CurrencyFlag code={r.baseCurrency}/><div><strong>{currencyInfo[r.baseCurrency]?.name||r.baseCurrency}</strong><small>{r.baseCurrency}</small></div></div>
+            <div className="premium-rate-arrow">→</div>
+            <div className="premium-rate-price"><small>سعر الصرف</small><strong>{value?value.toLocaleString("en-CA",{maximumFractionDigits:6}):"—"}</strong><span className={`trend-${r.sypPlaceholder?"new":trend.type}`}>{r.sypPlaceholder?"● بانتظار السعر":`${trend.symbol} ${trend.label}`}</span></div>
+            <div className="premium-rate-currency premium-rate-to"><CurrencyFlag code={r.quoteCurrency}/><div><strong>{currencyInfo[r.quoteCurrency]?.name||r.quoteCurrency}</strong><small>{r.quoteCurrency}</small></div></div>
+          </article>
+        })}
+        {!currencyRates.length&&<div className="premium-rate-empty">لا توجد أسعار عملات مسجلة.</div>}
+      </div>
+    </section>
 
     <div className="card tablewrap gold-rates-table">
       <h3>🪙 أسعار الذهب للغرام</h3>
