@@ -6,7 +6,7 @@ const fs = require("fs");
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "alaboud-v7-"));
 const child = spawn(process.execPath,[path.join(__dirname,"server.js")],{
-  env:{...process.env,PORT:"5099",DATA_DIR:dataDir,JWT_SECRET:"QA_SECRET"},
+  env:{...process.env,PORT:"5099",DATA_DIR:dataDir,JWT_SECRET:"QA_SECRET",RETURN_RESET_TOKEN:"true"},
   stdio:["ignore","pipe","pipe"]
 });
 
@@ -38,11 +38,21 @@ function assert(condition,label,response){
 setTimeout(async()=>{
   try{
     let r=await request("GET","/api/health");
-    assert(r.status===200&&r.body.version==="18.5.2","health",r);
+    assert(r.status===200&&r.body.version==="22.0.0","health",r);
 
-    r=await request("POST","/api/auth/login",{email:"admin@alaboud.local",password:"Admin123!"});
+    r=await request("POST","/api/auth/login",{email:"admin@alaboud.local",password:"Admin123!ChangeMe"});
     assert(r.status===200&&r.body.token,"login",r);
     const token=r.body.token;
+
+    r=await request("POST","/api/auth/forgot-password",{email:"admin@alaboud.local"});
+    assert(r.status===200&&r.body.devResetToken,"forgot password",r);
+    const resetToken=r.body.devResetToken;
+
+    r=await request("POST","/api/auth/reset-password",{email:"admin@alaboud.local",token:resetToken,newPassword:"Admin123!ResetSecure"});
+    assert(r.status===200,"reset password",r);
+
+    r=await request("POST","/api/auth/login",{email:"admin@alaboud.local",password:"Admin123!ResetSecure"});
+    assert(r.status===200&&r.body.token,"login after reset",r);
 
     r=await request("POST","/api/customers",{name:"عميل اختبار",phone:"15195550123"},token);
     assert(r.status===201&&r.body.id,"customer",r);

@@ -1,0 +1,30 @@
+name: CI
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install backend dependencies
+        run: npm ci --prefix backend --no-audit --no-fund
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend --no-audit --no-fund
+      - name: Backend syntax check
+        run: node --check backend/src/server.js
+      - name: Run backend tests
+        run: npm test --prefix backend
+      - name: Build frontend
+        run: npm run build
+      - name: Dependency audit
+        run: |
+          npm audit --prefix backend --audit-level=high
+          npm audit --prefix frontend --audit-level=high
