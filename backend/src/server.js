@@ -2824,7 +2824,7 @@ async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
 }
 
 
-async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
+async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp,balanceOnly=false}={}){
   let chromium;
   try{({chromium}=require("playwright"));}
   catch(error){const wrapped=new Error("موصل المتصفح غير مثبت. نفّذ npm install داخل backend ثم أعد النشر");wrapped.code="JAD_BROWSER_UNAVAILABLE";wrapped.cause=error;throw wrapped;}
@@ -3021,6 +3021,30 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
       }
     }
     trace.push({label:"dashboard-currency-balances",url:page.url(),time:new Date().toISOString(),balances:dashboardCurrencyBalances,preview:safeText(htmlText(dashboardCurrencySource)).slice(0,1400)});
+
+    // جلب الرصيد فقط: نعيد أرصدة بطاقات لوحة جاد مباشرة دون فتح كشف الحساب أو حساب الأجور.
+    // هذا يقلل زمن الطلب ويمنع إلغاءه في المتصفح عند تأخر صفحة كشف الحساب.
+    if(balanceOnly){
+      if(!Object.keys(dashboardCurrencyBalances).length){
+        throw await diagnosticError("تم تسجيل الدخول إلى جاد لكن لم تظهر بطاقات الرصيد","JAD_BALANCE_CARDS_NOT_FOUND");
+      }
+      const primaryCode=String(partner.accountCurrency||"USD").toUpperCase();
+      const primary=dashboardCurrencyBalances[primaryCode]||dashboardCurrencyBalances.USD||dashboardCurrencyBalances.EUR||Object.values(dashboardCurrencyBalances)[0];
+      const freshStorageState=await context.storageState().catch(()=>null);
+      return {
+        receivable:safeNumber(primary?.receivable),
+        payable:safeNumber(primary?.payable),
+        balance:safeNumber(primary?.balance),
+        currencies:dashboardCurrencyBalances,
+        movements:[],
+        totalFees:0,
+        fromDate:"",
+        toDate:"",
+        mode:"BROWSER_BALANCE_ONLY",
+        diagnostic:trace.slice(-10),
+        _storageState:freshStorageState
+      };
+    }
 
     // Jad commonly exposes the statement on pl.m even when the authenticated
     // landing URL remains /log. Probe the known authenticated endpoint first,
@@ -3707,7 +3731,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
   try{
     const result=connector==="TAWASUL"
       ? await syncKontorunPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp})
-      : await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp});
+      : await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp,balanceOnly:syncTrigger!=="FEE_REPORT"});
     const storageState=result?._storageState||null;
     if(result&&Object.prototype.hasOwnProperty.call(result,"_storageState"))delete result._storageState;
     let publicPartner=null;

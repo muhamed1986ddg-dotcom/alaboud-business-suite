@@ -1,1 +1,1 @@
-export const APP_VERSION="v21.5.0 Multi-Currency Capital Engine";
+export const APP_VERSION="v21.5.1 Jad Balance Only";
