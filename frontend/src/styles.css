@@ -4850,3 +4850,5 @@ body.app-language-en aside{
   .v20-exchange-board .exchange-rate-card-top{grid-template-columns:30px minmax(0,1fr)!important;row-gap:6px!important}
   .v20-exchange-board .dashboard-rate-trend,.exchange-rate-card-top .dashboard-rate-trend{grid-column:1/-1!important;justify-self:start!important}
 }
+
+.jad-fee-controls{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px}.jad-fee-controls input{min-width:132px;padding:8px}.jad-fee-report{margin:16px 0}.jad-fee-report-head{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:12px}.jad-fee-report-head h3,.jad-fee-report-head p{margin:0}.jad-fee-report-head strong{font-size:1.35rem}.jad-fee-report .tablewrap{margin:0}@media(max-width:700px){.jad-fee-controls{flex-direction:column;align-items:stretch}.jad-fee-controls input,.jad-fee-controls button{width:100%}.jad-fee-report-head{align-items:flex-start;flex-direction:column}}

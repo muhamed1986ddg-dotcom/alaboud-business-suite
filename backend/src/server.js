@@ -2574,10 +2574,20 @@ function parseJadStatement(html){
     const parsed=[...body[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)].map(row=>[...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(cell=>htmlText(cell[1]))).filter(cells=>cells.length>=6);
     if(parsed.length>rows.length)rows=parsed;
   }
-  const movements=rows.map(cells=>({
-    sequence:cells[0]||"",date:cells[1]||"",movementType:cells[2]||"",movementNumber:cells[3]||"",notes:cells[4]||"",
-    payable:numberFromText(cells[5]),receivable:numberFromText(cells[6]),balance:numberFromText(cells[7]??cells[cells.length-1]),raw:cells
-  }));
+  const headerCells=[...source.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi)].map(match=>htmlText(match[1]).trim());
+  const feeHeaderIndex=headerCells.findIndex(value=>/(?:أجور|اجور|عمولة|commission|fee|fees)/i.test(value));
+  const feeLabelPattern=/(?:أجور|اجور|عمولة|commission|service\s*fee|transfer\s*fee|fees?)/i;
+  const movements=rows.map(cells=>{
+    const movement={
+      sequence:cells[0]||"",date:cells[1]||"",movementType:cells[2]||"",movementNumber:cells[3]||"",notes:cells[4]||"",
+      payable:numberFromText(cells[5]),receivable:numberFromText(cells[6]),balance:numberFromText(cells[7]??cells[cells.length-1]),raw:cells
+    };
+    const labelledAsFee=feeLabelPattern.test(`${movement.movementType} ${movement.notes}`);
+    const explicitFee=feeHeaderIndex>=0&&feeHeaderIndex<cells.length?Math.abs(numberFromText(cells[feeHeaderIndex])):0;
+    movement.fee=explicitFee||(labelledAsFee?Math.max(Math.abs(movement.payable),Math.abs(movement.receivable)):0);
+    movement.isFee=movement.fee>0;
+    return movement;
+  });
   const last=movements[movements.length-1]||{};
   const totalPayableMatch=source.match(/(?:دائن\s*علينا|مجموع\s*الدائن\s*علينا)[\s\S]{0,180}?([\d,]+(?:\.\d+)?)/i);
   const totalReceivableMatch=source.match(/(?:مدين\s*لنا|مجموع\s*المدين\s*لنا)[\s\S]{0,180}?([\d,]+(?:\.\d+)?)/i);
@@ -2589,7 +2599,9 @@ function parseJadStatement(html){
     if(/دائن\s*علينا|دولار\s*عليكم/.test(pageText))payable=Math.abs(balance);else receivable=Math.abs(balance);
   }
   const normalized=normalizeJadCurrencyDebt(receivable,payable,{prefer:balance<0?"PAYABLE":"RECEIVABLE"});
-  return {movements,balance:normalized.balance,payable:normalized.payable,receivable:normalized.receivable};
+  const feeMovements=movements.filter(item=>item.isFee);
+  const totalFees=+feeMovements.reduce((sum,item)=>sum+safeNumber(item.fee),0).toFixed(2);
+  return {movements,feeMovements,totalFees,balance:normalized.balance,payable:normalized.payable,receivable:normalized.receivable};
 }
 async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
   const {base,prefix,loginUrl,accountUrl,landingUrl}=resolveJadConnection(partner);
@@ -3636,6 +3648,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
       if(storageState)item.jadStorageStateEncrypted=encryptIntegrationSecret(JSON.stringify(storageState));
       item.lastSyncAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.connectionStatus="READY";item.updatedAt=now();
       item.lastImportedMovementCount=result.movements.length;
+      item.lastFeeTotal=safeNumber(result.totalFees);item.lastFeeFromDate=result.fromDate||req.body?.fromDate||"";item.lastFeeToDate=result.toDate||req.body?.toDate||"";item.lastFeeCurrency=partner.accountCurrency||"USD";
       const {passwordEncrypted,...safe}=item;publicPartner={...safe,hasPassword:Boolean(passwordEncrypted)};
       audit(store,req.user.id,"SYNC","PARTNER",item.id,{connector,balance:result.balance,receivable:result.receivable,payable:result.payable,currencies:Object.keys(result.currencies||{}),count:result.movements.length});
       recordPartnerSyncLog(store,item,{status:"SUCCESS",trigger:syncTrigger,durationMs:Date.now()-syncStartedAt,beforeBalance:safeNumber(partner.externalBalance),afterBalance:result.balance,changed:Math.abs(safeNumber(partner.externalBalance)-safeNumber(result.balance))>0.0001,importedCount:result.movements.length,message:"تمت المزامنة بنجاح"});
