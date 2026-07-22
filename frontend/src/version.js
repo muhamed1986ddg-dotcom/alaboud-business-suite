@@ -1,1 +1,1 @@
-export const APP_VERSION="v22.6.0 Security & Permissions Update";
+export const APP_VERSION="v21.6.0 Financial Assets & Liabilities Dashboard";

@@ -1,0 +1,11 @@
+const assert=require('assert');
+const {generateApiKey,keyPrefix,normalizeScopes,verifyApiKey,hashKey,openApiDocument}=require('./api-platform');
+const raw=generateApiKey();
+assert(raw.startsWith('alb_live_'));
+assert.equal(keyPrefix(raw),raw.slice(0,16));
+assert.deepEqual(normalizeScopes(['customers.read','customers.read','']),['customers.read']);
+const store={apiKeys:[{id:'1',keyHash:hashKey(raw),active:true,companyId:'c1',scopes:['customers.read']}]};
+assert.equal(verifyApiKey(store,raw).id,'1');
+assert.equal(verifyApiKey(store,'wrong'),null);
+assert.equal(openApiDocument().info.version,'22.6.0');
+console.log('API platform selftest passed');

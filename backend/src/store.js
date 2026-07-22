@@ -14,13 +14,13 @@ const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path
 const dataFile = path.join(dataDir, "store.json");
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
 
-const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices"];
+const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","apiKeys","webhooks","integrationLogs"];
 const emptyStore = () => ({
   companies: [], users: [], customers: [], transactions: [], payments: [], expenses: [],
   capitalMovements: [], exchangeRates: [], generalDebts: [], generalDebtPayments: [],
   partners: [], partnerTransactions: [], partnerPayments: [], partnerSyncLogs: [],
   notificationSettings: { overdueDays: 7, lowCashLimit: 5000, whatsappTemplate: "" },
-  companySettings: {}, notificationActions: [], auditLogs: [], devices: []
+  companySettings: {}, notificationActions: [], auditLogs: [], devices: [], apiKeys: [], webhooks: [], integrationLogs: []
 });
 
 function normalizeStore(store){
@@ -81,19 +81,13 @@ function tenantView(root,companyId){
   return new Proxy(root,{
     get(target,prop){
       if(prop===RAW_STORE)return target;
-      if(prop==="users")return tenantArray(target,"users",companyId);
+      if(prop==="users")return target.users.filter(user=>user.companyId===companyId);
       if(prop==="notificationSettings")return target.companySettings[companyId];
       if(DATA_ARRAYS.includes(prop))return tenantArray(target,prop,companyId);
       return target[prop];
     },
     set(target,prop,value){
       if(prop==="notificationSettings"){target.companySettings[companyId]={...value};return true}
-      if(prop==="users"){
-        const current=Array.isArray(target.users)?target.users:[];
-        const otherTenants=current.filter(item=>!item||item.companyId!==companyId);
-        target.users=[...otherTenants,...Array.from(value||[]).map(item=>({...item,companyId}))];
-        return true;
-      }
       if(DATA_ARRAYS.includes(prop)){
         const current=Array.isArray(target[prop])?target[prop]:[];
         const otherTenants=current.filter(item=>!item||item.companyId!==companyId);

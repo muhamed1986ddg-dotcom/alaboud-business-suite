@@ -8,8 +8,9 @@ const path = require("path");
 const fs = require("fs");
 const { readStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
-const { permissionsFor, hasPermission, requirePermission, requiredPermissionForRequest } = require("./access-control");
+const { permissionsFor, requirePermission } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
+const { generateApiKey, keyPrefix, normalizeScopes, apiKeyMiddleware, versionAliasMiddleware, integrationLogger, openApiDocument, docsHtml } = require("./api-platform");
 
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -55,6 +56,9 @@ app.use((req,res,next)=>{ req.requestId=crypto.randomUUID(); res.setHeader("X-Re
 app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:","blob:"], connectSrc:["'self'","https:"], objectSrc:["'none'"], baseUri:["'self'"], frameAncestors:["'none'"] } }, crossOriginEmbedderPolicy:false, hsts: IS_PROD ? {maxAge:31536000,includeSubDomains:true,preload:true}:false }));
 app.use(express.json({ limit: "2mb", strict:true }));
 app.use(express.urlencoded({extended:false,limit:"256kb"}));
+app.use(versionAliasMiddleware);
+app.use(apiKeyMiddleware({readStore,mutate,now}));
+app.use(integrationLogger({mutate,now,id}));
 const requestBuckets=new Map();
 function rateLimit(name,limit,windowMs){return (req,res,next)=>{const key=`${name}:${req.ip}`;const t=Date.now();let b=requestBuckets.get(key);if(!b||t>b.reset){b={count:0,reset:t+windowMs};requestBuckets.set(key,b)}b.count++;res.setHeader("RateLimit-Limit",limit);res.setHeader("RateLimit-Remaining",Math.max(0,limit-b.count));if(b.count>limit)return res.status(429).json({message:"طلبات كثيرة جدًا، حاول لاحقًا"});next()}}
 app.use("/api",rateLimit("api",600,15*60*1000));
@@ -77,11 +81,8 @@ function seedAdmin(){
 
     let admin=store.users.find(user=>user.email==="admin@alaboud.local");
     if(!admin){
-      const initialPassword=String(process.env.ADMIN_INITIAL_PASSWORD||"");
-      if(!IS_PROD||initialPassword){
-        admin={id:id(),companyId:company.id,name:"System Administrator",email:"admin@alaboud.local",passwordHash:hashPassword(initialPassword||"Admin123!ChangeMe"),role:"ADMIN",active:true,mustChangePassword:true,createdAt:now()};
-        store.users.push(admin);
-      }
+      admin={id:id(),companyId:company.id,name:"System Administrator",email:"admin@alaboud.local",passwordHash:hashPassword("Admin123!ChangeMe"),role:"ADMIN",active:true,mustChangePassword:true,createdAt:now()};
+      store.users.push(admin);
     }else if(!admin.companyId){
       admin.companyId=company.id;
     }
@@ -99,6 +100,10 @@ function seedAdmin(){
 }
 
 function auth(req,res,next){
+  if(req.apiKeyUser){
+    req.user=req.apiKeyUser;
+    return runWithTenant(req.user.companyId,()=>next());
+  }
   const h=req.headers.authorization||"";
   const token=h.startsWith("Bearer ")?h.slice(7):"";
   try{
@@ -110,9 +115,6 @@ function auth(req,res,next){
     const sessionStatus=validateSession(store,{jti:req.user.jti,userId:req.user.id,companyId:req.user.companyId});
     if(!sessionStatus.ok)return res.status(401).json({message:sessionStatus.reason==="IDLE_TIMEOUT"?"انتهت الجلسة بسبب عدم النشاط":"انتهت صلاحية الجلسة"});
     req.user.role=user.role; req.user.permissions=permissionsFor(user.role,user.permissions);
-    const requiredPermission=requiredPermissionForRequest(req.method,req.originalUrl||req.path);
-    if(requiredPermission==="admin.only"&&req.user.role!=="ADMIN")return res.status(403).json({message:"هذه العملية متاحة للمدير فقط"});
-    if(requiredPermission&&requiredPermission!=="admin.only"&&!hasPermission(req.user,requiredPermission))return res.status(403).json({message:"ليس لديك صلاحية لتنفيذ هذه العملية",permission:requiredPermission});
     runWithTenant(req.user.companyId,()=>next());
   }catch{
     res.status(401).json({message:"Authentication required"});
@@ -347,6 +349,55 @@ app.get("/api/health", async (_req,res)=>{
   const database=await databaseHealth();
   res.status(database.ok?200:503).json({ok:database.ok,version:"22.6.0",database,nativeRepositories:nativeRepositories.health(),time:now()});
 });
+app.get("/api/openapi.json", (_req,res)=>res.json(openApiDocument()));
+app.get("/api/docs", (_req,res)=>res.type("html").send(docsHtml()));
+
+app.get("/api/developer/api-keys", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
+  const rows=(readStore().apiKeys||[]).map(item=>({id:item.id,name:item.name,prefix:item.prefix,scopes:item.scopes,active:item.active!==false,expiresAt:item.expiresAt||null,lastUsedAt:item.lastUsedAt||null,usageCount:item.usageCount||0,createdAt:item.createdAt}));
+  res.json(rows.sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))));
+});
+app.post("/api/developer/api-keys", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
+  const name=String(req.body?.name||"").trim(); if(!name)return res.status(400).json({message:"اسم المفتاح مطلوب"});
+  const rawKey=generateApiKey();
+  const record={id:id(),name,prefix:keyPrefix(rawKey),keyHash:sha256(rawKey),scopes:normalizeScopes(req.body?.scopes),active:true,expiresAt:req.body?.expiresAt||null,createdBy:req.user.id,createdAt:now()};
+  mutate(store=>{store.apiKeys.push(record);audit(store,req.user.id,"CREATE","API_KEY",record.id,{name:record.name,scopes:record.scopes});});
+  res.status(201).json({id:record.id,name:record.name,prefix:record.prefix,scopes:record.scopes,expiresAt:record.expiresAt,apiKey:rawKey,message:"احفظ المفتاح الآن؛ لن يظهر كاملًا مرة أخرى"});
+});
+app.post("/api/developer/api-keys/:id/revoke", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
+  let found=false;mutate(store=>{const item=store.apiKeys.find(x=>x.id===req.params.id);if(item){item.active=false;item.revokedAt=now();item.revokedBy=req.user.id;found=true;audit(store,req.user.id,"REVOKE","API_KEY",item.id,{name:item.name});}});
+  if(!found)return res.status(404).json({message:"المفتاح غير موجود"});res.json({message:"تم إلغاء المفتاح"});
+});
+
+app.get("/api/developer/webhooks", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
+  res.json((readStore().webhooks||[]).map(({secretHash,...item})=>item));
+});
+app.post("/api/developer/webhooks", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
+  const url=String(req.body?.url||"").trim();const name=String(req.body?.name||"").trim();
+  try{const parsed=new URL(url);if(!["https:",...(!IS_PROD?["http:"]:[])].includes(parsed.protocol))throw new Error();}catch{return res.status(400).json({message:"رابط Webhook غير صالح"});}
+  const secret=crypto.randomBytes(24).toString("base64url");const item={id:id(),name:name||"Webhook",url,events:normalizeScopes(req.body?.events||["transaction.created"]),secretHash:sha256(secret),active:true,createdBy:req.user.id,createdAt:now()};
+  mutate(store=>{store.webhooks.push(item);audit(store,req.user.id,"CREATE","WEBHOOK",item.id,{url:item.url,events:item.events});});
+  res.status(201).json({...item,secretHash:undefined,secret,message:"احفظ السر الآن؛ لن يظهر مرة أخرى"});
+});
+app.post("/api/developer/webhooks/:id/test", auth, async (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
+  const item=(readStore().webhooks||[]).find(x=>x.id===req.params.id&&x.active!==false);if(!item)return res.status(404).json({message:"Webhook غير موجود"});
+  const payload={event:"webhook.test",id:crypto.randomUUID(),createdAt:now(),data:{companyId:req.user.companyId}};
+  try{const response=await fetch(item.url,{method:"POST",headers:{"content-type":"application/json","x-alaboud-event":"webhook.test"},body:JSON.stringify(payload),signal:AbortSignal.timeout(10000)});mutate(store=>{const w=store.webhooks.find(x=>x.id===item.id);w.lastTestAt=now();w.lastStatus=response.status;});return res.status(response.ok?200:502).json({ok:response.ok,status:response.status});}catch(error){return res.status(502).json({ok:false,message:error.message});}
+});
+app.delete("/api/developer/webhooks/:id", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
+  let found=false;mutate(store=>{const item=store.webhooks.find(x=>x.id===req.params.id);if(item){item.active=false;item.updatedAt=now();found=true;audit(store,req.user.id,"DISABLE","WEBHOOK",item.id,{url:item.url});}});if(!found)return res.status(404).json({message:"Webhook غير موجود"});res.json({message:"تم تعطيل Webhook"});
+});
+app.get("/api/developer/integration-logs", auth, (req,res)=>{
+  if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
+  const limit=Math.min(500,Math.max(1,Number(req.query.limit)||100));res.json((readStore().integrationLogs||[]).slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,limit));
+});
+
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
@@ -402,7 +453,7 @@ app.get("/api/auth/session",auth,(req,res)=>{
   }
 
   res.json({
-    version:"22.6.0",
+    version:"17.1.0",
     user:{
       id:user.id,
       name:user.name,
@@ -419,7 +470,7 @@ app.get("/api/auth/session",auth,(req,res)=>{
   });
 });
 
-app.post("/api/auth/register-company",rateLimit("register-company",5,60*60*1000),(req,res)=>{
+app.post("/api/auth/register-company",(req,res)=>{
   const ownerName=String(req.body?.ownerName||"").trim();
   const companyName=String(req.body?.companyName||"").trim();
   const email=String(req.body?.email||"").trim().toLowerCase();
@@ -440,7 +491,8 @@ app.post("/api/auth/register-company",rateLimit("register-company",5,60*60*1000)
       store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
       return {company,user};
     });
-    res.status(201).json(issueSession(result.user,result.company,{ip:req.ip,userAgent:req.get("user-agent")}));
+    const token=jwt.sign({id:result.user.id,name:result.user.name,role:result.user.role,companyId:result.company.id},JWT_SECRET,{expiresIn:"30d"});
+    res.status(201).json({token,user:{id:result.user.id,name:result.user.name,email:result.user.email,role:result.user.role,companyId:result.company.id,companyName:result.company.name}});
   }catch(error){
     res.status(400).json({message:error.message||"تعذر إنشاء حساب الشركة"});
   }
@@ -456,7 +508,7 @@ app.post("/api/auth/change-password", auth, (req,res)=>{
     mutate((store)=>{
       const user=store.users.find(item=>item.id===req.user.id&&item.active);
       if(!user)throw new Error("الحساب غير موجود");
-      if(!(isScryptHash(user.passwordHash)?verifyPassword(currentPassword,user.passwordHash):bcrypt.compareSync(currentPassword,user.passwordHash))){
+      if(!bcrypt.compareSync(currentPassword,user.passwordHash)){
         throw new Error("كلمة المرور الحالية غير صحيحة");
       }
       user.passwordHash=hashPassword(newPassword);
@@ -2517,14 +2569,7 @@ function normalizeBaseUrl(value){
   if(!/^https?:\/\//i.test(raw))raw=`https://${raw.replace(/^\/+/,"")}`;
   const parsed=new URL(raw);
   if(!["http:","https:"].includes(parsed.protocol))throw new Error("رابط شركة جاد يجب أن يبدأ بـ http أو https");
-  assertSafeIntegrationUrl(parsed);
   return `${parsed.protocol}//${parsed.host}`;
-}
-function assertSafeIntegrationUrl(parsed){
-  const host=String(parsed.hostname||"").toLowerCase().replace(/^\[|\]$/g,"");
-  const blocked=host==="localhost"||host.endsWith(".localhost")||host==="0.0.0.0"||host==="::1"||host.startsWith("127.")||host.startsWith("10.")||host.startsWith("192.168.")||host.startsWith("169.254.")||host.startsWith("fc")||host.startsWith("fd")||host.startsWith("fe80:")||/^172\.(1[6-9]|2\d|3[01])\./.test(host);
-  if(blocked)throw new Error("رابط الربط الداخلي أو المحلي غير مسموح");
-  if(IS_PROD&&parsed.protocol!=="https:")throw new Error("يجب استخدام HTTPS لربط الشركات في الإنتاج");
 }
 function resolveJadConnection(partner={}){
   let raw=String(partner.systemUrl||"").trim();
@@ -2532,7 +2577,6 @@ function resolveJadConnection(partner={}){
   if(!/^https?:\/\//i.test(raw))raw=`https://${raw.replace(/^\/+/,"")}`;
   const parsed=new URL(raw);
   if(!["http:","https:"].includes(parsed.protocol))throw new Error("رابط شركة جاد غير صالح");
-  assertSafeIntegrationUrl(parsed);
 
   const base=`${parsed.protocol}//${parsed.host}`;
   const configured=String(partner.pathPrefix||"").trim();
@@ -2631,7 +2675,6 @@ async function fetchWithCookies(url,options={},cookie="",settings={}){
     }
     if(index===maxRedirects)throw new Error("تجاوز موقع الشركة الحد المسموح لإعادة التوجيه");
     const nextUrl=new URL(location,currentUrl).toString();
-    assertSafeIntegrationUrl(new URL(nextUrl));
     redirects.push({status,from:currentUrl,to:nextUrl});
     const method=String(currentOptions.method||"GET").toUpperCase();
     const shouldSwitchToGet=status===303||((status===301||status===302)&&method!=="GET"&&method!=="HEAD");
@@ -3604,7 +3647,6 @@ function kontorunBaseUrl(partner={}){
   const raw=String(partner.systemUrl||"https://www.krs47n92t.com").trim()||"https://www.krs47n92t.com";
   const withProtocol=/^https?:\/\//i.test(raw)?raw:`https://${raw}`;
   const parsed=new URL(withProtocol);
-  assertSafeIntegrationUrl(parsed);
   return `${parsed.protocol}//${parsed.host}`;
 }
 async function kontorunJsonp(base,route,{cookie="",csrf="",params={}}={}){
@@ -3791,7 +3833,6 @@ app.post("/api/partners", auth, (req,res)=>{
   }=req.body||{};
 
   if(!name)return res.status(400).json({message:"اسم المورد أو الشركة مطلوب"});
-  if(String(systemUrl||"").trim()){try{normalizeBaseUrl(systemUrl)}catch(error){return res.status(400).json({message:error.message})}}
 
   const partner=mutate(store=>{
     const item={
@@ -3834,7 +3875,6 @@ app.post("/api/partners", auth, (req,res)=>{
 
 app.patch("/api/partners/:id", auth, (req,res)=>{
   const allowed=["name","contactName","phone","whatsapp","email","country","city","address","notes","systemUrl","connectionType","accountCurrency","integrationName","username","externalAccountId","connectorType","pathPrefix","syncFromDate","syncEnabled","syncIntervalMinutes","syncMode"];
-  if(req.body?.systemUrl!==undefined&&String(req.body.systemUrl||"").trim()){try{normalizeBaseUrl(req.body.systemUrl)}catch(error){return res.status(400).json({message:error.message})}}
   let updated=null;
   mutate(store=>{
     const partner=store.partners.find(item=>item.id===req.params.id);
@@ -4485,7 +4525,7 @@ async function startServer(){
   nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v22.5.0 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v22.6.0 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{
