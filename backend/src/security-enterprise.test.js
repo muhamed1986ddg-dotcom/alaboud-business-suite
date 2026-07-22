@@ -1,0 +1,16 @@
+const assert=require("assert");
+const {hasPermission,permissionsFor}=require("./access-control");
+const {createSession,validateSession,revokeSession,revokeUserSessions}=require("./session-registry");
+assert(hasPermission({role:"ADMIN"},"anything.write"));
+assert(hasPermission({role:"VIEWER"},"customers.read"));
+assert(!hasPermission({role:"VIEWER"},"customers.write"));
+assert(permissionsFor("ACCOUNTANT").includes("reports.read"));
+const store={sessions:[]};
+createSession(store,{userId:"u1",companyId:"c1",jti:"j1",expiresAt:new Date(Date.now()+60000).toISOString()});
+assert(validateSession(store,{jti:"j1",userId:"u1",companyId:"c1"}).ok);
+assert(revokeSession(store,"j1","admin"));
+assert(!validateSession(store,{jti:"j1",userId:"u1",companyId:"c1"}).ok);
+createSession(store,{userId:"u1",companyId:"c1",jti:"j2",expiresAt:new Date(Date.now()+60000).toISOString()});
+createSession(store,{userId:"u1",companyId:"c1",jti:"j3",expiresAt:new Date(Date.now()+60000).toISOString()});
+assert.strictEqual(revokeUserSessions(store,"u1","admin","j3"),1);
+console.log("Enterprise security selftest passed");

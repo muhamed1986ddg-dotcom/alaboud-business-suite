@@ -6,8 +6,10 @@ const crypto = require("crypto");
 const { hashPassword, verifyPassword, isScryptHash, passwordPolicy, encryptJson, decryptJson, sha256 } = require("./security");
 const path = require("path");
 const fs = require("fs");
-const { readStore, mutate, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
+const { readStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
+const { permissionsFor, requirePermission } = require("./access-control");
+const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
 
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -49,7 +51,7 @@ function seedAdmin(){
       admin.companyId=company.id;
     }
 
-    const tenantArrays=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices"];
+    const tenantArrays=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","sessions"];
     for(const key of tenantArrays){
       for(const item of store[key]||[]){
         if(item&&!item.companyId)item.companyId=company.id;
@@ -67,6 +69,12 @@ function auth(req,res,next){
   try{
     req.user=jwt.verify(token,JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-client",algorithms:["HS256"]});
     if(!req.user.companyId)return res.status(401).json({message:"Company account required"});
+    const store=readStore();
+    const user=store.users.find(item=>item.id===req.user.id&&item.active!==false);
+    if(!user)return res.status(401).json({message:"تم تعطيل الحساب أو حذفه"});
+    const sessionStatus=validateSession(store,{jti:req.user.jti,userId:req.user.id,companyId:req.user.companyId});
+    if(!sessionStatus.ok)return res.status(401).json({message:sessionStatus.reason==="IDLE_TIMEOUT"?"انتهت الجلسة بسبب عدم النشاط":"انتهت صلاحية الجلسة"});
+    req.user.role=user.role; req.user.permissions=permissionsFor(user.role,user.permissions);
     runWithTenant(req.user.companyId,()=>next());
   }catch{
     res.status(401).json({message:"Authentication required"});
@@ -120,9 +128,12 @@ function totp(secret,time=Date.now(),step=30){
   const code=((digest.readUInt32BE(off)&0x7fffffff)%1000000).toString().padStart(6,"0"); return code;
 }
 function verifyTotp(secret,code){const clean=String(code||"").replace(/\D/g,""); if(clean.length!==6)return false; for(let w=-1;w<=1;w++)if(totp(secret,Date.now()+w*30000)===clean)return true; return false;}
-function issueSession(user,company){
-  const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId,jti:crypto.randomUUID()},JWT_SECRET,{expiresIn:"12h",issuer:"alaboud-business-suite",audience:"alaboud-client"});
-  return {token,user:{id:user.id,name:user.name,email:user.email,role:user.role,companyId:user.companyId,companyName:company.name,mustChangePassword:Boolean(user.mustChangePassword),twoFactorEnabled:Boolean(user.twoFactorEnabled)}};
+function issueSession(user,company,context={}){
+  const jti=crypto.randomUUID();
+  const expiresAt=new Date(Date.now()+12*60*60*1000).toISOString();
+  const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId,jti},JWT_SECRET,{expiresIn:"12h",issuer:"alaboud-business-suite",audience:"alaboud-client"});
+  mutate(store=>createSession(store,{userId:user.id,companyId:user.companyId,jti,ip:context.ip,userAgent:context.userAgent,expiresAt}));
+  return {token,user:{id:user.id,name:user.name,email:user.email,role:user.role,permissions:permissionsFor(user.role,user.permissions),companyId:user.companyId,companyName:company.name,mustChangePassword:Boolean(user.mustChangePassword),twoFactorEnabled:Boolean(user.twoFactorEnabled)}};
 }
 
 function safeNumber(value, fallback = 0) {
@@ -277,7 +288,7 @@ function customerSummary(store, c) {
 
 app.get("/api/health", async (_req,res)=>{
   const database=await databaseHealth();
-  res.status(database.ok?200:503).json({ok:database.ok,version:"22.3.4",database,nativeReads:nativeRepositories.enabled,time:now()});
+  res.status(database.ok?200:503).json({ok:database.ok,version:"22.5.0",database,nativeRepositories:nativeRepositories.health(),time:now()});
 });
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
@@ -291,7 +302,7 @@ app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
     return res.json({twoFactorRequired:true,challenge});
   }
   mutate(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;if(!isScryptHash(u.passwordHash))u.passwordHash=hashPassword(password);u.lastLoginAt=now();audit(root,u.id,"LOGIN_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
-  res.json(issueSession(user,company));
+  res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
 });
 
 app.post("/api/auth/2fa/verify",rateLimit("2fa",10,10*60*1000),(req,res)=>{
@@ -301,7 +312,7 @@ app.post("/api/auth/2fa/verify",rateLimit("2fa",10,10*60*1000),(req,res)=>{
     const store=readStore(); const user=store.users.find(u=>u.id===payload.id&&u.active); const company=store.companies.find(c=>c.id===payload.companyId&&c.active);
     if(!user||!company||!user.twoFactorSecret||!verifyTotp(user.twoFactorSecret,req.body?.code))return res.status(401).json({message:"رمز التحقق غير صحيح"});
     mutate(root=>{const u=root.users.find(x=>x.id===user.id);u.lastLoginAt=now();audit(root,u.id,"LOGIN_2FA_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
-    res.json(issueSession(user,company));
+    res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
   }catch{return res.status(401).json({message:"انتهت صلاحية التحقق، أعد تسجيل الدخول"});}
 });
 
@@ -321,7 +332,7 @@ app.post("/api/auth/biometric-token",auth,(req,res)=>{
   const token=jwt.sign({id:req.user.id,companyId:req.user.companyId,purpose:"biometric"},JWT_SECRET,{expiresIn:"30d",issuer:"alaboud-business-suite",audience:"alaboud-biometric"});res.json({token});
 });
 app.post("/api/auth/biometric-login",rateLimit("biometric",20,15*60*1000),(req,res)=>{
-  try{const p=jwt.verify(String(req.body?.token||""),JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-biometric",algorithms:["HS256"]});if(p.purpose!=="biometric")throw new Error();const store=readStore();const user=store.users.find(u=>u.id===p.id&&u.active);const company=store.companies.find(c=>c.id===p.companyId&&c.active);if(!user||!company)throw new Error();res.json(issueSession(user,company));}catch{return res.status(401).json({message:"انتهت صلاحية الدخول بالبصمة"});}
+  try{const p=jwt.verify(String(req.body?.token||""),JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-biometric",algorithms:["HS256"]});if(p.purpose!=="biometric")throw new Error();const store=readStore();const user=store.users.find(u=>u.id===p.id&&u.active);const company=store.companies.find(c=>c.id===p.companyId&&c.active);if(!user||!company)throw new Error();res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));}catch{return res.status(401).json({message:"انتهت صلاحية الدخول بالبصمة"});}
 });
 
 app.get("/api/auth/session",auth,(req,res)=>{
@@ -403,6 +414,34 @@ app.post("/api/auth/change-password", auth, (req,res)=>{
   }
 });
 
+app.get("/api/auth/sessions", auth, (req,res)=>{
+  const sessions=(readStore().sessions||[]).filter(item=>item.userId===req.user.id).map(item=>({id:item.id,jti:item.jti,ip:item.ip,userAgent:item.userAgent,active:item.active!==false,createdAt:item.createdAt,lastSeenAt:item.lastSeenAt,expiresAt:item.expiresAt,current:item.jti===req.user.jti})).sort((a,b)=>String(b.lastSeenAt||"").localeCompare(String(a.lastSeenAt||"")));
+  res.json(sessions);
+});
+
+app.post("/api/auth/logout", auth, (req,res)=>{
+  mutate(store=>{revokeSession(store,req.user.jti,req.user.id);audit(store,req.user.id,"LOGOUT","AUTH_SESSION",req.user.jti,{ip:req.ip,requestId:req.requestId});});
+  res.json({message:"تم تسجيل الخروج بنجاح"});
+});
+
+app.post("/api/auth/logout-all", auth, (req,res)=>{
+  const includeCurrent=Boolean(req.body?.includeCurrent);
+  const count=mutate(store=>{const total=revokeUserSessions(store,req.user.id,req.user.id,includeCurrent?null:req.user.jti);audit(store,req.user.id,"REVOKE_ALL","AUTH_SESSION",req.user.id,{count:total,includeCurrent});return total;});
+  res.json({message:"تم إنهاء الجلسات",revoked:count});
+});
+
+app.get("/api/security/permissions", auth, (req,res)=>res.json({role:req.user.role,permissions:req.user.permissions||[]}));
+
+app.get("/api/audit-logs", auth, requirePermission("audit.read"), (req,res)=>{
+  const limit=Math.min(500,Math.max(1,Number(req.query.limit)||100));
+  const action=String(req.query.action||"").toUpperCase();
+  const entityType=String(req.query.entityType||"").toUpperCase();
+  let logs=(readStore().auditLogs||[]).slice();
+  if(action)logs=logs.filter(item=>String(item.action||"").toUpperCase()===action);
+  if(entityType)logs=logs.filter(item=>String(item.entityType||"").toUpperCase()===entityType);
+  res.json(logs.sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,limit));
+});
+
 app.get("/api/company-profile", auth, (req,res)=>{
   const store=readStore();
   const company=store.companies.find(item=>item.id===req.user.companyId);
@@ -437,7 +476,7 @@ app.post("/api/users", auth, (req,res)=>{
   const name=String(req.body?.name||"").trim();
   const email=String(req.body?.email||"").trim().toLowerCase();
   const password=String(req.body?.password||"");
-  const role=["ADMIN","MANAGER","USER"].includes(String(req.body?.role||"").toUpperCase())
+  const role=["ADMIN","MANAGER","ACCOUNTANT","USER","VIEWER"].includes(String(req.body?.role||"").toUpperCase())
     ? String(req.body.role).toUpperCase()
     : "USER";
 
@@ -1102,26 +1141,18 @@ app.get("/api/customers/:id", auth, (req,res)=>{
   }
 });
 
-app.get("/api/transactions", auth, (_req,res)=>{
+app.get("/api/transactions", auth, async (req,res)=>{
   const s=readStore();
-  res.json(
-    s.transactions
-      .filter(t=>!t.isDeleted)
-      .map(t=>{
-        const paidAmount=s.payments
-          .filter(payment=>payment.transactionId===t.id&&!payment.isDeleted)
-          .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
-        const remaining=Math.max(safeNumber(t.totalCustomerDue)-paidAmount,0);
-        return {
-          ...t,
-          customerName:s.customers.find(c=>c.id===t.customerId)?.name||"-",
-          paidAmount:+paidAmount.toFixed(2),
-          remaining:+remaining.toFixed(2),
-          paymentStatus:remaining<=0.001?"PAID":"UNPAID"
-        };
-      })
-      .reverse()
-  );
+  const [transactions,payments,customers]=await Promise.all([
+    nativeRepositories.withFallback("transactions",()=>nativeRepositories.transactions.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.transactions).filter(t=>!t.isDeleted).reverse()),
+    nativeRepositories.withFallback("payments",()=>nativeRepositories.payments.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.payments).filter(p=>!p.isDeleted)),
+    nativeRepositories.withFallback("transaction-customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.customers).filter(c=>!c.isDeleted))
+  ]);
+  res.json(transactions.map(t=>{
+    const paidAmount=payments.filter(payment=>payment.transactionId===t.id&&!payment.isDeleted).reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
+    const remaining=Math.max(safeNumber(t.totalCustomerDue)-paidAmount,0);
+    return {...t,customerName:customers.find(c=>c.id===t.customerId)?.name||"-",paidAmount:+paidAmount.toFixed(2),remaining:+remaining.toFixed(2),paymentStatus:remaining<=0.001?"PAID":"UNPAID"};
+  }));
 });
 app.post("/api/transactions", auth, (req,res)=>{
   const {
@@ -1710,15 +1741,15 @@ app.post("/api/exchange-rates", auth, (req,res)=>{
 });
 
 
-app.get("/api/general-debts", auth, (req,res)=>{
+app.get("/api/general-debts", auth, async (req,res)=>{
   const store = readStore();
-  const debts = Array.isArray(store.generalDebts) ? store.generalDebts : [];
-  const debtPayments = Array.isArray(store.generalDebtPayments) ? store.generalDebtPayments : [];
-  const transactions = (Array.isArray(store.transactions) ? store.transactions : [])
-    .filter((item)=>item && !item.isDeleted && item.status!=="CANCELLED");
-  const payments = (Array.isArray(store.payments) ? store.payments : [])
-    .filter((item)=>item && !item.isDeleted);
-  const customers = Array.isArray(store.customers) ? store.customers : [];
+  const [debts,debtPayments,transactions,payments,customers]=await Promise.all([
+    nativeRepositories.withFallback("debts",()=>nativeRepositories.debts.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.generalDebts||[])),
+    nativeRepositories.withFallback("debt-payments",()=>nativeRepositories.debtPayments.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.generalDebtPayments||[])),
+    nativeRepositories.withFallback("debt-transactions",()=>nativeRepositories.transactions.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(store.transactions||[]).filter(item=>item&&!item.isDeleted)),
+    nativeRepositories.withFallback("debt-transaction-payments",()=>nativeRepositories.payments.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(store.payments||[]).filter(item=>item&&!item.isDeleted)),
+    nativeRepositories.withFallback("debt-customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(store.customers||[]).filter(item=>item&&!item.isDeleted))
+  ]);
   const type = String(req.query.type || "");
 
   const manualRows = debts.map((debt)=>{
@@ -4114,7 +4145,7 @@ app.post("/api/ai/assistant",auth,(req,res)=>{
   res.json({answer,data,action,overview:a});
 });
 
-app.get("/api/expenses", auth, (_req,res)=>res.json(readStore().expenses.slice().reverse()));
+app.get("/api/expenses", auth, async (req,res)=>{const store=readStore();const rows=await nativeRepositories.withFallback("expenses",()=>nativeRepositories.expenses.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.expenses).reverse());res.json(rows);});
 app.post("/api/expenses", auth, (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=mutate(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
 app.put("/api/expenses/:id", auth, (req,res)=>{
   const {title,amount,currency="CAD",exchangeRate=1,category="Other",date}=req.body||{};
@@ -4147,9 +4178,10 @@ app.delete("/api/expenses/:id", auth, (req,res)=>{
   if(!removed)return res.status(404).json({message:"المصروف غير موجود"});
   res.json({ok:true,expense:removed});
 });
-app.get("/api/capital", auth, (_req,res)=>{
+app.get("/api/capital", auth, async (req,res)=>{
   const store=readStore();
-  const rows=(store.capitalMovements||[]).slice().reverse().map(item=>{
+  const nativeRows=await nativeRepositories.withFallback("capital",()=>nativeRepositories.capitalMovements.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.capitalMovements||[]).reverse());
+  const rows=nativeRows.map(item=>{
     const currency=String(item.currency||"CAD").toUpperCase();
     const conversion=currencyConversion(store,currency,"CAD");
     const exchangeRate=Number.isFinite(Number(item.exchangeRate))?Number(item.exchangeRate):(conversion?.factor||null);
@@ -4329,7 +4361,7 @@ async function startServer(){
   nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
   seedAdmin();
   app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v22.3.4 running on port ${PORT}`);
+  console.log(`AlAboud Enterprise Cloud v22.5.0 running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{

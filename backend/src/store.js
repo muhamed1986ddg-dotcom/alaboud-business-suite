@@ -55,7 +55,7 @@ async function initStore(){
 function readRootStore(){return normalizeStore(rootStore)}
 function writeStore(store){
   rootStore=database.replaceStore(normalizeStore(unwrapStore(store)));
-  database.queueSave();
+  return database.queueSave();
 }
 function tenantArray(root,key,companyId){
   root=unwrapStore(root);
@@ -110,10 +110,17 @@ function mutate(fn){
   writeStore(rootStore);
   return result;
 }
+async function mutateDurable(fn){
+  const context=tenantContext.getStore();
+  const view=context?.companyId?tenantView(rootStore,context.companyId):rootStore;
+  const result=fn(view);
+  await writeStore(rootStore);
+  return result;
+}
 function runWithTenant(companyId,fn){return tenantContext.run({companyId},fn)}
 function id(){return crypto.randomUUID()}
 function now(){return new Date().toISOString()}
 async function databaseHealth(){return database.health()}
 async function closeStore(){return database.close()}
 function getDatabaseQuery(){return database.getQueryFunction()}
-module.exports={readStore,writeStore,mutate,id,now,dataFile,runWithTenant,readRootStore,initStore,databaseHealth,closeStore,getDatabaseQuery};
+module.exports={readStore,writeStore,mutate,mutateDurable,id,now,dataFile,runWithTenant,readRootStore,initStore,databaseHealth,closeStore,getDatabaseQuery};

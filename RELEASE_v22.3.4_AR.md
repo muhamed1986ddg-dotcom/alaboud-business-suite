@@ -1,4 +1,4 @@
-# ALABOUD Business Suite v22.3.4 — PostgreSQL Native Repositories
+# ALABOUD Business Suite v22.3.5 — PostgreSQL Native Repositories
 
 - إضافة طبقة Repository مستقلة لقراءة العملاء والشركاء وأسعار الصرف من PostgreSQL.
 - المحافظة على شكل واجهات API الحالية دون تغيير.
