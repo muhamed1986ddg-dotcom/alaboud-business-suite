@@ -38,15 +38,25 @@ function assert(condition,label,response){
 setTimeout(async()=>{
   try{
     let r=await request("GET","/api/health");
-    assert(r.status===200&&r.body.version==="18.5.2","health",r);
+    assert(r.status===200&&r.body.version==="22.6.0","health",r);
 
-    r=await request("POST","/api/auth/login",{email:"admin@alaboud.local",password:"Admin123!"});
+    r=await request("POST","/api/auth/login",{email:"admin@alaboud.local",password:"Admin123!ChangeMe"});
     assert(r.status===200&&r.body.token,"login",r);
     const token=r.body.token;
 
     r=await request("POST","/api/customers",{name:"عميل اختبار",phone:"15195550123"},token);
     assert(r.status===201&&r.body.id,"customer",r);
     const customerId=r.body.id;
+
+    r=await request("POST","/api/users",{name:"Read Only",email:"viewer@example.test",password:"Viewer123!Safe",role:"VIEWER"},token);
+    assert(r.status===201,"create viewer",r);
+    r=await request("POST","/api/auth/login",{email:"viewer@example.test",password:"Viewer123!Safe"});
+    assert(r.status===200&&r.body.token,"viewer login",r);
+    const viewerToken=r.body.token;
+    r=await request("GET","/api/customers",null,viewerToken);
+    assert(r.status===200,"viewer read",r);
+    r=await request("POST","/api/customers",{name:"Forbidden customer"},viewerToken);
+    assert(r.status===403,"viewer write blocked",r);
 
     r=await request("POST","/api/transactions",{customerId,amount:1000,costRate:1.35,finalRate:1.38,transferFee:15,transferDate:"2026-07-13"},token);
     assert(r.status===201&&r.body.id,"transaction",r);

@@ -8,13 +8,45 @@ const path = require("path");
 const fs = require("fs");
 const { readStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
-const { permissionsFor, requirePermission } = require("./access-control");
+const { permissionsFor, hasPermission, requirePermission, requiredPermissionForRequest } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
 
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === "production";
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
 if (IS_PROD && JWT_SECRET === "LOCAL_TRIAL_CHANGE_ME_6_0") { throw new Error("JWT_SECRET قوي ومخصص مطلوب في الإنتاج"); }
+
+// إرسال بريد إلكتروني اختياري (يُستخدم في "نسيت كلمة المرور").
+// إن لم يتم ضبط SMTP_HOST أو لم تكن مكتبة nodemailer مثبّتة، تُطبع الرسالة في
+// السجلات بدلاً من الإرسال الفعلي (وضع تطوير) بدل تعطيل الميزة بالكامل.
+const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
+let mailTransport = null;
+if (process.env.SMTP_HOST) {
+  try {
+    const nodemailer = require("nodemailer");
+    mailTransport = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: String(process.env.SMTP_SECURE || "false") === "true",
+      auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
+    });
+  } catch (error) {
+    console.warn("SMTP_HOST مضبوط لكن حزمة nodemailer غير مثبتة. شغّل: npm install nodemailer --prefix backend");
+  }
+}
+async function sendEmail(to, subject, text) {
+  if (mailTransport) {
+    try {
+      await mailTransport.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to, subject, text });
+      return true;
+    } catch (error) {
+      console.error("فشل إرسال البريد الإلكتروني:", error.message);
+      return false;
+    }
+  }
+  console.log(`[DEV EMAIL] To: ${to} | Subject: ${subject}\n${text}`);
+  return false;
+}
 const app = express();
 let nativeRepositories = new NativeRepositoryRegistry();
 app.disable("x-powered-by");
@@ -45,8 +77,11 @@ function seedAdmin(){
 
     let admin=store.users.find(user=>user.email==="admin@alaboud.local");
     if(!admin){
-      admin={id:id(),companyId:company.id,name:"System Administrator",email:"admin@alaboud.local",passwordHash:hashPassword("Admin123!ChangeMe"),role:"ADMIN",active:true,mustChangePassword:true,createdAt:now()};
-      store.users.push(admin);
+      const initialPassword=String(process.env.ADMIN_INITIAL_PASSWORD||"");
+      if(!IS_PROD||initialPassword){
+        admin={id:id(),companyId:company.id,name:"System Administrator",email:"admin@alaboud.local",passwordHash:hashPassword(initialPassword||"Admin123!ChangeMe"),role:"ADMIN",active:true,mustChangePassword:true,createdAt:now()};
+        store.users.push(admin);
+      }
     }else if(!admin.companyId){
       admin.companyId=company.id;
     }
@@ -75,6 +110,9 @@ function auth(req,res,next){
     const sessionStatus=validateSession(store,{jti:req.user.jti,userId:req.user.id,companyId:req.user.companyId});
     if(!sessionStatus.ok)return res.status(401).json({message:sessionStatus.reason==="IDLE_TIMEOUT"?"انتهت الجلسة بسبب عدم النشاط":"انتهت صلاحية الجلسة"});
     req.user.role=user.role; req.user.permissions=permissionsFor(user.role,user.permissions);
+    const requiredPermission=requiredPermissionForRequest(req.method,req.originalUrl||req.path);
+    if(requiredPermission==="admin.only"&&req.user.role!=="ADMIN")return res.status(403).json({message:"هذه العملية متاحة للمدير فقط"});
+    if(requiredPermission&&requiredPermission!=="admin.only"&&!hasPermission(req.user,requiredPermission))return res.status(403).json({message:"ليس لديك صلاحية لتنفيذ هذه العملية",permission:requiredPermission});
     runWithTenant(req.user.companyId,()=>next());
   }catch{
     res.status(401).json({message:"Authentication required"});
@@ -139,6 +177,25 @@ function issueSession(user,company,context={}){
 function safeNumber(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+// ترقيم صفحات اختياري ومتوافق مع القديم: إن لم يُرسل الطالب ?page أو ?pageSize
+// تُعاد المصفوفة كما هي (بدون كسر الواجهات الحالية). أي طلب يحدد page/pageSize
+// يحصل على كائن {items,total,page,pageSize,totalPages}.
+function paginate(req, rows) {
+  const hasPaging = req?.query && (req.query.page !== undefined || req.query.pageSize !== undefined);
+  if (!hasPaging) return rows;
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize, 10) || 25));
+  const total = rows.length;
+  const start = (page - 1) * pageSize;
+  return {
+    items: rows.slice(start, start + pageSize),
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
 }
 
 function latestExchangeGraph(store) {
@@ -288,7 +345,7 @@ function customerSummary(store, c) {
 
 app.get("/api/health", async (_req,res)=>{
   const database=await databaseHealth();
-  res.status(database.ok?200:503).json({ok:database.ok,version:"22.5.0",database,nativeRepositories:nativeRepositories.health(),time:now()});
+  res.status(database.ok?200:503).json({ok:database.ok,version:"22.6.0",database,nativeRepositories:nativeRepositories.health(),time:now()});
 });
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
@@ -345,7 +402,7 @@ app.get("/api/auth/session",auth,(req,res)=>{
   }
 
   res.json({
-    version:"17.1.0",
+    version:"22.6.0",
     user:{
       id:user.id,
       name:user.name,
@@ -362,7 +419,7 @@ app.get("/api/auth/session",auth,(req,res)=>{
   });
 });
 
-app.post("/api/auth/register-company",(req,res)=>{
+app.post("/api/auth/register-company",rateLimit("register-company",5,60*60*1000),(req,res)=>{
   const ownerName=String(req.body?.ownerName||"").trim();
   const companyName=String(req.body?.companyName||"").trim();
   const email=String(req.body?.email||"").trim().toLowerCase();
@@ -383,8 +440,7 @@ app.post("/api/auth/register-company",(req,res)=>{
       store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
       return {company,user};
     });
-    const token=jwt.sign({id:result.user.id,name:result.user.name,role:result.user.role,companyId:result.company.id},JWT_SECRET,{expiresIn:"30d"});
-    res.status(201).json({token,user:{id:result.user.id,name:result.user.name,email:result.user.email,role:result.user.role,companyId:result.company.id,companyName:result.company.name}});
+    res.status(201).json(issueSession(result.user,result.company,{ip:req.ip,userAgent:req.get("user-agent")}));
   }catch(error){
     res.status(400).json({message:error.message||"تعذر إنشاء حساب الشركة"});
   }
@@ -400,7 +456,7 @@ app.post("/api/auth/change-password", auth, (req,res)=>{
     mutate((store)=>{
       const user=store.users.find(item=>item.id===req.user.id&&item.active);
       if(!user)throw new Error("الحساب غير موجود");
-      if(!bcrypt.compareSync(currentPassword,user.passwordHash)){
+      if(!(isScryptHash(user.passwordHash)?verifyPassword(currentPassword,user.passwordHash):bcrypt.compareSync(currentPassword,user.passwordHash))){
         throw new Error("كلمة المرور الحالية غير صحيحة");
       }
       user.passwordHash=hashPassword(newPassword);
@@ -411,6 +467,62 @@ app.post("/api/auth/change-password", auth, (req,res)=>{
     res.json({message:"تم تغيير كلمة المرور بنجاح"});
   }catch(error){
     res.status(400).json({message:error.message||"تعذر تغيير كلمة المرور"});
+  }
+});
+
+app.post("/api/auth/forgot-password", rateLimit("forgot-password",5,15*60*1000), async (req,res)=>{
+  const email=String(req.body?.email||"").trim().toLowerCase();
+  // نفس الرد دائمًا (بصرف النظر عن وجود الحساب) لمنع اكتشاف البريد الإلكتروني المسجّل.
+  const genericResponse={message:"إذا كان البريد الإلكتروني مسجلاً، فستصلك رسالة تحتوي رابط إعادة التعيين"};
+  if(!email.includes("@")) return res.json(genericResponse);
+
+  const store=readStore();
+  const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active);
+  if(!user) return res.json(genericResponse);
+
+  const rawToken=crypto.randomBytes(32).toString("hex");
+  const tokenHash=sha256(rawToken);
+  const expiresAt=new Date(Date.now()+30*60*1000).toISOString();
+
+  mutate(root=>{
+    const u=root.users.find(x=>x.id===user.id);
+    if(u){ u.resetPasswordTokenHash=tokenHash; u.resetPasswordExpiresAt=expiresAt; audit(root,u.id,"PASSWORD_RESET_REQUESTED","AUTH",u.id,{ip:req.ip,requestId:req.requestId}); }
+  });
+
+  const resetLink=`${APP_URL}/reset-password?email=${encodeURIComponent(email)}&token=${rawToken}`;
+  await sendEmail(email,"إعادة تعيين كلمة المرور - ALABOUD Business Suite",
+    `تم طلب إعادة تعيين كلمة المرور لحسابك.\nهذا الرابط صالح لمدة 30 دقيقة:\n${resetLink}\nإذا لم تطلب ذلك، تجاهل هذه الرسالة.`);
+
+  // في وضع التطوير فقط (وعند عدم وجود SMTP فعلي)، نعيد الرمز مباشرة لتسهيل الاختبار.
+  if(!IS_PROD && !mailTransport) return res.json({...genericResponse,devResetToken:rawToken,devResetLink:resetLink});
+  res.json(genericResponse);
+});
+
+app.post("/api/auth/reset-password", rateLimit("reset-password",10,15*60*1000), (req,res)=>{
+  const email=String(req.body?.email||"").trim().toLowerCase();
+  const token=String(req.body?.token||"");
+  const newPassword=String(req.body?.newPassword||"");
+  const policy=passwordPolicy(newPassword);
+  if(!policy.ok) return res.status(400).json({message:policy.message});
+  if(!email||!token) return res.status(400).json({message:"البيانات غير مكتملة"});
+
+  try{
+    mutate(root=>{
+      const user=root.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active);
+      if(!user||!user.resetPasswordTokenHash) throw new Error("رابط إعادة التعيين غير صالح");
+      if(new Date(user.resetPasswordExpiresAt||0).getTime()<Date.now()) throw new Error("انتهت صلاحية رابط إعادة التعيين، اطلب رابطًا جديدًا");
+      if(sha256(token)!==user.resetPasswordTokenHash) throw new Error("رابط إعادة التعيين غير صالح");
+
+      user.passwordHash=hashPassword(newPassword);
+      user.mustChangePassword=false;
+      user.resetPasswordTokenHash=null;
+      user.resetPasswordExpiresAt=null;
+      user.updatedAt=now();
+      audit(root,user.id,"PASSWORD_RESET_COMPLETED","AUTH",user.id,{ip:req.ip,requestId:req.requestId});
+    });
+    res.json({message:"تم تعيين كلمة المرور الجديدة بنجاح، يمكنك تسجيل الدخول الآن"});
+  }catch(error){
+    res.status(400).json({message:error.message||"تعذر إعادة تعيين كلمة المرور"});
   }
 });
 
@@ -997,7 +1109,7 @@ app.get("/api/monthly-report", auth, (req,res)=>{
 app.get("/api/customers", auth, async (req,res)=>{
   const s=readStore();
   const customers=await nativeRepositories.withFallback("customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId),()=>Array.from(s.customers));
-  res.json(customers.filter(c=>!c?.isDeleted).map(c=>customerSummary(s,c)).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))));
+  res.json(paginate(req, customers.filter(c=>!c?.isDeleted).map(c=>customerSummary(s,c)).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")))));
 });
 app.post("/api/customers", auth, (req,res)=>{
   const {name,phone="",email="",identityNumber="",notes="",oldBalance=0}=req.body||{};
@@ -1148,11 +1260,11 @@ app.get("/api/transactions", auth, async (req,res)=>{
     nativeRepositories.withFallback("payments",()=>nativeRepositories.payments.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.payments).filter(p=>!p.isDeleted)),
     nativeRepositories.withFallback("transaction-customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.customers).filter(c=>!c.isDeleted))
   ]);
-  res.json(transactions.map(t=>{
+  res.json(paginate(req, transactions.map(t=>{
     const paidAmount=payments.filter(payment=>payment.transactionId===t.id&&!payment.isDeleted).reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
     const remaining=Math.max(safeNumber(t.totalCustomerDue)-paidAmount,0);
     return {...t,customerName:customers.find(c=>c.id===t.customerId)?.name||"-",paidAmount:+paidAmount.toFixed(2),remaining:+remaining.toFixed(2),paymentStatus:remaining<=0.001?"PAID":"UNPAID"};
-  }));
+  })));
 });
 app.post("/api/transactions", auth, (req,res)=>{
   const {
@@ -2405,7 +2517,14 @@ function normalizeBaseUrl(value){
   if(!/^https?:\/\//i.test(raw))raw=`https://${raw.replace(/^\/+/,"")}`;
   const parsed=new URL(raw);
   if(!["http:","https:"].includes(parsed.protocol))throw new Error("رابط شركة جاد يجب أن يبدأ بـ http أو https");
+  assertSafeIntegrationUrl(parsed);
   return `${parsed.protocol}//${parsed.host}`;
+}
+function assertSafeIntegrationUrl(parsed){
+  const host=String(parsed.hostname||"").toLowerCase().replace(/^\[|\]$/g,"");
+  const blocked=host==="localhost"||host.endsWith(".localhost")||host==="0.0.0.0"||host==="::1"||host.startsWith("127.")||host.startsWith("10.")||host.startsWith("192.168.")||host.startsWith("169.254.")||host.startsWith("fc")||host.startsWith("fd")||host.startsWith("fe80:")||/^172\.(1[6-9]|2\d|3[01])\./.test(host);
+  if(blocked)throw new Error("رابط الربط الداخلي أو المحلي غير مسموح");
+  if(IS_PROD&&parsed.protocol!=="https:")throw new Error("يجب استخدام HTTPS لربط الشركات في الإنتاج");
 }
 function resolveJadConnection(partner={}){
   let raw=String(partner.systemUrl||"").trim();
@@ -2413,6 +2532,7 @@ function resolveJadConnection(partner={}){
   if(!/^https?:\/\//i.test(raw))raw=`https://${raw.replace(/^\/+/,"")}`;
   const parsed=new URL(raw);
   if(!["http:","https:"].includes(parsed.protocol))throw new Error("رابط شركة جاد غير صالح");
+  assertSafeIntegrationUrl(parsed);
 
   const base=`${parsed.protocol}//${parsed.host}`;
   const configured=String(partner.pathPrefix||"").trim();
@@ -2511,6 +2631,7 @@ async function fetchWithCookies(url,options={},cookie="",settings={}){
     }
     if(index===maxRedirects)throw new Error("تجاوز موقع الشركة الحد المسموح لإعادة التوجيه");
     const nextUrl=new URL(location,currentUrl).toString();
+    assertSafeIntegrationUrl(new URL(nextUrl));
     redirects.push({status,from:currentUrl,to:nextUrl});
     const method=String(currentOptions.method||"GET").toUpperCase();
     const shouldSwitchToGet=status===303||((status===301||status===302)&&method!=="GET"&&method!=="HEAD");
@@ -3483,6 +3604,7 @@ function kontorunBaseUrl(partner={}){
   const raw=String(partner.systemUrl||"https://www.krs47n92t.com").trim()||"https://www.krs47n92t.com";
   const withProtocol=/^https?:\/\//i.test(raw)?raw:`https://${raw}`;
   const parsed=new URL(withProtocol);
+  assertSafeIntegrationUrl(parsed);
   return `${parsed.protocol}//${parsed.host}`;
 }
 async function kontorunJsonp(base,route,{cookie="",csrf="",params={}}={}){
@@ -3669,6 +3791,7 @@ app.post("/api/partners", auth, (req,res)=>{
   }=req.body||{};
 
   if(!name)return res.status(400).json({message:"اسم المورد أو الشركة مطلوب"});
+  if(String(systemUrl||"").trim()){try{normalizeBaseUrl(systemUrl)}catch(error){return res.status(400).json({message:error.message})}}
 
   const partner=mutate(store=>{
     const item={
@@ -3711,6 +3834,7 @@ app.post("/api/partners", auth, (req,res)=>{
 
 app.patch("/api/partners/:id", auth, (req,res)=>{
   const allowed=["name","contactName","phone","whatsapp","email","country","city","address","notes","systemUrl","connectionType","accountCurrency","integrationName","username","externalAccountId","connectorType","pathPrefix","syncFromDate","syncEnabled","syncIntervalMinutes","syncMode"];
+  if(req.body?.systemUrl!==undefined&&String(req.body.systemUrl||"").trim()){try{normalizeBaseUrl(req.body.systemUrl)}catch(error){return res.status(400).json({message:error.message})}}
   let updated=null;
   mutate(store=>{
     const partner=store.partners.find(item=>item.id===req.params.id);
@@ -4145,7 +4269,7 @@ app.post("/api/ai/assistant",auth,(req,res)=>{
   res.json({answer,data,action,overview:a});
 });
 
-app.get("/api/expenses", auth, async (req,res)=>{const store=readStore();const rows=await nativeRepositories.withFallback("expenses",()=>nativeRepositories.expenses.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.expenses).reverse());res.json(rows);});
+app.get("/api/expenses", auth, async (req,res)=>{const store=readStore();const rows=await nativeRepositories.withFallback("expenses",()=>nativeRepositories.expenses.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.expenses).reverse());res.json(paginate(req,rows));});
 app.post("/api/expenses", auth, (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=mutate(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
 app.put("/api/expenses/:id", auth, (req,res)=>{
   const {title,amount,currency="CAD",exchangeRate=1,category="Other",date}=req.body||{};

@@ -44,4 +44,32 @@ function requirePermission(permission){
   };
 }
 
-module.exports={ROLE_PERMISSIONS,normalizeRole,permissionsFor,hasPermission,requirePermission};
+function requiredPermissionForRequest(method, path=""){
+  const verb=String(method||"GET").toUpperCase();
+  const clean=String(path||"").split("?")[0].replace(/^\/api\//,"");
+  const write=!['GET','HEAD','OPTIONS'].includes(verb);
+  if(clean.startsWith("auth/"))return null;
+  if(clean.startsWith("users")||clean.startsWith("devices")||clean.startsWith("company-profile")||clean.startsWith("security/"))return "admin.only";
+  if(clean.startsWith("audit-logs"))return "audit.read";
+  const groups=[
+    [["dashboard","notification-settings","notifications","ai/"],"dashboard"],
+    [["customers","customer-alerts","notification-actions"],"customers"],
+    [["transactions","payments"],"transactions"],
+    [["general-debts"],"debts"],
+    [["expenses"],"expenses"],
+    [["capital"],"capital"],
+    [["exchange-rates"],"rates"],
+    [["partners"],"partners"],
+    [["profits","monthly-report","reports"],"reports"],
+    [["backup","restore"],"admin"]
+  ];
+  for(const [prefixes,area] of groups){
+    if(prefixes.some(prefix=>clean===prefix||clean.startsWith(`${prefix}/`)||clean.startsWith(prefix))){
+      if(area==="admin")return "admin.only";
+      return `${area}.${write?"write":"read"}`;
+    }
+  }
+  return write?"admin.only":null;
+}
+
+module.exports={ROLE_PERMISSIONS,normalizeRole,permissionsFor,hasPermission,requirePermission,requiredPermissionForRequest};

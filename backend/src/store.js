@@ -81,13 +81,19 @@ function tenantView(root,companyId){
   return new Proxy(root,{
     get(target,prop){
       if(prop===RAW_STORE)return target;
-      if(prop==="users")return target.users.filter(user=>user.companyId===companyId);
+      if(prop==="users")return tenantArray(target,"users",companyId);
       if(prop==="notificationSettings")return target.companySettings[companyId];
       if(DATA_ARRAYS.includes(prop))return tenantArray(target,prop,companyId);
       return target[prop];
     },
     set(target,prop,value){
       if(prop==="notificationSettings"){target.companySettings[companyId]={...value};return true}
+      if(prop==="users"){
+        const current=Array.isArray(target.users)?target.users:[];
+        const otherTenants=current.filter(item=>!item||item.companyId!==companyId);
+        target.users=[...otherTenants,...Array.from(value||[]).map(item=>({...item,companyId}))];
+        return true;
+      }
       if(DATA_ARRAYS.includes(prop)){
         const current=Array.isArray(target[prop])?target[prop]:[];
         const otherTenants=current.filter(item=>!item||item.companyId!==companyId);
