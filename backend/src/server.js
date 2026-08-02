@@ -3599,7 +3599,7 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
 }
 
 async function syncJadPartner(partner,options={}){
-  const mode=String(process.env.JAD_CONNECTOR_MODE||"browser").toLowerCase();
+  const mode=String(process.env.JAD_CONNECTOR_MODE||"http").toLowerCase();
   if(mode==="http")return syncJadPartnerHttp(partner,options);
   try{
     return await syncJadPartnerBrowser(partner,options);
@@ -4030,6 +4030,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
   if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
   const connector=resolvePartnerConnector(partner);
   if(!["JAD","TAWASUL"].includes(connector))return res.status(400).json({message:"لا يوجد موصل فعلي محدد لهذه الشركة"});
+  if(syncTrigger==="AUTO"&&connector==="JAD")return res.status(409).json({message:"تم تعطيل مزامنة جاد التلقائية لحماية استقرار الخادم؛ استخدم زر جلب الرصيد يدويًا"});
   try{
     const result=connector==="TAWASUL"
       ? await syncKontorunPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp})

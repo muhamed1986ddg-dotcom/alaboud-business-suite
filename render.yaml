@@ -15,6 +15,8 @@ services:
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: "0"
       - key: JAD_CONNECTOR_MODE
-        value: browser
+        value: http
       - key: JAD_HTTP_FALLBACK
-        value: "false"
+        value: "true"
+      - key: PG_POOL_MAX
+        value: "2"

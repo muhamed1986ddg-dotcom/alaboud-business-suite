@@ -9,6 +9,8 @@ class DatabaseService {
     this.store = this.emptyStore();
     this.initialized = false;
     this.persistChain = Promise.resolve();
+    this.pendingSnapshot = null;
+    this.persisting = false;
     this.lastPersistError = null;
   }
 
@@ -55,14 +57,26 @@ class DatabaseService {
   }
 
   queueSave() {
-    const snapshot = structuredClone(this.store);
-    this.persistChain = this.persistChain
-      .then(() => this.adapter.save(snapshot))
-      .then(() => { this.lastPersistError = null; })
-      .catch((error) => {
-        this.lastPersistError = error;
-        this.logger.error("Database persistence failed:", error.message);
-      });
+    // Coalesce bursts of mutations into one latest snapshot. The old implementation
+    // retained a full cloned store for every write in the promise chain, which could
+    // exhaust a 512 MB Render instance during rate refreshes and imports.
+    this.pendingSnapshot = structuredClone(this.store);
+    if (this.persisting) return this.persistChain;
+
+    this.persisting = true;
+    this.persistChain = (async () => {
+      while (this.pendingSnapshot) {
+        const snapshot = this.pendingSnapshot;
+        this.pendingSnapshot = null;
+        try {
+          await this.adapter.save(snapshot);
+          this.lastPersistError = null;
+        } catch (error) {
+          this.lastPersistError = error;
+          this.logger.error("Database persistence failed:", error.message);
+        }
+      }
+    })().finally(() => { this.persisting = false; });
     return this.persistChain;
   }
 
@@ -77,7 +91,7 @@ class DatabaseService {
     }
     try {
       const adapterHealth = await this.adapter.health();
-      return { ...adapterHealth, initialized: true, pendingWrites: false, lastPersistError: this.lastPersistError?.message || null };
+      return { ...adapterHealth, initialized: true, pendingWrites: this.persisting || Boolean(this.pendingSnapshot), lastPersistError: this.lastPersistError?.message || null };
     } catch (error) {
       return { ok: false, mode: this.adapter.mode, initialized: true, error: error.message };
     }

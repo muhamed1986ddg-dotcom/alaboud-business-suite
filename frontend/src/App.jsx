@@ -1226,24 +1226,8 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
   }
 
   useEffect(()=>{load();},[]);
-  useEffect(()=>{
-    const timer=setInterval(async()=>{
-      if(autoSyncBusy.current||syncingAll||syncingId)return;
-      try{
-        const center=(await api.get("/partners/sync-center")).data;
-        setSyncCenter(center);
-        const dueSet=new Set(center.duePartnerIds||[]);
-        const duePartner=(data.rows||[]).find(item=>dueSet.has(item.id)&&item.syncEnabled&&["JAD","TAWASUL","KONTORUN"].includes(item.connectorType));
-        if(!duePartner)return;
-        autoSyncBusy.current=true;
-        setSyncingId(duePartner.id);
-        await api.post(`/partners/${duePartner.id}/sync`,{trigger:"AUTO"});
-        await load();
-      }catch(error){console.warn("Automatic partner sync skipped",error.response?.data||error.message);}
-      finally{autoSyncBusy.current=false;setSyncingId("");}
-    },60000);
-    return()=>clearInterval(timer);
-  },[data.rows,syncingAll,syncingId]);
+  // Partner balances are synchronized manually. Launching a remote-company
+  // connector every minute from a browser tab can overload a small cloud instance.
 
 
 
