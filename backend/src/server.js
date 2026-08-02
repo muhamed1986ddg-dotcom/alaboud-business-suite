@@ -3966,7 +3966,19 @@ async function syncDahabPartner(partner,{fromDate,toDate,otp}={}){
   const end=dahabDate(toDate||new Date().toISOString().slice(0,10));
   const currencyId=String(partner.externalAccountId||"3").replace(/\D/g,"")||"3";
   const reportUrl=new URL(report);reportUrl.search=new URLSearchParams({p:"h",f:"report",fr:start,to:end,cur:currencyId,ajax:"1"}).toString();
-  const reportResult=await fetchWithCookies(reportUrl.toString(),{method:"GET",headers:{...headers,"Content-Type":"text/html",Referer:result.url||`${origin}/clmah/index.php`}},cookie,{maxRedirects:4});
+  const reportHeaders={
+    Accept:"*/*",
+    "Accept-Language":"ar,en;q=0.8",
+    "Cache-Control":"no-cache",
+    Pragma:"no-cache",
+    Referer:result.url&&/\/clmah\//i.test(result.url)?result.url:`${origin}/clmah/index.php`,
+    "Sec-Fetch-Dest":"empty",
+    "Sec-Fetch-Mode":"cors",
+    "Sec-Fetch-Site":"same-origin",
+    "User-Agent":userAgent,
+    "X-Requested-With":"XMLHttpRequest"
+  };
+  const reportResult=await fetchWithCookies(reportUrl.toString(),{method:"GET",headers:reportHeaders},cookie,{maxRedirects:4});
   const reportHtml=await reportResult.response.text();
   if(!reportResult.response.ok)throw Object.assign(new Error(`فشل فتح تقرير دهب (${reportResult.response.status})`),{code:"DAHAB_REPORT_HTTP_ERROR"});
   if(/name=["']username["']/i.test(reportHtml)&&/name=["']password["']/i.test(reportHtml))throw Object.assign(new Error("انتهت جلسة دهب؛ أعد إدخال رمز Authenticator"),{code:"DAHAB_SESSION_REJECTED"});
