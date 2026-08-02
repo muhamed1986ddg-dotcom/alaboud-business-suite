@@ -3884,7 +3884,7 @@ function dahabUrls(partner={}){
   const raw=String(partner.systemUrl||"https://endulusmt2.com/branch/index.php?p=l&f=i").trim();
   const parsed=new URL(/^https?:\/\//i.test(raw)?raw:`https://${raw}`);
   const loginPath=parsed.pathname&&/index\.php$/i.test(parsed.pathname)?parsed.pathname:"/branch/index.php";
-  return {origin:parsed.origin,login:`${parsed.origin}${loginPath}?p=l&f=i`,report:`${parsed.origin}/clmah/index.php`};
+  return {origin:parsed.origin,login:`${parsed.origin}${loginPath}?p=l&f=i`,report:`${parsed.origin}/clman/index.php`};
 }
 function dahabDate(value){
   const date=value?new Date(`${value}T12:00:00Z`):new Date();
@@ -3937,7 +3937,7 @@ async function syncDahabPartner(partner,{fromDate,toDate,otp}={}){
   const username=String(partner.username||"").trim();
   const password=decryptIntegrationSecret(partner.passwordEncrypted);
   if(!username||!password)throw Object.assign(new Error("اسم المستخدم وكلمة المرور لشركة دهب مطلوبان"),{code:"DAHAB_CREDENTIALS_REQUIRED"});
-  const userAgent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+  const userAgent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
   const commonHeaders={Accept:"text/html,application/xhtml+xml","Accept-Language":"ar,en;q=0.8","User-Agent":userAgent,Referer:login};
   // Dahab initializes a PHP session on the login-page GET and its JavaScript
   // submits a 128-bit browser fingerprint plus base64 device details.
@@ -3971,7 +3971,7 @@ async function syncDahabPartner(partner,{fromDate,toDate,otp}={}){
     "Accept-Language":"ar,en;q=0.8",
     "Cache-Control":"no-cache",
     Pragma:"no-cache",
-    Referer:result.url&&/\/clmah\//i.test(result.url)?result.url:`${origin}/clmah/index.php`,
+    Referer:result.url&&/\/clman\//i.test(result.url)?result.url:`${origin}/clman/index.php?p=h&f=report&fr=0&to=0&cur=${currencyId}`,
     "Sec-Fetch-Dest":"empty",
     "Sec-Fetch-Mode":"cors",
     "Sec-Fetch-Site":"same-origin",
