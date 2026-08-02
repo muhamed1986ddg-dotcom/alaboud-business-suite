@@ -11,7 +11,7 @@ const TABLE_CONFIG = {
   debt_payments: { key: ["id"] },
   expenses: { key: ["id"] },
   capital_movements: { key: ["id"] },
-  exchange_rates: { key: ["id"] },
+  exchange_rates: { key: ["company_id", "base_currency", "quote_currency", "effective_at"] },
   settings: { key: ["company_id", "setting_key"] }
 };
 

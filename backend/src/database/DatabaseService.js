@@ -55,7 +55,7 @@ class DatabaseService {
   }
 
   queueSave() {
-    const snapshot = JSON.parse(JSON.stringify(this.store));
+    const snapshot = structuredClone(this.store);
     this.persistChain = this.persistChain
       .then(() => this.adapter.save(snapshot))
       .then(() => { this.lastPersistError = null; })
