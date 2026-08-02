@@ -5,6 +5,10 @@ data/
 .env
 .env.*
 *.log
+# Sensitive local exports/backups: customer and financial data must never enter Git.
 alaboud-backup-*.json
+alaboud-backup-*.zip
+backups/
+local-backups/
 backend/jad-diagnostics/
 
