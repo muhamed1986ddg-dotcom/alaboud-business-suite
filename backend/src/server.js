@@ -3880,6 +3880,93 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
   return {balance:main.balance,receivable:main.receivable,payable:main.payable,currencies,movements,profile:{id:profile.ID||"",name:profile.Name||""},balanceRows};
 }
 
+function dahabUrls(partner={}){
+  const raw=String(partner.systemUrl||"https://endulusmt2.com/branch/index.php?p=l&f=i").trim();
+  const parsed=new URL(/^https?:\/\//i.test(raw)?raw:`https://${raw}`);
+  const loginPath=parsed.pathname&&/index\.php$/i.test(parsed.pathname)?parsed.pathname:"/branch/index.php";
+  return {origin:parsed.origin,login:`${parsed.origin}${loginPath}?p=l&f=i`,report:`${parsed.origin}/clmah/index.php`};
+}
+function dahabDate(value){
+  const date=value?new Date(`${value}T12:00:00Z`):new Date();
+  if(Number.isNaN(date.getTime()))return dahabDate();
+  return `${String(date.getUTCDate()).padStart(2,"0")}-${String(date.getUTCMonth()+1).padStart(2,"0")}-${date.getUTCFullYear()}`;
+}
+function decodeHtmlText(html){
+  return String(html||"")
+    .replace(/<script\b[\s\S]*?<\/script>/gi," ").replace(/<style\b[\s\S]*?<\/style>/gi," ")
+    .replace(/<[^>]+>/g," ").replace(/&nbsp;|&#160;/gi," ").replace(/&minus;|&#8722;/gi,"-")
+    .replace(/&amp;/gi,"&").replace(/&quot;/gi,'"').replace(/&#39;|&apos;/gi,"'")
+    .replace(/\s+/g," ").trim();
+}
+function dahabCurrencyFromHtml(html,fallback="USD"){
+  const text=decodeHtmlText(html).toUpperCase();
+  for(const code of ["USD","EUR","TRY","SYP","CAD","SAR","AED","JOD"])if(new RegExp(`(?:^|[^A-Z])${code}(?:[^A-Z]|$)`).test(text))return code;
+  return String(fallback||"USD").toUpperCase();
+}
+function dahabBalanceFromHtml(html){
+  const raw=String(html||"");
+  const candidates=[];
+  // The Dahab report renders monetary cells with da/mad classes. Prefer the
+  // final running-balance cell, while also supporting pages labelled الرصيد/الصافي.
+  for(const match of raw.matchAll(/<(?:td|div|span)[^>]*class=["'][^"']*(?:\bda\b|\bmad\b|balance|saldo)[^"']*["'][^>]*>([\s\S]*?)<\/(?:td|div|span)>/gi)){
+    const text=decodeHtmlText(match[1]);
+    if(/[0-9٠-٩۰-۹]/.test(text))candidates.push(parseKontorunAmount(text));
+  }
+  const plain=decodeHtmlText(raw);
+  for(const match of plain.matchAll(/(?:الرصيد|الصافي|balance|saldo)\s*[:：-]?\s*([-−]?\s*[0-9٠-٩۰-۹][0-9٠-٩۰-۹.,٬٫\s]*-?)/gi))candidates.push(parseKontorunAmount(match[1]));
+  const finite=candidates.filter(Number.isFinite);
+  if(!finite.length)throw Object.assign(new Error("تم تسجيل الدخول إلى دهب لكن تعذر تحديد خانة الرصيد من التقرير"),{code:"DAHAB_BALANCE_NOT_FOUND"});
+  return finite[finite.length-1];
+}
+function dahabOtpForm(html,baseUrl){
+  const form=String(html||"").match(/<form\b([^>]*)>([\s\S]*?)<\/form>/i);
+  if(!form)return null;
+  const inputs=[...form[2].matchAll(/<input\b([^>]*)>/gi)].map(match=>{
+    const attrs=match[1];
+    const name=attrs.match(/\bname=["']([^"']+)["']/i)?.[1]||"";
+    const value=attrs.match(/\bvalue=["']([^"']*)["']/i)?.[1]||"";
+    return {name,value};
+  }).filter(item=>item.name);
+  const otpInput=inputs.find(item=>/(?:otp|pin|code|auth|verify|token|sms)/i.test(item.name));
+  if(!otpInput)return null;
+  const action=form[1].match(/\baction=["']([^"']*)["']/i)?.[1]||baseUrl;
+  return {url:new URL(action,baseUrl).toString(),inputs,otpName:otpInput.name};
+}
+async function syncDahabPartner(partner,{fromDate,toDate,otp}={}){
+  const {origin,login,report}=dahabUrls(partner);
+  const username=String(partner.username||"").trim();
+  const password=decryptIntegrationSecret(partner.passwordEncrypted);
+  if(!username||!password)throw Object.assign(new Error("اسم المستخدم وكلمة المرور لشركة دهب مطلوبان"),{code:"DAHAB_CREDENTIALS_REQUIRED"});
+  const headers={Accept:"text/html,application/xhtml+xml","Accept-Language":"ar,en;q=0.8","Content-Type":"application/x-www-form-urlencoded","User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36",Origin:origin,Referer:login};
+  const body=new URLSearchParams({username,password,hash:"alaboud-business-suite",dt:"",login:""});
+  let result=await fetchWithCookies(login,{method:"POST",headers,body:body.toString()},"",{maxRedirects:6});
+  let cookie=result.cookie;
+  let html=await result.response.text();
+  if(!result.response.ok)throw Object.assign(new Error(`فشل تسجيل الدخول إلى دهب (${result.response.status})`),{code:"DAHAB_HTTP_ERROR"});
+  const otpForm=dahabOtpForm(html,result.url||login);
+  if(otpForm){
+    const cleanOtp=String(otp||"").replace(/\D/g,"");
+    if(!cleanOtp)throw Object.assign(new Error("مطلوب رمز Google Authenticator لشركة دهب"),{code:"DAHAB_OTP_REQUIRED"});
+    const otpBody=new URLSearchParams();
+    for(const input of otpForm.inputs)otpBody.set(input.name,input.name===otpForm.otpName?cleanOtp:input.value);
+    result=await fetchWithCookies(otpForm.url,{method:"POST",headers:{...headers,Referer:result.url||login},body:otpBody.toString()},cookie,{maxRedirects:6});
+    cookie=result.cookie;html=await result.response.text();
+  }
+  if(/name=["']username["']/i.test(html)&&/name=["']password["']/i.test(html))throw Object.assign(new Error("بيانات دخول دهب غير صحيحة أو رفض الموقع جلسة الخادم"),{code:"DAHAB_LOGIN_REJECTED"});
+  const start=dahabDate(fromDate||partner.syncFromDate||new Date(Date.now()-7*86400000).toISOString().slice(0,10));
+  const end=dahabDate(toDate||new Date().toISOString().slice(0,10));
+  const currencyId=String(partner.externalAccountId||"3").replace(/\D/g,"")||"3";
+  const reportUrl=new URL(report);reportUrl.search=new URLSearchParams({p:"h",f:"report",fr:start,to:end,cur:currencyId,ajax:"1"}).toString();
+  const reportResult=await fetchWithCookies(reportUrl.toString(),{method:"GET",headers:{...headers,"Content-Type":"text/html",Referer:result.url||`${origin}/clmah/index.php`}},cookie,{maxRedirects:4});
+  const reportHtml=await reportResult.response.text();
+  if(!reportResult.response.ok)throw Object.assign(new Error(`فشل فتح تقرير دهب (${reportResult.response.status})`),{code:"DAHAB_REPORT_HTTP_ERROR"});
+  if(/name=["']username["']/i.test(reportHtml)&&/name=["']password["']/i.test(reportHtml))throw Object.assign(new Error("انتهت جلسة دهب؛ أعد إدخال رمز Authenticator"),{code:"DAHAB_SESSION_REJECTED"});
+  const balance=dahabBalanceFromHtml(reportHtml);
+  const currency=dahabCurrencyFromHtml(reportHtml,partner.accountCurrency||"USD");
+  const normalized={balance:+balance.toFixed(2),receivable:balance>0?+balance.toFixed(2):0,payable:balance<0?+Math.abs(balance).toFixed(2):0};
+  return {...normalized,currencies:{[currency]:normalized},movements:[],balanceRows:[{currency,amount:normalized.balance}]};
+}
+
 app.post("/api/partners", auth, (req,res)=>{
   const {
     name,
@@ -4017,7 +4104,9 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
       return res.json({ok:true,status:"READY",connector,message:`تم الاتصال بشركة ${connector==="SURYANA"?"سوريانا":"جاد"}، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
     }
     if(["TAWASUL","DAHAB"].includes(connector)){
-      const result=await syncKontorunPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp});
+      const result=connector==="DAHAB"
+        ? await syncDahabPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp})
+        : await syncKontorunPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp});
       mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectorType=connector;item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.updatedAt=now();}});
       return res.json({ok:true,status:"READY",connector,message:`تم الاتصال بشركة ${connector==="DAHAB"?"دهب":"تواصل"} بنجاح، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
     }
@@ -4049,9 +4138,11 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
   if(!["JAD","TAWASUL","DAHAB","SURYANA"].includes(connector))return res.status(400).json({message:"لا يوجد موصل فعلي محدد لهذه الشركة"});
   if(syncTrigger==="AUTO"&&["JAD","DAHAB","SURYANA"].includes(connector))return res.status(409).json({message:"تم تعطيل المزامنة التلقائية لهذه الشركة لحماية استقرار الخادم؛ استخدم زر جلب الرصيد يدويًا"});
   try{
-    const result=["TAWASUL","DAHAB"].includes(connector)
-      ? await syncKontorunPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp})
-      : await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp});
+    const result=connector==="DAHAB"
+      ? await syncDahabPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp})
+      : connector==="TAWASUL"
+        ? await syncKontorunPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp})
+        : await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp});
     const storageState=result?._storageState||null;
     if(result&&Object.prototype.hasOwnProperty.call(result,"_storageState"))delete result._storageState;
     let publicPartner=null;
