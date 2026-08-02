@@ -1,1 +1,1 @@
-export const APP_VERSION="v21.6.0 Financial Assets & Liabilities Dashboard";
+export const APP_VERSION="v22.8.0 Multi-Branch Network";

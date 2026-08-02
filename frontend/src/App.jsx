@@ -233,6 +233,8 @@ function Login({onLogin}){
   const [busy,setBusy]=useState(false);
   const [accepted,setAccepted]=useState(localStorage.getItem("alaboud_legal_acceptance_v1")==="yes");
   const [twoFactor,setTwoFactor]=useState({required:false,challenge:"",code:""});
+  const resetParams=new URLSearchParams(window.location.search);
+  const [recovery,setRecovery]=useState({identifier:"",email:resetParams.get("email")||"",token:resetParams.get("token")||"",newPassword:"",confirmPassword:"",message:""});
   const nativeBiometric=typeof window!=="undefined"&&window.AlAboudNative?.requestBiometricLogin;
   const biometricEnabled=Boolean(nativeBiometric&&window.AlAboudNative?.isBiometricEnabled?.());
   async function saveSession(data){
@@ -248,7 +250,18 @@ function Login({onLogin}){
   }
   async function submitTwoFactor(e){e.preventDefault();setBusy(true);setError("");try{const {data}=await api.post("/auth/2fa/verify",{challenge:twoFactor.challenge,code:twoFactor.code});await saveSession(data)}catch(error){setError(error.response?.data?.message||"رمز التحقق غير صحيح")}finally{setBusy(false)}}
   useEffect(()=>{const handler=async event=>{try{setBusy(true);const {data}=await api.post("/auth/biometric-login",{token:event.detail?.token});await saveSession(data)}catch(error){setError(error.response?.data?.message||"تعذر الدخول بالبصمة أو الوجه")}finally{setBusy(false)}};window.addEventListener("alaboud-biometric-token",handler);return()=>window.removeEventListener("alaboud-biometric-token",handler)},[]);
+  useEffect(()=>{
+    if(mode!=="login")return;
+    const passwordInput=document.querySelector('.public-account-panel input[type="password"]');
+    if(!passwordInput||document.getElementById("forgot-password-button"))return;
+    const button=document.createElement("button");button.id="forgot-password-button";button.type="button";button.className="account-mode-button";button.textContent="نسيت كلمة السر؟";button.onclick=()=>setMode("forgot");passwordInput.insertAdjacentElement("afterend",button);
+    return()=>button.remove();
+  },[mode]);
   async function submitRegister(e){e.preventDefault();setError("");if(!accepted){setError("يجب الموافقة على سياسة الخصوصية وشروط الاستخدام");return}localStorage.setItem("alaboud_legal_acceptance_v1","yes");if(form.password!==form.confirmPassword){setError("تأكيد كلمة المرور غير مطابق");return}setBusy(true);try{const {data}=await api.post("/auth/register-company",{ownerName:form.ownerName,companyName:form.companyName,email:form.email,phone:form.phone,password:form.password});await saveSession(data)}catch(error){setError(error.response?.data?.message||"تعذر إنشاء الحساب")}finally{setBusy(false)}}
+  async function requestPasswordReset(e){e.preventDefault();setBusy(true);setError("");try{const {data}=await api.post("/auth/forgot-password",{identifier:recovery.identifier});setRecovery({...recovery,message:data.message||"تم إرسال تعليمات الاستعادة إلى البريد المسجل"})}catch(error){setError(error.response?.data?.message||"تعذر إرسال طلب الاستعادة")}finally{setBusy(false)}}
+  async function submitPasswordReset(e){e.preventDefault();setError("");if(recovery.newPassword!==recovery.confirmPassword){setError("تأكيد كلمة المرور غير مطابق");return}setBusy(true);try{await api.post("/auth/reset-password",{email:recovery.email,token:recovery.token,newPassword:recovery.newPassword});window.history.replaceState({},"",window.location.pathname);setRecovery({...recovery,token:"",message:"تم تغيير كلمة المرور، يمكنك تسجيل الدخول الآن"});setMode("login")}catch(error){setError(error.response?.data?.message||"تعذر إعادة تعيين كلمة المرور")}finally{setBusy(false)}}
+  if(recovery.token)return <div className="login"><form className="panel public-account-panel" onSubmit={submitPasswordReset}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><h1>تعيين كلمة مرور جديدة</h1><input type="email" value={recovery.email} onChange={e=>setRecovery({...recovery,email:e.target.value})} placeholder="البريد الإلكتروني" required/><input type="password" value={recovery.newPassword} onChange={e=>setRecovery({...recovery,newPassword:e.target.value})} placeholder="كلمة المرور الجديدة — 12 حرفًا قوية" required/><input type="password" value={recovery.confirmPassword} onChange={e=>setRecovery({...recovery,confirmPassword:e.target.value})} placeholder="تأكيد كلمة المرور" required/>{error&&<div className="error">{error}</div>}<button disabled={busy}>{busy?"جاري الحفظ...":"حفظ كلمة المرور الجديدة"}</button></form></div>;
+  if(mode==="forgot")return <div className="login"><form className="panel public-account-panel" onSubmit={requestPasswordReset}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><h1>نسيت كلمة السر</h1><p>أدخل البريد الإلكتروني أو رقم الهاتف المسجل. سيصل رابط الاستعادة إلى البريد المرتبط بالحساب.</p><input value={recovery.identifier} onChange={e=>setRecovery({...recovery,identifier:e.target.value,message:""})} placeholder="البريد الإلكتروني أو رقم الهاتف" required/>{recovery.message&&<div className="rate-message">{recovery.message}</div>}{error&&<div className="error">{error}</div>}<button disabled={busy}>{busy?"جاري الإرسال...":"إرسال رابط الاستعادة"}</button><button type="button" className="account-mode-button" onClick={()=>{setMode("login");setError("")}}>العودة إلى تسجيل الدخول</button></form></div>;
   if(twoFactor.required)return <div className="login"><form className="panel public-account-panel" onSubmit={submitTwoFactor}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><h1>التحقق بخطوتين</h1><p>أدخل الرمز المكوّن من 6 أرقام من تطبيق Authenticator.</p><input inputMode="numeric" autoComplete="one-time-code" maxLength="6" value={twoFactor.code} onChange={e=>setTwoFactor({...twoFactor,code:e.target.value.replace(/\D/g,"").slice(0,6)})} placeholder="000000" required/>{error&&<div className="error">{error}</div>}<button disabled={busy||twoFactor.code.length!==6}>{busy?"جاري التحقق...":"تحقق ودخول"}</button><button type="button" className="account-mode-button" onClick={()=>setTwoFactor({required:false,challenge:"",code:""})}>العودة</button></form></div>;
   return <div className="login"><form className="panel public-account-panel" onSubmit={mode==="login"?submitLogin:submitRegister}><img className="login-company-logo" src="/alaboud-company-logo.webp" alt="شركة العبود التجارية"/><h1>{mode==="login"?"تسجيل الدخول":"إنشاء حساب شركة جديد"}</h1><p className="login-company-en">ALABOUD BUSINESS SUITE</p>{mode==="login"?<><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="البريد الإلكتروني" required/><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="كلمة المرور" required/></>:<><input value={form.ownerName} onChange={e=>setForm({...form,ownerName:e.target.value})} placeholder="اسم صاحب الحساب" required/><input value={form.companyName} onChange={e=>setForm({...form,companyName:e.target.value})} placeholder="اسم الشركة" required/><input type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})} placeholder="البريد الإلكتروني" required/><input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="رقم الهاتف"/><input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} placeholder="كلمة المرور — 12 حرفًا قوية" required/><input type="password" value={form.confirmPassword} onChange={e=>setForm({...form,confirmPassword:e.target.value})} placeholder="تأكيد كلمة المرور" required/></>}<label className="legal-consent"><input type="checkbox" checked={accepted} onChange={e=>setAccepted(e.target.checked)}/><span>أوافق على سياسة الخصوصية وشروط الاستخدام</span></label>{error&&<div className="error">{error}</div>}<button disabled={busy}>{busy?"جاري التنفيذ...":mode==="login"?"تسجيل الدخول":"إنشاء الحساب والدخول"}</button>{mode==="login"&&biometricEnabled&&<button className="biometric-login-button" type="button" onClick={()=>window.AlAboudNative.requestBiometricLogin()}>👆 الدخول بالبصمة أو الوجه</button>}<button className="account-mode-button" type="button" onClick={()=>{setMode(mode==="login"?"register":"login");setError("")}}>{mode==="login"?"مستخدم جديد؟ إنشاء حساب شركة":"لدي حساب بالفعل — تسجيل الدخول"}</button></form></div>
 }
@@ -558,7 +571,7 @@ function Customers({open}){
   const [search,setSearch]=useState("");
   const [error,setError]=useState("");
 
-  const [customerForm,setCustomerForm]=useState({name:"",phone:"",email:"",oldBalance:""});
+  const [customerForm,setCustomerForm]=useState({customerNumber:"",name:"",phone:"",email:"",oldBalance:""});
   const [editingCustomer,setEditingCustomer]=useState(null);
 
   const [transferForm,setTransferForm]=useState({
@@ -665,7 +678,8 @@ function Customers({open}){
     event.preventDefault();
     try{
       await api.post("/customers",customerForm);
-      setCustomerForm({name:"",phone:"",email:"",oldBalance:""});
+      setCustomerForm({customerNumber:"",name:"",phone:"",email:"",oldBalance:""});
+      setError("✅ تم حفظ العميل بنجاح");
       setActivePanel("");
       await load();
     }catch(requestError){
@@ -996,6 +1010,7 @@ function Customers({open}){
     {activePanel==="newCustomer"&&
       <form className="card form edit-panel" onSubmit={addCustomer}>
         <h3>إضافة عميل جديد</h3>
+        <input value={customerForm.customerNumber} onChange={e=>setCustomerForm({...customerForm,customerNumber:e.target.value})} placeholder="رقم العميل — يترك فارغًا للترقيم التلقائي"/>
         <input value={customerForm.name} onChange={e=>setCustomerForm({...customerForm,name:e.target.value})} placeholder="اسم العميل" required/>
         <input value={customerForm.phone} onChange={e=>setCustomerForm({...customerForm,phone:e.target.value})} placeholder="رقم الهاتف / واتساب"/>
         <input type="email" value={customerForm.email} onChange={e=>setCustomerForm({...customerForm,email:e.target.value})} placeholder="البريد الإلكتروني"/>
@@ -3416,7 +3431,7 @@ function Partners({open}){
         <option value="WEB">رابط ويب</option><option value="API">API</option><option value="CSV">CSV</option><option value="EXCEL">Excel</option><option value="PDF">PDF</option>
       </select>
       <select value={form.connectorType} onChange={e=>setForm({...form,connectorType:e.target.value})}>
-        <option value="GENERIC">شركة عامة — بدون مزامنة تلقائية</option><option value="JAD">موصل شركة جاد — جلب الرصيد تلقائيًا</option><option value="TAWASUL">موصل شركة تواصل — كشف الحساب والرصيد</option>
+        <option value="GENERIC">شركة عامة — بدون مزامنة تلقائية</option><option value="JAD">موصل شركة جاد — جلب الرصيد تلقائيًا</option><option value="TAWASUL">موصل شركة تواصل — كشف الحساب والرصيد</option><option value="SURYANA">شركة سوريانا — يحتاج API الشركة</option><option value="DAHAB">شركة دهب — يحتاج API الشركة</option>
       </select>
       <select value={form.accountCurrency} onChange={e=>setForm({...form,accountCurrency:e.target.value})}>
         {debtCurrencies.map(item=><option key={item.code} value={item.code}>{item.flag} {item.code}</option>)}
@@ -3444,7 +3459,7 @@ function Partners({open}){
         <thead><tr><th>الشركة</th><th>نوع الربط</th><th>الحالة</th><th>العملة الأساسية</th><th>أرصدة العملات</th><th>آخر مزامنة</th><th>الرابط</th><th>الإجراءات</th></tr></thead>
         <tbody>{data.rows.length?data.rows.map(partner=><tr key={partner.id}>
           <td><strong>{partner.name}</strong><small className="company-subline">{partner.contactName||partner.integrationName||"-"}</small></td>
-          <td>{partner.connectionType||"يدوي"}<small className="company-subline">{partner.connectorType==="TAWASUL"||partner.connectorType==="KONTORUN"?"موصل تواصل":partner.connectorType==="JAD"?"موصل جاد":"بدون موصل"}</small></td>
+          <td>{partner.connectionType||"يدوي"}<small className="company-subline">{partner.connectorType==="TAWASUL"||partner.connectorType==="KONTORUN"?"موصل تواصل":partner.connectorType==="JAD"?"موصل جاد":partner.connectorType==="SURYANA"?"سوريانا — بانتظار API":partner.connectorType==="DAHAB"?"دهب — بانتظار API":"بدون موصل"}</small></td>
           <td>{(()=>{const effectiveStatus=partner.lastSyncAt&&Number.isFinite(Number(partner.externalBalance))?"READY":partner.connectionStatus;return <span className={`integration-status status-${String(effectiveStatus||"MANUAL").toLowerCase()}`}>{statusLabel(effectiveStatus)}</span>;})()}</td>
           <td><span className="partner-primary-currency">{flagOf(partner.accountCurrency||"USD")} {partner.accountCurrency||"USD"}</span><small className="company-subline">العملة الأساسية فقط</small></td>
           <td><PartnerCurrencyBalances partner={partner}/></td>
@@ -4037,6 +4052,14 @@ function NotificationSettings({embedded=false}){
 }
 
 
+
+function BranchManagement(){
+  const [branches,setBranches]=useState([]),[form,setForm]=useState({name:"",code:"",address:"",phone:"",currency:"CAD"}),[message,setMessage]=useState("");
+  const load=()=>api.get("/branches").then(r=>setBranches(r.data)).catch(()=>{});useEffect(()=>{load()},[]);
+  async function create(event){event.preventDefault();setMessage("");try{await api.post("/branches",form);setForm({name:"",code:"",address:"",phone:"",currency:"CAD"});setMessage("تم إنشاء الفرع بنجاح");load()}catch(error){setMessage(error.response?.data?.message||"تعذر إنشاء الفرع")}}
+  return <article className="settings-card settings-wide-card"><div className="settings-card-title"><span>🏢</span><h3>إدارة الفروع</h3></div><p className="settings-help">أنشئ الفروع واعرض مؤشرات كل فرع. يمكن تغيير الفرع النشط من القائمة الجانبية.</p>{message&&<div className="settings-message">{message}</div>}<form className="branch-create-form" onSubmit={create}><input placeholder="اسم الفرع" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required/><input placeholder="الرمز مثل WINDSOR" value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})} required/><input placeholder="العنوان" value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/><input placeholder="الهاتف" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/><button className="settings-primary-button">إضافة فرع</button></form><div className="branch-grid">{branches.map(branch=><div className="branch-card" key={branch.id}><div><strong>{branch.name}</strong><small>{branch.code}{branch.isMain?" • الفرع الرئيسي":""}</small></div><div className="branch-metrics"><span>العملاء <b>{branch.metrics?.customers||0}</b></span><span>الحوالات <b>{branch.metrics?.transactions||0}</b></span><span>المصروفات <b>{money(branch.metrics?.expensesCad||0)} CAD</b></span></div></div>)}</div></article>
+}
+
 function SettingsPanel(){
   const savedUser=(()=>{
     try{return JSON.parse(localStorage.getItem("afs_user")||"{}")}catch{return {}}
@@ -4067,9 +4090,12 @@ function SettingsPanel(){
   function chooseCompanyLogo(event){
     const file=event.target.files?.[0];
     if(!file)return;
-    if(file.size>1024*1024){setMessage("حجم الشعار يجب أن يكون أقل من 1 MB");return}
     const reader=new FileReader();
-    reader.onload=()=>setCompanyProfile(current=>({...current,logoDataUrl:String(reader.result||"")}));
+    reader.onload=()=>{
+      const image=new Image();
+      image.onload=()=>{const size=Math.min(640,Math.max(image.width,image.height));const scale=size/Math.max(image.width,image.height);const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(image.width*scale));canvas.height=Math.max(1,Math.round(image.height*scale));canvas.getContext("2d").drawImage(image,0,0,canvas.width,canvas.height);setCompanyProfile(current=>({...current,logoDataUrl:canvas.toDataURL("image/webp",.88)}));setMessage("تم اختيار الشعار؛ اضغط حفظ لتثبيته");};
+      image.onerror=()=>setMessage("تعذر قراءة ملف الشعار");image.src=String(reader.result||"");
+    };
     reader.readAsDataURL(file);
   }
 
@@ -4272,6 +4298,7 @@ function SettingsPanel(){
     {message&&<div className="card settings-message">{message}</div>}
 
     <div className="settings-grid">
+    {savedUser.role==="ADMIN"&&<BranchManagement/>}
     <article className="settings-card security-access-card"><div className="settings-card-title"><span>🔐</span><h3>حماية تسجيل الدخول</h3></div><p className="settings-help">التحقق بخطوتين بواسطة Google Authenticator أو Microsoft Authenticator.</p>{twoFactorInfo.enabled?<button type="button" className="danger" onClick={disableTwoFactor}>تعطيل التحقق بخطوتين</button>:<>{!twoFactorInfo.secret?<button type="button" className="settings-primary-button" onClick={beginTwoFactor}>بدء التفعيل</button>:<div className="two-factor-setup"><label>المفتاح السري<input readOnly value={twoFactorInfo.secret}/></label><small>انسخ المفتاح إلى تطبيق Authenticator.</small><label>رمز التحقق<input inputMode="numeric" maxLength="6" value={twoFactorInfo.code} onChange={e=>setTwoFactorInfo({...twoFactorInfo,code:e.target.value.replace(/\D/g,"").slice(0,6)})}/></label><button type="button" disabled={twoFactorInfo.code.length!==6} onClick={enableTwoFactor}>تأكيد التفعيل</button></div>}</>}<div className="biometric-settings-block"><div><strong>👆 الدخول بالبصمة أو الوجه</strong><small>{biometricAvailable?(biometricEnabled?"مفعّل على هذا الهاتف":"غير مفعّل على هذا الهاتف"):"متاح داخل تطبيق الهاتف فقط"}</small></div>{biometricAvailable&&(biometricEnabled?<button type="button" className="danger" onClick={disableBiometric}>تعطيل البصمة أو الوجه</button>:<button type="button" className="settings-primary-button" onClick={enableBiometric}>تفعيل البصمة أو الوجه</button>)}</div><p className="security-note">بعد التفعيل، سيظهر زر الدخول بالبصمة أو الوجه في شاشة تسجيل الدخول.</p></article>
 
 
@@ -4483,6 +4510,8 @@ export default function App(){
   const [token,setToken]=useState(localStorage.getItem("afs_token"));
   const savedCompanyUser=(()=>{try{return JSON.parse(localStorage.getItem("afs_user")||"{}")}catch{return {}}})();
   const [companyBrand,setCompanyBrand]=useState({name:savedCompanyUser.companyName||"شركة العبود التجارية",logoDataUrl:""});
+  const [branches,setBranches]=useState([]);
+  const [activeBranchId,setActiveBranchId]=useState(localStorage.getItem("alaboud_branch_id")||"");
 
   useEffect(()=>{
     if(!token)return;
@@ -4493,6 +4522,7 @@ export default function App(){
     }).catch(()=>{});
 
     api.get("/company-profile").then(({data})=>setCompanyBrand(data)).catch(()=>{});
+    api.get("/branches").then(({data})=>{setBranches(data);const selected=activeBranchId||data.find(x=>x.isMain)?.id||data[0]?.id||"";if(selected&&!activeBranchId){localStorage.setItem("alaboud_branch_id",selected);setActiveBranchId(selected)}}).catch(()=>{});
     const updateCompany=event=>setCompanyBrand(event.detail);
     window.addEventListener("alaboud-company-updated",updateCompany);
     return()=>window.removeEventListener("alaboud-company-updated",updateCompany);
@@ -4642,6 +4672,7 @@ export default function App(){
           <small>{APP_VERSION}</small>
         </div>
       </div>
+      {branches.length>0&&<label className="branch-switcher no-print"><span>🏢 الفرع النشط</span><select value={activeBranchId} onChange={event=>{localStorage.setItem("alaboud_branch_id",event.target.value);setActiveBranchId(event.target.value);window.location.reload()}}>{branches.map(branch=><option key={branch.id} value={branch.id}>{branch.name} ({branch.code})</option>)}</select></label>}
       {menu.map(([key,label])=><button
         key={key}
         className={page===key&&!customerId&&!invoiceId&&!statementCustomerId&&!partnerId?"active":""}

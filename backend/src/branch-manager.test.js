@@ -1,0 +1,10 @@
+const assert=require("assert");const {createBranch,resolveBranch,branchSummary}=require("./branch-manager");
+const store={branches:[],customers:[],transactions:[],expenses:[],capitalMovements:[],generalDebts:[]};
+const main=createBranch(store,{companyId:"c1",name:"المركز الرئيسي",code:"MAIN",isMain:true,now:()=>"2026-01-01"});
+const east=createBranch(store,{companyId:"c1",name:"الفرع الشرقي",code:"EAST",now:()=>"2026-01-01"});
+assert.strictEqual(resolveBranch(store,{companyId:"c1",requestedBranchId:east.id,user:{}}).id,east.id);
+assert.strictEqual(resolveBranch(store,{companyId:"c1",requestedBranchId:"bad",user:{}}).id,main.id);
+store.customers.push({companyId:"c1",branchId:east.id});store.expenses.push({companyId:"c1",branchId:east.id,cadAmount:25});
+const summary=branchSummary(store,east);assert.strictEqual(summary.metrics.customers,1);assert.strictEqual(summary.metrics.expensesCad,25);
+let duplicate=false;try{createBranch(store,{companyId:"c1",name:"x",code:"east"})}catch(e){duplicate=e.message==="BRANCH_CODE_EXISTS"}assert(duplicate);
+console.log("Branch manager selftest passed");

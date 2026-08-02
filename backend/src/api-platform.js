@@ -71,12 +71,14 @@ function integrationLogger({mutate,now,id}){
 function openApiDocument(){
   return {
     openapi:'3.1.0',
-    info:{title:'ALABOUD Business Suite API',version:'22.6.0',description:'REST API Platform for ALABOUD Business Suite'},
+    info:{title:'ALABOUD Business Suite API',version:'22.8.0',description:'REST API Platform for ALABOUD Business Suite'},
     servers:[{url:'/api/v1',description:'Versioned API'},{url:'/api',description:'Legacy-compatible API'}],
     components:{securitySchemes:{BearerAuth:{type:'http',scheme:'bearer',bearerFormat:'JWT'},ApiKeyAuth:{type:'apiKey',in:'header',name:'X-API-Key'}}},
     security:[{BearerAuth:[]},{ApiKeyAuth:[]}],
     paths:{
       '/health':{get:{summary:'System health',security:[],responses:{'200':{description:'Healthy'}}}},
+      '/branches':{get:{summary:'List accessible branches',parameters:[{name:'X-Branch-ID',in:'header',required:false,schema:{type:'string'}}],responses:{'200':{description:'Branch list'}}},post:{summary:'Create branch',responses:{'201':{description:'Branch created'}}}},
+      '/branches/network-summary':{get:{summary:'Consolidated branch network summary',responses:{'200':{description:'Network metrics'}}}},
       '/customers':{get:{summary:'List customers',responses:{'200':{description:'Customer list'}}}},
       '/transactions':{get:{summary:'List transactions',responses:{'200':{description:'Transaction list'}}}},
       '/exchange-rates':{get:{summary:'List exchange rates',responses:{'200':{description:'Exchange rates'}}}},
@@ -86,5 +88,5 @@ function openApiDocument(){
     }
   };
 }
-function docsHtml(){return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ALABOUD API Docs</title><style>body{font-family:system-ui;background:#0b1220;color:#e5e7eb;margin:0;padding:32px}.card{max-width:980px;margin:auto;background:#111827;border:1px solid #334155;border-radius:18px;padding:28px}code,pre{background:#020617;border-radius:10px;padding:12px;display:block;overflow:auto}a{color:#60a5fa}.badge{display:inline-block;background:#064e3b;color:#a7f3d0;padding:5px 10px;border-radius:999px}</style></head><body><div class="card"><span class="badge">OpenAPI 3.1</span><h1>ALABOUD Business Suite API v22.6.0</h1><p>المسار الموصى به: <code>/api/v1</code></p><p>المصادقة عبر JWT Bearer أو الترويسة <code>X-API-Key</code>.</p><h2>ملف OpenAPI</h2><p><a href="/api/openapi.json">/api/openapi.json</a></p><h2>مثال</h2><pre>curl -H "X-API-Key: alb_live_..." ${'${location.origin}'}/api/v1/customers</pre><h2>إدارة التكامل</h2><p>استخدم المسارات <code>/api/developer/api-keys</code> و <code>/api/developer/webhooks</code> و <code>/api/developer/integration-logs</code> من حساب ADMIN.</p></div></body></html>`;}
+function docsHtml(){return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ALABOUD API Docs</title><style>body{font-family:system-ui;background:#0b1220;color:#e5e7eb;margin:0;padding:32px}.card{max-width:980px;margin:auto;background:#111827;border:1px solid #334155;border-radius:18px;padding:28px}code,pre{background:#020617;border-radius:10px;padding:12px;display:block;overflow:auto}a{color:#60a5fa}.badge{display:inline-block;background:#064e3b;color:#a7f3d0;padding:5px 10px;border-radius:999px}</style></head><body><div class="card"><span class="badge">OpenAPI 3.1</span><h1>ALABOUD Business Suite API v22.8.0</h1><p>المسار الموصى به: <code>/api/v1</code></p><p>المصادقة عبر JWT Bearer أو الترويسة <code>X-API-Key</code>.</p><h2>ملف OpenAPI</h2><p><a href="/api/openapi.json">/api/openapi.json</a></p><h2>مثال</h2><pre>curl -H "X-API-Key: alb_live_..." ${'${location.origin}'}/api/v1/customers</pre><h2>إدارة التكامل</h2><p>استخدم المسارات <code>/api/developer/api-keys</code> و <code>/api/developer/webhooks</code> و <code>/api/developer/integration-logs</code> من حساب ADMIN.</p></div></body></html>`;}
 module.exports={API_VERSION,DEFAULT_SCOPES,hashKey,generateApiKey,keyPrefix,normalizeScopes,verifyApiKey,apiKeyMiddleware,requireScope,versionAliasMiddleware,integrationLogger,openApiDocument,docsHtml};

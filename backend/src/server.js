@@ -6,11 +6,18 @@ const crypto = require("crypto");
 const { hashPassword, verifyPassword, isScryptHash, passwordPolicy, encryptJson, decryptJson, sha256 } = require("./security");
 const path = require("path");
 const fs = require("fs");
-const { readStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
+const { readStore, readRootStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const { permissionsFor, requirePermission } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
 const { generateApiKey, keyPrefix, normalizeScopes, apiKeyMiddleware, versionAliasMiddleware, integrationLogger, openApiDocument, docsHtml } = require("./api-platform");
+const { createBranch, resolveBranch, branchSummary } = require("./branch-manager");
+const {
+  APP_VERSION,
+  createBackupEnvelope,
+  verifyBackupEnvelope,
+  productionReadiness
+} = require("./production-readiness");
 
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -78,6 +85,11 @@ function seedAdmin(){
       company={id:id(),name:"شركة العبود التجارية",slug:"alaboud-primary",phone:"",active:true,createdAt:now()};
       store.companies.push(company);
     }
+    let mainBranch=(store.branches||[]).find(item=>item.companyId===company.id&&item.isMain&&item.active!==false);
+    if(!mainBranch){
+      mainBranch={id:id(),companyId:company.id,name:"الفرع الرئيسي",code:"MAIN",address:"",phone:"",currency:"CAD",isMain:true,active:true,createdAt:now()};
+      store.branches.push(mainBranch);
+    }
 
     let admin=store.users.find(user=>user.email==="admin@alaboud.local");
     if(!admin){
@@ -91,6 +103,7 @@ function seedAdmin(){
     for(const key of tenantArrays){
       for(const item of store[key]||[]){
         if(item&&!item.companyId)item.companyId=company.id;
+        if(item&&item.companyId===company.id&&!item.branchId)item.branchId=mainBranch.id;
       }
     }
     if(!store.companySettings[company.id]){
@@ -102,7 +115,10 @@ function seedAdmin(){
 function auth(req,res,next){
   if(req.apiKeyUser){
     req.user=req.apiKeyUser;
-    return runWithTenant(req.user.companyId,()=>next());
+    const branch=resolveBranch(readRootStore(),{companyId:req.user.companyId,requestedBranchId:req.headers["x-branch-id"],user:req.user});
+    if(!branch)return res.status(403).json({message:"لا يوجد فرع متاح"});
+    req.branch=branch;req.user.branchId=branch.id;req.user.branchName=branch.name;
+    return runWithTenant(req.user.companyId,branch.id,()=>next());
   }
   const h=req.headers.authorization||"";
   const token=h.startsWith("Bearer ")?h.slice(7):"";
@@ -115,7 +131,10 @@ function auth(req,res,next){
     const sessionStatus=validateSession(store,{jti:req.user.jti,userId:req.user.id,companyId:req.user.companyId});
     if(!sessionStatus.ok)return res.status(401).json({message:sessionStatus.reason==="IDLE_TIMEOUT"?"انتهت الجلسة بسبب عدم النشاط":"انتهت صلاحية الجلسة"});
     req.user.role=user.role; req.user.permissions=permissionsFor(user.role,user.permissions);
-    runWithTenant(req.user.companyId,()=>next());
+    const branch=resolveBranch(readRootStore(),{companyId:req.user.companyId,requestedBranchId:req.headers["x-branch-id"],user});
+    if(!branch)return res.status(403).json({message:"لا يوجد فرع متاح لهذا المستخدم"});
+    req.branch=branch;req.user.branchId=branch.id;req.user.branchName=branch.name;
+    runWithTenant(req.user.companyId,branch.id,()=>next());
   }catch{
     res.status(401).json({message:"Authentication required"});
   }
@@ -174,6 +193,15 @@ function issueSession(user,company,context={}){
   const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId,jti},JWT_SECRET,{expiresIn:"12h",issuer:"alaboud-business-suite",audience:"alaboud-client"});
   mutate(store=>createSession(store,{userId:user.id,companyId:user.companyId,jti,ip:context.ip,userAgent:context.userAgent,expiresAt}));
   return {token,user:{id:user.id,name:user.name,email:user.email,role:user.role,permissions:permissionsFor(user.role,user.permissions),companyId:user.companyId,companyName:company.name,mustChangePassword:Boolean(user.mustChangePassword),twoFactorEnabled:Boolean(user.twoFactorEnabled)}};
+}
+
+
+function branchSafeRead(req,key,nativeRead,fallbackRead){
+  // The legacy relational schema is company-scoped. Until branch_id columns are
+  // projected in a later migration, branch requests must use the tenant proxy
+  // to guarantee that records from another branch are never returned.
+  if(req?.branch?.id)return Promise.resolve(fallbackRead());
+  return nativeRepositories.withFallback(key,nativeRead,fallbackRead);
 }
 
 function safeNumber(value, fallback = 0) {
@@ -347,7 +375,9 @@ function customerSummary(store, c) {
 
 app.get("/api/health", async (_req,res)=>{
   const database=await databaseHealth();
-  res.status(database.ok?200:503).json({ok:database.ok,version:"22.6.0",database,nativeRepositories:nativeRepositories.health(),time:now()});
+  const readiness=productionReadiness();
+  const ok=database.ok&&readiness.ok;
+  res.status(ok?200:503).json({ok,version:APP_VERSION,database,readiness,nativeRepositories:nativeRepositories.health(),time:now()});
 });
 app.get("/api/openapi.json", (_req,res)=>res.json(openApiDocument()));
 app.get("/api/docs", (_req,res)=>res.type("html").send(docsHtml()));
@@ -523,14 +553,19 @@ app.post("/api/auth/change-password", auth, (req,res)=>{
 });
 
 app.post("/api/auth/forgot-password", rateLimit("forgot-password",5,15*60*1000), async (req,res)=>{
-  const email=String(req.body?.email||"").trim().toLowerCase();
+  const identifier=String(req.body?.identifier||req.body?.email||req.body?.phone||"").trim();
+  const email=identifier.toLowerCase();
+  const normalizedPhone=identifier.replace(/\D/g,"");
   // نفس الرد دائمًا (بصرف النظر عن وجود الحساب) لمنع اكتشاف البريد الإلكتروني المسجّل.
   const genericResponse={message:"إذا كان البريد الإلكتروني مسجلاً، فستصلك رسالة تحتوي رابط إعادة التعيين"};
-  if(!email.includes("@")) return res.json(genericResponse);
-
   const store=readStore();
-  const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active);
+  const user=store.users.find(u=>u.active&&(
+    (email.includes("@")&&String(u.email||"").toLowerCase()===email) ||
+    (normalizedPhone.length>=7&&String(u.phone||store.companies.find(c=>c.id===u.companyId)?.phone||"").replace(/\D/g,"")===normalizedPhone)
+  ));
   if(!user) return res.json(genericResponse);
+  const deliveryEmail=String(user.email||"").trim().toLowerCase();
+  if(!deliveryEmail.includes("@"))return res.json(genericResponse);
 
   const rawToken=crypto.randomBytes(32).toString("hex");
   const tokenHash=sha256(rawToken);
@@ -541,8 +576,8 @@ app.post("/api/auth/forgot-password", rateLimit("forgot-password",5,15*60*1000),
     if(u){ u.resetPasswordTokenHash=tokenHash; u.resetPasswordExpiresAt=expiresAt; audit(root,u.id,"PASSWORD_RESET_REQUESTED","AUTH",u.id,{ip:req.ip,requestId:req.requestId}); }
   });
 
-  const resetLink=`${APP_URL}/reset-password?email=${encodeURIComponent(email)}&token=${rawToken}`;
-  await sendEmail(email,"إعادة تعيين كلمة المرور - ALABOUD Business Suite",
+  const resetLink=`${APP_URL}/reset-password?email=${encodeURIComponent(deliveryEmail)}&token=${rawToken}`;
+  await sendEmail(deliveryEmail,"إعادة تعيين كلمة المرور - ALABOUD Business Suite",
     `تم طلب إعادة تعيين كلمة المرور لحسابك.\nهذا الرابط صالح لمدة 30 دقيقة:\n${resetLink}\nإذا لم تطلب ذلك، تجاهل هذه الرسالة.`);
 
   // في وضع التطوير فقط (وعند عدم وجود SMTP فعلي)، نعيد الرمز مباشرة لتسهيل الاختبار.
@@ -605,6 +640,22 @@ app.get("/api/audit-logs", auth, requirePermission("audit.read"), (req,res)=>{
   if(entityType)logs=logs.filter(item=>String(item.entityType||"").toUpperCase()===entityType);
   res.json(logs.sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,limit));
 });
+
+// v22.8.0 — Multi-Branch management
+app.get("/api/branches",auth,(req,res)=>{
+  const root=readRootStore();const user=root.users.find(x=>x.id===req.user.id)||req.user;
+  const allowed=(root.branches||[]).filter(x=>x.companyId===req.user.companyId&&x.active!==false&&(!Array.isArray(user.branchIds)||!user.branchIds.length||user.branchIds.includes(x.id)));
+  res.json(allowed.map(branch=>branchSummary(root,branch)));
+});
+app.post("/api/branches",auth,(req,res)=>{
+  if(!["ADMIN","MANAGER"].includes(req.user.role))return res.status(403).json({message:"إنشاء الفروع متاح للمدير فقط"});
+  try{let branch;mutate(root=>{branch=createBranch(root,{companyId:req.user.companyId,name:req.body?.name,code:req.body?.code,address:req.body?.address,phone:req.body?.phone,currency:req.body?.currency,isMain:req.body?.isMain,createdBy:req.user.id,now});audit(root,req.user.id,"CREATE","BRANCH",branch.id,{name:branch.name,code:branch.code});});res.status(201).json(branch);}catch(error){const messages={BRANCH_NAME_REQUIRED:"اسم الفرع مطلوب",BRANCH_CODE_REQUIRED:"رمز الفرع مطلوب",BRANCH_CODE_EXISTS:"رمز الفرع مستخدم مسبقًا"};res.status(400).json({message:messages[error.message]||error.message});}
+});
+app.patch("/api/branches/:id",auth,(req,res)=>{
+  if(!["ADMIN","MANAGER"].includes(req.user.role))return res.status(403).json({message:"تعديل الفروع متاح للمدير فقط"});let branch;mutate(root=>{branch=(root.branches||[]).find(x=>x.id===req.params.id&&x.companyId===req.user.companyId);if(!branch)return;if(req.body?.isMain){for(const x of root.branches)if(x.companyId===req.user.companyId)x.isMain=false;}for(const key of ["name","address","phone","currency","active","isMain"])if(req.body?.[key]!==undefined)branch[key]=req.body[key];branch.updatedAt=now();audit(root,req.user.id,"UPDATE","BRANCH",branch.id,{name:branch.name});});if(!branch)return res.status(404).json({message:"الفرع غير موجود"});res.json(branch);
+});
+app.get("/api/branches/current",auth,(req,res)=>res.json(req.branch));
+app.get("/api/branches/network-summary",auth,(req,res)=>{const root=readRootStore();const rows=(root.branches||[]).filter(x=>x.companyId===req.user.companyId&&x.active!==false).map(x=>branchSummary(root,x));res.json({branches:rows,totals:rows.reduce((a,x)=>({customers:a.customers+x.metrics.customers,transactions:a.transactions+x.metrics.transactions,transactionValueCad:+(a.transactionValueCad+x.metrics.transactionValueCad).toFixed(2),expensesCad:+(a.expensesCad+x.metrics.expensesCad).toFixed(2)}),{customers:0,transactions:0,transactionValueCad:0,expensesCad:0})});});
 
 app.get("/api/company-profile", auth, (req,res)=>{
   const store=readStore();
@@ -1160,14 +1211,21 @@ app.get("/api/monthly-report", auth, (req,res)=>{
 
 app.get("/api/customers", auth, async (req,res)=>{
   const s=readStore();
-  const customers=await nativeRepositories.withFallback("customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId),()=>Array.from(s.customers));
+  const customers=await branchSafeRead(req,"customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId),()=>Array.from(s.customers));
   res.json(paginate(req, customers.filter(c=>!c?.isDeleted).map(c=>customerSummary(s,c)).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")))));
 });
 app.post("/api/customers", auth, (req,res)=>{
-  const {name,phone="",email="",identityNumber="",notes="",oldBalance=0}=req.body||{};
+  try{
+  const {name,phone="",email="",identityNumber="",customerNumber="",notes="",oldBalance=0}=req.body||{};
   if(!String(name).trim()) return res.status(400).json({message:"Customer name is required"});
-  const customer=mutate((s)=>{const c={id:id(),name:String(name).trim(),phone,email,identityNumber,notes,oldBalance:+Math.max(safeNumber(oldBalance),0).toFixed(2),oldBalancePaid:0,createdAt:now()};s.customers.push(c);audit(s,req.user.id,"CREATE","CUSTOMER",c.id);return c;});
+  const customer=mutate((s)=>{
+    const requested=String(customerNumber||identityNumber||"").trim();
+    if(requested&&s.customers.some(item=>!item.isDeleted&&String(item.customerNumber||item.identityNumber||"").trim()===requested))throw new Error("رقم العميل مضاف مسبقًا");
+    const nextNumber=requested||String(Math.max(0,...s.customers.map(item=>Number(item.customerNumber)||0))+1);
+    const c={id:id(),customerNumber:nextNumber,name:String(name).trim(),phone,email,identityNumber,notes,oldBalance:+Math.max(safeNumber(oldBalance),0).toFixed(2),oldBalancePaid:0,createdAt:now()};s.customers.push(c);audit(s,req.user.id,"CREATE","CUSTOMER",c.id);return c;
+  });
   res.status(201).json(customer);
+  }catch(error){res.status(400).json({message:error.message||"تعذر إضافة العميل"});}
 });
 
 app.patch("/api/customers/:id", auth, (req,res)=>{
@@ -1308,9 +1366,9 @@ app.get("/api/customers/:id", auth, (req,res)=>{
 app.get("/api/transactions", auth, async (req,res)=>{
   const s=readStore();
   const [transactions,payments,customers]=await Promise.all([
-    nativeRepositories.withFallback("transactions",()=>nativeRepositories.transactions.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.transactions).filter(t=>!t.isDeleted).reverse()),
-    nativeRepositories.withFallback("payments",()=>nativeRepositories.payments.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.payments).filter(p=>!p.isDeleted)),
-    nativeRepositories.withFallback("transaction-customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.customers).filter(c=>!c.isDeleted))
+    branchSafeRead(req,"transactions",()=>nativeRepositories.transactions.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.transactions).filter(t=>!t.isDeleted).reverse()),
+    branchSafeRead(req,"payments",()=>nativeRepositories.payments.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.payments).filter(p=>!p.isDeleted)),
+    branchSafeRead(req,"transaction-customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.customers).filter(c=>!c.isDeleted))
   ]);
   res.json(paginate(req, transactions.map(t=>{
     const paidAmount=payments.filter(payment=>payment.transactionId===t.id&&!payment.isDeleted).reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
@@ -1859,7 +1917,7 @@ app.post("/api/exchange-rates/refresh", auth, async (req,res)=>{
 
 app.get("/api/exchange-rates", auth, async (req,res)=>{
   const s = readStore();
-  const rates=await nativeRepositories.withFallback("exchange-rates",()=>nativeRepositories.exchangeRates.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(s.exchangeRates));
+  const rates=await branchSafeRead(req,"exchange-rates",()=>nativeRepositories.exchangeRates.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(s.exchangeRates));
   const latest = new Map();
   for (const rate of rates.slice().sort((a,b)=>String(b.createdAt||b.effectiveAt||"").localeCompare(String(a.createdAt||a.effectiveAt||"")))) {
     const key = `${rate.baseCurrency}_${rate.quoteCurrency}`;
@@ -1870,7 +1928,7 @@ app.get("/api/exchange-rates", auth, async (req,res)=>{
 
 app.get("/api/exchange-rates/history", auth, async (req,res)=>{
   const s = readStore();
-  const rates=await nativeRepositories.withFallback("exchange-rates-history",()=>nativeRepositories.exchangeRates.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(s.exchangeRates));
+  const rates=await branchSafeRead(req,"exchange-rates-history",()=>nativeRepositories.exchangeRates.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(s.exchangeRates));
   const base = String(req.query.base || "");
   const quote = String(req.query.quote || "");
   const list = rates.filter((r)=>
@@ -1908,11 +1966,11 @@ app.post("/api/exchange-rates", auth, (req,res)=>{
 app.get("/api/general-debts", auth, async (req,res)=>{
   const store = readStore();
   const [debts,debtPayments,transactions,payments,customers]=await Promise.all([
-    nativeRepositories.withFallback("debts",()=>nativeRepositories.debts.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.generalDebts||[])),
-    nativeRepositories.withFallback("debt-payments",()=>nativeRepositories.debtPayments.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.generalDebtPayments||[])),
-    nativeRepositories.withFallback("debt-transactions",()=>nativeRepositories.transactions.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(store.transactions||[]).filter(item=>item&&!item.isDeleted)),
-    nativeRepositories.withFallback("debt-transaction-payments",()=>nativeRepositories.payments.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(store.payments||[]).filter(item=>item&&!item.isDeleted)),
-    nativeRepositories.withFallback("debt-customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(store.customers||[]).filter(item=>item&&!item.isDeleted))
+    branchSafeRead(req,"debts",()=>nativeRepositories.debts.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.generalDebts||[])),
+    branchSafeRead(req,"debt-payments",()=>nativeRepositories.debtPayments.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.generalDebtPayments||[])),
+    branchSafeRead(req,"debt-transactions",()=>nativeRepositories.transactions.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(store.transactions||[]).filter(item=>item&&!item.isDeleted)),
+    branchSafeRead(req,"debt-transaction-payments",()=>nativeRepositories.payments.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(store.payments||[]).filter(item=>item&&!item.isDeleted)),
+    branchSafeRead(req,"debt-customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(store.customers||[]).filter(item=>item&&!item.isDeleted))
   ]);
   const type = String(req.query.type || "");
 
@@ -3564,7 +3622,7 @@ async function syncJadPartner(partner,options={}){
 
 app.get("/api/partners", auth, async (req,res)=>{
   const store=readStore();
-  const partners=await nativeRepositories.withFallback("partners",()=>nativeRepositories.partners.listByCompany(req.user.companyId,{orderBy:"name ASC"}),()=>Array.from(store.partners||[]));
+  const partners=await branchSafeRead(req,"partners",()=>nativeRepositories.partners.listByCompany(req.user.companyId,{orderBy:"name ASC"}),()=>Array.from(store.partners||[]));
   const transactions=Array.isArray(store.partnerTransactions)?store.partnerTransactions:[];
   const payments=Array.isArray(store.partnerPayments)?store.partnerPayments:[];
 
@@ -3707,7 +3765,7 @@ function kontorunRows(payload){
   return [];
 }
 function kontorunAmountFromItem(item={}){
-  const preferredKeys=["AMS","ams","Balance","balance","Amount","amount","AM","NET","Net","net","Value","value","TOTAL","Total","total"];
+  const preferredKeys=["AMS","ams","SystemAmount","systemAmount","RegularAmount","regularAmount","NIZAMI","nizami","Balance","balance","Amount","amount","AM","NET","Net","net","Value","value","TOTAL","Total","total"];
   for(const key of preferredKeys){
     if(item[key]!==undefined&&item[key]!==null&&String(item[key]).trim()!=="")return parseKontorunAmount(item[key]);
   }
@@ -3722,14 +3780,14 @@ function normalizeKontorunText(value){
     .trim();
 }
 function mapKontorunCurrency(item={}){
-  const raw=normalizeKontorunText(item.CName||item.cname||item.CURN||item.CurName||item.CurrencyName||item.Currency||item.currency||item.CUR||item.CURID).toUpperCase();
+  const raw=normalizeKontorunText(item.CName||item.cname||item.CURN||item.CurName||item.CurrencyName||item.Currency||item.currency||item.CUR||item.CURID||item.CurrencyCode||item.Code).toUpperCase();
   const aliases=[
     ["ليرة سورية جديدة","SYP"],["الليرة السورية الجديدة","SYP"],
     ["ليرة سورية","SYP"],["الليرة السورية","SYP"],
     ["ليرة تركية","TRY"],["الليرة التركية","TRY"],
     ["دولار كندي","CAD"],["الدولار الكندي","CAD"],
     ["دولار أمريكي","USD"],["الدولار الأمريكي","USD"],
-    ["دولار","USD"],["يورو","EUR"],
+    ["دولار","USD"],["يورو","EUR"],["الليرة النظامية","SYP"],["المبلغ النظامي","SYP"],["نظامي","SYP"],
     ["USD","USD"],["EUR","EUR"],["TRY","TRY"],["SYP","SYP"],["CAD","CAD"]
   ];
   for(const [name,code] of aliases){
@@ -3984,10 +4042,9 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
       item.connectorType=connector;
       const mainDebt=normalizeJadCurrencyDebt(result.receivable,result.payable,{prefer:safeNumber(result.balance)<0?"PAYABLE":"RECEIVABLE"});
       const normalizedCurrencies={};
-      const allowedExternalDebtCurrencies=new Set(["USD","EUR"]);
       for(const [currency,value] of Object.entries((result.currencies&&typeof result.currencies==="object")?result.currencies:{})){
         const code=String(currency).toUpperCase();
-        if(!allowedExternalDebtCurrencies.has(code))continue;
+        if(!/^[A-Z]{3}$/.test(code))continue;
         normalizedCurrencies[code]=normalizeJadCurrencyDebt(value?.receivable,value?.payable,{prefer:safeNumber(value?.balance)<0?"PAYABLE":"RECEIVABLE"});
       }
       result.receivable=mainDebt.receivable;result.payable=mainDebt.payable;result.balance=mainDebt.balance;result.currencies=normalizedCurrencies;
@@ -4309,7 +4366,7 @@ app.post("/api/ai/assistant",auth,(req,res)=>{
   res.json({answer,data,action,overview:a});
 });
 
-app.get("/api/expenses", auth, async (req,res)=>{const store=readStore();const rows=await nativeRepositories.withFallback("expenses",()=>nativeRepositories.expenses.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.expenses).reverse());res.json(paginate(req,rows));});
+app.get("/api/expenses", auth, async (req,res)=>{const store=readStore();const rows=await branchSafeRead(req,"expenses",()=>nativeRepositories.expenses.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.expenses).reverse());res.json(paginate(req,rows));});
 app.post("/api/expenses", auth, (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=mutate(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
 app.put("/api/expenses/:id", auth, (req,res)=>{
   const {title,amount,currency="CAD",exchangeRate=1,category="Other",date}=req.body||{};
@@ -4344,7 +4401,7 @@ app.delete("/api/expenses/:id", auth, (req,res)=>{
 });
 app.get("/api/capital", auth, async (req,res)=>{
   const store=readStore();
-  const nativeRows=await nativeRepositories.withFallback("capital",()=>nativeRepositories.capitalMovements.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.capitalMovements||[]).reverse());
+  const nativeRows=await branchSafeRead(req,"capital",()=>nativeRepositories.capitalMovements.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.capitalMovements||[]).reverse());
   const rows=nativeRows.map(item=>{
     const currency=String(item.currency||"CAD").toUpperCase();
     const conversion=currencyConversion(store,currency,"CAD");
@@ -4429,13 +4486,11 @@ app.get("/api/backup", auth, (req,res)=>{
   const data={};
   for(const key of BACKUP_ARRAYS)data[key]=Array.from(store[key]||[]).map(item=>({...item}));
   data.notificationSettings={...(store.notificationSettings||{})};
-  const payload={
-    format:"ALABOUD_BACKUP",
-    version:"16.0.18",
-    createdAt:now(),
+  const payload=createBackupEnvelope({
     company:{id:req.user.companyId,name:company?.name||""},
-    data
-  };
+    data,
+    createdAt:now()
+  });
   const filename=`alaboud-backup-${new Date().toISOString().replace(/[:.]/g,"-")}.json`;
   res.setHeader("Content-Type","application/json; charset=utf-8");
   res.setHeader("Content-Disposition",`attachment; filename="${filename}"`);
@@ -4451,15 +4506,16 @@ app.get("/api/security/status", auth, (req,res)=>{
 
 app.post("/api/backup/encrypted", auth, rateLimit("backup",10,60*60*1000),(req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"متاح للمدير فقط"}); const password=String(req.body?.password||""); const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message});
-  const store=readStore(),data={};for(const key of BACKUP_ARRAYS)data[key]=Array.from(store[key]||[]).map(item=>({...item})); const payload={format:"ALABOUD_BACKUP",version:"18.0.0",createdAt:now(),companyId:req.user.companyId,data}; const encrypted=encryptJson(payload,password);
+  const store=readStore(),data={};for(const key of BACKUP_ARRAYS)data[key]=Array.from(store[key]||[]).map(item=>({...item})); const payload=createBackupEnvelope({company:{id:req.user.companyId},data,createdAt:now()}); const encrypted=encryptJson(payload,password);
   mutate(root=>audit(root,req.user.id,"EXPORT_ENCRYPTED","BACKUP",id(),{ip:req.ip})); res.setHeader("Content-Disposition",`attachment; filename="alaboud-secure-backup-${Date.now()}.abs"`);res.json(encrypted);
 });
 
 app.post("/api/backup/restore", auth, (req,res)=>{
   try{
     const payload=req.body||{};
-    if(payload.format!=="ALABOUD_BACKUP"||!payload.data||typeof payload.data!=="object"){
-      return res.status(400).json({message:"ملف النسخة الاحتياطية غير صالح"});
+    const verification=verifyBackupEnvelope(payload);
+    if(!verification.ok){
+      return res.status(400).json({message:verification.message});
     }
     mutate(store=>{
       for(const key of BACKUP_ARRAYS){
@@ -4515,17 +4571,22 @@ app.use((req,res)=>{
   res.status(404).json({message:"API route not found"});
 });
 
-app.use((err,_req,res,_next)=>{
-  console.error(err);
-  res.status(400).json({message:err.message||"Request failed"});
+app.use((err,req,res,_next)=>{
+  const requestId=req.requestId||req.headers["x-request-id"]||null;
+  console.error("Unhandled request error",{requestId,path:req.path,method:req.method,error:err?.stack||err});
+  const status=Number(err?.status||err?.statusCode)||500;
+  res.status(status>=400&&status<600?status:500).json({
+    message:status>=500?"حدث خطأ داخلي في الخادم":(err.message||"Request failed"),
+    requestId
+  });
 });
 
 async function startServer(){
   await initStore();
   nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
   seedAdmin();
-  app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v22.6.0 running on port ${PORT}`);
+  serverInstance=app.listen(PORT,"0.0.0.0",()=>{
+  console.log(`AlAboud Enterprise Cloud v${APP_VERSION} running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);
 
   const runHourlyRateRefresh=async()=>{
@@ -4543,15 +4604,22 @@ async function startServer(){
   });
 }
 
+let serverInstance=null;
 let shuttingDown=false;
 async function shutdown(signal){
   if(shuttingDown)return;
   shuttingDown=true;
   console.log(`${signal} received: flushing database writes`);
-  try{await closeStore();process.exit(0)}catch(error){console.error("Graceful shutdown failed:",error);process.exit(1)}
+  try{
+    if(serverInstance) await new Promise(resolve=>serverInstance.close(resolve));
+    await closeStore();
+    process.exit(0);
+  }catch(error){console.error("Graceful shutdown failed:",error);process.exit(1)}
 }
 process.on("SIGTERM",()=>shutdown("SIGTERM"));
 process.on("SIGINT",()=>shutdown("SIGINT"));
+process.on("unhandledRejection",error=>{console.error("Unhandled promise rejection:",error);shutdown("UNHANDLED_REJECTION");});
+process.on("uncaughtException",error=>{console.error("Uncaught exception:",error);shutdown("UNCAUGHT_EXCEPTION");});
 startServer().catch(error=>{
   console.error("Server startup failed:",error);
   process.exit(1);

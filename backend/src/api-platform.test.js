@@ -7,5 +7,5 @@ assert.deepEqual(normalizeScopes(['customers.read','customers.read','']),['custo
 const store={apiKeys:[{id:'1',keyHash:hashKey(raw),active:true,companyId:'c1',scopes:['customers.read']}]};
 assert.equal(verifyApiKey(store,raw).id,'1');
 assert.equal(verifyApiKey(store,'wrong'),null);
-assert.equal(openApiDocument().info.version,'22.6.0');
+assert.equal(openApiDocument().info.version,'22.8.0');
 console.log('API platform selftest passed');

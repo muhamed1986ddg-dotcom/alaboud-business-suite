@@ -16,7 +16,7 @@ const databaseUrl = String(process.env.DATABASE_URL || "").trim();
 
 const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","apiKeys","webhooks","integrationLogs"];
 const emptyStore = () => ({
-  companies: [], users: [], customers: [], transactions: [], payments: [], expenses: [],
+  companies: [], branches: [], users: [], customers: [], transactions: [], payments: [], expenses: [],
   capitalMovements: [], exchangeRates: [], generalDebts: [], generalDebtPayments: [],
   partners: [], partnerTransactions: [], partnerPayments: [], partnerSyncLogs: [],
   notificationSettings: { overdueDays: 7, lowCashLimit: 5000, whatsappTemplate: "" },
@@ -57,13 +57,13 @@ function writeStore(store){
   rootStore=database.replaceStore(normalizeStore(unwrapStore(store)));
   return database.queueSave();
 }
-function tenantArray(root,key,companyId){
+function tenantArray(root,key,companyId,branchId){
   root=unwrapStore(root);
   const source=()=>Array.isArray(root[key])?root[key]:[];
-  const visible=()=>source().filter(item=>item&&item.companyId===companyId);
+  const visible=()=>source().filter(item=>item&&item.companyId===companyId&&(!branchId||item.branchId===branchId));
   return new Proxy([],{
     get(_target,prop){
-      if(prop==="push")return (...items)=>source().push(...items.map(item=>({...item,companyId})));
+      if(prop==="push")return (...items)=>source().push(...items.map(item=>({...item,companyId,...(branchId?{branchId}:{})})));
       if(prop==="length")return visible().length;
       if(prop===Symbol.iterator){const rows=visible();return rows[Symbol.iterator].bind(rows);}
       if(prop==="toJSON")return ()=>visible();
@@ -75,23 +75,24 @@ function tenantArray(root,key,companyId){
     }
   });
 }
-function tenantView(root,companyId){
+function tenantView(root,companyId,branchId){
   root=unwrapStore(root);
   if(!root.companySettings[companyId])root.companySettings[companyId]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
   return new Proxy(root,{
     get(target,prop){
       if(prop===RAW_STORE)return target;
       if(prop==="users")return target.users.filter(user=>user.companyId===companyId);
+      if(prop==="branches")return target.branches.filter(branch=>branch.companyId===companyId);
       if(prop==="notificationSettings")return target.companySettings[companyId];
-      if(DATA_ARRAYS.includes(prop))return tenantArray(target,prop,companyId);
+      if(DATA_ARRAYS.includes(prop))return tenantArray(target,prop,companyId,branchId);
       return target[prop];
     },
     set(target,prop,value){
       if(prop==="notificationSettings"){target.companySettings[companyId]={...value};return true}
       if(DATA_ARRAYS.includes(prop)){
         const current=Array.isArray(target[prop])?target[prop]:[];
-        const otherTenants=current.filter(item=>!item||item.companyId!==companyId);
-        const tenantItems=Array.from(value||[]).map(item=>({...item,companyId}));
+        const otherTenants=current.filter(item=>!item||item.companyId!==companyId||(branchId&&item.branchId!==branchId));
+        const tenantItems=Array.from(value||[]).map(item=>({...item,companyId,...(branchId?{branchId}:{})}));
         target[prop]=[...otherTenants,...tenantItems];
         return true;
       }
@@ -101,23 +102,26 @@ function tenantView(root,companyId){
 }
 function readStore(){
   const context=tenantContext.getStore();
-  return context?.companyId?tenantView(rootStore,context.companyId):rootStore;
+  return context?.companyId?tenantView(rootStore,context.companyId,context.branchId):rootStore;
 }
 function mutate(fn){
   const context=tenantContext.getStore();
-  const view=context?.companyId?tenantView(rootStore,context.companyId):rootStore;
+  const view=context?.companyId?tenantView(rootStore,context.companyId,context.branchId):rootStore;
   const result=fn(view);
   writeStore(rootStore);
   return result;
 }
 async function mutateDurable(fn){
   const context=tenantContext.getStore();
-  const view=context?.companyId?tenantView(rootStore,context.companyId):rootStore;
+  const view=context?.companyId?tenantView(rootStore,context.companyId,context.branchId):rootStore;
   const result=fn(view);
   await writeStore(rootStore);
   return result;
 }
-function runWithTenant(companyId,fn){return tenantContext.run({companyId},fn)}
+function runWithTenant(companyId,branchId,fn){
+  if(typeof branchId==="function")return tenantContext.run({companyId,branchId:null},branchId);
+  return tenantContext.run({companyId,branchId:branchId||null},fn);
+}
 function id(){return crypto.randomUUID()}
 function now(){return new Date().toISOString()}
 async function databaseHealth(){return database.health()}
