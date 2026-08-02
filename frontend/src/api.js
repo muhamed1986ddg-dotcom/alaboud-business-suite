@@ -34,7 +34,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="23.0.15";
+  config.headers["X-Alaboud-Client-Version"]="23.0.16";
   config.params={
     ...(config.params||{}),
     _live:Date.now()
@@ -45,7 +45,12 @@ api.interceptors.request.use(config=>{
 
 api.interceptors.response.use(
   response=>{
-    if(String(response.config?.method||"get").toLowerCase()!=="get")clearApiGetCache();
+    const method=String(response.config?.method||"get").toLowerCase();
+    if(method!=="get")clearApiGetCache();
+    const url=String(response.config?.url||"").split("?")[0];
+    if(method==="post"&&(
+      url==="/customers"||url==="/transactions"||url==="/expenses"||/\/payments$/.test(url)
+    ))window.dispatchEvent(new CustomEvent("alaboud-save-success",{detail:{message:"✅ تم الحفظ بنجاح"}}));
     return response;
   },
   error=>{

@@ -1726,17 +1726,21 @@ async function fetchOfficialRate(baseCurrency, quoteCurrency) {
   return { rate, date: data.date || new Date().toISOString().slice(0,10) };
 }
 
-async function fetchSyrianPoundRate() {
+async function fetchUsdExtendedRates() {
   const response = await fetch("https://open.er-api.com/v6/latest/USD", {
     headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/16.0.7" }
   });
   if (!response.ok) throw new Error(`SYP provider returned ${response.status}`);
   const data = await response.json();
   if (data.result !== "success") throw new Error(data["error-type"] || "SYP provider failed");
-  const rate = Number(data.rates?.SYP);
-  if (!Number.isFinite(rate) || rate <= 0) throw new Error("SYP rate is unavailable");
+  const rates={};
+  for(const code of ["SYP","SAR","JOD"]){
+    const rate=Number(data.rates?.[code]);
+    if(Number.isFinite(rate)&&rate>0)rates[code]=rate;
+  }
+  if(!rates.SYP&&!rates.SAR&&!rates.JOD)throw new Error("USD regional rates are unavailable");
   return {
-    rate,
+    rates,
     updatedAt:data.time_last_update_utc || new Date().toISOString(),
     nextUpdate:data.time_next_update_utc || null
   };
@@ -1803,19 +1807,20 @@ async function refreshAutomaticRates(userId="SYSTEM") {
   }
 
   try {
-    const syp = await fetchSyrianPoundRate();
-    const saved = saveAutomaticRate({
-      baseCurrency:"USD",
-      quoteCurrency:"SYP",
-      rate:syp.rate,
-      source:"EXCHANGE_RATE_API",
-      notes:"تحديث تلقائي لسعر USD/SYP من ExchangeRate-API",
-      sourceDate:syp.updatedAt,
-      userId
-    });
-    results.push({ok:true,pair:"USD/SYP",rate:saved.buyRate,source:"EXCHANGE_RATE_API"});
+    const regional = await fetchUsdExtendedRates();
+    for(const code of ["SYP","SAR","JOD"]){
+      const rate=regional.rates[code];
+      if(!rate){results.push({ok:false,pair:`USD/${code}`,error:`${code} rate is unavailable`});continue;}
+      const saved=saveAutomaticRate({
+        baseCurrency:"USD",quoteCurrency:code,rate,
+        source:"EXCHANGE_RATE_API",
+        notes:`تحديث تلقائي لسعر USD/${code} من ExchangeRate-API`,
+        sourceDate:regional.updatedAt,userId
+      });
+      results.push({ok:true,pair:`USD/${code}`,rate:saved.buyRate,source:"EXCHANGE_RATE_API"});
+    }
   } catch (error) {
-    results.push({ok:false,pair:"USD/SYP",error:error.message});
+    for(const code of ["SYP","SAR","JOD"])results.push({ok:false,pair:`USD/${code}`,error:error.message});
   }
 
   try {
@@ -2304,7 +2309,7 @@ app.post("/api/general-debts", auth, (req,res)=>{
 
   const numericAmount = Number(amount);
   const normalizedCurrency = String(currency || "CAD").toUpperCase();
-  const supportedDebtCurrencies = ["CAD","USD","EUR","SYP","TRY","SAR","AED","GBP"];
+  const supportedDebtCurrencies = ["CAD","USD","EUR","SYP","TRY","SAR","JOD","AED","GBP"];
 
   if (!["RECEIVABLE","PAYABLE"].includes(type)) {
     return res.status(400).json({message:"نوع الدين غير صحيح"});

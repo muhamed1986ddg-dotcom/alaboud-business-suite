@@ -4536,9 +4536,21 @@ export default function App(){
   const [partnerId,setPartnerId]=useState(null);
   const [overdueCount,setOverdueCount]=useState(0);
   const [logoutConfirm,setLogoutConfirm]=useState(false);
+  const [saveToast,setSaveToast]=useState("");
   const [mobileMenuOpen,setMobileMenuOpen]=useState(
     typeof window!=="undefined" ? window.matchMedia("(max-width: 800px)").matches : false
   );
+
+  useEffect(()=>{
+    let timer;
+    const showSaveToast=event=>{
+      setSaveToast(event.detail?.message||"✅ تم الحفظ بنجاح");
+      clearTimeout(timer);
+      timer=setTimeout(()=>setSaveToast(""),3000);
+    };
+    window.addEventListener("alaboud-save-success",showSaveToast);
+    return()=>{clearTimeout(timer);window.removeEventListener("alaboud-save-success",showSaveToast)};
+  },[]);
 
   useEffect(()=>{
     if(token){
@@ -4640,7 +4652,7 @@ export default function App(){
     ["settings","⚙️ الإعدادات والتنبيهات"]
   ];
 
-  return <><AppLanguageBridge/><div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
+  return <><AppLanguageBridge/>{saveToast&&<div className="global-save-toast" role="status">{saveToast}</div>}<div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
     <div className="mobile-page-header no-print">
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
