@@ -1,1 +1,1 @@
-export const APP_VERSION="v22.8.0 Multi-Branch Network";
+export const APP_VERSION="v23.0.1";
