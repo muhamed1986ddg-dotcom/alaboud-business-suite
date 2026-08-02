@@ -3008,7 +3008,7 @@ function parseJadStatement(html){
   const totalFees=+feeMovements.reduce((sum,item)=>sum+safeNumber(item.fee),0).toFixed(2);
   return {movements,feeMovements,totalFees,balance:normalized.balance,payable:normalized.payable,receivable:normalized.receivable};
 }
-async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
+async function syncJadPartnerHttp(partner,{fromDate,toDate,testOnly=false}={}){
   const {base,prefix,loginUrl,accountUrl,landingUrl}=resolveJadConnection(partner);
   const username=String(partner.username||"").trim();
   const password=decryptIntegrationSecret(partner.passwordEncrypted);
@@ -3024,15 +3024,18 @@ async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
   };
 
   let cookie="";
+  const fastSuryanaTest=testOnly&&String(partner.connectorType||"").toUpperCase()==="SURYANA";
 
   // Browser traffic reaches /log from pl.m. This preflight initializes the same PHP branch
   // and keeps any session cookies issued before the login form is opened.
-  try{
-    const landing=await fetchWithCookies(landingUrl,{headers:browserHeaders},cookie,{maxRedirects:6});
-    cookie=landing.cookie;
-    await landing.response.arrayBuffer();
-  }catch(error){
-    console.warn("[JAD] pl.m preflight skipped:",error?.message||error);
+  if(!fastSuryanaTest){
+    try{
+      const landing=await fetchWithCookies(landingUrl,{headers:browserHeaders},cookie,{maxRedirects:6});
+      cookie=landing.cookie;
+      await landing.response.arrayBuffer();
+    }catch(error){
+      console.warn("[JAD] pl.m preflight skipped:",error?.message||error);
+    }
   }
 
   // Read the real login form first. Jad binds the dynamic tok value to the PHP session.
@@ -3074,7 +3077,7 @@ async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
   // Some Jad installations initialize the authenticated branch on log_2 before /account.
   // Visit it once when the login flow ended elsewhere; a 404/redirect is harmless and is followed manually.
   const currentPath=(()=>{try{return new URL(step.url).pathname.replace(/\/$/,"");}catch{return "";}})();
-  if(!currentPath.endsWith(`${prefix}/log_2`)){
+  if(!fastSuryanaTest&&!currentPath.endsWith(`${prefix}/log_2`)){
     const bootstrap=await fetchWithCookies(`${base}${prefix}/log_2`,{
       headers:{...browserHeaders,Referer:step.url||loginUrl}
     },cookie,{maxRedirects:10});
@@ -3112,6 +3115,15 @@ async function syncJadPartnerHttp(partner,{fromDate,toDate}={}){
       cookieNames:String(cookie||"").split(";").map(x=>x.split("=")[0].trim()).filter(Boolean)
     });
     throw new Error("انتهت جلسة جاد بعد تسجيل الدخول؛ موقع جاد أعاد صفحة الدخول عند فتح الحساب");
+  }
+
+  // A connection test only needs to prove that authentication produced an
+  // authenticated account page. Avoid the print report here: on Suryana it can
+  // take long enough for Render/the browser to close the request without a
+  // response. A normal sync still loads and parses the complete statement.
+  if(testOnly){
+    const summary=parseJadStatement(accountHtml);
+    return {...summary,testOnly:true,authenticated:true,fromDate:null,toDate:null,redirects:step.redirects||[]};
   }
 
   const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*24*3600*1000).toISOString().slice(0,10);
@@ -4155,9 +4167,11 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
   try{
     const connector=resolvePartnerConnector(partner);
     if(["JAD","SURYANA"].includes(connector)){
-      const result=await syncJadPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp});
+      const result=await syncJadPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp,testOnly:true});
       mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.updatedAt=now();}});
-      return res.json({ok:true,status:"READY",connector,message:`تم الاتصال بشركة ${connector==="SURYANA"?"سوريانا":"جاد"}، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
+      return res.json({ok:true,status:"READY",connector,message:result.testOnly
+        ?`تم تسجيل الدخول إلى شركة ${connector==="SURYANA"?"سوريانا":"جاد"} والتحقق من الجلسة بنجاح`
+        :`تم الاتصال بشركة ${connector==="SURYANA"?"سوريانا":"جاد"}، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
     }
     if(["TAWASUL","DAHAB"].includes(connector)){
       const result=connector==="DAHAB"
