@@ -2645,7 +2645,7 @@ function resolveJadConnection(partner={}){
   // /account or /accountprint.php, and derive the installation prefix from it.
   const endpointMatch=pathname.match(/^(.*?)(?:\/(?:log(?:_2)?|pl(?:\.m)?|account|accountprint\.php|statement))$/i);
   const candidate=(endpointMatch?.[1]||pathname).replace(/\/+$/,"");
-  if(/\/ssljd\//i.test(candidate))prefix=candidate;
+  if(/\/ssljd\//i.test(candidate)||String(partner.connectorType||"").toUpperCase()==="SURYANA")prefix=candidate;
   if(!prefix)prefix="/ssljd/merkez112/1/2";
   if(!prefix.startsWith("/"))prefix=`/${prefix}`;
   prefix=prefix.replace(/\/{2,}/g,"/").replace(/\/+$/,"");
@@ -3678,6 +3678,8 @@ app.get("/api/partners", auth, async (req,res)=>{
 
 function resolvePartnerConnector(partner={}){
   const raw=String(partner.connectorType||"").trim().toUpperCase();
+  if(raw==="DAHAB")return "DAHAB";
+  if(raw==="SURYANA")return "SURYANA";
   if(["TAWASUL","KONTORUN"].includes(raw))return "TAWASUL";
   if(raw==="JAD"){
     const identity=`${partner.name||""} ${partner.integrationName||""}`.toLowerCase();
@@ -3705,7 +3707,10 @@ function kontorunBaseUrl(partner={}){
   const raw=String(partner.systemUrl||"https://www.krs47n92t.com").trim()||"https://www.krs47n92t.com";
   const withProtocol=/^https?:\/\//i.test(raw)?raw:`https://${raw}`;
   const parsed=new URL(withProtocol);
-  return `${parsed.protocol}//${parsed.host}`;
+  const segments=parsed.pathname.split("/").filter(Boolean);
+  const scriptIndex=segments.findIndex(part=>/^(?:index\.php|api)$/i.test(part));
+  const prefix=(scriptIndex>=0?segments.slice(0,scriptIndex):segments).join("/");
+  return `${parsed.protocol}//${parsed.host}/${prefix?`${prefix}/`:""}`;
 }
 async function kontorunJsonp(base,route,{cookie="",csrf="",params={}}={}){
   const url=new URL(route,base);
@@ -3753,6 +3758,9 @@ function parseKontorunAmount(value){
 function kontorunRows(payload){
   if(Array.isArray(payload))return payload;
   if(!payload||typeof payload!=="object")return [];
+  // Some Tawasul versions return one balance object directly instead of an
+  // array. Recognize it before walking nested response envelopes.
+  if(["AMS","ams","Balance","balance","Amount","amount"].some(key=>payload[key]!==undefined))return [payload];
   for(const key of ["data","rows","result","balances","amounts","AMS","items","list"]){
     if(Array.isArray(payload[key]))return payload[key];
   }
@@ -3781,6 +3789,12 @@ function normalizeKontorunText(value){
 }
 function mapKontorunCurrency(item={}){
   const raw=normalizeKontorunText(item.CName||item.cname||item.CURN||item.CurName||item.CurrencyName||item.Currency||item.currency||item.CUR||item.CURID||item.CurrencyCode||item.Code).toUpperCase();
+  const compact=raw.replace(/[^A-Z]/g,"");
+  if(compact==="US"||compact==="USD")return "USD";
+  if(compact==="EU"||compact==="EUR")return "EUR";
+  if(compact==="SY"||compact==="SYP")return "SYP";
+  if(compact==="TR"||compact==="TRY")return "TRY";
+  if(compact==="CA"||compact==="CAD")return "CAD";
   const aliases=[
     ["ليرة سورية جديدة","SYP"],["الليرة السورية الجديدة","SYP"],
     ["ليرة سورية","SYP"],["الليرة السورية","SYP"],
@@ -3801,23 +3815,23 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
   const password=decryptIntegrationSecret(partner.passwordEncrypted);
   if(!username||!password)throw Object.assign(new Error("اسم المستخدم وكلمة المرور مطلوبان"),{code:"KONTORUN_CREDENTIALS_REQUIRED"});
   let cookie="",csrf="";
-  let login=await kontorunJsonp(base,"/api/index.php?p=l&f=in",{cookie,params:{username,password}});cookie=login.cookie;
+  let login=await kontorunJsonp(base,"api/index.php?p=l&f=in",{cookie,params:{username,password}});cookie=login.cookie;
   let profile=login.data||{};
   if(String(profile.ID)==="0")throw Object.assign(new Error("بيانات الدخول غير صحيحة"),{code:"KONTORUN_LOGIN_REJECTED"});
   if(String(profile.ID).toUpperCase()==="OK"){
     const token=profile.token||profile.Token||profile.TOKEN;
     const cleanOtp=String(otp||"").replace(/\D/g,"");
     if(!cleanOtp)throw Object.assign(new Error("مطلوب رمز التحقق من تطبيق التوثيق"),{code:"KONTORUN_OTP_REQUIRED"});
-    const verified=await kontorunJsonp(base,"/api/index.php?p=l&f=a",{cookie,params:{pin:cleanOtp,token}});cookie=verified.cookie;profile=verified.data||{};
+    const verified=await kontorunJsonp(base,"api/index.php?p=l&f=a",{cookie,params:{pin:cleanOtp,token}});cookie=verified.cookie;profile=verified.data||{};
     if(String(profile.ID)==="0")throw Object.assign(new Error("رمز التحقق غير صحيح أو منتهي"),{code:"KONTORUN_OTP_REJECTED"});
   }
   csrf=String(profile.CSRF||profile.csrf||"");
   // The dedicated balances screen in the official Tawasul app uses f=ams.
   // Keep GA only as a fallback because some older server versions expose balances there.
-  let balancesResponse=await kontorunJsonp(base,"/api/index.php?p=mt&f=ams",{cookie,csrf});cookie=balancesResponse.cookie;
+  let balancesResponse=await kontorunJsonp(base,"api/index.php?p=mt&f=ams",{cookie,csrf});cookie=balancesResponse.cookie;
   let rows=kontorunRows(balancesResponse.data);
   if(!rows.length){
-    const fallback=await kontorunJsonp(base,"/api/index.php?p=mt&f=GA",{cookie,csrf});cookie=fallback.cookie;
+    const fallback=await kontorunJsonp(base,"api/index.php?p=mt&f=GA",{cookie,csrf});cookie=fallback.cookie;
     balancesResponse=fallback;rows=kontorunRows(fallback.data);
   }
   if(!rows.length&&String(balancesResponse.data?.ID||"")==="0")throw Object.assign(new Error("انتهت جلسة الشركة؛ أعد إدخال رمز التحقق"),{code:"KONTORUN_SESSION_REJECTED"});
@@ -3857,7 +3871,7 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
   const end=toDate||new Date().toISOString().slice(0,10);
   let movements=[];
   try{
-    const statement=await kontorunJsonp(base,"/api/index.php?p=mt&f=aspro",{cookie,csrf,params:{cur:partner.externalAccountId||"1",fr:start,to:end}});
+    const statement=await kontorunJsonp(base,"api/index.php?p=mt&f=aspro",{cookie,csrf,params:{cur:partner.externalAccountId||"1",fr:start,to:end}});
     const list=Array.isArray(statement.data)?statement.data:[];
     movements=list.map(item=>({externalId:String(item.ID||""),date:String(item.Date||""),name:String(item.Name||""),phone:String(item.Phone||""),amount:parseKontorunAmount(item.Value),fees:parseKontorunAmount(item.Fees),balance:parseKontorunAmount(item.AM),currency:mapKontorunCurrency(item),raw:item}));
   }catch{}
@@ -3994,15 +4008,16 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
   const store=readStore();const partner=(store.partners||[]).find(item=>item.id===req.params.id);
   if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
   try{
-    if(resolvePartnerConnector(partner)==="JAD"){
+    const connector=resolvePartnerConnector(partner);
+    if(["JAD","SURYANA"].includes(connector)){
       const result=await syncJadPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp});
       mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.updatedAt=now();}});
-      return res.json({ok:true,status:"READY",message:`تم الاتصال بنجاح، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
+      return res.json({ok:true,status:"READY",connector,message:`تم الاتصال بشركة ${connector==="SURYANA"?"سوريانا":"جاد"}، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
     }
-    if(resolvePartnerConnector(partner)==="TAWASUL"){
+    if(["TAWASUL","DAHAB"].includes(connector)){
       const result=await syncKontorunPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp});
-      mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectorType="TAWASUL";item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.updatedAt=now();}});
-      return res.json({ok:true,status:"READY",connector:"TAWASUL",message:`تم الاتصال بشركة تواصل بنجاح، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
+      mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectorType=connector;item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.updatedAt=now();}});
+      return res.json({ok:true,status:"READY",connector,message:`تم الاتصال بشركة ${connector==="DAHAB"?"دهب":"تواصل"} بنجاح، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
     }
     normalizeBaseUrl(partner.systemUrl);
     mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.updatedAt=now();}});
@@ -4029,10 +4044,10 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
   const snapshot=readStore();const partner=(snapshot.partners||[]).find(item=>item.id===req.params.id);
   if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
   const connector=resolvePartnerConnector(partner);
-  if(!["JAD","TAWASUL"].includes(connector))return res.status(400).json({message:"لا يوجد موصل فعلي محدد لهذه الشركة"});
-  if(syncTrigger==="AUTO"&&connector==="JAD")return res.status(409).json({message:"تم تعطيل مزامنة جاد التلقائية لحماية استقرار الخادم؛ استخدم زر جلب الرصيد يدويًا"});
+  if(!["JAD","TAWASUL","DAHAB","SURYANA"].includes(connector))return res.status(400).json({message:"لا يوجد موصل فعلي محدد لهذه الشركة"});
+  if(syncTrigger==="AUTO"&&["JAD","DAHAB","SURYANA"].includes(connector))return res.status(409).json({message:"تم تعطيل المزامنة التلقائية لهذه الشركة لحماية استقرار الخادم؛ استخدم زر جلب الرصيد يدويًا"});
   try{
-    const result=connector==="TAWASUL"
+    const result=["TAWASUL","DAHAB"].includes(connector)
       ? await syncKontorunPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp})
       : await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp});
     const storageState=result?._storageState||null;
@@ -4058,7 +4073,8 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
       audit(store,req.user.id,"SYNC","PARTNER",item.id,{connector,balance:result.balance,receivable:result.receivable,payable:result.payable,currencies:Object.keys(result.currencies||{}),count:result.movements.length});
       recordPartnerSyncLog(store,item,{status:"SUCCESS",trigger:syncTrigger,durationMs:Date.now()-syncStartedAt,beforeBalance:safeNumber(partner.externalBalance),afterBalance:result.balance,changed:Math.abs(safeNumber(partner.externalBalance)-safeNumber(result.balance))>0.0001,importedCount:result.movements.length,message:"تمت المزامنة بنجاح"});
     });
-    res.json({message:connector==="TAWASUL"?"تم جلب الرصيد من شركة تواصل":"تم جلب الرصيد من شركة جاد",partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
+    const connectorNames={TAWASUL:"تواصل",JAD:"جاد",DAHAB:"دهب",SURYANA:"سوريانا"};
+    res.json({message:`تم جلب الرصيد من شركة ${connectorNames[connector]||partner.name}`,partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
   }catch(error){
     let stalePartner=null;
     let hasSuccessfulSync=false;
