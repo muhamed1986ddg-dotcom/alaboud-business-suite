@@ -1,4 +1,4 @@
-import React,{useEffect,useRef,useState}from"react";import api from"./api";import {APP_VERSION} from"./version";
+import React,{useEffect,useRef,useState}from"react";import api,{cachedGet} from"./api";import {APP_VERSION} from"./version";
 const money=n=>Number(n||0).toFixed(2);
 const cad=n=>`${money(n)} CAD`;
 
@@ -287,33 +287,42 @@ function Dashboard({navigate}){
     const loadDashboard=async(refreshRates=false)=>{
       try{
         if(refreshRates){setRatesRefreshing(true);setRatesError("");await api.post("/exchange-rates/refresh");}
-        const [dashboardResponse,notificationResponse,transactionsResponse,ratesResponse,historyResponse,intelligenceResponse,customersResponse,expensesResponse]=await Promise.all([
-          api.get("/dashboard"),
-          api.get("/notifications"),
-          api.get("/transactions"),
-          api.get("/exchange-rates"),
-          api.get("/exchange-rates/history"),
-          api.get("/ai/overview"),
-          api.get("/customers"),
-          api.get("/expenses")
-        ]);
+        // Render the main page as soon as its compact summary arrives. The
+        // heavier reports below are enhancements and must not block navigation.
+        const dashboardResponse=await cachedGet("/dashboard");
         if(!active)return;
         setData(dashboardResponse.data);
-        setNoticeData(notificationResponse.data);
-        const rows=Array.isArray(transactionsResponse.data)?transactionsResponse.data:[];
-        setAllTransactions(rows);
-        setCustomers(Array.isArray(customersResponse.data)?customersResponse.data:[]);
-        setExpenses(Array.isArray(expensesResponse.data)?expensesResponse.data:[]);
-        setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
-        const rateRows=Array.isArray(ratesResponse.data)?ratesResponse.data:[];
+        setLastRefresh(new Date());
+
+        const results=await Promise.allSettled([
+          cachedGet("/notifications"),
+          cachedGet("/transactions"),
+          cachedGet("/exchange-rates"),
+          cachedGet("/exchange-rates/history"),
+          cachedGet("/ai/overview"),
+          cachedGet("/customers"),
+          cachedGet("/expenses")
+        ]);
+        if(!active)return;
+        const value=index=>results[index]?.status==="fulfilled"?results[index].value?.data:null;
+        const notificationData=value(0),transactionData=value(1),rateData=value(2),historyData=value(3),intelligenceData=value(4),customerData=value(5),expenseData=value(6);
+        if(notificationData)setNoticeData(notificationData);
+        if(transactionData){
+          const rows=Array.isArray(transactionData)?transactionData:[];
+          setAllTransactions(rows);
+          setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
+        }
+        if(Array.isArray(customerData))setCustomers(customerData);
+        if(Array.isArray(expenseData))setExpenses(expenseData);
+        const rateRows=Array.isArray(rateData)?rateData:[];
         // Keep every latest currency pair. Grouping only by base currency caused
         // CAD/USD to be treated as CAD/CAD and produced incorrect cross-rates.
-        setDashboardRates(rateRows);
-        setDashboardRateHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
-        setIntelligence(intelligenceResponse.data||null);
+        if(rateData)setDashboardRates(rateRows);
+        if(Array.isArray(historyData))setDashboardRateHistory(historyData);
+        if(intelligenceData)setIntelligence(intelligenceData);
         setLastRefresh(new Date());
       }catch(error){
-        if(refreshRates)setRatesError(error.response?.data?.message||"تعذر تحديث أسعار الصرف. تم الاحتفاظ بآخر أسعار صحيحة.");
+        setRatesError(error.response?.data?.message||(refreshRates?"تعذر تحديث أسعار الصرف. تم الاحتفاظ بآخر أسعار صحيحة.":"تعذر تحميل ملخص القائمة الرئيسية؛ حاول مرة أخرى."));
       }finally{
         if(refreshRates)setRatesRefreshing(false);
       }
@@ -404,7 +413,7 @@ function Dashboard({navigate}){
             try{
               setRatesRefreshing(true);setRatesError("");
               await api.post("/exchange-rates/refresh");
-              const [ratesResponse,historyResponse]=await Promise.all([api.get("/exchange-rates"),api.get("/exchange-rates/history")]);
+              const [ratesResponse,historyResponse]=await Promise.all([cachedGet("/exchange-rates"),cachedGet("/exchange-rates/history")]);
               setDashboardRates(Array.isArray(ratesResponse.data)?ratesResponse.data:[]);
               setDashboardRateHistory(Array.isArray(historyResponse.data)?historyResponse.data:[]);
               setLastRefresh(new Date());
@@ -604,8 +613,8 @@ function Customers({open}){
     setError("");
     try{
       const [customersResponse,alertsResponse]=await Promise.all([
-        api.get("/customers"),
-        api.get("/customer-alerts")
+        cachedGet("/customers"),
+        cachedGet("/customer-alerts")
       ]);
       setList(Array.isArray(customersResponse.data)?customersResponse.data:[]);
       setAlerts(alertsResponse.data||{count:0,totalOverdue:0,rows:[]});
@@ -637,7 +646,7 @@ function Customers({open}){
       return;
     }
 
-    api.get("/exchange-rates")
+    cachedGet("/exchange-rates")
       .then(response=>{
         const rates=Array.isArray(response.data)?response.data:[];
         const direct=rates.find(item=>
@@ -874,7 +883,7 @@ function Customers({open}){
 
   async function shareStatementImage(customer){
     try{
-      const {data}=await api.get(`/customers/${customer.id}/statement`);
+      const {data}=await cachedGet(`/customers/${customer.id}/statement`);
       const blob=await createStatementImage(data,customer);
       const safe=String(customer.name||"customer").replace(/[\\/:*?"<>|]+/g,"-");
       const file=new File([blob],`كشف-حساب-${safe}.png`,{type:"image/png"});
@@ -927,7 +936,7 @@ function Customers({open}){
     }
 
     try{
-      const {data}=await api.get(`/customers/${customer.id}/statement`);
+      const {data}=await cachedGet(`/customers/${customer.id}/statement`);
       const lines=(Array.isArray(data.transactions)?data.transactions:[]).map((item,index)=>{
         const amount=Number(item.usdAmount||0).toFixed(2).replace(/\.00$/,"");
         const rate=Number(item.customerRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
@@ -1218,7 +1227,7 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
   async function load(){
     setError("");
     try{
-      const response=await api.get("/customer-alerts");
+      const response=await cachedGet("/customer-alerts");
       setData(response.data||{rows:[]});
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل العملاء المتأخرين");
@@ -1426,7 +1435,7 @@ function Customer({id,back,onStatement}){
     setLoading(true);
     setError("");
     try{
-      const response=await api.get(`/customers/${id}`);
+      const response=await cachedGet(`/customers/${id}`);
       const result=response?.data||{};
       const loadedCustomer=result.customer||{name:"عميل"};
       setData({
@@ -1492,7 +1501,7 @@ function Customer({id,back,onStatement}){
         return;
       }
 
-      const response=await api.get(`/customers/${id}/statement`);
+      const response=await cachedGet(`/customers/${id}/statement`);
       const statement=response.data;
       const rows=Array.isArray(statement.transactions)?statement.transactions:[];
       const oldBalance=Number(statement.totals?.oldBalance||0);
@@ -1528,7 +1537,7 @@ function Customer({id,back,onStatement}){
 
   async function shareCustomerStatement(action="share"){
     try{
-      const response=await api.get(`/customers/${id}/statement`);
+      const response=await cachedGet(`/customers/${id}/statement`);
       const statement=response.data||{};
       const rows=Array.isArray(statement.transactions)?statement.transactions:[];
       const oldBalance=Number(statement.totals?.oldBalance||0);
@@ -1872,7 +1881,7 @@ function Invoice({transactionId,back}){
   const [error,setError]=useState("");
 
   useEffect(()=>{
-    api.get(`/transactions/${transactionId}/invoice`)
+    cachedGet(`/transactions/${transactionId}/invoice`)
       .then(response=>setData(response.data))
       .catch(requestError=>setError(requestError.response?.data?.message||"تعذر تحميل الفاتورة"));
   },[transactionId]);
@@ -1953,7 +1962,7 @@ function Statement({customerId,back}){
   async function load(){
     setError("");
     try{
-      const response=await api.get(`/customers/${customerId}/statement`,{params:filters});
+      const response=await cachedGet(`/customers/${customerId}/statement`,{params:filters});
       setData(response.data);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر إنشاء كشف الحساب");
@@ -2050,8 +2059,8 @@ function Transactions({openInvoice}){
   async function load(){
     try{
       const [customersResponse,transactionsResponse]=await Promise.all([
-        api.get("/customers"),
-        api.get("/transactions")
+        cachedGet("/customers"),
+        cachedGet("/transactions")
       ]);
       const customerList=Array.isArray(customersResponse.data)?customersResponse.data:[];
       setCustomers(customerList);
@@ -2078,7 +2087,7 @@ function Transactions({openInvoice}){
       return;
     }
 
-    api.get("/exchange-rates")
+    cachedGet("/exchange-rates")
       .then(response=>{
         const rates=Array.isArray(response.data)?response.data:[];
         const direct=rates.find(item=>
@@ -2358,7 +2367,7 @@ function Transactions({openInvoice}){
 function Profits(){
   const [data,setData]=useState(null);
   const [filters,setFilters]=useState({from:"",to:""});
-  const load=()=>api.get("/profits",{params:filters}).then(r=>setData(r.data));
+  const load=()=>cachedGet("/profits",{params:filters}).then(r=>setData(r.data));
   useEffect(()=>{load();},[]);
   if(!data)return <p>جاري تحميل الأرباح...</p>;
   return <>
@@ -2458,8 +2467,8 @@ function ExchangeRates(){
     setMessage("");
     try{
       const [ratesResponse,historyResponse]=await Promise.all([
-        api.get("/exchange-rates"),
-        api.get("/exchange-rates/history").catch(()=>({data:[]}))
+        cachedGet("/exchange-rates"),
+        cachedGet("/exchange-rates/history").catch(()=>({data:[]}))
       ]);
       setList(normalizeRatesPayload(ratesResponse.data));
       setHistory(normalizeRatesPayload(historyResponse.data));
@@ -2708,7 +2717,7 @@ function GeneralDebts(){
 
   async function load(){
     try{
-      const {data}=await api.get("/general-debts",{params:{type:filter}});
+      const {data}=await cachedGet("/general-debts",{params:{type:filter}});
       setData({
         rows:Array.isArray(data?.rows)?data.rows:[],
         totals:data?.totals||{receivable:0,payable:0,net:0},
@@ -2975,7 +2984,7 @@ function PartnerProfile({id,back}){
 
   async function load(){
     try{
-      const response=await api.get(`/partners/${id}`);
+      const response=await cachedGet(`/partners/${id}`);
       setData(response.data);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل المورد أو الشركة");
@@ -3067,7 +3076,7 @@ function PartnerStatement({partnerId,back}){
 
   async function load(){
     try{
-      const response=await api.get(`/partners/${partnerId}/statement`,{params:filters});
+      const response=await cachedGet(`/partners/${partnerId}/statement`,{params:filters});
       setData(response.data);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر إنشاء كشف الحساب");
@@ -3150,7 +3159,7 @@ function Partners({open}){
 
   async function load(){
     try{
-      const [response,centerResponse]=await Promise.all([api.get("/partners"),api.get("/partners/sync-center")]);
+      const [response,centerResponse]=await Promise.all([cachedGet("/partners"),cachedGet("/partners/sync-center")]);
       setData(response.data);
       setSyncCenter(centerResponse.data);
     }catch(requestError){
@@ -3280,7 +3289,7 @@ function Partners({open}){
   async function showJadDiagnostic(partner){
     setError("");setMessage("");
     try{
-      const response=await api.get(`/partners/${partner.id}/jad-diagnostic`);
+      const response=await cachedGet(`/partners/${partner.id}/jad-diagnostic`);
       const diagnostic=Array.isArray(response.data.diagnostic)?response.data.diagnostic:[];
       console.info("Jad diagnostic",{partner:partner.name,diagnostic,artifacts:response.data.artifacts});
       const hasSuccessfulSync=Boolean(response.data.lastSyncAt)&&String(response.data.status||"").toUpperCase()==="READY";
@@ -3490,10 +3499,10 @@ function CapitalOverview(){
       selectedDate.setMonth(selectedDate.getMonth()-1);
       const previousMonth=selectedDate.toISOString().slice(0,7);
       const [overviewResponse,previousResponse,movementsResponse,ratesResponse]=await Promise.all([
-        api.get("/capital-overview",{params:{month}}),
-        api.get("/capital-overview",{params:{month:previousMonth}}),
-        api.get("/capital"),
-        api.get("/exchange-rates")
+        cachedGet("/capital-overview",{params:{month}}),
+        cachedGet("/capital-overview",{params:{month:previousMonth}}),
+        cachedGet("/capital"),
+        cachedGet("/exchange-rates")
       ]);
       setData(overviewResponse.data);
       setPreviousData(previousResponse.data);
@@ -3906,7 +3915,7 @@ function MonthlyReport(){
   async function load(){
     setError("");
     try{
-      const response=await api.get("/monthly-report",{params:{month}});
+      const response=await cachedGet("/monthly-report",{params:{month}});
       setData(response.data);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل التقرير الشهري");
@@ -4001,7 +4010,7 @@ function NotificationSettings({embedded=false}){
   const [message,setMessage]=useState("");
 
   useEffect(()=>{
-    api.get("/notification-settings").then(response=>setSettings(response.data));
+    cachedGet("/notification-settings").then(response=>setSettings(response.data));
   },[]);
 
   async function save(event){
@@ -4042,7 +4051,7 @@ function NotificationSettings({embedded=false}){
 
 function BranchManagement(){
   const [branches,setBranches]=useState([]),[form,setForm]=useState({name:"",code:"",address:"",phone:"",currency:"CAD"}),[message,setMessage]=useState("");
-  const load=()=>api.get("/branches").then(r=>setBranches(r.data)).catch(()=>{});useEffect(()=>{load()},[]);
+  const load=()=>cachedGet("/branches").then(r=>setBranches(r.data)).catch(()=>{});useEffect(()=>{load()},[]);
   async function create(event){event.preventDefault();setMessage("");try{await api.post("/branches",form);setForm({name:"",code:"",address:"",phone:"",currency:"CAD"});setMessage("تم إنشاء الفرع بنجاح");load()}catch(error){setMessage(error.response?.data?.message||"تعذر إنشاء الفرع")}}
   return <article className="settings-card settings-wide-card"><div className="settings-card-title"><span>🏢</span><h3>إدارة الفروع</h3></div><p className="settings-help">أنشئ الفروع واعرض مؤشرات كل فرع. يمكن تغيير الفرع النشط من القائمة الجانبية.</p>{message&&<div className="settings-message">{message}</div>}<form className="branch-create-form" onSubmit={create}><input placeholder="اسم الفرع" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required/><input placeholder="الرمز مثل WINDSOR" value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})} required/><input placeholder="العنوان" value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/><input placeholder="الهاتف" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/><button className="settings-primary-button">إضافة فرع</button></form><div className="branch-grid">{branches.map(branch=><div className="branch-card" key={branch.id}><div><strong>{branch.name}</strong><small>{branch.code}{branch.isMain?" • الفرع الرئيسي":""}</small></div><div className="branch-metrics"><span>العملاء <b>{branch.metrics?.customers||0}</b></span><span>الحوالات <b>{branch.metrics?.transactions||0}</b></span><span>المصروفات <b>{money(branch.metrics?.expensesCad||0)} CAD</b></span></div></div>)}</div></article>
 }
@@ -4070,8 +4079,8 @@ function SettingsPanel(){
   const biometricAvailable=Boolean(typeof window!=="undefined"&&(window.AlAboudNative||navigator.userAgent.includes("AlAboudMobile")));
 
   useEffect(()=>{
-    api.get("/company-profile").then(({data})=>setCompanyProfile(data)).catch(()=>{});
-    if(savedUser.role==="ADMIN"){api.get("/users").then(({data})=>setUsers(data)).catch(()=>{});api.get("/devices").then(({data})=>setDevices(data)).catch(()=>{})}
+    cachedGet("/company-profile").then(({data})=>setCompanyProfile(data)).catch(()=>{});
+    if(savedUser.role==="ADMIN"){cachedGet("/users").then(({data})=>setUsers(data)).catch(()=>{});cachedGet("/devices").then(({data})=>setDevices(data)).catch(()=>{})}
   },[]);
 
   function chooseCompanyLogo(event){
@@ -4198,7 +4207,7 @@ function SettingsPanel(){
   async function checkUpdates(){
     setUpdateInfo(current=>({...current,checking:true,status:"جاري التحقق..."}));
     try{
-      const response=await api.get("/health");
+      const response=await cachedGet("/health");
       const serverVersion=response.data?.version||"غير معروف";
       setUpdateInfo({
         checking:false,
@@ -4213,7 +4222,7 @@ function SettingsPanel(){
   async function downloadBackup(){
     setBackupBusy(true);setMessage("");
     try{
-      const response=await api.get("/backup",{responseType:"blob"});
+      const response=await cachedGet("/backup",{responseType:"blob"});
       const blob=new Blob([response.data],{type:"application/json"});
       const url=URL.createObjectURL(blob);
       const link=document.createElement("a");
@@ -4416,7 +4425,7 @@ function SettingsPanel(){
 
 function AICommandCenter({navigate}){
   const [overview,setOverview]=useState(null);const [question,setQuestion]=useState("");const [messages,setMessages]=useState([{role:"assistant",text:"مرحبًا، أنا مساعد العبود الذكي. اسألني عن الأرباح أو المصروفات أو الديون أو التوقعات."}]);const [busy,setBusy]=useState(false);const [listening,setListening]=useState(false);
-  const load=()=>api.get("/ai/overview").then(r=>setOverview(r.data)).catch(()=>{});
+  const load=()=>cachedGet("/ai/overview").then(r=>setOverview(r.data)).catch(()=>{});
   useEffect(()=>{load()},[]);
   async function ask(text=question){const q=String(text||"").trim();if(!q||busy)return;setQuestion("");setMessages(m=>[...m,{role:"user",text:q}]);setBusy(true);try{const {data}=await api.post("/ai/assistant",{question:q});setMessages(m=>[...m,{role:"assistant",text:data.answer,data:data.data||[],action:data.action}]);setOverview(data.overview||overview)}catch(e){setMessages(m=>[...m,{role:"assistant",text:e.response?.data?.message||"تعذر تنفيذ التحليل الآن."}])}finally{setBusy(false)}}
   function voice(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){alert("الإدخال الصوتي غير مدعوم في هذا المتصفح");return}const r=new SR();r.lang="ar-SA";r.onstart=()=>setListening(true);r.onend=()=>setListening(false);r.onresult=e=>{const t=e.results[0][0].transcript;setQuestion(t);ask(t)};r.start()}
@@ -4446,7 +4455,7 @@ function Simple({type}){
     {code:"JOD",flag:"🇯🇴",name:"دينار أردني"}
   ];
   const flagOf=code=>expenseCurrencies.find(x=>x.code===String(code||"").toUpperCase())?.flag||"🏳️";
-  const load=()=>api.get(endpoint).then(r=>setList(r.data));
+  const load=()=>cachedGet(endpoint).then(r=>setList(r.data));
   useEffect(()=>{load();},[type]);
   useEffect(()=>{if(currency==="CAD")setExchangeRate("1");},[currency]);
   function resetExpenseForm(){setEditingId(null);setTitle("");setAmount("");setCurrency("CAD");setExchangeRate("1");setCategory("Other");setDate(new Date().toISOString().slice(0,10));}
@@ -4503,13 +4512,13 @@ export default function App(){
   useEffect(()=>{
     if(!token)return;
 
-    api.get("/auth/session").then(({data})=>{
+    cachedGet("/auth/session").then(({data})=>{
       localStorage.setItem("afs_user",JSON.stringify(data.user));
       window.dispatchEvent(new CustomEvent("alaboud-live-session",{detail:data}));
     }).catch(()=>{});
 
-    api.get("/company-profile").then(({data})=>setCompanyBrand(data)).catch(()=>{});
-    api.get("/branches").then(({data})=>{setBranches(data);const selected=activeBranchId||data.find(x=>x.isMain)?.id||data[0]?.id||"";if(selected&&!activeBranchId){localStorage.setItem("alaboud_branch_id",selected);setActiveBranchId(selected)}}).catch(()=>{});
+    cachedGet("/company-profile").then(({data})=>setCompanyBrand(data)).catch(()=>{});
+    cachedGet("/branches").then(({data})=>{setBranches(data);const selected=activeBranchId||data.find(x=>x.isMain)?.id||data[0]?.id||"";if(selected&&!activeBranchId){localStorage.setItem("alaboud_branch_id",selected);setActiveBranchId(selected)}}).catch(()=>{});
     const updateCompany=event=>setCompanyBrand(event.detail);
     window.addEventListener("alaboud-company-updated",updateCompany);
     return()=>window.removeEventListener("alaboud-company-updated",updateCompany);
@@ -4533,7 +4542,7 @@ export default function App(){
 
   useEffect(()=>{
     if(token){
-      api.get("/customer-alerts")
+      cachedGet("/customer-alerts")
         .then(response=>setOverdueCount(Number(response.data?.count||0)))
         .catch(()=>setOverdueCount(0));
     }
