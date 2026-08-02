@@ -3937,9 +3937,18 @@ async function syncDahabPartner(partner,{fromDate,toDate,otp}={}){
   const username=String(partner.username||"").trim();
   const password=decryptIntegrationSecret(partner.passwordEncrypted);
   if(!username||!password)throw Object.assign(new Error("اسم المستخدم وكلمة المرور لشركة دهب مطلوبان"),{code:"DAHAB_CREDENTIALS_REQUIRED"});
-  const headers={Accept:"text/html,application/xhtml+xml","Accept-Language":"ar,en;q=0.8","Content-Type":"application/x-www-form-urlencoded","User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36",Origin:origin,Referer:login};
-  const body=new URLSearchParams({username,password,hash:"alaboud-business-suite",dt:"",login:""});
-  let result=await fetchWithCookies(login,{method:"POST",headers,body:body.toString()},"",{maxRedirects:6});
+  const userAgent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+  const commonHeaders={Accept:"text/html,application/xhtml+xml","Accept-Language":"ar,en;q=0.8","User-Agent":userAgent,Referer:login};
+  // Dahab initializes a PHP session on the login-page GET and its JavaScript
+  // submits a 128-bit browser fingerprint plus base64 device details.
+  const landing=await fetchWithCookies(login,{method:"GET",headers:commonHeaders},"",{maxRedirects:4});
+  if(!landing.response.ok)throw Object.assign(new Error(`تعذر فتح صفحة دخول دهب (${landing.response.status})`),{code:"DAHAB_LOGIN_PAGE_ERROR"});
+  await landing.response.text();
+  const fingerprintDetails=["userAgent = "+userAgent,"language = ar","platform = Win32","timezone = America/Toronto","screenResolution = 1920,1080"].join("\n");
+  const fingerprint=crypto.createHash("md5").update(`${userAgent}|${username}|alaboud-dahab`).digest("hex");
+  const headers={...commonHeaders,"Content-Type":"application/x-www-form-urlencoded",Origin:origin};
+  const body=new URLSearchParams({username,password,hash:fingerprint,dt:Buffer.from(fingerprintDetails,"utf8").toString("base64"),login:""});
+  let result=await fetchWithCookies(login,{method:"POST",headers,body:body.toString()},landing.cookie,{maxRedirects:6});
   let cookie=result.cookie;
   let html=await result.response.text();
   if(!result.response.ok)throw Object.assign(new Error(`فشل تسجيل الدخول إلى دهب (${result.response.status})`),{code:"DAHAB_HTTP_ERROR"});
@@ -3952,7 +3961,7 @@ async function syncDahabPartner(partner,{fromDate,toDate,otp}={}){
     result=await fetchWithCookies(otpForm.url,{method:"POST",headers:{...headers,Referer:result.url||login},body:otpBody.toString()},cookie,{maxRedirects:6});
     cookie=result.cookie;html=await result.response.text();
   }
-  if(/name=["']username["']/i.test(html)&&/name=["']password["']/i.test(html))throw Object.assign(new Error("بيانات دخول دهب غير صحيحة أو رفض الموقع جلسة الخادم"),{code:"DAHAB_LOGIN_REJECTED"});
+  if(/name=["']username["']/i.test(html)&&/name=["']password["']/i.test(html))throw Object.assign(new Error("رفض موقع دهب تسجيل الدخول. تأكد من اسم المستخدم وكلمة المرور، وإذا كانا صحيحين فقد يمنع الموقع دخول خادم Render"),{code:"DAHAB_LOGIN_REJECTED"});
   const start=dahabDate(fromDate||partner.syncFromDate||new Date(Date.now()-7*86400000).toISOString().slice(0,10));
   const end=dahabDate(toDate||new Date().toISOString().slice(0,10));
   const currencyId=String(partner.externalAccountId||"3").replace(/\D/g,"")||"3";

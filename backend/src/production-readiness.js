@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 
-const APP_VERSION = "23.0.4";
+const APP_VERSION = "23.0.5";
 const BACKUP_FORMAT = "ALABOUD_BACKUP";
 
 function stableStringify(value){
