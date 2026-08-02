@@ -616,8 +616,6 @@ function Customers({open}){
 
   useEffect(()=>{
     load();
-    const timer=setInterval(()=>setNowTick(Date.now()),30000);
-    return()=>clearInterval(timer);
   },[]);
 
   useEffect(()=>{
@@ -946,7 +944,7 @@ function Customers({open}){
         "كشف حساب العميل",
         customer.name,
         "",
-        ...(oldBalance>0?[`الحساب القديم: ${money(oldBalance)} 🇨🇦`,""]:[]),
+        ...(Number(customer.oldBalance||0)>0?[`الحساب القديم: ${money(customer.oldBalance)} 🇨🇦`,""]:[]),
         ...lines,
         "",
         "--------------------",
@@ -1212,6 +1210,10 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
   const [error,setError]=useState("");
   const [success,setSuccess]=useState("");
   const [drafts,setDrafts]=useState({});
+  const [syncingId,setSyncingId]=useState("");
+  const [syncCenter,setSyncCenter]=useState(null);
+  const syncingAll=false;
+  const autoSyncBusy=useRef(false);
 
   async function load(){
     setError("");
