@@ -3930,6 +3930,21 @@ function dahabBalanceFromHtml(html){
   if(Math.abs(selected)>1e12)throw Object.assign(new Error("أعاد تقرير دهب رقمًا غير منطقي؛ لم يتم حفظه لحماية الحسابات"),{code:"DAHAB_BALANCE_OUT_OF_RANGE"});
   return selected;
 }
+function dahabDashboardBalance(html){
+  const text=decodeHtmlText(html);
+  const numberPattern="[-−]?[0-9٠-٩۰-۹]+(?:[.,٬٫][0-9٠-٩۰-۹]+)*";
+  const patterns=[
+    new RegExp(`(?:دولار|USD)\\s*[:：-]?\\s*(${numberPattern})`,"i"),
+    new RegExp(`(${numberPattern})\\s*(?:دولار|USD)`,"i")
+  ];
+  for(const pattern of patterns){
+    const match=text.match(pattern);
+    if(!match)continue;
+    const value=parseKontorunAmount(match[1].replace(/−/g,"-"));
+    if(Number.isFinite(value)&&Math.abs(value)<=1e12)return value;
+  }
+  return null;
+}
 function dahabOtpForm(html,baseUrl){
   const form=String(html||"").match(/<form\b([^>]*)>([\s\S]*?)<\/form>/i);
   if(!form)return null;
@@ -3974,6 +3989,14 @@ async function syncDahabPartner(partner,{fromDate,toDate,otp}={}){
     cookie=result.cookie;html=await result.response.text();
   }
   if(/name=["']username["']/i.test(html)&&/name=["']password["']/i.test(html))throw Object.assign(new Error("رفض موقع دهب تسجيل الدخول. تأكد من اسم المستخدم وكلمة المرور، وإذا كانا صحيحين فقد يمنع الموقع دخول خادم Render"),{code:"DAHAB_LOGIN_REJECTED"});
+  // The home card is the authoritative Dahab balance. Statement pages also
+  // contain movement totals, which are not the current account balance.
+  const dashboardBalance=dahabDashboardBalance(html);
+  if(dashboardBalance!==null){
+    const currency="USD";
+    const normalized={balance:+dashboardBalance.toFixed(2),receivable:dashboardBalance>0?+dashboardBalance.toFixed(2):0,payable:dashboardBalance<0?+Math.abs(dashboardBalance).toFixed(2):0};
+    return {...normalized,currencies:{[currency]:normalized},movements:[],balanceRows:[{currency,amount:normalized.balance,source:"dashboard"}]};
+  }
   const start=dahabDate(fromDate||partner.syncFromDate||new Date(Date.now()-7*86400000).toISOString().slice(0,10));
   const end=dahabDate(toDate||new Date().toISOString().slice(0,10));
   const currencyId=String(partner.externalAccountId||"3").replace(/\D/g,"")||"3";

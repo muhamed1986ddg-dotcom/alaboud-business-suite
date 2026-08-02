@@ -3210,11 +3210,11 @@ function Partners({open}){
   async function testConnection(partner){
     setError("");setMessage("");
     try{
-      const response=await api.post(`/partners/${partner.id}/test-connection`,{otp:otpById[partner.id]||"",trigger:"MANUAL"});
+      const response=await api.post(`/partners/${partner.id}/test-connection`,{otp:otpById[partner.id]||"",trigger:"MANUAL"},{timeout:90000});
       setMessage(`${partner.name}: ${response.data.message}`);
       await load();
     }catch(requestError){
-      setError(cleanConnectorMessage(requestError.response?.data?.message||"تعذر اختبار الاتصال"));
+      setError(requestError.code==="ECONNABORTED"?"استغرق موقع الشركة أكثر من 90 ثانية؛ حاول مرة أخرى":cleanConnectorMessage(requestError.response?.data?.message||requestError.message||"تعذر اختبار الاتصال"));
     }
   }
 
@@ -3238,7 +3238,7 @@ function Partners({open}){
   async function syncPartner(partner){
     setError("");setMessage("");setSyncingId(partner.id);
     try{
-      const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||"",trigger:"MANUAL"});
+      const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||"",trigger:"MANUAL"},{timeout:90000});
       setOtpById(current=>({...current,[partner.id]:""}));
       if(response.data?.stale){
         const reason=syncFailureReason(response.data);
@@ -3267,7 +3267,7 @@ function Partners({open}){
     if(selectedFilter.fromDate>selectedFilter.toDate){setError("تاريخ البداية يجب أن يسبق تاريخ النهاية");return;}
     setError("");setMessage("");setSyncingId(partner.id);
     try{
-      const response=await api.post(`/partners/${partner.id}/sync`,{fromDate:selectedFilter.fromDate,toDate:selectedFilter.toDate,otp:otpById[partner.id]||"",trigger:"FEE_REPORT"});
+      const response=await api.post(`/partners/${partner.id}/sync`,{fromDate:selectedFilter.fromDate,toDate:selectedFilter.toDate,otp:otpById[partner.id]||"",trigger:"FEE_REPORT"},{timeout:90000});
       const result=response.data?.result||{};
       setFeeReport({partnerId:partner.id,partnerName:partner.name,currency:partner.accountCurrency||"USD",fromDate:result.fromDate||selectedFilter.fromDate,toDate:result.toDate||selectedFilter.toDate,totalFees:Number(result.totalFees||0),rows:result.feeMovements||[]});
       setOtpById(current=>({...current,[partner.id]:""}));
@@ -3320,7 +3320,7 @@ function Partners({open}){
       for(const partner of partners){
         setSyncingId(partner.id);
         try{
-          const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||"",trigger:"MANUAL"});
+          const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||"",trigger:"MANUAL"},{timeout:90000});
           if(response.data?.stale){
             console.warn("Partner sync stale",partner.name,response.data);
             setMessage(`${partner.name}: ${syncFailureReason(response.data)}. يتم عرض آخر رصيد ناجح.`);
