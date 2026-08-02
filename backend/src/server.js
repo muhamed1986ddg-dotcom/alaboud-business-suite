@@ -3906,17 +3906,29 @@ function dahabCurrencyFromHtml(html,fallback="USD"){
 function dahabBalanceFromHtml(html){
   const raw=String(html||"");
   const candidates=[];
+  const addAmounts=text=>{
+    const normalized=decodeHtmlText(text)
+      .replace(/\b[0-9٠-٩۰-۹]{1,2}[-\/]\s*[0-9٠-٩۰-۹]{1,2}[-\/]\s*[0-9٠-٩۰-۹]{2,4}\b/g," ")
+      .replace(/\b[0-9٠-٩۰-۹]{1,2}:[0-9٠-٩۰-۹]{2}(?::[0-9٠-٩۰-۹]{2})?\b/g," ");
+    // Never pass a whole nested table cell to the number parser: doing so can
+    // concatenate dates and several amounts into one exponential-size value.
+    for(const token of normalized.match(/[-−]?\s*[0-9٠-٩۰-۹]+(?:[.,٬٫][0-9٠-٩۰-۹]+)*-?/g)||[]){
+      const amount=parseKontorunAmount(token.replace(/−/g,"-"));
+      if(Number.isFinite(amount)&&Math.abs(amount)<=1e12)candidates.push(amount);
+    }
+  };
   // The Dahab report renders monetary cells with da/mad classes. Prefer the
   // final running-balance cell, while also supporting pages labelled الرصيد/الصافي.
   for(const match of raw.matchAll(/<(?:td|div|span)[^>]*class=["'][^"']*(?:\bda\b|\bmad\b|balance|saldo)[^"']*["'][^>]*>([\s\S]*?)<\/(?:td|div|span)>/gi)){
-    const text=decodeHtmlText(match[1]);
-    if(/[0-9٠-٩۰-۹]/.test(text))candidates.push(parseKontorunAmount(text));
+    addAmounts(match[1]);
   }
   const plain=decodeHtmlText(raw);
-  for(const match of plain.matchAll(/(?:الرصيد|الصافي|balance|saldo)\s*[:：-]?\s*([-−]?\s*[0-9٠-٩۰-۹][0-9٠-٩۰-۹.,٬٫\s]*-?)/gi))candidates.push(parseKontorunAmount(match[1]));
+  for(const match of plain.matchAll(/(?:الرصيد|الصافي|balance|saldo)\s*[:：-]?\s*([-−]?\s*[0-9٠-٩۰-۹]+(?:[.,٬٫][0-9٠-٩۰-۹]+)*-?)/gi))addAmounts(match[1]);
   const finite=candidates.filter(Number.isFinite);
   if(!finite.length)throw Object.assign(new Error("تم تسجيل الدخول إلى دهب لكن تعذر تحديد خانة الرصيد من التقرير"),{code:"DAHAB_BALANCE_NOT_FOUND"});
-  return finite[finite.length-1];
+  const selected=finite[finite.length-1];
+  if(Math.abs(selected)>1e12)throw Object.assign(new Error("أعاد تقرير دهب رقمًا غير منطقي؛ لم يتم حفظه لحماية الحسابات"),{code:"DAHAB_BALANCE_OUT_OF_RANGE"});
+  return selected;
 }
 function dahabOtpForm(html,baseUrl){
   const form=String(html||"").match(/<form\b([^>]*)>([\s\S]*?)<\/form>/i);
