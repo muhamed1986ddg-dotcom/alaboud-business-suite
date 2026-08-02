@@ -3746,7 +3746,9 @@ function parseKontorunAmount(value){
     text=`${integer}.${fraction}`;
   }else if(lastComma>=0){
     const parts=text.split(",");
-    text=(parts.length===2&&parts[1].length<=3)?`${parts[0]}.${parts[1]}`:parts.join("");
+    // Tawasul uses a comma as a thousands separator for balances such as
+    // 20,908 and 8,857, while decimal comma values normally have 1-2 digits.
+    text=(parts.length===2&&parts[1].length<=2)?`${parts[0]}.${parts[1]}`:parts.join("");
   }else if((text.match(/\./g)||[]).length>1){
     const parts=text.split(".");
     const fraction=parts.pop();
