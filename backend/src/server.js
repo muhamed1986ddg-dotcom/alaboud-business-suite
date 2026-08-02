@@ -3634,6 +3634,18 @@ async function syncJadPartner(partner,options={}){
 
 app.get("/api/partners", auth, async (req,res)=>{
   const store=readStore();
+  const summaryCurrency=String(req.query.summaryCurrency||"USD").toUpperCase();
+  const missingRates=new Set();
+  let ratesUpdatedAt=null;
+  const convertedTotals={receivable:0,payable:0};
+  const addConverted=(amount,currency,type)=>{
+    const value=Math.max(safeNumber(amount),0);
+    if(value<=0.001)return;
+    const conversion=currencyConversion(store,String(currency||summaryCurrency).toUpperCase(),summaryCurrency);
+    if(!conversion){missingRates.add(String(currency||summaryCurrency).toUpperCase());return;}
+    convertedTotals[type]+=value*conversion.factor;
+    if(conversion.updatedAt&&(!ratesUpdatedAt||conversion.updatedAt>ratesUpdatedAt))ratesUpdatedAt=conversion.updatedAt;
+  };
   const partners=await branchSafeRead(req,"partners",()=>nativeRepositories.partners.listByCompany(req.user.companyId,{orderBy:"name ASC"}),()=>Array.from(store.partners||[]));
   const transactions=Array.isArray(store.partnerTransactions)?store.partnerTransactions:[];
   const payments=Array.isArray(store.partnerPayments)?store.partnerPayments:[];
@@ -3658,8 +3670,39 @@ app.get("/api/partners", auth, async (req,res)=>{
       .filter(item=>item.direction==="PAID")
       .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
-    const receivableBalance=Math.max(receivable-receivedPayments,0)+safeNumber(partner.externalReceivable);
-    const payableBalance=Math.max(payable-paidPayments,0)+safeNumber(partner.externalPayable);
+    const localReceivable=Math.max(receivable-receivedPayments,0);
+    const localPayable=Math.max(payable-paidPayments,0);
+    const multi=partner.externalBalances&&typeof partner.externalBalances==="object"?partner.externalBalances:null;
+    const entries=multi?Object.entries(multi).filter(([currency,value])=>currency&&value&&typeof value==="object"):[];
+    let externalReceivable=0;
+    let externalPayable=0;
+    if(entries.length){
+      for(const [currency,value] of entries){
+        const itemReceivable=Math.max(safeNumber(value.receivable),0);
+        const itemPayable=Math.max(safeNumber(value.payable),0);
+        addConverted(itemReceivable,currency,"receivable");
+        addConverted(itemPayable,currency,"payable");
+        if(String(currency).toUpperCase()===String(partner.accountCurrency||"USD").toUpperCase()){
+          externalReceivable+=itemReceivable;externalPayable+=itemPayable;
+        }
+      }
+    }else{
+      externalReceivable=Math.max(safeNumber(partner.externalReceivable),0);
+      externalPayable=Math.max(safeNumber(partner.externalPayable),0);
+      if(externalReceivable<=0.001&&externalPayable<=0.001){
+        const balance=safeNumber(partner.externalBalance);
+        if(balance>0)externalReceivable=balance;
+        if(balance<0)externalPayable=Math.abs(balance);
+      }
+      addConverted(externalReceivable,partner.accountCurrency||"USD","receivable");
+      addConverted(externalPayable,partner.accountCurrency||"USD","payable");
+    }
+    // Partner transactions are stored in their normalized CAD value.
+    addConverted(localReceivable,"CAD","receivable");
+    addConverted(localPayable,"CAD","payable");
+
+    const receivableBalance=localReceivable+externalReceivable;
+    const payableBalance=localPayable+externalPayable;
 
     const {passwordEncrypted,...publicPartner}=partner;
     return {
@@ -3671,18 +3714,15 @@ app.get("/api/partners", auth, async (req,res)=>{
     };
   }).sort((a,b)=>String(a.name).localeCompare(String(b.name),"ar"));
 
-  const totals=rows.reduce((acc,item)=>{
-    acc.receivable+=safeNumber(item.receivable);
-    acc.payable+=safeNumber(item.payable);
-    return acc;
-  },{receivable:0,payable:0});
-
   res.json({
     rows,
+    summaryCurrency,
+    missingRates:[...missingRates],
+    ratesUpdatedAt,
     totals:{
-      receivable:+totals.receivable.toFixed(2),
-      payable:+totals.payable.toFixed(2),
-      net:+(totals.receivable-totals.payable).toFixed(2)
+      receivable:+convertedTotals.receivable.toFixed(2),
+      payable:+convertedTotals.payable.toFixed(2),
+      net:+(convertedTotals.receivable-convertedTotals.payable).toFixed(2)
     }
   });
 });
