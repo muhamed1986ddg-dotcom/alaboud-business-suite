@@ -2613,8 +2613,19 @@ app.get("/api/transactions/:id/invoice", auth, (req,res)=>{
 
 
 
+// Integration credentials remain decryptable across deployments. New values use
+// INTEGRATION_SECRET when configured, while old values can still be opened with
+// JWT_SECRET or an explicitly supplied LEGACY_INTEGRATION_SECRET.
 const INTEGRATION_SECRET=process.env.INTEGRATION_SECRET||JWT_SECRET;
-function integrationKey(){return crypto.createHash("sha256").update(String(INTEGRATION_SECRET)).digest();}
+function integrationKey(secret=INTEGRATION_SECRET){return crypto.createHash("sha256").update(String(secret)).digest();}
+function integrationSecretCandidates(){
+  return [...new Set([
+    process.env.INTEGRATION_SECRET,
+    JWT_SECRET,
+    process.env.LEGACY_INTEGRATION_SECRET,
+    "LOCAL_TRIAL_CHANGE_ME_6_0"
+  ].filter(Boolean).map(String))];
+}
 function encryptIntegrationSecret(value){
   if(!value)return "";
   const iv=crypto.randomBytes(12);const cipher=crypto.createCipheriv("aes-256-gcm",integrationKey(),iv);
@@ -2623,10 +2634,21 @@ function encryptIntegrationSecret(value){
 }
 function decryptIntegrationSecret(value){
   const text=String(value||"");if(!text)return "";if(!text.startsWith("enc:v1:"))return text;
-  const [,version,iv64,tag64,data64]=text.split(":");if(version!=="v1")throw new Error("Unsupported integration secret");
-  const decipher=crypto.createDecipheriv("aes-256-gcm",integrationKey(),Buffer.from(iv64,"base64"));
-  decipher.setAuthTag(Buffer.from(tag64,"base64"));
-  return Buffer.concat([decipher.update(Buffer.from(data64,"base64")),decipher.final()]).toString("utf8");
+  const parts=text.split(":");
+  if(parts.length!==5||parts[1]!=="v1")throw new Error("صيغة بيانات الربط المشفرة غير مدعومة");
+  const [,version,iv64,tag64,data64]=parts;
+  let lastError=null;
+  for(const secret of integrationSecretCandidates()){
+    try{
+      const decipher=crypto.createDecipheriv("aes-256-gcm",integrationKey(secret),Buffer.from(iv64,"base64"));
+      decipher.setAuthTag(Buffer.from(tag64,"base64"));
+      return Buffer.concat([decipher.update(Buffer.from(data64,"base64")),decipher.final()]).toString("utf8");
+    }catch(error){lastError=error;}
+  }
+  const error=new Error("تعذر فك بيانات دخول الشركة. أعد حفظ كلمة المرور أو اضبط LEGACY_INTEGRATION_SECRET بالمفتاح السابق.");
+  error.code="INTEGRATION_DECRYPT_FAILED";
+  error.cause=lastError;
+  throw error;
 }
 function normalizeBaseUrl(value){
   let raw=String(value||"").trim();

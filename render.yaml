@@ -31,3 +31,5 @@ services:
         value: "true"
       - key: PG_POOL_MAX
         value: "2"
+      - key: PG_WRITE_RETRIES
+        value: "3"
