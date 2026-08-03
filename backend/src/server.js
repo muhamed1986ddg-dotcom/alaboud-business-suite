@@ -1954,7 +1954,7 @@ const list = rates
   .slice(0, limit);
 
 res.json(list);
-
+});
 app.post("/api/exchange-rates", auth, (req,res)=>{
   const {baseCurrency,quoteCurrency,buyRate,sellRate,notes=""}=req.body||{};
   const buy=Number(buyRate), sell=Number(sellRate);
