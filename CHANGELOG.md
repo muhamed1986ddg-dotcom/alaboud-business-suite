@@ -1524,3 +1524,9 @@ git push origin main
 
 ---
 
+
+## v23.0.30
+- Unified profits and monthly reports into one page: التقارير والأرباح.
+- Removed top customers section from reports.
+- Removed monthly transfer details section from reports.
+- Preserved financial summaries, monthly movement, filtering, and printing.

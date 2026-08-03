@@ -3,13 +3,12 @@ import{money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,E
 
 // شاشات مؤجّلة التحميل: تُحمَّل فقط عند فتحها فعليًا، لا مع كل شاشة أساسية.
 // هذا يقلّل حجم التحميل الأولي للتطبيق بشكل كبير (خصوصًا على الهاتف).
-const Profits=React.lazy(()=>import("./screens/Profits").then(m=>({default:m.Profits})));
 const ExchangeRates=React.lazy(()=>import("./screens/ExchangeRates").then(m=>({default:m.ExchangeRates})));
 const GeneralDebts=React.lazy(()=>import("./screens/GeneralDebts").then(m=>({default:m.GeneralDebts})));
 const PartnerProfile=React.lazy(()=>import("./screens/Partners").then(m=>({default:m.PartnerProfile})));
 const CompaniesList=React.lazy(()=>import("./screens/CompaniesList").then(m=>({default:m.CompaniesList})));
 const CapitalOverview=React.lazy(()=>import("./screens/CapitalOverview").then(m=>({default:m.CapitalOverview})));
-const MonthlyReport=React.lazy(()=>import("./screens/MonthlyReport").then(m=>({default:m.MonthlyReport})));
+const ReportsProfits=React.lazy(()=>import("./screens/ReportsProfits").then(m=>({default:m.ReportsProfits})));
 const SettingsPanel=React.lazy(()=>import("./screens/SettingsPanel").then(m=>({default:m.SettingsPanel})));
 const AICommandCenter=React.lazy(()=>import("./screens/AICommandCenter").then(m=>({default:m.AICommandCenter})));
 const Simple=React.lazy(()=>import("./screens/Simple").then(m=>({default:m.Simple})));
@@ -480,7 +479,7 @@ function Dashboard({navigate}){
       <button onClick={()=>navigate("transactions")}><span>💱</span><strong>إضافة حوالة</strong></button>
       <button onClick={()=>navigate("expenses")}><span>👛</span><strong>إضافة مصروف</strong></button>
       <button onClick={()=>navigate("customers")}><span>👤＋</span><strong>عميل جديد</strong></button>
-      <button onClick={()=>navigate("monthly-report")}><span>📄</span><strong>تقرير سريع</strong></button>
+      <button onClick={()=>navigate("reports-profits")}><span>📄</span><strong>تقرير سريع</strong></button>
       <button onClick={()=>navigate("rates")}><span>☁</span><strong>أسعار الصرف</strong></button>
     </section>
 
@@ -939,9 +938,15 @@ function Customers({open}){
     </div>
 
     <div className="customer-toolbar card">
-      <button onClick={()=>{setActivePanel("newCustomer");setEditingCustomer(null)}}>إضافة عميل</button>
-      <button onClick={()=>setActivePanel(activePanel==="transfer"?"":"transfer")}>إضافة حوالة</button>
-      <button onClick={()=>setActivePanel(activePanel==="payment"?"":"payment")}>إضافة دفعة</button>
+      <button onClick={()=>{setActivePanel("newCustomer");setEditingCustomer(null)}}>➕ إضافة عميل</button>
+      <button onClick={()=>setActivePanel(activePanel==="transfer"?"":"transfer")}>💸 إضافة حوالة</button>
+      <button onClick={()=>setActivePanel(activePanel==="payment"?"":"payment")}>💳 إضافة دفعة</button>
+      <button
+        className={activePanel==="list"?"active":""}
+        onClick={()=>setActivePanel(activePanel==="list"?"":"list")}
+      >
+        📋 قائمة العملاء
+      </button>
     </div>
     </>}
 
@@ -1084,9 +1089,18 @@ function Customers({open}){
       </div>
     }
 
-    {!customerActionFocus&&<>
+    {!customerActionFocus&&activePanel==="list"&&<>
 
-    <input className="card customer-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
+    <div className="customer-list-panel card">
+      <div className="customer-list-panel-header">
+        <div>
+          <h3>📋 قائمة العملاء</h3>
+          <small>{filtered.length} من أصل {list.length} عميل</small>
+        </div>
+        <button type="button" onClick={()=>{setActivePanel("");setSearch("")}}>✕ إغلاق القائمة</button>
+      </div>
+      <input autoFocus className="customer-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
+    </div>
 
     <div className="customer-cards customer-list-simple">
       {filtered.length?filtered.map(customer=><div
@@ -2472,16 +2486,14 @@ export default function App(){
     content=<CompaniesList open={setPartnerId}/>;
   }else if(["transactions","transactions-unpaid","transactions-paid","transactions-overdue","transaction-payments"].includes(page)){
     content=<Transactions openInvoice={setInvoiceId}/>;
-  }else if(page==="profits"){
-    content=<Profits/>;
+  }else if(page==="profits"||page==="monthly-report"||page==="reports-profits"){
+    content=<ReportsProfits/>;
   }else if(page==="rates"){
     content=<ExchangeRates/>;
   }else if(page==="debts"){
     content=<GeneralDebts/>;
   }else if(page==="capital-overview"||page==="capital"){
     content=<CapitalOverview/>;
-  }else if(page==="monthly-report"){
-    content=<MonthlyReport/>;
   }else if(page==="notification-settings"){
     content=<SettingsPanel/>;
   }else if(page==="settings"){
@@ -2508,11 +2520,10 @@ export default function App(){
     ["partners","🏢 الشركات والربط الخارجي"],
     ["transactions","⇄ الحوالات"],
     ["expenses","🧾 المصروفات"],
-    ["profits","📈 الأرباح"],
+    ["reports-profits","📊 التقارير والأرباح"],
     ["rates","💱 العملات وأسعار الصرف"],
     ["debts","📒 الدَّين العام"],
     ["capital-overview","⚖️ الميزانية"],
-    ["monthly-report","📊 التقارير الشهرية"],
     ["ai-center","🧠 مركز القيادة الذكي"],
     ["settings","⚙️ الإعدادات والتنبيهات"]
   ];
@@ -2590,7 +2601,7 @@ export default function App(){
       <button className={page==="dashboard"?"active":""} onClick={()=>navigate("dashboard")}>
         <span>⌂</span><small>الرئيسية</small>
       </button>
-      <button className={page==="monthly-report"?"active":""} onClick={()=>navigate("monthly-report")}>
+      <button className={["reports-profits","profits","monthly-report"].includes(page)?"active":""} onClick={()=>navigate("reports-profits")}>
         <span>▥</span><small>التقارير</small>
       </button>
       <button onClick={()=>setMobileMenuOpen(true)}>
