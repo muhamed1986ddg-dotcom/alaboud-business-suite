@@ -13,6 +13,10 @@ function unwrapStore(store){
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.resolve(__dirname, "../../data");
 const dataFile = path.join(dataDir, "store.json");
 const databaseUrl = String(process.env.DATABASE_URL || "").trim();
+const isProduction = process.env.NODE_ENV === "production";
+if(isProduction && !databaseUrl){
+  throw new Error("DATABASE_URL is required in production; JSON fallback is disabled to protect persistent data");
+}
 
 const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","apiKeys","webhooks","integrationLogs"];
 const emptyStore = () => ({

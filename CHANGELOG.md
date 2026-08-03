@@ -1,4 +1,15 @@
 # سجل التغييرات (Changelog)
+
+## v23.0.20 - Production safety and release cleanup
+
+- Removed bundled customer/store data and generated frontend assets from the source archive.
+- Removed obsolete root server and legacy App backup files.
+- Unified application, frontend, backend, and visible UI versions to 23.0.20.
+- Disabled JSON storage fallback in production when DATABASE_URL is missing.
+- Added PostgreSQL wiring and generated initial administrator password to Render Blueprint.
+- Added frontend dev and preview commands and moved Vite tooling to devDependencies.
+- Added expired rate-limit bucket cleanup.
+
 > تم دمج جميع ملفات RELEASE_*.md المتفرقة (101 ملف) في هذا الملف الواحد، مرتبة من الأحدث إلى الأقدم.
 > الملفات الأصلية منقولة إلى `docs/releases/` للأرشفة.
 

@@ -1,0 +1,29 @@
+{
+  "companies": [],
+  "branches": [],
+  "users": [],
+  "customers": [],
+  "transactions": [],
+  "payments": [],
+  "expenses": [],
+  "capitalMovements": [],
+  "exchangeRates": [],
+  "generalDebts": [],
+  "generalDebtPayments": [],
+  "partners": [],
+  "partnerTransactions": [],
+  "partnerPayments": [],
+  "partnerSyncLogs": [],
+  "notificationSettings": {
+    "overdueDays": 7,
+    "lowCashLimit": 5000,
+    "whatsappTemplate": ""
+  },
+  "companySettings": {},
+  "notificationActions": [],
+  "auditLogs": [],
+  "devices": [],
+  "apiKeys": [],
+  "webhooks": [],
+  "integrationLogs": []
+}

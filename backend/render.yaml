@@ -1,3 +1,8 @@
+databases:
+  - name: alaboud-business-db
+    region: virginia
+    plan: free
+
 services:
   - type: web
     name: alaboud-business-suite
@@ -10,11 +15,19 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: alaboud-business-db
+          property: connectionString
       - key: JWT_SECRET
+        generateValue: true
+      - key: INITIAL_ADMIN_PASSWORD
         generateValue: true
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: "0"
       - key: JAD_CONNECTOR_MODE
-        value: browser
+        value: http
       - key: JAD_HTTP_FALLBACK
-        value: "false"
+        value: "true"
+      - key: PG_POOL_MAX
+        value: "2"

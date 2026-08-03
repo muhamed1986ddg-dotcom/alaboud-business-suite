@@ -67,6 +67,8 @@ app.use(versionAliasMiddleware);
 app.use(apiKeyMiddleware({readStore,mutate,now}));
 app.use(integrationLogger({mutate,now,id}));
 const requestBuckets=new Map();
+const requestBucketCleanup=setInterval(()=>{const t=Date.now();for(const [key,bucket] of requestBuckets){if(!bucket||t>bucket.reset)requestBuckets.delete(key)}},10*60*1000);
+requestBucketCleanup.unref?.();
 function rateLimit(name,limit,windowMs){return (req,res,next)=>{const key=`${name}:${req.ip}`;const t=Date.now();let b=requestBuckets.get(key);if(!b||t>b.reset){b={count:0,reset:t+windowMs};requestBuckets.set(key,b)}b.count++;res.setHeader("RateLimit-Limit",limit);res.setHeader("RateLimit-Remaining",Math.max(0,limit-b.count));if(b.count>limit)return res.status(429).json({message:"طلبات كثيرة جدًا، حاول لاحقًا"});next()}}
 app.use("/api",rateLimit("api",600,15*60*1000));
 
@@ -93,7 +95,7 @@ function seedAdmin(){
 
     let admin=store.users.find(user=>user.email==="admin@alaboud.local");
     if(!admin){
-      admin={id:id(),companyId:company.id,name:"System Administrator",email:"admin@alaboud.local",passwordHash:hashPassword("Admin123!ChangeMe"),role:"ADMIN",active:true,mustChangePassword:true,createdAt:now()};
+      admin={id:id(),companyId:company.id,name:"System Administrator",email:"admin@alaboud.local",passwordHash:hashPassword(process.env.INITIAL_ADMIN_PASSWORD||"Admin123!ChangeMe"),role:"ADMIN",active:true,mustChangePassword:true,createdAt:now()};
       store.users.push(admin);
     }else if(!admin.companyId){
       admin.companyId=company.id;
