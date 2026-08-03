@@ -12,3 +12,6 @@ backups/
 local-backups/
 backend/jad-diagnostics/
 
+
+# Generated project archives
+*.zip
