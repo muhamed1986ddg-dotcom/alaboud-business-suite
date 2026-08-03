@@ -1938,12 +1938,22 @@ app.get("/api/exchange-rates/history", auth, async (req,res)=>{
   const rates=await branchSafeRead(req,"exchange-rates-history",()=>nativeRepositories.exchangeRates.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(s.exchangeRates));
   const base = String(req.query.base || "");
   const quote = String(req.query.quote || "");
-  const list = rates.filter((r)=>
-    (!base || r.baseCurrency===base) &&
-    (!quote || r.quoteCurrency===quote)
-  ).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
-  res.json(list);
-});
+  const limit = Math.min(
+  Math.max(Number(req.query.limit) || 50, 1),
+  200
+);
+
+const list = rates
+  .filter((r) =>
+    (!base || r.baseCurrency === base) &&
+    (!quote || r.quoteCurrency === quote)
+  )
+  .sort((a, b) =>
+    String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+  )
+  .slice(0, limit);
+
+res.json(list);
 
 app.post("/api/exchange-rates", auth, (req,res)=>{
   const {baseCurrency,quoteCurrency,buyRate,sellRate,notes=""}=req.body||{};
