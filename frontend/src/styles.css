@@ -4958,3 +4958,36 @@ body.app-language-en aside{
 /* v22.8.0 Multi-Branch Network */
 .branch-switcher{display:grid;gap:6px;margin:8px 12px 14px;padding:10px;border-radius:12px;background:rgba(255,255,255,.06);font-size:12px}.branch-switcher select{width:100%;padding:9px;border-radius:9px;border:1px solid rgba(255,255,255,.16);background:#172033;color:#fff}.branch-create-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}.branch-create-form input{padding:11px;border:1px solid var(--border-color,#d8deea);border-radius:10px}.branch-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.branch-card{border:1px solid var(--border-color,#d8deea);border-radius:14px;padding:14px;background:var(--card-bg,#fff)}.branch-card>div:first-child{display:flex;justify-content:space-between;gap:10px}.branch-card small{opacity:.7}.branch-metrics{display:grid;gap:7px;margin-top:12px}.branch-metrics span{display:flex;justify-content:space-between}@media(max-width:700px){.branch-create-form{grid-template-columns:1fr}}
 .app-boot-loading{min-height:100dvh;display:grid;place-items:center;background:#0d1117;color:#f4d06f;font-size:1.05rem;font-weight:700;direction:rtl}
+
+/* v23.0.22 — transaction page split */
+.transaction-list-toolbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:14px;
+}
+.transaction-list-toolbar input{
+  flex:1;
+  min-width:180px;
+}
+.transaction-list-toolbar span{
+  white-space:nowrap;
+}
+.load-more-wrap{
+  display:flex;
+  justify-content:center;
+  padding:16px 0 28px;
+}
+.load-more-wrap button{
+  min-width:220px;
+}
+@media (max-width:800px){
+  .transaction-list-toolbar{
+    align-items:stretch;
+    flex-direction:column;
+  }
+  .transaction-list-toolbar span{
+    text-align:center;
+  }
+}

@@ -7,7 +7,11 @@ const Profits=React.lazy(()=>import("./screens/Profits").then(m=>({default:m.Pro
 const ExchangeRates=React.lazy(()=>import("./screens/ExchangeRates").then(m=>({default:m.ExchangeRates})));
 const GeneralDebts=React.lazy(()=>import("./screens/GeneralDebts").then(m=>({default:m.GeneralDebts})));
 const PartnerProfile=React.lazy(()=>import("./screens/Partners").then(m=>({default:m.PartnerProfile})));
-const Partners=React.lazy(()=>import("./screens/Partners").then(m=>({default:m.Partners})));
+const CompaniesList=React.lazy(()=>import("./screens/CompaniesList").then(m=>({default:m.CompaniesList})));
+const CompanyBalances=React.lazy(()=>import("./screens/CompanyBalances").then(m=>({default:m.CompanyBalances})));
+const CompanySync=React.lazy(()=>import("./screens/CompanySync").then(m=>({default:m.CompanySync})));
+const CompanyConnections=React.lazy(()=>import("./screens/CompanyConnections").then(m=>({default:m.CompanyConnections})));
+const CompanySyncLogs=React.lazy(()=>import("./screens/CompanySyncLogs").then(m=>({default:m.CompanySyncLogs})));
 const CapitalOverview=React.lazy(()=>import("./screens/CapitalOverview").then(m=>({default:m.CapitalOverview})));
 const MonthlyReport=React.lazy(()=>import("./screens/MonthlyReport").then(m=>({default:m.MonthlyReport})));
 const SettingsPanel=React.lazy(()=>import("./screens/SettingsPanel").then(m=>({default:m.SettingsPanel})));
@@ -41,7 +45,7 @@ class AppErrorBoundary extends React.Component{
 
 const APP_EN_TRANSLATIONS={
   "القائمة الرئيسية":"Main Dashboard","الرئيسية":"Home","القائمة":"Menu","العملاء":"Customers",
-  "العملاء المتأخرون":"Overdue Customers","الشركات":"Companies",
+  "العملاء المتأخرون":"Overdue Customers","الشركات":"Companies","جميع الشركات":"All Companies","أرصدة الشركات":"Company Balances","مزامنة الشركات":"Company Sync","إعدادات الربط":"Connection Settings","سجل عمليات الشركات":"Company Activity Log",
   "الحوالات":"Transfers","الأرباح":"Profits","العملات وأسعار الصرف":"Currencies & Exchange Rates",
   "الدَّين العام":"General Debts","رأس المال الكلي":"Total Capital","التقارير الشهرية":"Monthly Reports",
   "إعدادات التنبيهات":"Alert Settings","الإعدادات":"Settings","المصروفات":"Expenses","حركة رأس المال":"Capital Movement",
@@ -1946,7 +1950,7 @@ function Statement({customerId,back}){
   </>;
 }
 
-function Transactions({openInvoice}){
+function Transactions({openInvoice,mode="all"}){
   const [customers,setCustomers]=useState([]);
   const [list,setList]=useState([]);
   const [error,setError]=useState("");
@@ -1966,6 +1970,8 @@ function Transactions({openInvoice}){
   const [rateMeta,setRateMeta]=useState(null);
   const [editingTransaction,setEditingTransaction]=useState(null);
   const [editSaving,setEditSaving]=useState(false);
+  const [search,setSearch]=useState("");
+  const [visibleCount,setVisibleCount]=useState(50);
 
   async function load(){
     try{
@@ -2107,10 +2113,30 @@ function Transactions({openInvoice}){
     }
   }
 
+  const now=Date.now();
+  const modeTitles={all:"جميع الحوالات",unpaid:"الحوالات غير المدفوعة",paid:"الحوالات المدفوعة",overdue:"الحوالات المتأخرة",payments:"سجل دفعات الحوالات"};
+  const normalizedSearch=search.trim().toLowerCase();
+  const filteredTransactions=list.filter(transaction=>{
+    const remaining=Number(transaction.remaining||0);
+    const paymentStatus=String(transaction.paymentStatus||"").toUpperCase();
+    const createdValue=transaction.transferDate||transaction.createdAt;
+    const createdTime=createdValue?new Date(createdValue).getTime():now;
+    const overdue=remaining>0&&Number.isFinite(createdTime)&&(now-createdTime)>7*24*60*60*1000;
+    const paidAmount=Math.max(Number(transaction.totalCustomerDue||0)-remaining,0);
+    if(mode==="unpaid"&&remaining<=0&&paymentStatus==="PAID")return false;
+    if(mode==="paid"&&(remaining>0||paymentStatus!=="PAID"))return false;
+    if(mode==="overdue"&&!overdue)return false;
+    if(mode==="payments"&&paidAmount<=0)return false;
+    if(!normalizedSearch)return true;
+    return [transaction.number,transaction.customerName,transaction.currency,transaction.transferDate,transaction.paymentStatus]
+      .some(value=>String(value||"").toLowerCase().includes(normalizedSearch));
+  });
+  const visibleTransactions=filteredTransactions.slice(0,visibleCount);
+
   return <>
-    <h2>الحوالات</h2>
+    <h2>{modeTitles[mode]||"الحوالات"}</h2>
     {error&&<div className="card customer-error">{error}</div>}
-    <form className="card form" onSubmit={add}>
+    {mode==="all"&&<form className="card form" onSubmit={add}>
       <select value={f.customerId} onChange={e=>setF({...f,customerId:e.target.value})} required>
         <option value="">العميل</option>
         {customers.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
@@ -2178,7 +2204,7 @@ function Transactions({openInvoice}){
       </div>
 
       <button>حفظ</button>
-    </form>
+    </form>}
 
     {editingTransaction&&
       <form className="card form edit-panel transaction-edit-panel no-print" onSubmit={saveEditedTransaction}>
@@ -2236,6 +2262,10 @@ function Transactions({openInvoice}){
       </form>
     }
 
+    <div className="card transaction-list-toolbar no-print">
+      <input value={search} onChange={event=>{setSearch(event.target.value);setVisibleCount(50)}} placeholder="بحث برقم الحوالة أو اسم العميل أو العملة"/>
+      <span>النتائج: <strong>{filteredTransactions.length}</strong></span>
+    </div>
     <div className="card tablewrap">
       <table>
         <thead>
@@ -2245,7 +2275,7 @@ function Transactions({openInvoice}){
           </tr>
         </thead>
         <tbody>
-          {list.length?list.map(transaction=><tr key={transaction.id}>
+          {visibleTransactions.length?visibleTransactions.map(transaction=><tr key={transaction.id}>
             <td>{transaction.number}</td>
             <td>{transaction.transferDate||String(transaction.createdAt||"").slice(0,10)||"-"}</td>
             <td>{transaction.customerName}</td>
@@ -2272,6 +2302,7 @@ function Transactions({openInvoice}){
         </tbody>
       </table>
     </div>
+    {visibleCount<filteredTransactions.length&&<div className="load-more-wrap no-print"><button type="button" onClick={()=>setVisibleCount(count=>count+50)}>تحميل 50 حوالة إضافية</button></div>}
   </>;
 }
 
@@ -2391,9 +2422,25 @@ export default function App(){
       navigateCustomers={()=>navigate("customers")}
     />;
   }else if(page==="partners"){
-    content=<Partners open={setPartnerId}/>;
+    content=<CompaniesList open={setPartnerId}/>;
+  }else if(page==="company-balances"){
+    content=<CompanyBalances open={setPartnerId}/>;
+  }else if(page==="company-sync"){
+    content=<CompanySync open={setPartnerId}/>;
+  }else if(page==="company-connections"){
+    content=<CompanyConnections open={setPartnerId}/>;
+  }else if(page==="company-sync-logs"){
+    content=<CompanySyncLogs open={setPartnerId}/>;
   }else if(page==="transactions"){
-    content=<Transactions openInvoice={setInvoiceId}/>;
+    content=<Transactions openInvoice={setInvoiceId} mode="all"/>;
+  }else if(page==="transactions-unpaid"){
+    content=<Transactions openInvoice={setInvoiceId} mode="unpaid"/>;
+  }else if(page==="transactions-paid"){
+    content=<Transactions openInvoice={setInvoiceId} mode="paid"/>;
+  }else if(page==="transactions-overdue"){
+    content=<Transactions openInvoice={setInvoiceId} mode="overdue"/>;
+  }else if(page==="transaction-payments"){
+    content=<Transactions openInvoice={setInvoiceId} mode="payments"/>;
   }else if(page==="profits"){
     content=<Profits/>;
   }else if(page==="rates"){
@@ -2427,8 +2474,16 @@ export default function App(){
     ["dashboard","⌂ القائمة الرئيسية"],
     ["customers","👥 العملاء"],
     ["overdue-customers",`⏰ العملاء المتأخرون${overdueCount?` (${overdueCount})`:""}`],
-    ["partners","🏢 الشركات"],
-    ["transactions","⇄ الحوالات"],
+    ["partners","🏢 جميع الشركات"],
+    ["company-balances","💰 أرصدة الشركات"],
+    ["company-sync","🔄 مزامنة الشركات"],
+    ["company-connections","🔗 إعدادات الربط"],
+    ["company-sync-logs","📋 سجل عمليات الشركات"],
+    ["transactions","⇄ جميع الحوالات"],
+    ["transactions-unpaid","◷ الحوالات غير المدفوعة"],
+    ["transactions-paid","✓ الحوالات المدفوعة"],
+    ["transactions-overdue","⏰ الحوالات المتأخرة"],
+    ["transaction-payments","💵 سجل دفعات الحوالات"],
     ["expenses","🧾 المصروفات"],
     ["profits","📈 الأرباح"],
     ["rates","💱 العملات وأسعار الصرف"],
@@ -2506,7 +2561,7 @@ export default function App(){
       <button className={page==="customers"?"active":""} onClick={()=>navigate("customers")}>
         <span>👥</span><small>العملاء</small>
       </button>
-      <button className={page==="transactions"?"active":""} onClick={()=>navigate("transactions")}>
+      <button className={page.startsWith("transactions")||page==="transaction-payments"?"active":""} onClick={()=>navigate("transactions")}>
         <span>⇄</span><small>الحوالات</small>
       </button>
       <button className={page==="dashboard"?"active":""} onClick={()=>navigate("dashboard")}>

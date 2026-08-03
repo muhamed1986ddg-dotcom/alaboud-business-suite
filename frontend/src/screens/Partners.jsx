@@ -167,7 +167,7 @@ function PartnerStatement({partnerId,back}){
   </>;
 }
 
-function Partners({open}){
+function Partners({open,view="companies"}){
   const [data,setData]=useState({rows:[],totals:{receivable:0,payable:0,net:0},totalsByCurrency:{}});
   const [error,setError]=useState("");
   const [message,setMessage]=useState("");
@@ -191,17 +191,22 @@ function Partners({open}){
     systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true,syncIntervalMinutes:5,syncMode:"BALANCE_ONLY"
   });
 
+  const needsSyncCenter=view==="sync"||view==="logs";
+
   async function load(){
     try{
-      const [response,centerResponse]=await Promise.all([cachedGet("/partners"),cachedGet("/partners/sync-center")]);
+      const response=await cachedGet("/partners");
       setData(response.data);
-      setSyncCenter(centerResponse.data);
+      if(needsSyncCenter){
+        const centerResponse=await cachedGet("/partners/sync-center");
+        setSyncCenter(centerResponse.data);
+      }
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل الشركات");
     }
   }
 
-  useEffect(()=>{load();},[]);
+  useEffect(()=>{load();},[view]);
 
   function resetPartnerForm(){
     setEditingId("");
@@ -415,19 +420,31 @@ function Partners({open}){
     </div>)}
   </div>;
 
+  const pageTitles={
+    companies:"🏢 جميع الشركات",
+    balances:"💰 أرصدة الشركات",
+    sync:"🔄 مزامنة الشركات",
+    connections:"🔗 إعدادات الربط",
+    logs:"📋 سجل عمليات المزامنة"
+  };
+  const showSummary=view==="companies"||view==="balances";
+  const showSync=view==="sync"||view==="logs";
+  const showConnections=view==="connections";
+  const showCompaniesTable=view!=="logs";
+
   return <>
-    <div className="page-title-row partner-title-row"><h2>🏢 الشركات والربط الخارجي</h2><button type="button" className="sync-now-button" disabled={syncingAll||Boolean(syncingId)} onClick={syncAllPartners}>{syncingAll?<><span className="sync-spinner"/> جاري المزامنة...</>:"🔄 مزامنة الآن"}</button></div>
+    <div className="page-title-row partner-title-row"><h2>{pageTitles[view]||pageTitles.companies}</h2>{view==="sync"&&<button type="button" className="sync-now-button" disabled={syncingAll||Boolean(syncingId)} onClick={syncAllPartners}>{syncingAll?<><span className="sync-spinner"/> جاري المزامنة...</>:"🔄 مزامنة الآن"}</button>}</div>
     {error&&<div className="card customer-error">{error}</div>}
     {message&&<div className="card rate-message">{message}</div>}
-    <div className="stats">
+    {showSummary&&<><div className="stats">
       <div className="card receivable-card"><span>إجمالي دين لنا — {data.summaryCurrency||"USD"}</span><strong>{money(data.totals.receivable)}</strong><small>بعد تحويل جميع العملات</small></div>
       <div className="card payable-card"><span>إجمالي دين علينا — {data.summaryCurrency||"USD"}</span><strong>{money(data.totals.payable)}</strong><small>بعد تحويل جميع العملات</small></div>
       <div className="card final"><span>الصافي — {data.summaryCurrency||"USD"}</span><strong>{money(data.totals.net)}</strong><small>حسب آخر سعر صرف</small></div>
       <div className="card"><span>عدد الشركات</span><strong>{data.rows.length}</strong></div>
     </div>
-    {data.missingRates?.length>0&&<div className="card debt-message">لم تدخل العملات التالية في الإجمالي لعدم توفر سعر تحويل إلى {data.summaryCurrency||"USD"}: {data.missingRates.join("، ")}</div>}
+    {data.missingRates?.length>0&&<div className="card debt-message">لم تدخل العملات التالية في الإجمالي لعدم توفر سعر تحويل إلى {data.summaryCurrency||"USD"}: {data.missingRates.join("، ")}</div>}</>}
 
-    <section className="smart-sync-center">
+    {showSync&&<section className="smart-sync-center">
       <div className="smart-sync-heading"><div><h3>🔄 مركز المزامنة الذكية</h3><p>يتحقق تلقائيًا من الشركات المستحقة للمزامنة ويحافظ على آخر رصيد ناجح عند فشل الاتصال.</p></div><span className="live-sync-badge">● مباشر</span></div>
       <div className="sync-metric-grid">
         <div className="sync-metric"><span>الشركات المفعلة</span><strong>{syncCenter.stats.enabled||0}</strong></div>
@@ -438,21 +455,21 @@ function Partners({open}){
       </div>
       <div className="sync-log-list">
         <h4>آخر عمليات المزامنة</h4>
-        {(syncCenter.logs||[]).slice(0,6).map(log=><div className={`sync-log-row ${log.status==="SUCCESS"?"ok":"failed"}`} key={log.id}>
+        {(syncCenter.logs||[]).slice(0,view==="logs"?100:6).map(log=><div className={`sync-log-row ${log.status==="SUCCESS"?"ok":"failed"}`} key={log.id}>
           <span className="sync-log-state">{log.status==="SUCCESS"?"✓":"!"}</span><div><strong>{log.partnerName}</strong><small>{log.trigger==="AUTO"?"تلقائية":"يدوية"} · {new Date(log.createdAt).toLocaleString("ar-CA")}</small></div><div className="sync-log-change"><b>{log.changed?`${money(log.beforeBalance)} ← ${money(log.afterBalance)}`:"بدون تغيير"}</b><small>{(log.durationMs/1000).toFixed(1)} ثانية</small></div>
         </div>)}
         {!syncCenter.logs?.length&&<p className="empty-sync-log">لا يوجد سجل مزامنة بعد.</p>}
       </div>
-    </section>
+    </section>}
 
-    {feeReport&&<section className="card jad-fee-report jad-fee-total-only">
+    {view==="sync"&&feeReport&&<section className="card jad-fee-report jad-fee-total-only">
       <div className="jad-fee-report-head">
         <div><h3>💵 إجمالي الأجور</h3><p>من {feeReport.fromDate} إلى {feeReport.toDate}</p></div>
         <strong>{money(feeReport.totalFees)} {feeReport.currency}</strong>
       </div>
     </section>}
 
-    <form className="card form company-integration-form" onSubmit={add}>
+    {showConnections&&<form className="card form company-integration-form" onSubmit={add}>
       <h3>{editingId?"✏️ تعديل معلومات الشركة":"➕ إضافة شركة وربطها"}</h3>
       <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="اسم الشركة" required/>
       <input value={form.integrationName} onChange={e=>setForm({...form,integrationName:e.target.value})} placeholder="اسم الربط (اختياري)"/>
@@ -482,9 +499,9 @@ function Partners({open}){
       </select>
       <label className="integration-toggle"><input type="checkbox" checked={form.syncEnabled} onChange={e=>setForm({...form,syncEnabled:e.target.checked})}/><span>تفعيل المزامنة عند توفر موصل الشركة</span></label>
       <div className="partner-form-actions"><button>{editingId?"حفظ التعديلات":"حفظ وربط الشركة"}</button>{editingId&&<button type="button" className="danger-button" onClick={resetPartnerForm}>إلغاء التعديل</button>}</div>
-    </form>
+    </form>}
 
-    <div className="card tablewrap">
+    {showCompaniesTable&&<div className="card tablewrap">
       <table>
         <thead><tr><th>الشركة</th><th>نوع الربط</th><th>الحالة</th><th>العملة الأساسية</th><th>أرصدة العملات</th><th>آخر مزامنة</th><th>الرابط</th><th>الإجراءات</th></tr></thead>
         <tbody>{data.rows.length?data.rows.map(partner=><tr key={partner.id}>
@@ -495,10 +512,14 @@ function Partners({open}){
           <td><PartnerCurrencyBalances partner={partner}/></td>
           <td><div className="relative-sync-time"><strong>{relativeSyncTime(partner.lastSyncAt)}</strong><small>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar-CA"):"—"}</small></div></td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
-          <td className="actions"><button onClick={()=>open(partner.id)}>فتح</button><button type="button" onClick={()=>startEditPartner(partner)}>✏️ تعديل</button><button type="button" className="danger-button" onClick={()=>deletePartner(partner)}>🗑️ حذف</button>{["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}{["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</td>
+          <td className="actions">
+            <button onClick={()=>open(partner.id)}>فتح</button>
+            {view==="connections"&&<><button type="button" onClick={()=>startEditPartner(partner)}>✏️ تعديل</button><button type="button" className="danger-button" onClick={()=>deletePartner(partner)}>🗑️ حذف</button>{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}</>}
+            {view==="sync"&&<>{["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</>}
+          </td>
         </tr>):<tr><td colSpan="8">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>
-    </div>
+    </div>}
   </>;
 }
 
