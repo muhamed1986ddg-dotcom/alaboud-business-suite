@@ -4991,3 +4991,11 @@ body.app-language-en aside{
     text-align:center;
   }
 }
+
+/* v23.0.23 — Live CAD debt summary */
+.page-title-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px}.page-title-row h2{margin:0}.page-title-row .muted{margin:5px 0 0;opacity:.72}.page-title-row button:disabled{opacity:.6;cursor:wait}@media(max-width:700px){.page-title-row{align-items:stretch}.page-title-row button{width:100%}}
+
+/* v23.0.24 — unified companies control page */
+.partner-page-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-end}
+.partner-page-toolbar button{white-space:nowrap}
+@media(max-width:760px){.partner-page-toolbar{width:100%;justify-content:stretch}.partner-page-toolbar button{flex:1 1 100%}}

@@ -178,6 +178,8 @@ function Partners({open,view="companies"}){
   const [nowTick,setNowTick]=useState(Date.now());
   const [otpById,setOtpById]=useState({});
   const [editingId,setEditingId]=useState("");
+  const [showConnectionForm,setShowConnectionForm]=useState(false);
+  const [showFullSyncLog,setShowFullSyncLog]=useState(false);
   const todayIso=new Date().toISOString().slice(0,10);
   const monthStartIso=`${todayIso.slice(0,7)}-01`;
   const [feeFilter,setFeeFilter]=useState({partnerId:"",fromDate:monthStartIso,toDate:todayIso});
@@ -191,7 +193,7 @@ function Partners({open,view="companies"}){
     systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true,syncIntervalMinutes:5,syncMode:"BALANCE_ONLY"
   });
 
-  const needsSyncCenter=view==="sync"||view==="logs";
+  const needsSyncCenter=view==="sync"||view==="logs"||view==="unified";
 
   async function load(){
     try{
@@ -421,19 +423,28 @@ function Partners({open,view="companies"}){
   </div>;
 
   const pageTitles={
+    unified:"🏢 الشركات والربط الخارجي",
     companies:"🏢 جميع الشركات",
     balances:"💰 أرصدة الشركات",
     sync:"🔄 مزامنة الشركات",
     connections:"🔗 إعدادات الربط",
     logs:"📋 سجل عمليات المزامنة"
   };
-  const showSummary=view==="companies"||view==="balances";
-  const showSync=view==="sync"||view==="logs";
-  const showConnections=view==="connections";
+  const unified=view==="unified";
+  const showSummary=unified||view==="companies"||view==="balances";
+  const showSync=unified||view==="sync"||view==="logs";
+  const showConnections=view==="connections"||(unified&&showConnectionForm);
   const showCompaniesTable=view!=="logs";
 
   return <>
-    <div className="page-title-row partner-title-row"><h2>{pageTitles[view]||pageTitles.companies}</h2>{view==="sync"&&<button type="button" className="sync-now-button" disabled={syncingAll||Boolean(syncingId)} onClick={syncAllPartners}>{syncingAll?<><span className="sync-spinner"/> جاري المزامنة...</>:"🔄 مزامنة الآن"}</button>}</div>
+    <div className="page-title-row partner-title-row">
+      <h2>{pageTitles[view]||pageTitles.unified}</h2>
+      <div className="partner-page-toolbar">
+        {(unified||view==="sync")&&<button type="button" className="sync-now-button" disabled={syncingAll||Boolean(syncingId)} onClick={syncAllPartners}>{syncingAll?<><span className="sync-spinner"/> جاري المزامنة...</>:"🔄 تحديث جميع الشركات"}</button>}
+        {unified&&<button type="button" onClick={()=>setShowConnectionForm(value=>!value)}>{showConnectionForm?"إخفاء إعدادات الربط":"➕ إضافة أو تعديل شركة"}</button>}
+        {unified&&<button type="button" onClick={()=>setShowFullSyncLog(value=>!value)}>{showFullSyncLog?"إخفاء السجل الكامل":"📋 عرض سجل العمليات"}</button>}
+      </div>
+    </div>
     {error&&<div className="card customer-error">{error}</div>}
     {message&&<div className="card rate-message">{message}</div>}
     {showSummary&&<><div className="stats">
@@ -455,14 +466,14 @@ function Partners({open,view="companies"}){
       </div>
       <div className="sync-log-list">
         <h4>آخر عمليات المزامنة</h4>
-        {(syncCenter.logs||[]).slice(0,view==="logs"?100:6).map(log=><div className={`sync-log-row ${log.status==="SUCCESS"?"ok":"failed"}`} key={log.id}>
+        {(syncCenter.logs||[]).slice(0,(view==="logs"||showFullSyncLog)?100:6).map(log=><div className={`sync-log-row ${log.status==="SUCCESS"?"ok":"failed"}`} key={log.id}>
           <span className="sync-log-state">{log.status==="SUCCESS"?"✓":"!"}</span><div><strong>{log.partnerName}</strong><small>{log.trigger==="AUTO"?"تلقائية":"يدوية"} · {new Date(log.createdAt).toLocaleString("ar-CA")}</small></div><div className="sync-log-change"><b>{log.changed?`${money(log.beforeBalance)} ← ${money(log.afterBalance)}`:"بدون تغيير"}</b><small>{(log.durationMs/1000).toFixed(1)} ثانية</small></div>
         </div>)}
         {!syncCenter.logs?.length&&<p className="empty-sync-log">لا يوجد سجل مزامنة بعد.</p>}
       </div>
     </section>}
 
-    {view==="sync"&&feeReport&&<section className="card jad-fee-report jad-fee-total-only">
+    {(view==="sync"||unified)&&feeReport&&<section className="card jad-fee-report jad-fee-total-only">
       <div className="jad-fee-report-head">
         <div><h3>💵 إجمالي الأجور</h3><p>من {feeReport.fromDate} إلى {feeReport.toDate}</p></div>
         <strong>{money(feeReport.totalFees)} {feeReport.currency}</strong>
@@ -514,8 +525,8 @@ function Partners({open,view="companies"}){
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
           <td className="actions">
             <button onClick={()=>open(partner.id)}>فتح</button>
-            {view==="connections"&&<><button type="button" onClick={()=>startEditPartner(partner)}>✏️ تعديل</button><button type="button" className="danger-button" onClick={()=>deletePartner(partner)}>🗑️ حذف</button>{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}</>}
-            {view==="sync"&&<>{["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</>}
+            {(view==="connections"||unified)&&<><button type="button" onClick={()=>startEditPartner(partner)}>✏️ تعديل</button><button type="button" className="danger-button" onClick={()=>deletePartner(partner)}>🗑️ حذف</button>{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}</>}
+            {(view==="sync"||unified)&&<>{["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</>}
           </td>
         </tr>):<tr><td colSpan="8">لا توجد شركات بعد.</td></tr>}</tbody>
       </table>

@@ -8,10 +8,6 @@ const ExchangeRates=React.lazy(()=>import("./screens/ExchangeRates").then(m=>({d
 const GeneralDebts=React.lazy(()=>import("./screens/GeneralDebts").then(m=>({default:m.GeneralDebts})));
 const PartnerProfile=React.lazy(()=>import("./screens/Partners").then(m=>({default:m.PartnerProfile})));
 const CompaniesList=React.lazy(()=>import("./screens/CompaniesList").then(m=>({default:m.CompaniesList})));
-const CompanyBalances=React.lazy(()=>import("./screens/CompanyBalances").then(m=>({default:m.CompanyBalances})));
-const CompanySync=React.lazy(()=>import("./screens/CompanySync").then(m=>({default:m.CompanySync})));
-const CompanyConnections=React.lazy(()=>import("./screens/CompanyConnections").then(m=>({default:m.CompanyConnections})));
-const CompanySyncLogs=React.lazy(()=>import("./screens/CompanySyncLogs").then(m=>({default:m.CompanySyncLogs})));
 const CapitalOverview=React.lazy(()=>import("./screens/CapitalOverview").then(m=>({default:m.CapitalOverview})));
 const MonthlyReport=React.lazy(()=>import("./screens/MonthlyReport").then(m=>({default:m.MonthlyReport})));
 const SettingsPanel=React.lazy(()=>import("./screens/SettingsPanel").then(m=>({default:m.SettingsPanel})));
@@ -2421,16 +2417,8 @@ export default function App(){
       onStatement={setStatementCustomerId}
       navigateCustomers={()=>navigate("customers")}
     />;
-  }else if(page==="partners"){
+  }else if(["partners","company-balances","company-sync","company-connections","company-sync-logs"].includes(page)){
     content=<CompaniesList open={setPartnerId}/>;
-  }else if(page==="company-balances"){
-    content=<CompanyBalances open={setPartnerId}/>;
-  }else if(page==="company-sync"){
-    content=<CompanySync open={setPartnerId}/>;
-  }else if(page==="company-connections"){
-    content=<CompanyConnections open={setPartnerId}/>;
-  }else if(page==="company-sync-logs"){
-    content=<CompanySyncLogs open={setPartnerId}/>;
   }else if(page==="transactions"){
     content=<Transactions openInvoice={setInvoiceId} mode="all"/>;
   }else if(page==="transactions-unpaid"){
@@ -2474,11 +2462,7 @@ export default function App(){
     ["dashboard","⌂ القائمة الرئيسية"],
     ["customers","👥 العملاء"],
     ["overdue-customers",`⏰ العملاء المتأخرون${overdueCount?` (${overdueCount})`:""}`],
-    ["partners","🏢 جميع الشركات"],
-    ["company-balances","💰 أرصدة الشركات"],
-    ["company-sync","🔄 مزامنة الشركات"],
-    ["company-connections","🔗 إعدادات الربط"],
-    ["company-sync-logs","📋 سجل عمليات الشركات"],
+    ["partners","🏢 الشركات والربط الخارجي"],
     ["transactions","⇄ جميع الحوالات"],
     ["transactions-unpaid","◷ الحوالات غير المدفوعة"],
     ["transactions-paid","✓ الحوالات المدفوعة"],

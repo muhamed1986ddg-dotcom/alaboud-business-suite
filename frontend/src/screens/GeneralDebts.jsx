@@ -7,6 +7,7 @@ function GeneralDebts(){
   const [data,setData]=useState({rows:[],totals:{receivable:0,payable:0,net:0},totalsByCurrency:{}});
   const [filter,setFilter]=useState("");
   const [message,setMessage]=useState("");
+  const [refreshingRates,setRefreshingRates]=useState(false);
   const [payment,setPayment]=useState({debtId:"",amount:"",paymentDate:"",notes:""});
   const [form,setForm]=useState({
     type:"RECEIVABLE",
@@ -35,6 +36,20 @@ function GeneralDebts(){
   }
 
   useEffect(()=>{load();},[filter]);
+
+  async function refreshRatesAndRecalculate(){
+    setRefreshingRates(true);
+    setMessage("");
+    try{
+      await api.post("/exchange-rates/refresh");
+      await load();
+      setMessage("تم تحديث أسعار الصرف وإعادة احتساب صافي الديون بالدولار الكندي");
+    }catch(error){
+      setMessage(error.response?.data?.message||"تعذر تحديث أسعار الصرف. تم الإبقاء على آخر أسعار محفوظة.");
+    }finally{
+      setRefreshingRates(false);
+    }
+  }
 
   async function addDebt(event){
     event.preventDefault();
@@ -83,7 +98,15 @@ function GeneralDebts(){
   };
 
   return <>
-    <h2>الدَّين العام</h2>
+    <div className="page-title-row">
+      <div>
+        <h2>الدَّين العام</h2>
+        <p className="muted">يُحوَّل صافي جميع العملات إلى الدولار الكندي حسب أحدث أسعار الصرف المحفوظة.</p>
+      </div>
+      <button type="button" className="primary" onClick={refreshRatesAndRecalculate} disabled={refreshingRates}>
+        {refreshingRates?"جارٍ تحديث الأسعار...":"🔄 تحديث الأسعار وإعادة الاحتساب"}
+      </button>
+    </div>
 
     <div className="stats">
       <div className="card receivable-card">
@@ -99,7 +122,7 @@ function GeneralDebts(){
       <div className="card final">
         <span>صافي الديون النهائي — {data.summaryCurrency||"CAD"} 🇨🇦</span>
         <strong className={Number(data.totals.net)>=0?"positive-net":"negative-net"}>{money(data.totals.net)}</strong>
-        <small>محسوب حسب آخر أسعار الصرف{data.ratesUpdatedAt?` — ${new Date(data.ratesUpdatedAt).toLocaleString("ar-CA")}`:""}</small>
+        <small>محسوب حسب أحدث سعر متاح{data.ratesUpdatedAt?` — آخر تحديث: ${new Date(data.ratesUpdatedAt).toLocaleString("ar-CA")}`:" — لم يُسجل وقت تحديث"}</small>
       </div>
     </div>
 
