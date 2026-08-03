@@ -2285,8 +2285,22 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     net:+(convertedReceivable-convertedPayable).toFixed(2)
   };
 
+  const manualDebtById=new Map(manualRows.map((item)=>[item.id,item]));
+  const paymentRows=debtPayments
+    .map((payment)=>{
+      const debt=manualDebtById.get(payment.debtId);
+      return {
+        ...payment,
+        partyName:debt?.partyName||"",
+        debtType:debt?.type||"",
+        currency:debt?.currency||"CAD"
+      };
+    })
+    .sort((a,b)=>String(b.paymentDate||b.createdAt||"").localeCompare(String(a.paymentDate||a.createdAt||"")));
+
   res.json({
     rows,
+    payments:paymentRows,
     totals:convertedTotals,
     summaryCurrency,
     totalsByCurrency,
