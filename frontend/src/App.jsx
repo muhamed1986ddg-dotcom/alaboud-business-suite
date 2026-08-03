@@ -3,16 +3,16 @@ import{money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,E
 
 // شاشات مؤجّلة التحميل: تُحمَّل فقط عند فتحها فعليًا، لا مع كل شاشة أساسية.
 // هذا يقلّل حجم التحميل الأولي للتطبيق بشكل كبير (خصوصًا على الهاتف).
-const Profits=React.lazy(()=>import("./LazyScreens").then(m=>({default:m.Profits})));
-const ExchangeRates=React.lazy(()=>import("./LazyScreens").then(m=>({default:m.ExchangeRates})));
-const GeneralDebts=React.lazy(()=>import("./LazyScreens").then(m=>({default:m.GeneralDebts})));
-const PartnerProfile=React.lazy(()=>import("./LazyScreens").then(m=>({default:m.PartnerProfile})));
-const Partners=React.lazy(()=>import("./LazyScreens").then(m=>({default:m.Partners})));
-const CapitalOverview=React.lazy(()=>import("./LazyScreens").then(m=>({default:m.CapitalOverview})));
-const MonthlyReport=React.lazy(()=>import("./LazyScreens").then(m=>({default:m.MonthlyReport})));
-const SettingsPanel=React.lazy(()=>import("./LazyScreens").then(m=>({default:m.SettingsPanel})));
-const AICommandCenter=React.lazy(()=>import("./LazyScreens").then(m=>({default:m.AICommandCenter})));
-const Simple=React.lazy(()=>import("./LazyScreens").then(m=>({default:m.Simple})));
+const Profits=React.lazy(()=>import("./screens/Profits").then(m=>({default:m.Profits})));
+const ExchangeRates=React.lazy(()=>import("./screens/ExchangeRates").then(m=>({default:m.ExchangeRates})));
+const GeneralDebts=React.lazy(()=>import("./screens/GeneralDebts").then(m=>({default:m.GeneralDebts})));
+const PartnerProfile=React.lazy(()=>import("./screens/Partners").then(m=>({default:m.PartnerProfile})));
+const Partners=React.lazy(()=>import("./screens/Partners").then(m=>({default:m.Partners})));
+const CapitalOverview=React.lazy(()=>import("./screens/CapitalOverview").then(m=>({default:m.CapitalOverview})));
+const MonthlyReport=React.lazy(()=>import("./screens/MonthlyReport").then(m=>({default:m.MonthlyReport})));
+const SettingsPanel=React.lazy(()=>import("./screens/SettingsPanel").then(m=>({default:m.SettingsPanel})));
+const AICommandCenter=React.lazy(()=>import("./screens/AICommandCenter").then(m=>({default:m.AICommandCenter})));
+const Simple=React.lazy(()=>import("./screens/Simple").then(m=>({default:m.Simple})));
 
 
 class AppErrorBoundary extends React.Component{
@@ -401,7 +401,7 @@ function Dashboard({navigate}){
       <div className="enterprise-tasks panel-dark">
         <div className="section-heading"><h3>✅ مهام اليوم الذكية</h3><span>{(smart.recommendations||[]).length} مهام</span></div>
         <div className="enterprise-task-list">
-          {(smart.recommendations||["راجع الحوالات والديون المفتوحة اليوم."]).slice(0,4).map((task,index)=><button key={index} onClick={()=>navigate(index===0&&smart.finance?.overdueCount?"customers":"ai")}><i>{index+1}</i><span>{task}</span><b>‹</b></button>)}
+          {(smart.recommendations||["راجع الحوالات والديون المفتوحة اليوم."]).slice(0,4).map((task,index)=><button key={index} onClick={()=>navigate(index===0&&smart.finance?.overdueCount?"overdue-customers":"ai")}><i>{index+1}</i><span>{task}</span><b>‹</b></button>)}
         </div>
       </div>
     </section>
@@ -506,7 +506,6 @@ function Dashboard({navigate}){
 
 function Customers({open}){
   const [list,setList]=useState([]);
-  const [alerts,setAlerts]=useState({count:0,totalOverdue:0,rows:[]});
   const [search,setSearch]=useState("");
   const [error,setError]=useState("");
 
@@ -542,12 +541,8 @@ function Customers({open}){
   async function load(){
     setError("");
     try{
-      const [customersResponse,alertsResponse]=await Promise.all([
-        cachedGet("/customers"),
-        cachedGet("/customer-alerts")
-      ]);
+      const customersResponse=await cachedGet("/customers");
       setList(Array.isArray(customersResponse.data)?customersResponse.data:[]);
-      setAlerts(alertsResponse.data||{count:0,totalOverdue:0,rows:[]});
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل العملاء");
     }
@@ -929,11 +924,6 @@ function Customers({open}){
         <span className="customer-stat-label">المجموع النهائي (CAD) المتبقي</span>
         <strong className="customer-stat-value">{cad(list.reduce((sum,item)=>sum+Number(item.finalBalance||0),0))}</strong>
       </div>
-      <div className="card overdue-card customer-stat-row">
-        <div className="customer-stat-icon">🕘</div>
-        <span className="customer-stat-label">المتأخرون أكثر من أسبوع</span>
-        <strong className="customer-stat-value">{alerts.count}</strong>
-      </div>
     </div>
 
     <div className="customer-toolbar card">
@@ -1083,15 +1073,6 @@ function Customers({open}){
     }
 
     {!customerActionFocus&&<>
-    {alerts.count>0&&
-      <div className="card overdue-panel">
-        <h3>تنبيهات العملاء المتأخرين</h3>
-        {alerts.rows.slice(0,8).map(customer=><div className="overdue-row" key={customer.id}>
-          <span><strong>{customer.name}</strong> — متأخر {customer.overdueDays} يوم — الرصيد {cad(customer.finalBalance)}</span>
-          <button className="danger-button" onClick={()=>whatsappFinalBalance(customer,true)}>تنبيه واتساب</button>
-        </div>)}
-      </div>
-    }
 
     <input className="card customer-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
 
@@ -2404,7 +2385,11 @@ export default function App(){
   }else if(page==="customers"){
     content=<Customers open={setCustomerId}/>;
   }else if(page==="overdue-customers"){
-    content=<Customers open={setCustomerId}/>;
+    content=<OverdueCustomers
+      openCustomer={setCustomerId}
+      onStatement={setStatementCustomerId}
+      navigateCustomers={()=>navigate("customers")}
+    />;
   }else if(page==="partners"){
     content=<Partners open={setPartnerId}/>;
   }else if(page==="transactions"){
@@ -2440,7 +2425,8 @@ export default function App(){
 
   const menu=[
     ["dashboard","⌂ القائمة الرئيسية"],
-    ["customers",`👥 العملاء${overdueCount?` — متأخرون (${overdueCount})`:""}`],
+    ["customers","👥 العملاء"],
+    ["overdue-customers",`⏰ العملاء المتأخرون${overdueCount?` (${overdueCount})`:""}`],
     ["partners","🏢 الشركات"],
     ["transactions","⇄ الحوالات"],
     ["expenses","🧾 المصروفات"],
