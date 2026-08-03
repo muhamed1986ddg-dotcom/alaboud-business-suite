@@ -34,7 +34,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="23.0.17";
+  config.headers["X-Alaboud-Client-Version"]="23.0.31";
   config.params={
     ...(config.params||{}),
     _live:Date.now()
@@ -43,17 +43,57 @@ api.interceptors.request.use(config=>{
   return config;
 });
 
+const TOASTABLE_WRITE_ROUTES=[
+  /^\/customers(?:\/|$)/,/^\/transactions(?:\/|$)/,/^\/debts(?:\/|$)/,
+  /^\/expenses(?:\/|$)/,/^\/capital(?:\/|$)/,/^\/partners(?:\/|$)/,
+  /^\/companies(?:\/|$)/,/^\/exchange-rates(?:\/|$)/,/^\/branches(?:\/|$)/,
+  /^\/users(?:\/|$)/,/^\/notification-settings(?:\/|$)/,/^\/company-profile(?:\/|$)/,
+  /^\/settings(?:\/|$)/,/^\/backup(?:\/|$)/
+];
+
+function shouldShowWriteToast(url,config={}){
+  if(config.suppressToast===true)return false;
+  return TOASTABLE_WRITE_ROUTES.some(pattern=>pattern.test(url));
+}
+
+function successToastMessage(method,url,response){
+  const backendMessage=String(response?.data?.message||"").trim();
+  if(/\/payments(?:\/|$)/.test(url)||/\/(?:settle|pay|paid)(?:\/|$)/.test(url))return backendMessage||"تم تسجيل الدفعة بنجاح";
+  if(/refresh|sync|test-connection|recalculate/.test(url))return backendMessage||"تم تحديث البيانات بنجاح";
+  if(method==="delete")return backendMessage||"تم الحذف بنجاح";
+  if(method==="patch"||method==="put")return backendMessage||"تم التعديل بنجاح";
+  return backendMessage||"تمت الإضافة بنجاح";
+}
+
+function errorToastMessage(method,error){
+  const backendMessage=String(error.response?.data?.message||"").trim();
+  if(backendMessage)return backendMessage;
+  if(method==="delete")return "تعذر الحذف";
+  if(method==="patch"||method==="put")return "تعذر التعديل";
+  return "تعذر حفظ العملية";
+}
+
+function dispatchOperationToast(message,type="success"){
+  if(typeof window==="undefined")return;
+  window.dispatchEvent(new CustomEvent("alaboud-operation-toast",{detail:{message,type}}));
+}
+
 api.interceptors.response.use(
   response=>{
     const method=String(response.config?.method||"get").toLowerCase();
     if(method!=="get")clearApiGetCache();
     const url=String(response.config?.url||"").split("?")[0];
-    if(method==="post"&&(
-      url==="/customers"||url==="/transactions"||url==="/expenses"||/\/payments$/.test(url)
-    ))window.dispatchEvent(new CustomEvent("alaboud-save-success",{detail:{message:"✅ تم الحفظ بنجاح"}}));
+    if(method!=="get"&&shouldShowWriteToast(url,response.config)){
+      dispatchOperationToast(successToastMessage(method,url,response),"success");
+    }
     return response;
   },
   error=>{
+    const method=String(error.config?.method||"get").toLowerCase();
+    const url=String(error.config?.url||"").split("?")[0];
+    if(method!=="get"&&shouldShowWriteToast(url,error.config)&&error.response?.status!==401){
+      dispatchOperationToast(errorToastMessage(method,error),"error");
+    }
     if(error.response?.status===401){
       clearApiGetCache();
       localStorage.removeItem("afs_token");

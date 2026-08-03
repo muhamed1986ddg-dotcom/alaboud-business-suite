@@ -2410,20 +2410,28 @@ export default function App(){
   const [partnerId,setPartnerId]=useState(null);
   const [overdueCount,setOverdueCount]=useState(0);
   const [logoutConfirm,setLogoutConfirm]=useState(false);
-  const [saveToast,setSaveToast]=useState("");
+  const [saveToast,setSaveToast]=useState(null);
   const [mobileMenuOpen,setMobileMenuOpen]=useState(
     typeof window!=="undefined" ? window.matchMedia("(max-width: 800px)").matches : false
   );
 
   useEffect(()=>{
     let timer;
-    const showSaveToast=event=>{
-      setSaveToast(event.detail?.message||"✅ تم الحفظ بنجاح");
+    const showOperationToast=event=>{
+      const message=String(event.detail?.message||"تمت العملية بنجاح");
+      const type=event.detail?.type==="error"?"error":"success";
+      setSaveToast({message,type});
       clearTimeout(timer);
-      timer=setTimeout(()=>setSaveToast(""),3000);
+      timer=setTimeout(()=>setSaveToast(null),type==="error"?4500:3000);
     };
-    window.addEventListener("alaboud-save-success",showSaveToast);
-    return()=>{clearTimeout(timer);window.removeEventListener("alaboud-save-success",showSaveToast)};
+    const showLegacySaveToast=event=>showOperationToast({detail:{message:event.detail?.message||"تم الحفظ بنجاح",type:"success"}});
+    window.addEventListener("alaboud-operation-toast",showOperationToast);
+    window.addEventListener("alaboud-save-success",showLegacySaveToast);
+    return()=>{
+      clearTimeout(timer);
+      window.removeEventListener("alaboud-operation-toast",showOperationToast);
+      window.removeEventListener("alaboud-save-success",showLegacySaveToast);
+    };
   },[]);
 
   useEffect(()=>{
@@ -2528,7 +2536,7 @@ export default function App(){
     ["settings","⚙️ الإعدادات والتنبيهات"]
   ];
 
-  return <><AppLanguageBridge/>{saveToast&&<div className="global-save-toast" role="status">{saveToast}</div>}<div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
+  return <><AppLanguageBridge/>{saveToast&&<div className={`global-save-toast ${saveToast.type==="error"?"global-save-toast-error":"global-save-toast-success"}`} role={saveToast.type==="error"?"alert":"status"}>{saveToast.message}</div>}<div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
     <div className="mobile-page-header no-print">
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
