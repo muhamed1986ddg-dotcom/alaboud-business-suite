@@ -524,7 +524,8 @@ function Customers({open}){
     transferDate:new Date().toISOString().slice(0,10),
     rateMode:"auto",
     rateSource:"exchange-rates",
-    rateUpdatedAt:null
+    rateUpdatedAt:null,
+    paymentStatus:"UNPAID"
   });
   const [selectedRateMeta,setSelectedRateMeta]=useState(null);
 
@@ -1946,7 +1947,7 @@ function Statement({customerId,back}){
   </>;
 }
 
-function Transactions({openInvoice,mode="all"}){
+function Transactions({openInvoice}){
   const [customers,setCustomers]=useState([]);
   const [list,setList]=useState([]);
   const [error,setError]=useState("");
@@ -1968,6 +1969,8 @@ function Transactions({openInvoice,mode="all"}){
   const [editSaving,setEditSaving]=useState(false);
   const [search,setSearch]=useState("");
   const [visibleCount,setVisibleCount]=useState(50);
+  const [activeMode,setActiveMode]=useState("all");
+  const [showAddModal,setShowAddModal]=useState(false);
 
   async function load(){
     try{
@@ -2046,6 +2049,7 @@ function Transactions({openInvoice,mode="all"}){
         paymentStatus:"UNPAID"
       }));
       await load();
+      setShowAddModal(false);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر حفظ الحوالة");
     }
@@ -2110,7 +2114,6 @@ function Transactions({openInvoice,mode="all"}){
   }
 
   const now=Date.now();
-  const modeTitles={all:"جميع الحوالات",unpaid:"الحوالات غير المدفوعة",paid:"الحوالات المدفوعة",overdue:"الحوالات المتأخرة",payments:"سجل دفعات الحوالات"};
   const normalizedSearch=search.trim().toLowerCase();
   const filteredTransactions=list.filter(transaction=>{
     const remaining=Number(transaction.remaining||0);
@@ -2119,20 +2122,52 @@ function Transactions({openInvoice,mode="all"}){
     const createdTime=createdValue?new Date(createdValue).getTime():now;
     const overdue=remaining>0&&Number.isFinite(createdTime)&&(now-createdTime)>7*24*60*60*1000;
     const paidAmount=Math.max(Number(transaction.totalCustomerDue||0)-remaining,0);
-    if(mode==="unpaid"&&remaining<=0&&paymentStatus==="PAID")return false;
-    if(mode==="paid"&&(remaining>0||paymentStatus!=="PAID"))return false;
-    if(mode==="overdue"&&!overdue)return false;
-    if(mode==="payments"&&paidAmount<=0)return false;
+    if(activeMode==="unpaid"&&remaining<=0&&paymentStatus==="PAID")return false;
+    if(activeMode==="paid"&&(remaining>0||paymentStatus!=="PAID"))return false;
+    if(activeMode==="overdue"&&!overdue)return false;
+    if(activeMode==="payments"&&paidAmount<=0)return false;
     if(!normalizedSearch)return true;
     return [transaction.number,transaction.customerName,transaction.currency,transaction.transferDate,transaction.paymentStatus]
       .some(value=>String(value||"").toLowerCase().includes(normalizedSearch));
   });
   const visibleTransactions=filteredTransactions.slice(0,visibleCount);
 
+  const totalAllCad=list.reduce((sum,transaction)=>sum+Number(transaction.totalCustomerDue||0),0);
+  const totalUnpaidCad=list.reduce((sum,transaction)=>sum+Math.max(Number(transaction.remaining||0),0),0);
+  const totalPaidCad=Math.max(totalAllCad-totalUnpaidCad,0);
+  const paidCount=list.filter(transaction=>Number(transaction.remaining||0)<=0||String(transaction.paymentStatus||"").toUpperCase()==="PAID").length;
+  const unpaidCount=list.length-paidCount;
+
+  function selectMode(nextMode){
+    setActiveMode(nextMode);
+    setVisibleCount(50);
+  }
+
   return <>
-    <h2>{modeTitles[mode]||"الحوالات"}</h2>
+    <div className="transactions-page-heading">
+      <h2>الحوالات</h2>
+      <button type="button" className="transaction-add-open" onClick={()=>setShowAddModal(true)}>＋ إضافة حوالة</button>
+    </div>
     {error&&<div className="card customer-error">{error}</div>}
-    {mode==="all"&&<form className="card form" onSubmit={add}>
+
+    <section className="transaction-summary-grid">
+      <div className="card transaction-summary-card"><span>إجمالي الحوالات الكامل</span><strong>{money(totalAllCad)} CAD</strong><small>{list.length} حوالة</small></div>
+      <div className="card transaction-summary-card unpaid"><span>الرصيد غير المدفوع</span><strong>{money(totalUnpaidCad)} CAD</strong><small>{unpaidCount} حوالة</small></div>
+      <div className="card transaction-summary-card paid"><span>إجمالي المدفوع</span><strong>{money(totalPaidCad)} CAD</strong><small>{paidCount} حوالة</small></div>
+    </section>
+
+    <div className="card transaction-mode-tabs no-print">
+      <button type="button" className={activeMode==="all"?"active":""} onClick={()=>selectMode("all")}>📋 جميع الحوالات</button>
+      <button type="button" className={activeMode==="paid"?"active":""} onClick={()=>selectMode("paid")}>✅ الحوالات المدفوعة</button>
+      <button type="button" className={activeMode==="unpaid"?"active":""} onClick={()=>selectMode("unpaid")}>⏳ غير المدفوعة</button>
+      <button type="button" className={activeMode==="payments"?"active":""} onClick={()=>selectMode("payments")}>💳 الدفعات</button>
+      <button type="button" className={activeMode==="overdue"?"active":""} onClick={()=>selectMode("overdue")}>⏰ المتأخرة</button>
+    </div>
+
+    {showAddModal&&<div className="transaction-modal-backdrop no-print" role="dialog" aria-modal="true">
+      <div className="transaction-modal-panel">
+        <div className="transaction-modal-header"><h3>إضافة حوالة جديدة</h3><button type="button" onClick={()=>setShowAddModal(false)}>✕</button></div>
+        <form className="card form transaction-add-form" onSubmit={add}>
       <select value={f.customerId} onChange={e=>setF({...f,customerId:e.target.value})} required>
         <option value="">العميل</option>
         {customers.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
@@ -2199,8 +2234,13 @@ function Transactions({openInvoice,mode="all"}){
         </div>
       </div>
 
-      <button>حفظ</button>
-    </form>}
+      <div className="transaction-modal-actions">
+        <button type="submit">حفظ الحوالة</button>
+        <button type="button" onClick={()=>setShowAddModal(false)}>إلغاء</button>
+      </div>
+        </form>
+      </div>
+    </div>}
 
     {editingTransaction&&
       <form className="card form edit-panel transaction-edit-panel no-print" onSubmit={saveEditedTransaction}>
@@ -2419,16 +2459,8 @@ export default function App(){
     />;
   }else if(["partners","company-balances","company-sync","company-connections","company-sync-logs"].includes(page)){
     content=<CompaniesList open={setPartnerId}/>;
-  }else if(page==="transactions"){
-    content=<Transactions openInvoice={setInvoiceId} mode="all"/>;
-  }else if(page==="transactions-unpaid"){
-    content=<Transactions openInvoice={setInvoiceId} mode="unpaid"/>;
-  }else if(page==="transactions-paid"){
-    content=<Transactions openInvoice={setInvoiceId} mode="paid"/>;
-  }else if(page==="transactions-overdue"){
-    content=<Transactions openInvoice={setInvoiceId} mode="overdue"/>;
-  }else if(page==="transaction-payments"){
-    content=<Transactions openInvoice={setInvoiceId} mode="payments"/>;
+  }else if(["transactions","transactions-unpaid","transactions-paid","transactions-overdue","transaction-payments"].includes(page)){
+    content=<Transactions openInvoice={setInvoiceId}/>;
   }else if(page==="profits"){
     content=<Profits/>;
   }else if(page==="rates"){
@@ -2463,11 +2495,7 @@ export default function App(){
     ["customers","👥 العملاء"],
     ["overdue-customers",`⏰ العملاء المتأخرون${overdueCount?` (${overdueCount})`:""}`],
     ["partners","🏢 الشركات والربط الخارجي"],
-    ["transactions","⇄ جميع الحوالات"],
-    ["transactions-unpaid","◷ الحوالات غير المدفوعة"],
-    ["transactions-paid","✓ الحوالات المدفوعة"],
-    ["transactions-overdue","⏰ الحوالات المتأخرة"],
-    ["transaction-payments","💵 سجل دفعات الحوالات"],
+    ["transactions","⇄ الحوالات"],
     ["expenses","🧾 المصروفات"],
     ["profits","📈 الأرباح"],
     ["rates","💱 العملات وأسعار الصرف"],
