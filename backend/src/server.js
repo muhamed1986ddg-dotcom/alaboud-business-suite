@@ -142,9 +142,27 @@ function auth(req,res,next){
   }
 }
 
+function normalizePhone(value="") {
+  let digits=String(value||"").replace(/\D/g,"");
+  if(!digits)return "";
+  if(digits.length===10)digits=`1${digits}`;
+  if(digits.length===11&&digits.startsWith("1"))return digits;
+  return digits.replace(/^00/,"");
+}
+
 function audit(store, userId, action, entityType, entityId, details = {}) {
   const logs=store.auditLogs||[]; const previous=logs.length?logs[logs.length-1].integrityHash||"":"GENESIS";
-  const entry={ id:id(), userId, action, entityType, entityId, details, createdAt:now(), previousHash:previous };
+  const user=(store.users||[]).find(item=>item.id===userId)||{};
+  const safeDetails={...(details||{})};
+  if(safeDetails.password)delete safeDetails.password;
+  if(safeDetails.passwordEncrypted)delete safeDetails.passwordEncrypted;
+  if(safeDetails.twoFactorSecret)delete safeDetails.twoFactorSecret;
+  if(safeDetails.authenticatorCode)delete safeDetails.authenticatorCode;
+  const entry={
+    id:id(), userId, userName:user.name||user.email||userId, action, entityType, entityId,
+    details:safeDetails, ip:safeDetails.ip||null, branchId:safeDetails.branchId||null,
+    branchName:safeDetails.branchName||null, createdAt:now(), previousHash:previous
+  };
   entry.integrityHash=sha256(JSON.stringify(entry)); logs.push(entry);
 }
 
@@ -637,7 +655,9 @@ app.get("/api/audit-logs", auth, requirePermission("audit.read"), (req,res)=>{
   const limit=Math.min(500,Math.max(1,Number(req.query.limit)||100));
   const action=String(req.query.action||"").toUpperCase();
   const entityType=String(req.query.entityType||"").toUpperCase();
-  let logs=(readStore().auditLogs||[]).slice();
+  const auditStore=readStore();
+  const userMap=new Map((auditStore.users||[]).map(user=>[user.id,user.name||user.email||user.id]));
+  let logs=(auditStore.auditLogs||[]).slice().map(item=>({...item,userName:item.userName||userMap.get(item.userId)||item.userId}));
   if(action)logs=logs.filter(item=>String(item.action||"").toUpperCase()===action);
   if(entityType)logs=logs.filter(item=>String(item.entityType||"").toUpperCase()===entityType);
   res.json(logs.sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,limit));
@@ -1223,11 +1243,21 @@ app.post("/api/customers", auth, (req,res)=>{
   const customer=mutate((s)=>{
     const requested=String(customerNumber||identityNumber||"").trim();
     if(requested&&s.customers.some(item=>!item.isDeleted&&String(item.customerNumber||item.identityNumber||"").trim()===requested))throw new Error("رقم العميل مضاف مسبقًا");
+    const normalizedPhone=normalizePhone(phone);
+    const existingByPhone=normalizedPhone?s.customers.find(item=>!item.isDeleted&&normalizePhone(item.phone)===normalizedPhone):null;
+    if(existingByPhone){
+      const error=new Error(`رقم الهاتف مستخدم مسبقًا باسم ${existingByPhone.name}`);
+      error.code="DUPLICATE_PHONE";error.existingCustomer={id:existingByPhone.id,name:existingByPhone.name,phone:existingByPhone.phone};
+      throw error;
+    }
     const nextNumber=requested||String(Math.max(0,...s.customers.map(item=>Number(item.customerNumber)||0))+1);
-    const c={id:id(),customerNumber:nextNumber,name:String(name).trim(),phone,email,identityNumber,notes,oldBalance:+Math.max(safeNumber(oldBalance),0).toFixed(2),oldBalancePaid:0,createdAt:now()};s.customers.push(c);audit(s,req.user.id,"CREATE","CUSTOMER",c.id);return c;
+    const c={id:id(),customerNumber:nextNumber,name:String(name).trim(),phone:String(phone||"").trim(),phoneNormalized:normalizedPhone,email,identityNumber,notes,oldBalance:+Math.max(safeNumber(oldBalance),0).toFixed(2),oldBalancePaid:0,createdAt:now()};
+    s.customers.push(c);
+    audit(s,req.user.id,"CREATE","CUSTOMER",c.id,{after:{...c},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
+    return c;
   });
   res.status(201).json(customer);
-  }catch(error){res.status(400).json({message:error.message||"تعذر إضافة العميل"});}
+  }catch(error){res.status(400).json({message:error.message||"تعذر إضافة العميل",code:error.code||undefined,existingCustomer:error.existingCustomer||undefined});}
 });
 
 app.patch("/api/customers/:id", auth, (req,res)=>{
@@ -1238,6 +1268,15 @@ app.patch("/api/customers/:id", auth, (req,res)=>{
       if(!customer)return null;
 
       const oldData={...customer};
+      if(req.body.phone!==undefined){
+        const normalizedPhone=normalizePhone(req.body.phone);
+        const existingByPhone=normalizedPhone?(store.customers||[]).find(item=>!item.isDeleted&&item.id!==customer.id&&normalizePhone(item.phone)===normalizedPhone):null;
+        if(existingByPhone){
+          const error=new Error(`رقم الهاتف مستخدم مسبقًا باسم ${existingByPhone.name}`);
+          error.code="DUPLICATE_PHONE";error.existingCustomer={id:existingByPhone.id,name:existingByPhone.name,phone:existingByPhone.phone};
+          throw error;
+        }
+      }
       const allowed=["name","phone","email","address","notes","oldBalance"];
       for(const key of allowed){
         if(req.body[key]!==undefined)customer[key]=req.body[key];
@@ -1245,18 +1284,20 @@ app.patch("/api/customers/:id", auth, (req,res)=>{
       if(!String(customer.name||"").trim()){
         throw new Error("اسم العميل مطلوب");
       }
+      customer.phone=String(customer.phone||"").trim();
+      customer.phoneNormalized=normalizePhone(customer.phone);
       customer.oldBalance=+Math.max(safeNumber(customer.oldBalance),0).toFixed(2);
       customer.oldBalancePaid=+Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),customer.oldBalance).toFixed(2);
       customer.updatedAt=now();
       customer.updatedBy=req.user.id;
-      audit(store,req.user.id,"UPDATE","CUSTOMER",customer.id,{oldData,newData:{...customer}});
+      audit(store,req.user.id,"UPDATE","CUSTOMER",customer.id,{before:oldData,after:{...customer},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
       return customer;
     });
 
     if(!updated)return res.status(404).json({message:"العميل غير موجود"});
     res.json(updated);
   }catch(error){
-    res.status(400).json({message:error.message||"تعذر تعديل العميل"});
+    res.status(400).json({message:error.message||"تعذر تعديل العميل",code:error.code||undefined,existingCustomer:error.existingCustomer||undefined});
   }
 });
 
@@ -1308,7 +1349,7 @@ app.delete("/api/customers/:id", auth, (req,res)=>{
       customer.isDeleted=true;
       customer.deletedAt=now();
       customer.deletedBy=req.user.id;
-      audit(store,req.user.id,"DELETE","CUSTOMER",customer.id,{softDelete:true,name:customer.name});
+      audit(store,req.user.id,"DELETE","CUSTOMER",customer.id,{before:{...customer},softDelete:true,name:customer.name,ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
       return {id:customer.id,name:customer.name};
     });
     if(!deleted)return res.status(404).json({message:"العميل غير موجود أو محذوف مسبقًا"});
@@ -1453,15 +1494,7 @@ app.post("/api/transactions", auth, (req,res)=>{
       });
     }
 
-    audit(s,req.user.id,"CREATE","TRANSACTION",t.id,{
-      currency:t.currency,
-      costRate:t.costRate,
-      finalRate:t.finalRate,
-      rateSource:t.rateSource,
-      totalCustomerDue:t.totalCustomerDue,
-      totalProfit:t.totalProfit,
-      paymentStatus:normalizedPaymentStatus
-    });
+    audit(s,req.user.id,"CREATE","TRANSACTION",t.id,{after:{...t,paymentStatus:normalizedPaymentStatus},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
 
     return {
       ...t,
@@ -1613,7 +1646,7 @@ app.patch("/api/transactions/:id", auth, (req,res)=>{
         throw new Error("لا يمكن جعل إجمالي الحوالة أقل من الدفعات المسجلة");
       }
 
-      audit(s,req.user.id,"UPDATE","TRANSACTION",transaction.id,{oldData,newData:{...transaction}});
+      audit(s,req.user.id,"UPDATE","TRANSACTION",transaction.id,{before:oldData,after:{...transaction},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
       return transaction;
     });
 
@@ -1964,7 +1997,7 @@ app.post("/api/exchange-rates", auth, (req,res)=>{
       createdBy:req.user.id
     };
     s.exchangeRates.push(x);
-    audit(s,req.user.id,"CREATE","EXCHANGE_RATE",x.id,{baseCurrency:x.baseCurrency,quoteCurrency:x.quoteCurrency});
+    audit(s,req.user.id,"CREATE","EXCHANGE_RATE",x.id,{after:{...x},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
     return x;
   });
   res.status(201).json(rate);
@@ -2354,9 +2387,7 @@ app.post("/api/general-debts", auth, (req,res)=>{
     };
     store.generalDebts.push(item);
     audit(store, req.user.id, "CREATE", "GENERAL_DEBT", item.id, {
-      type:item.type,
-      partyName:item.partyName,
-      amount:item.amount
+      after:{...item}, ip:req.ip, branchId:req.user.branchId, branchName:req.user.branchName
     });
     return item;
   });
@@ -2400,21 +2431,30 @@ app.post("/api/general-debts/:id/payments", auth, (req,res)=>{
   }
 
   const payment = mutate((currentStore)=>{
+    const currentDebt=(currentStore.generalDebts||[]).find(item=>item.id===debt.id);
+    const remainingBefore=Math.max(safeNumber(currentDebt?.amount)-previousPaid,0);
+    const remainingAfter=Math.max(remainingBefore-numericAmount,0);
     const item = {
-      id:id(),
-      debtId:debt.id,
-      amount:numericAmount,
-      paymentDate,
-      notes,
-      createdAt:now(),
-      createdBy:req.user.id
+      id:id(), debtId:debt.id, amount:+numericAmount.toFixed(2), paymentDate,
+      method:String(req.body?.method||"CASH").toUpperCase(), notes,
+      direction:debt.type==="PAYABLE"?"OUTGOING":"INCOMING",
+      remainingBefore:+remainingBefore.toFixed(2), remainingAfter:+remainingAfter.toFixed(2),
+      createdAt:now(), createdBy:req.user.id
     };
     currentStore.generalDebtPayments.push(item);
-    audit(currentStore, req.user.id, "PAYMENT", "GENERAL_DEBT", debt.id, {
-      amount:numericAmount,
-      paymentDate
+    if(currentDebt){
+      currentDebt.status=remainingAfter<=0.001?"PAID":remainingAfter<safeNumber(currentDebt.amount)?"PARTIAL":"OPEN";
+      currentDebt.paid=+(safeNumber(currentDebt.amount)-remainingAfter).toFixed(2);
+      currentDebt.remaining=+remainingAfter.toFixed(2);
+      currentDebt.updatedAt=now();currentDebt.updatedBy=req.user.id;
+    }
+    audit(currentStore, req.user.id, debt.type==="PAYABLE"?"PAYABLE_PAYMENT":"RECEIVABLE_PAYMENT", "GENERAL_DEBT", debt.id, {
+      before:{status:debt.status,paid:previousPaid,remaining:remainingBefore},
+      payment:{...item},
+      after:{status:currentDebt?.status,paid:currentDebt?.paid,remaining:remainingAfter},
+      ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName
     });
-    return item;
+    return {...item,debtStatus:currentDebt?.status};
   });
 
   res.status(201).json(payment);
@@ -2424,6 +2464,7 @@ app.patch("/api/general-debts/:id", auth, (req,res)=>{
   const updated = mutate((store)=>{
     const debt = store.generalDebts.find((item)=>item.id===req.params.id);
     if (!debt) return null;
+    const before={...debt};
 
     if (req.body?.partyName !== undefined) debt.partyName = String(req.body.partyName);
     if (req.body?.dueDate !== undefined) debt.dueDate = req.body.dueDate || "";
@@ -2432,7 +2473,7 @@ app.patch("/api/general-debts/:id", auth, (req,res)=>{
     if (req.body?.status !== undefined) debt.status = req.body.status;
 
     debt.updatedAt = now();
-    audit(store, req.user.id, "UPDATE", "GENERAL_DEBT", debt.id, req.body);
+    audit(store, req.user.id, "UPDATE", "GENERAL_DEBT", debt.id, {before,after:{...debt},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
     return debt;
   });
 
@@ -4179,7 +4220,7 @@ app.post("/api/partners", auth, (req,res)=>{
       createdBy:req.user.id
     };
     store.partners.push(item);
-    audit(store,req.user.id,"CREATE","PARTNER",item.id,{name:item.name});
+    audit(store,req.user.id,"CREATE","PARTNER",item.id,{after:{...item,passwordEncrypted:undefined},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
     return item;
   });
 
@@ -4192,6 +4233,7 @@ app.patch("/api/partners/:id", auth, (req,res)=>{
   mutate(store=>{
     const partner=store.partners.find(item=>item.id===req.params.id);
     if(!partner)return;
+    const before={...partner,passwordEncrypted:undefined};
     if(req.body?.password)partner.passwordEncrypted=encryptIntegrationSecret(req.body.password);
     for(const key of allowed){
       if(req.body?.[key]===undefined)continue;
@@ -4202,7 +4244,7 @@ app.patch("/api/partners/:id", auth, (req,res)=>{
     partner.connectorType=normalizeConnectorType(partner.connectorType);
     partner.connectionStatus=String(partner.systemUrl||"").trim()?"CONFIGURED":"MANUAL";
     partner.updatedAt=now();
-    audit(store,req.user.id,"UPDATE","PARTNER",partner.id,{integration:true});
+    audit(store,req.user.id,"UPDATE","PARTNER",partner.id,{before,after:{...partner,passwordEncrypted:undefined},integration:true,ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
     updated={...partner};
   });
   if(!updated)return res.status(404).json({message:"الشركة غير موجودة"});

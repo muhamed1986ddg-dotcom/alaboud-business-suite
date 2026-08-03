@@ -51,7 +51,7 @@ function BranchManagement(){
   const [branches,setBranches]=useState([]),[form,setForm]=useState({name:"",code:"",address:"",phone:"",currency:"CAD"}),[message,setMessage]=useState("");
   const load=()=>cachedGet("/branches").then(r=>setBranches(r.data)).catch(()=>{});useEffect(()=>{load()},[]);
   async function create(event){event.preventDefault();setMessage("");try{await api.post("/branches",form);setForm({name:"",code:"",address:"",phone:"",currency:"CAD"});setMessage("تم إنشاء الفرع بنجاح");load()}catch(error){setMessage(error.response?.data?.message||"تعذر إنشاء الفرع")}}
-  return <article className="settings-card settings-wide-card"><div className="settings-card-title"><span>🏢</span><h3>إدارة الفروع</h3></div><p className="settings-help">أنشئ الفروع واعرض مؤشرات كل فرع. يمكن تغيير الفرع النشط من القائمة الجانبية.</p>{message&&<div className="settings-message">{message}</div>}<form className="branch-create-form" onSubmit={create}><input placeholder="اسم الفرع" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required/><input placeholder="الرمز مثل WINDSOR" value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})} required/><input placeholder="العنوان" value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/><input placeholder="الهاتف" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/><button className="settings-primary-button">إضافة فرع</button></form><div className="branch-grid">{branches.map(branch=><div className="branch-card" key={branch.id}><div><strong>{branch.name}</strong><small>{branch.code}{branch.isMain?" • الفرع الرئيسي":""}</small></div><div className="branch-metrics"><span>العملاء <b>{branch.metrics?.customers||0}</b></span><span>الحوالات <b>{branch.metrics?.transactions||0}</b></span><span>المصروفات <b>{money(branch.metrics?.expensesCad||0)} CAD</b></span></div></div>)}</div></article>
+  return <article data-panel="branches" className="settings-card settings-wide-card"><div className="settings-card-title"><span>🏢</span><h3>إدارة الفروع</h3></div><p className="settings-help">أنشئ الفروع واعرض مؤشرات كل فرع. يمكن تغيير الفرع النشط من القائمة الجانبية.</p>{message&&<div className="settings-message">{message}</div>}<form className="branch-create-form" onSubmit={create}><input placeholder="اسم الفرع" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required/><input placeholder="الرمز مثل WINDSOR" value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})} required/><input placeholder="العنوان" value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/><input placeholder="الهاتف" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/><button className="settings-primary-button">إضافة فرع</button></form><div className="branch-grid">{branches.map(branch=><div className="branch-card" key={branch.id}><div><strong>{branch.name}</strong><small>{branch.code}{branch.isMain?" • الفرع الرئيسي":""}</small></div><div className="branch-metrics"><span>العملاء <b>{branch.metrics?.customers||0}</b></span><span>الحوالات <b>{branch.metrics?.transactions||0}</b></span><span>المصروفات <b>{money(branch.metrics?.expensesCad||0)} CAD</b></span></div></div>)}</div></article>
 }
 
 function SettingsPanel(){
@@ -74,6 +74,7 @@ function SettingsPanel(){
   const [devices,setDevices]=useState([]);
   const [twoFactorInfo,setTwoFactorInfo]=useState({secret:"",code:"",enabled:Boolean(savedUser.twoFactorEnabled)});
   const [biometricEnabled,setBiometricEnabled]=useState(Boolean(window.AlAboudNative?.isBiometricEnabled?.()));
+  const [activePanel,setActivePanel]=useState("");
   const biometricAvailable=Boolean(typeof window!=="undefined"&&(window.AlAboudNative||navigator.userAgent.includes("AlAboudMobile")));
 
   useEffect(()=>{
@@ -291,12 +292,31 @@ function SettingsPanel(){
 
     {message&&<div className="card settings-message">{message}</div>}
 
-    <div className="settings-grid">
+    <div className="settings-launch-grid" aria-label="أقسام الإعدادات">
+      {savedUser.role==="ADMIN"&&<button type="button" onClick={()=>setActivePanel("branches")}><span>🏢</span><strong>إدارة الفروع</strong><small>الفروع ومؤشراتها</small></button>}
+      <button type="button" onClick={()=>setActivePanel("security")}><span>🔐</span><strong>الأمان وتسجيل الدخول</strong><small>Authenticator والبصمة أو الوجه</small></button>
+      <button type="button" onClick={()=>setActivePanel("backup")}><span>💾</span><strong>النسخ الاحتياطي</strong><small>إنشاء نسخة أو استعادتها</small></button>
+      <button type="button" onClick={()=>setActivePanel("appearance")}><span>🎨</span><strong>المظهر والخط</strong><small>اللغة والحجم والتباين</small></button>
+      <button type="button" onClick={()=>setActivePanel("notifications")}><span>🔔</span><strong>الإشعارات وواتساب</strong><small>التأخير وقوالب الرسائل</small></button>
+      <button type="button" onClick={()=>setActivePanel("company")}><span>🏢</span><strong>بيانات الشركة</strong><small>الاسم والشعار والهاتف</small></button>
+      <button type="button" onClick={()=>setActivePanel("accounts")}><span>👤</span><strong>إنشاء حساب</strong><small>إضافة مستخدم جديد</small></button>
+      {savedUser.role==="ADMIN"&&<button type="button" onClick={()=>setActivePanel("users")}><span>👥</span><strong>المستخدمون والصلاحيات</strong><small>الأدوار والتفعيل</small></button>}
+      {savedUser.role==="ADMIN"&&<button type="button" onClick={()=>setActivePanel("devices")}><span>💻</span><strong>الأجهزة والتراخيص</strong><small>الأجهزة النشطة</small></button>}
+      <button type="button" onClick={()=>setActivePanel("password")}><span>🔑</span><strong>تغيير كلمة السر</strong><small>تحديث كلمة المرور</small></button>
+      <button type="button" onClick={()=>setActivePanel("legal")}><span>📄</span><strong>الخصوصية والشروط</strong><small>سياسات الاستخدام</small></button>
+      <button type="button" onClick={()=>setActivePanel("support")}><span>🛟</span><strong>الدعم الفني</strong><small>التواصل ورقم الإصدار</small></button>
+      <button type="button" onClick={()=>setActivePanel("updates")}><span>⬆️</span><strong>التحديثات</strong><small>التحقق من الإصدار</small></button>
+    </div>
+
+    {activePanel&&<div className="settings-modal-backdrop" role="dialog" aria-modal="true" onMouseDown={event=>{if(event.target===event.currentTarget)setActivePanel("")}}>
+      <div className="settings-modal-shell" data-active-panel={activePanel}>
+        <button type="button" className="settings-modal-close" onClick={()=>setActivePanel("")} aria-label="إغلاق">✕</button>
+        <div className="settings-grid">
     {savedUser.role==="ADMIN"&&<BranchManagement/>}
-    <article className="settings-card security-access-card"><div className="settings-card-title"><span>🔐</span><h3>حماية تسجيل الدخول</h3></div><p className="settings-help">التحقق بخطوتين بواسطة Google Authenticator أو Microsoft Authenticator.</p>{twoFactorInfo.enabled?<button type="button" className="danger" onClick={disableTwoFactor}>تعطيل التحقق بخطوتين</button>:<>{!twoFactorInfo.secret?<button type="button" className="settings-primary-button" onClick={beginTwoFactor}>بدء التفعيل</button>:<div className="two-factor-setup"><label>المفتاح السري<input readOnly value={twoFactorInfo.secret}/></label><small>انسخ المفتاح إلى تطبيق Authenticator.</small><label>رمز التحقق<input inputMode="numeric" maxLength="6" value={twoFactorInfo.code} onChange={e=>setTwoFactorInfo({...twoFactorInfo,code:e.target.value.replace(/\D/g,"").slice(0,6)})}/></label><button type="button" disabled={twoFactorInfo.code.length!==6} onClick={enableTwoFactor}>تأكيد التفعيل</button></div>}</>}<div className="biometric-settings-block"><div><strong>👆 الدخول بالبصمة أو الوجه</strong><small>{biometricAvailable?(biometricEnabled?"مفعّل على هذا الهاتف":"غير مفعّل على هذا الهاتف"):"متاح داخل تطبيق الهاتف فقط"}</small></div>{biometricAvailable&&(biometricEnabled?<button type="button" className="danger" onClick={disableBiometric}>تعطيل البصمة أو الوجه</button>:<button type="button" className="settings-primary-button" onClick={enableBiometric}>تفعيل البصمة أو الوجه</button>)}</div><p className="security-note">بعد التفعيل، سيظهر زر الدخول بالبصمة أو الوجه في شاشة تسجيل الدخول.</p></article>
+    <article data-panel="security" className="settings-card security-access-card"><div className="settings-card-title"><span>🔐</span><h3>حماية تسجيل الدخول</h3></div><p className="settings-help">التحقق بخطوتين بواسطة Google Authenticator أو Microsoft Authenticator.</p>{twoFactorInfo.enabled?<button type="button" className="danger" onClick={disableTwoFactor}>تعطيل التحقق بخطوتين</button>:<>{!twoFactorInfo.secret?<button type="button" className="settings-primary-button" onClick={beginTwoFactor}>بدء التفعيل</button>:<div className="two-factor-setup"><label>المفتاح السري<input readOnly value={twoFactorInfo.secret}/></label><small>انسخ المفتاح إلى تطبيق Authenticator.</small><label>رمز التحقق<input inputMode="numeric" maxLength="6" value={twoFactorInfo.code} onChange={e=>setTwoFactorInfo({...twoFactorInfo,code:e.target.value.replace(/\D/g,"").slice(0,6)})}/></label><button type="button" disabled={twoFactorInfo.code.length!==6} onClick={enableTwoFactor}>تأكيد التفعيل</button></div>}</>}<div className="biometric-settings-block"><div><strong>👆 الدخول بالبصمة أو الوجه</strong><small>{biometricAvailable?(biometricEnabled?"مفعّل على هذا الهاتف":"غير مفعّل على هذا الهاتف"):"متاح داخل تطبيق الهاتف فقط"}</small></div>{biometricAvailable&&(biometricEnabled?<button type="button" className="danger" onClick={disableBiometric}>تعطيل البصمة أو الوجه</button>:<button type="button" className="settings-primary-button" onClick={enableBiometric}>تفعيل البصمة أو الوجه</button>)}</div><p className="security-note">بعد التفعيل، سيظهر زر الدخول بالبصمة أو الوجه في شاشة تسجيل الدخول.</p></article>
 
 
-      <article className="settings-card settings-backup-card">
+      <article data-panel="backup" className="settings-card settings-backup-card">
         <div className="settings-card-title"><span>💾</span><h3>النسخ الاحتياطي</h3></div>
         <p className="settings-help">تنزيل نسخة كاملة من بيانات شركتك أو استعادتها لاحقًا.</p>
         <div className="settings-backup-actions">
@@ -308,7 +328,7 @@ function SettingsPanel(){
         <small>آخر نسخة: {lastBackupAt?new Date(lastBackupAt).toLocaleString("ar-CA"):"لم يتم إنشاء نسخة بعد"}</small>
       </article>
 
-      <article className="settings-card">
+      <article data-panel="appearance" className="settings-card">
         <div className="settings-card-title"><span>🌐</span><h3>{labels.language}</h3></div>
         <div className="settings-choice-grid">
           <button type="button" className={language==="ar"?"selected":""} onClick={()=>setLanguage("ar")}>العربية</button>
@@ -330,12 +350,12 @@ function SettingsPanel(){
         <button className="settings-primary-button" type="button" onClick={savePreferences}>{labels.save}</button>
       </article>
 
-      <article className="settings-card settings-alerts-embedded">
+      <article data-panel="notifications" className="settings-card settings-alerts-embedded">
         <div className="settings-card-title"><span>🔔</span><h3>إعدادات التنبيهات وواتساب</h3></div>
         <NotificationSettings embedded />
       </article>
 
-      <article className="settings-card company-branding-settings">
+      <article data-panel="company" className="settings-card company-branding-settings">
         <div className="settings-card-title"><span>🏢</span><h3>معلومات وهوية الشركة</h3></div>
         <p className="settings-help">اسم وشعار مستقلان لهذه الشركة ويظهران على جميع الأجهزة عند تسجيل الدخول بنفس الحساب.</p>
         <form className="settings-form-modern" onSubmit={saveCompanyProfile}>
@@ -352,7 +372,7 @@ function SettingsPanel(){
         </form>
       </article>
 
-      <article className="settings-card">
+      <article data-panel="accounts" className="settings-card">
         <div className="settings-card-title"><span>👤</span><h3>إنشاء حساب</h3></div>
         <p className="settings-help">الحساب الحالي: {savedUser.name||savedUser.email||"مدير النظام"}</p>
         <form className="settings-form-modern" onSubmit={createAccount}>
@@ -368,25 +388,25 @@ function SettingsPanel(){
         </form>
       </article>
 
-      {savedUser.role==="ADMIN"&&<article className="settings-card settings-wide-card">
+      {savedUser.role==="ADMIN"&&<article data-panel="users" className="settings-card settings-wide-card">
         <div className="settings-card-title"><span>👥</span><h3>إدارة المستخدمين والصلاحيات</h3></div>
         <div className="admin-list">{users.map(user=><div className="admin-row" key={user.id}><div><strong>{user.name}</strong><small>{user.email} • آخر دخول: {user.lastLoginAt?new Date(user.lastLoginAt).toLocaleString("ar-CA"):"لم يدخل بعد"}</small></div><select value={user.role} onChange={async e=>{const {data}=await api.patch(`/users/${user.id}`,{role:e.target.value});setUsers(list=>list.map(x=>x.id===data.id?{...x,...data}:x))}}><option value="ADMIN">مسؤول كامل</option><option value="MANAGER">مدير</option><option value="USER">مستخدم</option><option value="VIEWER">مشاهدة فقط</option></select><button type="button" className={user.active?"danger-soft":"success-soft"} onClick={async()=>{const {data}=await api.patch(`/users/${user.id}`,{active:!user.active});setUsers(list=>list.map(x=>x.id===data.id?{...x,...data}:x))}}>{user.active?"تعطيل":"تفعيل"}</button></div>)}</div>
       </article>}
 
-      {savedUser.role==="ADMIN"&&<article className="settings-card settings-wide-card">
+      {savedUser.role==="ADMIN"&&<article data-panel="devices" className="settings-card settings-wide-card">
         <div className="settings-card-title"><span>💻</span><h3>الأجهزة والتراخيص</h3></div>
         <p className="settings-help">يُسجل كل تثبيت بمعرّف فريد ونوع الجهاز والإصدار وآخر اتصال.</p>
         <div className="admin-list">{devices.length?devices.map(device=><div className="admin-row" key={device.id}><div><strong>{device.deviceName||"جهاز"}</strong><small>{device.appVersion||"17.0.1"} • {device.platform?.slice(0,70)}<br/>آخر اتصال: {device.lastSeenAt?new Date(device.lastSeenAt).toLocaleString("ar-CA"):"—"}</small></div><button type="button" className={device.active!==false?"danger-soft":"success-soft"} onClick={async()=>{const {data}=await api.patch(`/devices/${device.id}`,{active:device.active===false});setDevices(list=>list.map(x=>x.id===data.id?data:x))}}>{device.active!==false?"تعطيل الجهاز":"إعادة التفعيل"}</button></div>):<p className="settings-help">ستظهر الأجهزة هنا بعد أول تسجيل دخول بالإصدار الجديد.</p>}</div>
       </article>}
 
-      <article className="settings-card settings-wide-card">
+      <article data-panel="legal" className="settings-card settings-wide-card">
         <div className="settings-card-title"><span>📄</span><h3>سياسة الخصوصية وشروط الاستخدام</h3></div>
         <details><summary>سياسة الخصوصية</summary><p className="settings-help">يجمع النظام معلومات الحساب ومعرّف التثبيت ونوع الجهاز وإصدار التطبيق وتاريخ أول وآخر استخدام لأغراض الأمان وإدارة التراخيص فقط. لا تُباع البيانات ولا تُشارك مع جهات خارجية، ولا تُخزن كلمات المرور بصورتها الأصلية.</p></details>
         <details><summary>شروط الاستخدام</summary><p className="settings-help">الاستخدام مخصص للأجهزة والحسابات المصرح بها. يمنع نسخ البرنامج أو إعادة بيعه أو تجاوز الحماية دون إذن. المستخدم مسؤول عن صحة البيانات والنسخ الاحتياطية والالتزام بالقوانين المحلية.</p></details>
         <small>آخر تحديث: 18 يوليو 2026 — الإصدار القانوني 1.0</small>
       </article>
 
-      <article className="settings-card">
+      <article data-panel="password" className="settings-card">
         <div className="settings-card-title"><span>🔐</span><h3>تغيير كلمة السر</h3></div>
         <form className="settings-form-modern" onSubmit={changePassword}>
           <input type="password" value={passwordForm.currentPassword} onChange={e=>setPasswordForm({...passwordForm,currentPassword:e.target.value})} placeholder="كلمة المرور الحالية" required/>
@@ -396,7 +416,7 @@ function SettingsPanel(){
         </form>
       </article>
 
-      <article className="settings-card">
+      <article data-panel="support" className="settings-card">
         <div className="settings-card-title"><span>🛟</span><h3>الدعم الفني</h3></div>
         <p className="settings-help">عند حدوث مشكلة، أرسل صورة الخطأ ورقم الإصدار الظاهر في البرنامج.</p>
         <div className="support-actions">
@@ -405,7 +425,7 @@ function SettingsPanel(){
         </div>
       </article>
 
-      <article className="settings-card settings-updates-card">
+      <article data-panel="updates" className="settings-card settings-updates-card">
         <div className="settings-card-title"><span>⬆️</span><h3>التحديثات</h3></div>
         <div className="update-current-version">
           <span>الإصدار الحالي</span>
@@ -416,7 +436,9 @@ function SettingsPanel(){
           {updateInfo.checking?"جاري التحقق...":"التحقق من التحديثات"}
         </button>
       </article>
-    </div>
+        </div>
+      </div>
+    </div>}
   </section>;
 }
 

@@ -511,6 +511,7 @@ function Customers({open}){
 
   const [customerForm,setCustomerForm]=useState({customerNumber:"",name:"",phone:"",email:"",oldBalance:""});
   const [editingCustomer,setEditingCustomer]=useState(null);
+  const [duplicateCustomer,setDuplicateCustomer]=useState(null);
 
   const [transferForm,setTransferForm]=useState({
     customerId:"",
@@ -609,6 +610,7 @@ function Customers({open}){
 
   async function addCustomer(event){
     event.preventDefault();
+    setDuplicateCustomer(null);
     try{
       await api.post("/customers",customerForm);
       setCustomerForm({customerNumber:"",name:"",phone:"",email:"",oldBalance:""});
@@ -616,18 +618,23 @@ function Customers({open}){
       setActivePanel("");
       await load();
     }catch(requestError){
+      const existing=requestError.response?.data?.existingCustomer||null;
+      setDuplicateCustomer(existing);
       setError(requestError.response?.data?.message||"تعذر إضافة العميل");
     }
   }
 
   async function saveCustomer(event){
     event.preventDefault();
+    setDuplicateCustomer(null);
     try{
       await api.patch(`/customers/${editingCustomer.id}`,editingCustomer);
       setEditingCustomer(null);
       setActivePanel("");
       await load();
     }catch(requestError){
+      const existing=requestError.response?.data?.existingCustomer||null;
+      setDuplicateCustomer(existing);
       setError(requestError.response?.data?.message||"تعذر تعديل العميل");
     }
   }
@@ -902,6 +909,10 @@ function Customers({open}){
   return <>
     <h2>قائمة العملاء</h2>
     {error&&<div className="card customer-error">{error}</div>}
+    {duplicateCustomer&&<div className="card duplicate-customer-alert">
+      <div><strong>رقم الهاتف مسجل مسبقًا</strong><span>{duplicateCustomer.name} — {duplicateCustomer.phone||"بدون رقم"}</span></div>
+      <button type="button" className="primary" onClick={()=>{setActivePanel("");setEditingCustomer(null);setDuplicateCustomer(null);open(duplicateCustomer.id)}}>فتح ملف العميل</button>
+    </div>}
 
     {!customerActionFocus&&<>
     <div className="stats customer-stats-final">

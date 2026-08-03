@@ -10,7 +10,9 @@ function GeneralDebts(){
   const [refreshingRates,setRefreshingRates]=useState(false);
   const [showAddModal,setShowAddModal]=useState(false);
   const [visibleCount,setVisibleCount]=useState(50);
-  const [payment,setPayment]=useState({debtId:"",amount:"",paymentDate:"",notes:""});
+  const [payment,setPayment]=useState({debtId:"",amount:"",paymentDate:"",method:"CASH",notes:""});
+  const [settlementDebt,setSettlementDebt]=useState(null);
+  const [settlementMode,setSettlementMode]=useState("PARTIAL");
   const [form,setForm]=useState({type:"RECEIVABLE",partyName:"",amount:"",currency:"CAD",dueDate:"",description:"",reference:""});
 
   async function load(){
@@ -51,8 +53,19 @@ function GeneralDebts(){
     event.preventDefault();if(!payment.debtId||!payment.amount)return;setMessage("");
     try{
       await api.post(`/general-debts/${payment.debtId}/payments`,payment);
-      setPayment({debtId:"",amount:"",paymentDate:"",notes:""});setMessage("تم تسجيل الدفعة");await load();
+      setPayment({debtId:"",amount:"",paymentDate:"",method:"CASH",notes:""});setMessage("تم تسجيل الدفعة");await load();
     }catch(error){setMessage(error.response?.data?.message||"تعذر تسجيل الدفعة");}
+  }
+
+  function openSettlement(item){
+    setSettlementDebt(item);
+    setSettlementMode("FULL");
+    setPayment({debtId:item.id,amount:String(item.remaining||""),paymentDate:new Date().toISOString().slice(0,10),method:"CASH",notes:item.type==="PAYABLE"?"تسديد الدين علينا":"تحصيل الدين لنا"});
+  }
+
+  function changeSettlementMode(mode){
+    setSettlementMode(mode);
+    if(settlementDebt&&mode==="FULL")setPayment(current=>({...current,amount:String(settlementDebt.remaining||"")}));
   }
 
   const openDebts=data.rows.filter(item=>Number(item.remaining||0)>0&&item.source==="MANUAL");
@@ -122,15 +135,31 @@ function GeneralDebts(){
         <select value={payment.debtId} onChange={e=>setPayment({...payment,debtId:e.target.value})} required><option value="">اختر الدين لتسجيل دفعة</option>{openDebts.map(item=><option key={item.id} value={item.id}>{item.type==="RECEIVABLE"?"لنا":"علينا"} — {item.partyName} — متبقي {money(item.remaining)} {item.currency}</option>)}</select>
         <input type="number" min="0.01" step="0.01" value={payment.amount} onChange={e=>setPayment({...payment,amount:e.target.value})} placeholder="مبلغ الدفعة" required/>
         <input type="date" value={payment.paymentDate} onChange={e=>setPayment({...payment,paymentDate:e.target.value})}/>
+        <select value={payment.method||"CASH"} onChange={e=>setPayment({...payment,method:e.target.value})}><option value="CASH">نقدي</option><option value="BANK">بنك</option><option value="TRANSFER">تحويل</option><option value="CARD">بطاقة</option></select>
         <input value={payment.notes} onChange={e=>setPayment({...payment,notes:e.target.value})} placeholder="ملاحظات الدفعة"/>
         <button>تسجيل الدفعة</button>
       </form>}
-      <div className="card tablewrap"><table><thead><tr><th>التاريخ</th><th>الجهة</th><th>نوع الدين</th><th>المبلغ</th><th>العملة</th><th>ملاحظات</th></tr></thead><tbody>{data.payments.length?data.payments.map(item=><tr key={item.id}><td>{item.paymentDate||String(item.createdAt||"").slice(0,10)}</td><td>{item.partyName||"-"}</td><td>{item.debtType==="RECEIVABLE"?"دين لنا":"دين علينا"}</td><td>{money(item.amount)}</td><td>{item.currency||"CAD"}</td><td>{item.notes||"-"}</td></tr>):<tr><td colSpan="6">لا توجد دفعات ديون مسجلة.</td></tr>}</tbody></table></div>
+      <div className="card tablewrap"><table><thead><tr><th>التاريخ</th><th>الجهة</th><th>نوع الدين</th><th>اتجاه الدفعة</th><th>المبلغ</th><th>الطريقة</th><th>العملة</th><th>ملاحظات</th></tr></thead><tbody>{data.payments.length?data.payments.map(item=><tr key={item.id}><td>{item.paymentDate||String(item.createdAt||"").slice(0,10)}</td><td>{item.partyName||"-"}</td><td>{item.debtType==="RECEIVABLE"?"دين لنا":"دين علينا"}</td><td>{item.direction==="OUTGOING"?"دفعنا":"استلمنا"}</td><td>{money(item.amount)}</td><td>{item.method||"CASH"}</td><td>{item.currency||"CAD"}</td><td>{item.notes||"-"}</td></tr>):<tr><td colSpan="8">لا توجد دفعات ديون مسجلة.</td></tr>}</tbody></table></div>
     </>:<>
       <div className="card debt-search-row"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم الجهة أو المرجع أو العملة..."/><span>النتائج: {filteredRows.length}</span></div>
-      <div className="card tablewrap"><table><thead><tr><th>النوع</th><th>المصدر</th><th>الشخص/الجهة</th><th>المبلغ</th><th>المدفوع</th><th>المتبقي</th><th>العملة</th><th>الاستحقاق</th><th>الحالة</th><th>المرجع</th></tr></thead><tbody>{visibleRows.length?visibleRows.map(item=><tr key={item.id}><td><span className={`debt-type ${item.type==="RECEIVABLE"?"receivable":"payable"}`}>{item.type==="RECEIVABLE"?"دين لنا":"دين علينا"}</span></td><td>{item.source==="PARTNER"||item.source==="PARTNER_EXTERNAL"?"شركة":item.source==="TRANSFER"?"حوالة":item.source==="CUSTOMER_OLD_BALANCE"?"حساب عميل قديم":"يدوي"}</td><td>{item.partyName}</td><td>{money(item.amount)}</td><td>{money(item.paid)}</td><td><strong>{money(item.remaining)}</strong></td><td><span className="debt-table-currency">{currencyMeta[item.currency]?.flag||"💱"} {item.currency}</span></td><td>{item.dueDate||"-"}</td><td>{statusLabel[item.status]||item.status}</td><td>{item.reference||"-"}</td></tr>):<tr><td colSpan="10">لا توجد ديون مطابقة.</td></tr>}</tbody></table></div>
+      <div className="card tablewrap"><table><thead><tr><th>النوع</th><th>المصدر</th><th>الشخص/الجهة</th><th>المبلغ</th><th>المدفوع</th><th>المتبقي</th><th>العملة</th><th>الاستحقاق</th><th>الحالة</th><th>المرجع</th><th>الإجراء</th></tr></thead><tbody>{visibleRows.length?visibleRows.map(item=><tr key={item.id}><td><span className={`debt-type ${item.type==="RECEIVABLE"?"receivable":"payable"}`}>{item.type==="RECEIVABLE"?"دين لنا":"دين علينا"}</span></td><td>{item.source==="PARTNER"||item.source==="PARTNER_EXTERNAL"?"شركة":item.source==="TRANSFER"?"حوالة":item.source==="CUSTOMER_OLD_BALANCE"?"حساب عميل قديم":"يدوي"}</td><td>{item.partyName}</td><td>{money(item.amount)}</td><td>{money(item.paid)}</td><td><strong>{money(item.remaining)}</strong></td><td><span className="debt-table-currency">{currencyMeta[item.currency]?.flag||"💱"} {item.currency}</span></td><td>{item.dueDate||"-"}</td><td>{statusLabel[item.status]||item.status}</td><td>{item.reference||"-"}</td><td>{Number(item.remaining||0)>0.001&&item.source==="MANUAL"?<button type="button" className={item.type==="PAYABLE"?"payable-settle-button":"receivable-settle-button"} onClick={()=>openSettlement(item)}>{item.type==="PAYABLE"?"🏦 تسديد الدين علينا":"💵 تسجيل دفعة من العميل"}</button>:<span>—</span>}</td></tr>):<tr><td colSpan="11">لا توجد ديون مطابقة.</td></tr>}</tbody></table></div>
       {visibleCount<filteredRows.length&&<div className="load-more-row"><button type="button" onClick={()=>setVisibleCount(v=>v+50)}>تحميل 50 سجلًا إضافيًا</button></div>}
     </>}
+
+    {settlementDebt&&<div className="transaction-modal-backdrop no-print" role="dialog" aria-modal="true">
+      <div className="transaction-modal-panel debt-modal-panel">
+        <div className="transaction-modal-header"><h3>{settlementDebt.type==="PAYABLE"?"تسديد الدين علينا":"تسجيل دفعة من العميل"}</h3><button type="button" onClick={()=>setSettlementDebt(null)}>✕</button></div>
+        <form className="card form debt-add-form" onSubmit={async event=>{await addPayment(event);setSettlementDebt(null)}}>
+          <div className="debt-settlement-summary"><strong>{settlementDebt.partyName}</strong><span>المتبقي: {money(settlementDebt.remaining)} {settlementDebt.currency}</span></div>
+          <div className="debt-settlement-modes"><button type="button" className={settlementMode==="FULL"?"active":""} onClick={()=>changeSettlementMode("FULL")}>تسديد كامل</button><button type="button" className={settlementMode==="PARTIAL"?"active":""} onClick={()=>changeSettlementMode("PARTIAL")}>تسديد جزئي</button></div>
+          <input type="number" min="0.01" max={settlementDebt.remaining} step="0.01" value={payment.amount} onChange={e=>{setSettlementMode("PARTIAL");setPayment({...payment,amount:e.target.value})}} placeholder="مبلغ الدفعة" required/>
+          <input type="date" value={payment.paymentDate} onChange={e=>setPayment({...payment,paymentDate:e.target.value})}/>
+          <select value={payment.method||"CASH"} onChange={e=>setPayment({...payment,method:e.target.value})}><option value="CASH">نقدي</option><option value="BANK">بنك</option><option value="TRANSFER">تحويل</option><option value="CARD">بطاقة</option></select>
+          <input value={payment.notes} onChange={e=>setPayment({...payment,notes:e.target.value})} placeholder="ملاحظات السداد"/>
+          <div className="transaction-modal-actions"><button type="button" onClick={()=>setSettlementDebt(null)}>إلغاء</button><button className="primary">{settlementDebt.type==="PAYABLE"?"تأكيد الدفع":"تأكيد الاستلام"}</button></div>
+        </form>
+      </div>
+    </div>}
 
     {showAddModal&&<div className="transaction-modal-backdrop no-print" role="dialog" aria-modal="true">
       <div className="transaction-modal-panel debt-modal-panel">
