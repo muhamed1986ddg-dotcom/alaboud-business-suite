@@ -2147,3 +2147,15 @@ function Simple({type}){
     <div className="card tablewrap expense-table"><table><thead><tr><th>التاريخ</th><th>الوصف</th><th>التصنيف</th><th>العملة</th><th>المبلغ الأصلي</th><th>سعر التحويل</th><th>القيمة CAD</th><th>الإجراءات</th></tr></thead><tbody>{list.map(x=><tr key={x.id} className={String(editingId)===String(x.id)?"expense-editing-row":""}><td>{x.date}</td><td>{x.title}</td><td>{x.category||"Other"}</td><td><span className="expense-currency-cell">{flagOf(x.currency)} {x.currency||"CAD"}</span></td><td>{money(x.amount)} {x.currency||"CAD"}</td><td>{Number(x.exchangeRate||1).toFixed(6)}</td><td><strong>{money(x.cadAmount??x.amount)} CAD 🇨🇦</strong></td><td><div className="expense-row-actions"><button type="button" className="expense-edit-button" onClick={()=>editExpense(x)}>✏️ تعديل</button><button type="button" className="expense-delete-button" onClick={()=>deleteExpense(x)}>🗑️ حذف</button></div></td></tr>)}</tbody></table></div>
   </div>;
 }
+export {
+  Profits,
+  ExchangeRates,
+  GeneralDebts,
+  PartnerProfile,
+  Partners,
+  CapitalOverview,
+  MonthlyReport,
+  SettingsPanel,
+  AICommandCenter,
+  Simple
+};
