@@ -1,3 +1,9 @@
+# v24.2.1
+
+- Fixed overdue customer cards in the unified dark theme.
+- Added high-contrast financial numbers and responsive card layout.
+- Removed remaining bright metric surfaces on the overdue page.
+
 ## 24.2.0
 - Unified the dark design system across all application pages.
 - Removed unintended white surfaces from cards, tables, forms, modals, reports, settings, customer screens, payments, debts, budget, exchange rates and the AI command center.

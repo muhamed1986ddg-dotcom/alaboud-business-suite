@@ -775,7 +775,7 @@ export function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
     {error&&<div className="card customer-error">{error}</div>}
     {success&&<div className="card rate-message">{success}</div>}
 
-    <div className="stats overdue-top-stats">
+    <div className="stats overdue-top-stats overdue-dark-scope">
       <div className="card overdue-card"><span>عدد العملاء المتأخرين</span><strong>{rows.length}</strong></div>
       <div className="card overdue-card"><span>إجمالي المبالغ المتأخرة</span><strong>{money(filteredTotal)} CAD</strong></div>
       <div className="card"><span>أكبر رصيد متأخر</span><strong>{money(largest?.finalBalance||0)} CAD</strong><small>{largest?.name||"-"}</small></div>
@@ -793,7 +793,7 @@ export function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
       </select>
     </div>
 
-    <div className="overdue-customers-grid">
+    <div className="overdue-customers-grid overdue-dark-scope">
       {rows.length?rows.map(customer=>{
         const draft={promiseDate:"",expectedAmount:"",notes:"",messageType:"gentle",...(drafts[customer.id]||{})};
         return <article className={`card overdue-customer-card severity-${severity(customer.overdueDays)}`} key={customer.id}>
@@ -806,12 +806,12 @@ export function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
           </div>
 
           <div className="overdue-customer-details expanded">
-            <div><span>الرصيد المتبقي</span><strong>{cad(customer.finalBalance)}</strong></div>
-            <div><span>إجمالي الحساب</span><strong>{cad(customer.totalTransactions)}</strong></div>
-            <div><span>إجمالي المدفوع</span><strong>{cad(customer.totalPaid)}</strong></div>
-            <div><span>أقدم حوالة غير مدفوعة</span><strong>{customer.oldestUnpaidDate||"-"}</strong></div>
-            <div><span>آخر دفعة</span><strong>{customer.lastPaymentDate||"-"}</strong></div>
-            <div><span>آخر متابعة</span><strong>{customer.latestAction?.action||"-"}</strong></div>
+            <div className="overdue-metric overdue-metric-balance"><span>الرصيد المتبقي</span><strong>{cad(customer.finalBalance)}</strong></div>
+            <div className="overdue-metric overdue-metric-total"><span>إجمالي الحساب</span><strong>{cad(customer.totalTransactions)}</strong></div>
+            <div className="overdue-metric overdue-metric-paid"><span>إجمالي المدفوع</span><strong>{cad(customer.totalPaid)}</strong></div>
+            <div className="overdue-metric overdue-metric-date"><span>أقدم حوالة غير مدفوعة</span><strong>{customer.oldestUnpaidDate||"-"}</strong></div>
+            <div className="overdue-metric overdue-metric-date"><span>آخر دفعة</span><strong>{customer.lastPaymentDate||"-"}</strong></div>
+            <div className="overdue-metric overdue-metric-date"><span>آخر متابعة</span><strong>{customer.latestAction?.action||"-"}</strong></div>
           </div>
 
           {customer.promiseDate&&<div className="promise-banner">

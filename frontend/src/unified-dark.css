@@ -109,3 +109,111 @@ hr{border-color:var(--ui-border)!important}
   html,body,#root,main,.main-content,.page-content{background:#fff!important;color:#111!important}
   .card,.panel,.section,table,thead,tbody,tr,th,td{background:#fff!important;color:#111!important;box-shadow:none!important;border-color:#bbb!important}
 }
+
+
+/* v24.2.1 — Overdue customers: high-contrast professional cards */
+.overdue-dark-scope,
+.overdue-dark-scope *{box-sizing:border-box}
+.overdue-customers-grid.overdue-dark-scope{
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:18px;
+}
+.overdue-dark-scope .overdue-customer-card,
+.overdue-customer-card{
+  background:linear-gradient(155deg,#101c2f 0%,#0a1423 100%)!important;
+  border:1px solid rgba(214,173,60,.48)!important;
+  border-top-width:4px!important;
+  color:#f8fafc!important;
+  box-shadow:0 16px 38px rgba(0,0,0,.32)!important;
+  overflow:hidden;
+}
+.overdue-customer-card.severity-notice{border-top-color:#eab308!important}
+.overdue-customer-card.severity-warning{border-top-color:#f59e0b!important}
+.overdue-customer-card.severity-danger{border-top-color:#ef4444!important}
+.overdue-customer-card.severity-critical{border-top-color:#fb7185!important}
+.overdue-customer-head{align-items:center;padding-bottom:12px;border-bottom:1px solid rgba(183,195,212,.15)}
+.overdue-customer-head h3{color:#f1d477!important;font-size:1.18rem!important;font-weight:900!important}
+.overdue-customer-head p{color:#c8d3e1!important;font-weight:650!important}
+.overdue-customer-head>span{
+  background:rgba(239,68,68,.14)!important;
+  color:#fecaca!important;
+  border:1px solid rgba(239,68,68,.42)!important;
+  box-shadow:none!important;
+}
+.overdue-customer-details,
+.overdue-customer-details.expanded{
+  background:transparent!important;
+  grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  gap:10px!important;
+}
+.overdue-customer-details>.overdue-metric{
+  min-width:0;
+  min-height:92px;
+  padding:13px 14px!important;
+  background:linear-gradient(145deg,#162740,#101c30)!important;
+  border:1px solid rgba(48,70,99,.95)!important;
+  border-radius:14px!important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.035)!important;
+}
+.overdue-customer-details>.overdue-metric span{
+  color:#bdc9d9!important;
+  font-size:.78rem!important;
+  font-weight:750!important;
+  line-height:1.45!important;
+}
+.overdue-customer-details>.overdue-metric strong{
+  display:block!important;
+  margin-top:8px!important;
+  color:#f8fafc!important;
+  font-size:1.08rem!important;
+  line-height:1.35!important;
+  font-weight:950!important;
+  font-variant-numeric:tabular-nums lining-nums!important;
+  font-feature-settings:"tnum" 1!important;
+  direction:ltr!important;
+  text-align:right!important;
+  unicode-bidi:plaintext!important;
+  -webkit-text-fill-color:currentColor!important;
+  opacity:1!important;
+  text-shadow:none!important;
+  overflow-wrap:anywhere;
+}
+.overdue-customer-details>.overdue-metric-balance strong{color:#fb7185!important;-webkit-text-fill-color:#fb7185!important}
+.overdue-customer-details>.overdue-metric-total strong{color:#f1d477!important;-webkit-text-fill-color:#f1d477!important}
+.overdue-customer-details>.overdue-metric-paid strong{color:#4ade80!important;-webkit-text-fill-color:#4ade80!important}
+.overdue-customer-details>.overdue-metric-date strong{
+  color:#e8eef7!important;
+  -webkit-text-fill-color:#e8eef7!important;
+  font-size:.95rem!important;
+}
+.overdue-top-stats.overdue-dark-scope>.card{
+  background:linear-gradient(145deg,#14243b,#0e192a)!important;
+  border:1px solid rgba(214,173,60,.36)!important;
+  color:#f8fafc!important;
+}
+.overdue-top-stats.overdue-dark-scope>.card span,
+.overdue-top-stats.overdue-dark-scope>.card small{color:#bdc9d9!important}
+.overdue-top-stats.overdue-dark-scope>.card strong{
+  color:#f1d477!important;
+  -webkit-text-fill-color:#f1d477!important;
+  opacity:1!important;
+  font-variant-numeric:tabular-nums lining-nums!important;
+}
+.overdue-filters{
+  background:linear-gradient(145deg,#14243b,#0e192a)!important;
+  border:1px solid rgba(214,173,60,.36)!important;
+}
+.promise-banner{
+  background:rgba(56,189,248,.10)!important;
+  border-color:rgba(56,189,248,.42)!important;
+  color:#dff5ff!important;
+}
+.whatsapp-options label{color:#c8d3e1!important}
+.overdue-actions button{min-height:42px}
+@media(max-width:1280px){.overdue-customers-grid.overdue-dark-scope{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){
+  .overdue-customers-grid.overdue-dark-scope{grid-template-columns:1fr}
+  .overdue-customer-details.expanded{grid-template-columns:1fr!important}
+  .overdue-customer-details>.overdue-metric{min-height:82px}
+  .overdue-customer-details>.overdue-metric strong{font-size:1.12rem!important}
+}
