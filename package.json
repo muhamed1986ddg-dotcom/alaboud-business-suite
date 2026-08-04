@@ -1,6 +1,6 @@
 {
   "name": "alaboud-business-suite-cloud",
-  "version": "24.1.1",
+  "version": "24.1.2",
   "private": true,
   "scripts": {
     "install:all": "npm ci --prefix backend --include=dev --ignore-scripts --no-audit --no-fund && npm ci --prefix frontend --include=dev --ignore-scripts --no-audit --no-fund",
@@ -14,6 +14,6 @@
     "migrate:rollback": "node backend/src/migration/cli.js rollback"
   },
   "engines": {
-    "node": ">=20 <23"
+    "node": ">=22 <23"
   }
 }

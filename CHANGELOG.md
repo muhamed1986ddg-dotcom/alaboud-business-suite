@@ -2012,3 +2012,9 @@ git push origin main
 - Removed top customers section from reports.
 - Removed monthly transfer details section from reports.
 - Preserved financial summaries, monthly movement, filtering, and printing.
+
+## 24.1.2
+- Dynamic versioned Android APK artifact names.
+- Node.js 22 for project verification workflow.
+- Unified application versions and Android build metadata.
+- Removed unused SwipeRefreshLayout dependency.
