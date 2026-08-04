@@ -8,7 +8,7 @@ const path = require("path");
 const fs = require("fs");
 const { readStore, readRootStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
-const { permissionsFor, requirePermission } = require("./access-control");
+const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
 const { generateApiKey, keyPrefix, normalizeScopes, apiKeyMiddleware, versionAliasMiddleware, integrationLogger, openApiDocument, docsHtml } = require("./api-platform");
 const { createBranch, resolveBranch, branchSummary } = require("./branch-manager");
@@ -56,6 +56,26 @@ async function sendEmail(to, subject, text) {
   return false;
 }
 const app = express();
+// التقاط تلقائي لأي خطأ (متزامن أو غير متزامن) يحدث داخل أي مسار API لم يكن
+// يحتوي على try/catch صريح. بدون هذا، أي استثناء داخل مسار async كان يتحول
+// إلى "unhandled rejection" وبما أن السيرفر مهيأ لإيقاف نفسه عند أي رفض غير
+// متوقع (انظر process.on("unhandledRejection")) فإن خطأ بسيط في مسار واحد
+// كان قادرًا على إسقاط الخدمة بالكامل لكل المستخدمين. هذا التعديل يضمن أن كل
+// خطأ يُمرَّر بأمان إلى معالج الأخطاء العام بدل أن يسقط العملية.
+for (const method of ["get","post","patch","put","delete"]) {
+  const original = app[method].bind(app);
+  app[method] = (path, ...handlers) => original(path, ...handlers.map(handler => {
+    if (typeof handler !== "function" || handler.length > 3) return handler;
+    return (req, res, next) => {
+      try {
+        const result = handler(req, res, next);
+        if (result && typeof result.catch === "function") result.catch(next);
+      } catch (error) {
+        next(error);
+      }
+    };
+  }));
+}
 let nativeRepositories = new NativeRepositoryRegistry();
 app.disable("x-powered-by");
 app.set("trust proxy", 1);
@@ -117,6 +137,10 @@ function seedAdmin(){
 function auth(req,res,next){
   if(req.apiKeyUser){
     req.user=req.apiKeyUser;
+    const requiredPermission=requiredPermissionForRequest(req.method,req.path);
+    if(requiredPermission&&!hasPermission(req.user,requiredPermission)){
+      return res.status(403).json({message:"ليس لديك صلاحية لتنفيذ هذه العملية",permission:requiredPermission});
+    }
     const branch=resolveBranch(readRootStore(),{companyId:req.user.companyId,requestedBranchId:req.headers["x-branch-id"],user:req.user});
     if(!branch)return res.status(403).json({message:"لا يوجد فرع متاح"});
     req.branch=branch;req.user.branchId=branch.id;req.user.branchName=branch.name;
@@ -133,6 +157,10 @@ function auth(req,res,next){
     const sessionStatus=validateSession(store,{jti:req.user.jti,userId:req.user.id,companyId:req.user.companyId});
     if(!sessionStatus.ok)return res.status(401).json({message:sessionStatus.reason==="IDLE_TIMEOUT"?"انتهت الجلسة بسبب عدم النشاط":"انتهت صلاحية الجلسة"});
     req.user.role=user.role; req.user.permissions=permissionsFor(user.role,user.permissions);
+    const requiredPermission=requiredPermissionForRequest(req.method,req.path);
+    if(requiredPermission&&!hasPermission(req.user,requiredPermission)){
+      return res.status(403).json({message:"ليس لديك صلاحية لتنفيذ هذه العملية",permission:requiredPermission});
+    }
     const branch=resolveBranch(readRootStore(),{companyId:req.user.companyId,requestedBranchId:req.headers["x-branch-id"],user});
     if(!branch)return res.status(403).json({message:"لا يوجد فرع متاح لهذا المستخدم"});
     req.branch=branch;req.user.branchId=branch.id;req.user.branchName=branch.name;
@@ -923,7 +951,7 @@ app.get("/api/notification-settings", auth, (_req,res)=>{
   });
 });
 
-app.patch("/api/notification-settings", auth, (req,res)=>{
+app.patch("/api/notification-settings", auth, requirePermission("admin.only"), (req,res)=>{
   const updated=mutate((store)=>{
     store.notificationSettings ||= {};
     if(req.body?.overdueDays!==undefined){
@@ -5025,7 +5053,7 @@ if (!fs.existsSync(indexFile)) {
 
 const BACKUP_ARRAYS=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions"];
 
-app.get("/api/backup", auth, (req,res)=>{
+app.get("/api/backup", auth, requirePermission("admin.only"), (req,res)=>{
   const store=readStore();
   const company=(store.companies||[]).find(item=>item.id===req.user.companyId);
   const data={};
@@ -5049,13 +5077,12 @@ app.get("/api/security/status", auth, (req,res)=>{
   res.json({version:"18.0.0",passwordHashing:"scrypt",sessionHours:12,httpsRequired:IS_PROD,auditIntegrity:chainValid,activeDevices:(store.devices||[]).filter(x=>x.active!==false).length,failedLogins24h:logs.filter(x=>x.action==="LOGIN_FAILED"&&Date.now()-new Date(x.createdAt).getTime()<86400000).length,securityScore:[IS_PROD,JWT_SECRET!=="LOCAL_TRIAL_CHANGE_ME_6_0",chainValid].filter(Boolean).length===3?95:78});
 });
 
-app.post("/api/backup/encrypted", auth, rateLimit("backup",10,60*60*1000),(req,res)=>{
-  if(req.user.role!=="ADMIN")return res.status(403).json({message:"متاح للمدير فقط"}); const password=String(req.body?.password||""); const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message});
+app.post("/api/backup/encrypted", auth, requirePermission("admin.only"), rateLimit("backup",10,60*60*1000),(req,res)=>{ const password=String(req.body?.password||""); const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message});
   const store=readStore(),data={};for(const key of BACKUP_ARRAYS)data[key]=Array.from(store[key]||[]).map(item=>({...item})); const payload=createBackupEnvelope({company:{id:req.user.companyId},data,createdAt:now()}); const encrypted=encryptJson(payload,password);
   mutate(root=>audit(root,req.user.id,"EXPORT_ENCRYPTED","BACKUP",id(),{ip:req.ip})); res.setHeader("Content-Disposition",`attachment; filename="alaboud-secure-backup-${Date.now()}.abs"`);res.json(encrypted);
 });
 
-app.post("/api/backup/restore", auth, (req,res)=>{
+app.post("/api/backup/restore", auth, requirePermission("admin.only"), (req,res)=>{
   try{
     const payload=req.body||{};
     const verification=verifyBackupEnvelope(payload);

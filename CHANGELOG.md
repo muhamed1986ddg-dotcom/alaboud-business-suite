@@ -1,3 +1,10 @@
+# v24.2.4
+
+- Completed API permission wiring for backups, restore, notification settings, reports, AI, developer, device and security routes.
+- Added defense-in-depth authorization to backup and restore routes.
+- Expanded access-control regression tests.
+- Preserved global async route error capture and centralized error handling.
+
 # v24.2.1
 
 - Fixed overdue customer cards in the unified dark theme.

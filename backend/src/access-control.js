@@ -26,6 +26,28 @@ const PUBLIC_API_PREFIXES = Object.freeze([
   "/api/public/"
 ]);
 
+const EXACT_PERMISSION = Object.freeze([
+  ["GET", "/api/backup", "admin.only"],
+  ["POST", "/api/backup/encrypted", "admin.only"],
+  ["POST", "/api/backup/restore", "admin.only"],
+  ["GET", "/api/notification-settings", "dashboard.read"],
+  ["PATCH", "/api/notification-settings", "admin.only"],
+  ["GET", "/api/profits", "reports.read"],
+  ["GET", "/api/monthly-report", "reports.read"],
+  ["GET", "/api/capital-overview", "reports.read"],
+  ["GET", "/api/company-profile", "dashboard.read"],
+  ["GET", "/api/ai/overview", "reports.read"],
+  ["POST", "/api/ai/assistant", "reports.read"],
+  ["PATCH", "/api/company-profile", "admin.only"],
+  ["GET", "/api/security/permissions", "dashboard.read"]
+]);
+
+const ADMIN_API_PREFIXES = Object.freeze([
+  "/api/developer",
+  "/api/devices",
+  "/api/security/status"
+]);
+
 const RESOURCE_PERMISSION = Object.freeze([
   ["/api/customers", "customers"],
   ["/api/transactions", "transactions"],
@@ -39,7 +61,11 @@ const RESOURCE_PERMISSION = Object.freeze([
   ["/api/exchange-rates", "rates"],
   ["/api/rates", "rates"],
   ["/api/reports", "reports"],
-  ["/api/dashboard", "dashboard"]
+  ["/api/ai", "reports"],
+  ["/api/dashboard", "dashboard"],
+  ["/api/notifications", "dashboard"],
+  ["/api/customer-alerts", "customers"],
+  ["/api/notification-actions", "customers"]
 ]);
 
 function normalizeRole(role){
@@ -63,6 +89,11 @@ function requiredPermissionForRequest(method, requestPath){
 
   if (PUBLIC_API_PREFIXES.some((prefix) => pathname === prefix.replace(/\/$/, "") || pathname.startsWith(prefix))) {
     return null;
+  }
+  const exact=EXACT_PERMISSION.find(([exactMethod, exactPath]) => exactMethod === verb && exactPath === pathname);
+  if (exact) return exact[2];
+  if (ADMIN_API_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+    return "admin.only";
   }
   if (pathname.startsWith("/api/users") || pathname.startsWith("/api/branches") || pathname.startsWith("/api/admin")) {
     return "admin.only";
