@@ -1,4 +1,4 @@
-import React,{useEffect,useRef,useState} from "react";
+import React,{useEffect,useMemo,useRef,useState} from "react";
 import api,{cachedGet} from "../api";
 import {APP_VERSION} from "../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
@@ -6,6 +6,9 @@ import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,
 export function Customers({open}){
   const [list,setList]=useState([]);
   const [search,setSearch]=useState("");
+  const [sortMode,setSortMode]=useState(()=>{
+    try{return localStorage.getItem("alaboud_customer_sort")||"name-asc"}catch{return "name-asc"}
+  });
   const [error,setError]=useState("");
 
   const [customerForm,setCustomerForm]=useState({customerNumber:"",name:"",phone:"",email:"",oldBalance:""});
@@ -41,7 +44,7 @@ export function Customers({open}){
   async function load(){
     setError("");
     try{
-      const customersResponse=await cachedGet("/customers",{params:{limit:100},cacheTtl:2*60*1000});
+      const customersResponse=await cachedGet("/customers",{params:{limit:500,sort:"name-asc"},cacheTtl:2*60*1000});
       setList(Array.isArray(customersResponse.data)?customersResponse.data:[]);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل العملاء");
@@ -396,8 +399,35 @@ export function Customers({open}){
     }
   }
 
-  const filtered=list.filter(customer=>
-    `${customer.name} ${customer.phone||""}`.toLowerCase().includes(search.toLowerCase())
+  const sortedCustomers=useMemo(()=>{
+    const arabicCollator=new Intl.Collator("ar",{sensitivity:"base",numeric:true,ignorePunctuation:true});
+    const normalizeName=value=>String(value||"")
+      .trim()
+      .replace(/[\u064B-\u065F\u0670]/g,"")
+      .replace(/^[اأإآ]ل(?=\S)/,"")
+      .replace(/^[أإآ]/,"ا")
+      .replace(/ى/g,"ي")
+      .replace(/ة/g,"ه")
+      .replace(/\s+/g," ");
+    const dateValue=customer=>new Date(customer.lastTransactionDate||customer.lastTransferDate||customer.updatedAt||customer.createdAt||0).getTime()||0;
+    const rows=[...list];
+    rows.sort((a,b)=>{
+      if(sortMode==="name-desc")return arabicCollator.compare(normalizeName(b.name),normalizeName(a.name));
+      if(sortMode==="balance-desc")return Number(b.finalBalance||0)-Number(a.finalBalance||0)||arabicCollator.compare(normalizeName(a.name),normalizeName(b.name));
+      if(sortMode==="last-transfer")return dateValue(b)-dateValue(a)||arabicCollator.compare(normalizeName(a.name),normalizeName(b.name));
+      if(sortMode==="newest")return new Date(b.createdAt||0)-new Date(a.createdAt||0)||arabicCollator.compare(normalizeName(a.name),normalizeName(b.name));
+      if(sortMode==="overdue-desc")return Number(b.overdueDays||0)-Number(a.overdueDays||0)||arabicCollator.compare(normalizeName(a.name),normalizeName(b.name));
+      return arabicCollator.compare(normalizeName(a.name),normalizeName(b.name));
+    });
+    return rows;
+  },[list,sortMode]);
+
+  useEffect(()=>{
+    try{localStorage.setItem("alaboud_customer_sort",sortMode)}catch{}
+  },[sortMode]);
+
+  const filtered=sortedCustomers.filter(customer=>
+    `${customer.name} ${customer.phone||""}`.toLowerCase().includes(search.trim().toLowerCase())
   );
 
   const customerActionFocus=activePanel==="transfer"||activePanel==="payment";
@@ -483,7 +513,7 @@ export function Customers({open}){
         <h3>إضافة حوالة</h3>
         <select value={transferForm.customerId} onChange={e=>setTransferForm({...transferForm,customerId:e.target.value})} required>
           <option value="">اختر العميل</option>
-          {list.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
+          {sortedCustomers.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
         <input type="date" value={transferForm.transferDate} onChange={e=>setTransferForm({...transferForm,transferDate:e.target.value})}/>
         <label className="currency-field">
@@ -569,7 +599,7 @@ export function Customers({open}){
         <p className="payment-auto-note">تُخصم الدفعة تلقائيًا من أقدم الحوالات غير المدفوعة للعميل.</p>
         <select value={paymentForm.customerId} onChange={e=>setPaymentForm({...paymentForm,customerId:e.target.value})} required>
           <option value="">اختر العميل</option>
-          {list.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
+          {sortedCustomers.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
         <input type="number" min=".01" step=".01" value={paymentForm.amount} onChange={e=>setPaymentForm({...paymentForm,amount:e.target.value})} placeholder="مبلغ الدفعة" required/>
         <input type="date" value={paymentForm.paymentDate} onChange={e=>setPaymentForm({...paymentForm,paymentDate:e.target.value})}/>
@@ -596,7 +626,20 @@ export function Customers({open}){
         </div>
         <button type="button" onClick={()=>{setActivePanel("");setSearch("")}}>✕ إغلاق القائمة</button>
       </div>
-      <input autoFocus className="customer-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
+      <div className="customer-list-controls">
+        <input autoFocus className="customer-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
+        <label className="customer-sort-control">
+          <span>ترتيب العملاء</span>
+          <select value={sortMode} onChange={e=>setSortMode(e.target.value)} aria-label="ترتيب قائمة العملاء">
+            <option value="name-asc">الاسم: أ ← ي</option>
+            <option value="name-desc">الاسم: ي ← أ</option>
+            <option value="balance-desc">أعلى رصيد</option>
+            <option value="last-transfer">آخر حوالة</option>
+            <option value="newest">أحدث عميل</option>
+            <option value="overdue-desc">الأكثر تأخرًا</option>
+          </select>
+        </label>
+      </div>
     </div>
 
     <div className="customer-cards customer-list-simple">

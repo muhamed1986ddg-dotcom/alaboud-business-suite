@@ -217,3 +217,37 @@ hr{border-color:var(--ui-border)!important}
   .overdue-customer-details>.overdue-metric{min-height:82px}
   .overdue-customer-details>.overdue-metric strong{font-size:1.12rem!important}
 }
+
+/* v24.2.2 — alphabetical customer list and persistent sorting */
+.customer-list-controls{
+  display:grid;
+  grid-template-columns:minmax(240px,1fr) minmax(190px,260px);
+  gap:12px;
+  align-items:end;
+  margin-top:14px;
+}
+.customer-sort-control{
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+  color:var(--ud-text-muted,#b7c3d4);
+  font-weight:700;
+}
+.customer-sort-control select{
+  width:100%;
+  min-height:46px;
+  border-radius:12px;
+  border:1px solid var(--ud-border,#304663);
+  background:var(--ud-card,#142238);
+  color:var(--ud-text,#f8fafc);
+  padding:0 12px;
+  font:inherit;
+}
+.customer-sort-control select:focus{
+  outline:none;
+  border-color:var(--ud-gold,#d6ad3c);
+  box-shadow:0 0 0 3px rgba(214,173,60,.16);
+}
+@media (max-width:700px){
+  .customer-list-controls{grid-template-columns:1fr}
+}
