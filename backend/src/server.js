@@ -402,11 +402,21 @@ function customerSummary(store, c) {
   }
 
   const accountWasReset = Boolean(c.accountResetAt);
-  const oldBalance = accountWasReset ? 0 : Math.max(safeNumber(c.oldBalance), 0);
-  const oldBalancePaid = accountWasReset ? 0 : Math.min(Math.max(safeNumber(c.oldBalancePaid), 0), oldBalance);
+  const storedOldBalance = accountWasReset ? 0 : Math.max(safeNumber(c.oldBalance), 0);
+  const legacyOldBalancePaid = accountWasReset ? 0 : Math.min(Math.max(safeNumber(c.oldBalancePaid), 0), storedOldBalance);
+  // v24.0.7: الحساب القديم هو رصيد افتتاحي متبقٍ، وليس دفعة.
+  // ندعم البيانات القديمة التي كانت تحفظ الجزء المسدد في oldBalancePaid.
+  const oldBalance = Math.max(storedOldBalance - legacyOldBalancePaid, 0);
+  const openingBalanceInitial = accountWasReset
+    ? 0
+    : Math.max(safeNumber(c.openingBalanceInitial, storedOldBalance), oldBalance);
+  const actualPayments = groupCustomerPaymentRecords(
+    payments.filter(payment=>isAfterCustomerReset(payment,c,"paymentDate")),
+    c.id
+  ).reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
 
-  let total = oldBalance;
-  let paid = oldBalancePaid;
+  let total = openingBalanceInitial;
+  let paid = 0;
   let oldestUnpaidDate = "";
   let overdueTransactions = 0;
   const today = new Date();
@@ -430,7 +440,12 @@ function customerSummary(store, c) {
     }
   }
 
-  const outstanding = Math.max(total - paid, 0);
+  const transactionOutstanding = txs.reduce((sum,transaction)=>{
+    const due=safeNumber(transaction.totalCustomerDue,safeNumber(transaction.amount));
+    const transactionPaid=safeNumber(paymentByTransaction.get(transaction.id));
+    return sum+Math.max(due-transactionPaid,0);
+  },0);
+  const outstanding = Math.max(transactionOutstanding + oldBalance, 0);
   let overdueDays = 0;
   if (oldestUnpaidDate) {
     const oldestDate = new Date(`${oldestUnpaidDate}T00:00:00`);
@@ -441,10 +456,11 @@ function customerSummary(store, c) {
     ...c,
     name: String(c?.name || "عميل بدون اسم"),
     oldBalance:+oldBalance.toFixed(2),
-    oldBalancePaid:+oldBalancePaid.toFixed(2),
-    oldBalanceRemaining:+Math.max(oldBalance-oldBalancePaid,0).toFixed(2),
+    openingBalanceInitial:+openingBalanceInitial.toFixed(2),
+    oldBalancePaid:0,
+    oldBalanceRemaining:+oldBalance.toFixed(2),
     totalTransactions: +total.toFixed(2),
-    totalPaid: +paid.toFixed(2),
+    totalPaid: +actualPayments.toFixed(2),
     finalBalance: +outstanding.toFixed(2),
     overdue: outstanding > 0 && overdueDays > overdueThreshold,
     overdueThreshold,
@@ -1312,7 +1328,8 @@ app.post("/api/customers", auth, (req,res)=>{
       throw error;
     }
     const nextNumber=requested||String(Math.max(0,...s.customers.map(item=>Number(item.customerNumber)||0))+1);
-    const c={id:id(),customerNumber:nextNumber,name:String(name).trim(),phone:String(phone||"").trim(),phoneNormalized:normalizedPhone,email,identityNumber,notes,oldBalance:+Math.max(safeNumber(oldBalance),0).toFixed(2),oldBalancePaid:0,createdAt:now()};
+    const openingBalance=+Math.max(safeNumber(oldBalance),0).toFixed(2);
+    const c={id:id(),customerNumber:nextNumber,name:String(name).trim(),phone:String(phone||"").trim(),phoneNormalized:normalizedPhone,email,identityNumber,notes,oldBalance:openingBalance,openingBalanceInitial:openingBalance,oldBalancePaid:0,createdAt:now()};
     s.customers.push(c);
     audit(s,req.user.id,"CREATE","CUSTOMER",c.id,{after:{...c},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
     return c;
@@ -1348,7 +1365,11 @@ app.patch("/api/customers/:id", auth, (req,res)=>{
       customer.phone=String(customer.phone||"").trim();
       customer.phoneNormalized=normalizePhone(customer.phone);
       customer.oldBalance=+Math.max(safeNumber(customer.oldBalance),0).toFixed(2);
-      customer.oldBalancePaid=+Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),customer.oldBalance).toFixed(2);
+      if(req.body.oldBalance!==undefined){
+        customer.openingBalanceInitial=customer.oldBalance;
+        customer.oldBalancePaid=0;
+      }
+      else customer.oldBalancePaid=+Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),customer.oldBalance).toFixed(2);
       customer.updatedAt=now();
       customer.updatedBy=req.user.id;
       audit(store,req.user.id,"UPDATE","CUSTOMER",customer.id,{before:oldData,after:{...customer},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
@@ -1589,9 +1610,15 @@ app.post("/api/customers/:id/payments", auth, (req,res)=>{
         .filter(row=>row.remaining>0.0001);
 
       const totalRemaining=rows.reduce((sum,row)=>sum+row.remaining,0);
-      const oldBalance=Math.max(safeNumber(customer.oldBalance),0);
-      const oldBalancePaid=Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),oldBalance);
-      const oldBalanceRemaining=Math.max(oldBalance-oldBalancePaid,0);
+      const storedOldBalance=Math.max(safeNumber(customer.oldBalance),0);
+      const legacyOldBalancePaid=Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),storedOldBalance);
+      const oldBalanceRemaining=Math.max(storedOldBalance-legacyOldBalancePaid,0);
+      // توحيد السجلات القديمة: نخزن من الآن فصاعدًا الرصيد الافتتاحي المتبقي مباشرة.
+      if(!Number.isFinite(Number(customer.openingBalanceInitial))){
+        customer.openingBalanceInitial=+storedOldBalance.toFixed(2);
+      }
+      customer.oldBalance=+oldBalanceRemaining.toFixed(2);
+      customer.oldBalancePaid=0;
       const grandRemaining=totalRemaining+oldBalanceRemaining;
 
       if(grandRemaining<=0)throw new Error("لا يوجد رصيد مستحق على العميل");
@@ -1605,11 +1632,7 @@ app.post("/api/customers/:id/payments", auth, (req,res)=>{
       const createdAt=now();
       const effectivePaymentDate=paymentDate||new Date().toISOString().slice(0,10);
       let oldBalanceAllocation=0;
-      if(oldBalanceRemaining>0&&left>0.0001){
-        oldBalanceAllocation=Math.min(left,oldBalanceRemaining);
-        customer.oldBalancePaid=+(oldBalancePaid+oldBalanceAllocation).toFixed(2);
-        left-=oldBalanceAllocation;
-      }
+      // أولًا: تسديد أقدم الحوالات المستحقة.
       for(const row of rows){
         if(left<=0.0001)break;
         const allocated=Math.min(left,row.remaining);
@@ -1633,6 +1656,13 @@ app.post("/api/customers/:id/payments", auth, (req,res)=>{
         allocations.push(payment);
         left-=allocated;
       }
+      // ثانيًا: إذا بقي جزء من الدفعة بعد تسديد الحوالات، يخصم من الحساب القديم.
+      if(oldBalanceRemaining>0&&left>0.0001){
+        oldBalanceAllocation=Math.min(left,oldBalanceRemaining);
+        customer.oldBalance=+Math.max(oldBalanceRemaining-oldBalanceAllocation,0).toFixed(2);
+        customer.oldBalancePaid=0;
+        left-=oldBalanceAllocation;
+      }
 
       const receipt={
         id:id(),
@@ -1641,6 +1671,8 @@ app.post("/api/customers/:id/payments", auth, (req,res)=>{
         amount:+requested.toFixed(2),
         originalAmount:+requested.toFixed(2),
         oldBalanceAllocation:+oldBalanceAllocation.toFixed(2),
+        oldBalanceBefore:+oldBalanceRemaining.toFixed(2),
+        oldBalanceAfter:+Math.max(oldBalanceRemaining-oldBalanceAllocation,0).toFixed(2),
         method,
         notes,
         reference,
@@ -1834,7 +1866,11 @@ app.delete("/api/payments/:id", auth, (req,res)=>{
     if(payment.recordType==="CUSTOMER_PAYMENT_RECEIPT"&&safeNumber(payment.oldBalanceAllocation)>0){
       const customer=s.customers.find(item=>item.id===payment.customerId);
       if(customer){
-        customer.oldBalancePaid=+Math.max(0,safeNumber(customer.oldBalancePaid)-safeNumber(payment.oldBalanceAllocation)).toFixed(2);
+        const stored=Math.max(safeNumber(customer.oldBalance),0);
+        const legacyPaid=Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),stored);
+        const current=Math.max(stored-legacyPaid,0);
+        customer.oldBalance=+(current+safeNumber(payment.oldBalanceAllocation)).toFixed(2);
+        customer.oldBalancePaid=0;
       }
     }
     audit(s,req.user.id,"DELETE","PAYMENT",payment.id,{softDelete:true,paymentBatchId:batchId,deletedCount:targets.length});
@@ -1873,7 +1909,7 @@ async function fetchOfficialRate(baseCurrency, quoteCurrency) {
 
 async function fetchGlobalUsdRates() {
   const response = await fetch("https://open.er-api.com/v6/latest/USD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/24.0.6" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/24.0.7" }
   });
   if (!response.ok) throw new Error(`Global rate provider returned ${response.status}`);
   const data = await response.json();
@@ -2113,9 +2149,11 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   // لا ننشئ سجلاً دائمًا جديدًا حتى لا يحدث تكرار؛ بل نشتق الرصيد مباشرة من بيانات العميل.
   const customerOldBalanceRows = customers.map((customer)=>{
     if (!customer || customer.isDeleted || customer.accountResetAt) return null;
-    const amount = Math.max(safeNumber(customer.oldBalance), 0);
-    const paid = Math.min(Math.max(safeNumber(customer.oldBalancePaid), 0), amount);
-    const remaining = Math.max(amount-paid, 0);
+    const storedAmount = Math.max(safeNumber(customer.oldBalance), 0);
+    const legacyPaid = Math.min(Math.max(safeNumber(customer.oldBalancePaid), 0), storedAmount);
+    const remaining = Math.max(storedAmount-legacyPaid, 0);
+    const amount = remaining;
+    const paid = 0;
     if (remaining <= 0.001) return null;
     return {
       id:`CUSTOMER_OLD_BALANCE:${customer.id}`,
@@ -2642,9 +2680,13 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
       .sort((a,b)=>String(a.paymentDate||a.date||"").localeCompare(String(b.paymentDate||b.date||"")));
 
     const accountWasReset=Boolean(customer.accountResetAt);
-    const oldBalance=accountWasReset?0:Math.max(safeNumber(customer.oldBalance),0);
-    const oldBalancePaid=accountWasReset?0:Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),oldBalance);
-    const oldBalanceRemaining=Math.max(oldBalance-oldBalancePaid,0);
+    const storedOldBalance=accountWasReset?0:Math.max(safeNumber(customer.oldBalance),0);
+    const legacyOldBalancePaid=accountWasReset?0:Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),storedOldBalance);
+    const oldBalance=Math.max(storedOldBalance-legacyOldBalancePaid,0);
+    const openingBalanceInitial=accountWasReset?0:Math.max(safeNumber(customer.openingBalanceInitial,storedOldBalance),oldBalance);
+    const oldBalancePaid=0;
+    const oldBalanceRemaining=oldBalance;
+    const actualPaid=paymentRecords.reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
 
     const totals=transactions.reduce((acc,item)=>{
       acc.usdAmount+=safeNumber(item.usdAmount);
@@ -2668,10 +2710,11 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
       customer:{
         ...customer,
         oldBalance:+oldBalance.toFixed(2),
+        openingBalanceInitial:+openingBalanceInitial.toFixed(2),
         oldBalancePaid:+oldBalancePaid.toFixed(2),
         oldBalanceRemaining:+oldBalanceRemaining.toFixed(2),
-        totalTransactions:+(totals.totalCad+oldBalance).toFixed(2),
-        totalPaid:+(totals.paid+oldBalancePaid).toFixed(2),
+        totalTransactions:+(totals.totalCad+openingBalanceInitial).toFixed(2),
+        totalPaid:+actualPaid.toFixed(2),
         finalBalance:+(totals.remaining+oldBalanceRemaining).toFixed(2)
       },
       from:from||null,
@@ -2686,9 +2729,10 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
         totalCad:+totals.totalCad.toFixed(2),
         formulaResultCad:+totals.formulaResultCad.toFixed(2),
         oldBalance:+oldBalance.toFixed(2),
-        oldBalancePaid:+oldBalancePaid.toFixed(2),
+        openingBalanceInitial:+openingBalanceInitial.toFixed(2),
+        oldBalancePaid:0,
         oldBalanceRemaining:+oldBalanceRemaining.toFixed(2),
-        paid:+(totals.paid+oldBalancePaid).toFixed(2),
+        paid:+actualPaid.toFixed(2),
         remaining:+(totals.remaining+oldBalanceRemaining).toFixed(2)
       }
     });

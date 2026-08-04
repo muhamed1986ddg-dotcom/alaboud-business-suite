@@ -370,10 +370,10 @@ export function Customer({id,back,onStatement}){
       <div className="card final"><span>الحساب النهائي</span><strong>{cad(customer.finalBalance)}</strong></div>
     </div>
 
-    {unpaidTransactions.length>0&&
+    {Number(customer.finalBalance||0)>0.0001&&
       <form className="card form" onSubmit={addPayment}>
         <h3>إضافة دفعة</h3>
-        <p className="payment-auto-note">تُوزع الدفعة تلقائيًا على أقدم الحوالات المستحقة.</p>
+        <p className="payment-auto-note">تُوزع الدفعة على أقدم الحوالات أولًا، ثم يُخصم الباقي من الحساب القديم.</p>
         <input type="number" min=".01" step=".01" value={paymentForm.amount} onChange={e=>setPaymentForm({...paymentForm,amount:e.target.value})} placeholder="المبلغ" required/>
         <input type="date" value={paymentForm.paymentDate} onChange={e=>setPaymentForm({...paymentForm,paymentDate:e.target.value})}/>
         <select value={paymentForm.method} onChange={e=>setPaymentForm({...paymentForm,method:e.target.value})}>
@@ -455,11 +455,11 @@ export function Customer({id,back,onStatement}){
             <td><strong>{money(payment.amount)} CAD</strong></td>
             <td>{payment.method||"-"}</td>
             <td>{payment.reference||"-"}</td>
-            <td>{allocations.length?
-              <details className="payment-allocation-details"><summary>{allocations.length} حوالة</summary>{allocations.map((allocation,index)=>{
+            <td>{(allocations.length||Number(payment.oldBalanceAllocation||0)>0)?
+              <details className="payment-allocation-details"><summary>عرض التوزيع</summary>{allocations.map((allocation,index)=>{
                 const allocatedTransaction=transactions.find(item=>item.id===allocation.transactionId);
-                return <div key={`${payment.id}-${allocation.transactionId||index}`}>{allocatedTransaction?.number||allocation.transactionId||"الحساب القديم"} — {money(allocation.amount)} CAD</div>
-              })}</details>
+                return <div key={`${payment.id}-${allocation.transactionId||index}`}>{allocatedTransaction?.number||allocation.transactionId||"حوالة"} — {money(allocation.amount)} CAD</div>
+              })}{Number(payment.oldBalanceAllocation||0)>0&&<div>الحساب القديم — {money(payment.oldBalanceAllocation)} CAD</div>}</details>
               :transaction?.number||"—"}</td>
             <td className="actions">
               <button onClick={()=>setEditingPayment({...payment})}>تعديل</button>
@@ -638,8 +638,11 @@ export function Statement({customerId,back}){
       <div className="simple-statement-total">
         <span>المجموع النهائي:</span>
         <strong>{money(Math.max(
-          Number(data.totals.formulaResultCad ?? data.transactions.reduce((sum,item)=>sum+Number(item.formulaResultCad||0),0))
-          - Number(data.totals.paid||0),
+          Number(data.totals.remaining ?? (
+            Number(data.totals.formulaResultCad ?? data.transactions.reduce((sum,item)=>sum+Number(item.formulaResultCad||0),0))
+            + Number(data.totals.oldBalance||0)
+            - Number(data.totals.paid||0)
+          )),
           0
         ))} 🇨🇦</strong>
       </div>

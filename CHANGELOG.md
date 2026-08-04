@@ -1,3 +1,12 @@
+# v24.0.7
+
+- Treat customer old balance as an opening balance, never as a payment.
+- Allocate customer payments to oldest transactions first, then to the opening balance.
+- Store and display only the remaining opening balance after payment allocation.
+- Exclude opening-balance reductions from total paid and payment history.
+- Restore the deducted opening balance when deleting a grouped customer payment.
+- Correct customer statement grand-total calculation.
+
 # v24.0.6
 
 - اعتماد تصميم سجل الحوالات الاحترافي على الكمبيوتر.
