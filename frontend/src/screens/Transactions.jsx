@@ -1,4 +1,4 @@
-import React,{useEffect,useRef,useState} from "react";
+import React,{useEffect,useMemo,useState} from "react";
 import api,{cachedGet} from "../api";
 import {APP_VERSION} from "../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
@@ -27,6 +27,13 @@ export function Transactions({openInvoice}){
   const [visibleCount,setVisibleCount]=useState(50);
   const [activeMode,setActiveMode]=useState("all");
   const [showAddModal,setShowAddModal]=useState(false);
+  const [customerFilter,setCustomerFilter]=useState("");
+  const [currencyFilter,setCurrencyFilter]=useState("");
+  const [statusFilter,setStatusFilter]=useState("");
+  const [dateFrom,setDateFrom]=useState("");
+  const [dateTo,setDateTo]=useState("");
+  const [page,setPage]=useState(1);
+  const pageSize=10;
 
   async function load(){
     try{
@@ -171,7 +178,7 @@ export function Transactions({openInvoice}){
 
   const now=Date.now();
   const normalizedSearch=search.trim().toLowerCase();
-  const filteredTransactions=list.filter(transaction=>{
+  const filteredTransactions=useMemo(()=>list.filter(transaction=>{
     const remaining=Number(transaction.remaining||0);
     const paymentStatus=String(transaction.paymentStatus||"").toUpperCase();
     const createdValue=transaction.transferDate||transaction.createdAt;
@@ -182,21 +189,51 @@ export function Transactions({openInvoice}){
     if(activeMode==="paid"&&(remaining>0||paymentStatus!=="PAID"))return false;
     if(activeMode==="overdue"&&!overdue)return false;
     if(activeMode==="payments"&&paidAmount<=0)return false;
+    if(customerFilter&&String(transaction.customerId||"")!==customerFilter)return false;
+    if(currencyFilter&&String(transaction.currency||"").toUpperCase()!==currencyFilter)return false;
+    if(statusFilter&&paymentStatus!==statusFilter)return false;
+    const date=String(createdValue||"").slice(0,10);
+    if(dateFrom&&date<dateFrom)return false;
+    if(dateTo&&date>dateTo)return false;
     if(!normalizedSearch)return true;
-    return [transaction.number,transaction.customerName,transaction.currency,transaction.transferDate,transaction.paymentStatus]
+    return [transaction.number,transaction.referenceNumber,transaction.customerName,transaction.companyName,transaction.currency,transaction.transferDate,transaction.paymentStatus]
       .some(value=>String(value||"").toLowerCase().includes(normalizedSearch));
-  });
-  const visibleTransactions=filteredTransactions.slice(0,visibleCount);
+  }),[list,activeMode,customerFilter,currencyFilter,statusFilter,dateFrom,dateTo,normalizedSearch,now]);
 
+  const pageCount=Math.max(Math.ceil(filteredTransactions.length/pageSize),1);
+  const safePage=Math.min(page,pageCount);
+  const visibleTransactions=filteredTransactions.slice((safePage-1)*pageSize,safePage*pageSize);
   const totalAllCad=list.reduce((sum,transaction)=>sum+Number(transaction.totalCustomerDue||0),0);
+  const totalBaseCad=list.reduce((sum,transaction)=>sum+(Number(transaction.amount||0)*Number(transaction.finalRate||transaction.clientRate||0)),0);
+  const totalUsdAmount=list.filter(transaction=>String(transaction.currency||"").toUpperCase()==="USD").reduce((sum,transaction)=>sum+Number(transaction.amount||0),0);
+  const totalProfitCad=list.reduce((sum,transaction)=>sum+Number(transaction.totalProfit||0),0);
   const totalUnpaidCad=list.reduce((sum,transaction)=>sum+Math.max(Number(transaction.remaining||0),0),0);
   const totalPaidCad=Math.max(totalAllCad-totalUnpaidCad,0);
   const paidCount=list.filter(transaction=>Number(transaction.remaining||0)<=0||String(transaction.paymentStatus||"").toUpperCase()==="PAID").length;
   const unpaidCount=list.length-paidCount;
 
+  const resetFilters=()=>{
+    setSearch("");setCustomerFilter("");setCurrencyFilter("");setStatusFilter("");setDateFrom("");setDateTo("");setPage(1);
+  };
+
+  function exportTransactions(){
+    const headers=["رقم الحوالة","التاريخ","العميل","الشركة","العملة","المبلغ الأصلي","سعر الصرف CAD","القيمة CAD","العمولة CAD","المجموع النهائي CAD","الحالة"];
+    const rows=filteredTransactions.map(transaction=>{
+      const baseCad=Number(transaction.amount||0)*Number(transaction.finalRate||transaction.clientRate||0);
+      return [transaction.number,transaction.transferDate||String(transaction.createdAt||"").slice(0,10),transaction.customerName||"-",transaction.companyName||transaction.partnerName||"-",transaction.currency||"USD",Number(transaction.amount||0).toFixed(2),Number(transaction.finalRate||transaction.clientRate||0).toFixed(6),baseCad.toFixed(2),Number(transaction.transferFee||0).toFixed(2),Number(transaction.totalCustomerDue||0).toFixed(2),transaction.paymentStatus==="PAID"?"مدفوعة":"غير مدفوعة"];
+    });
+    const csv="\uFEFF"+[headers,...rows].map(row=>row.map(value=>`"${String(value??"").replaceAll('"','""')}"`).join(",")).join("\n");
+    const link=document.createElement("a");
+    link.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+    link.download=`transactions-${new Date().toISOString().slice(0,10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
   function selectMode(nextMode){
     setActiveMode(nextMode);
     setVisibleCount(50);
+    setPage(1);
   }
 
   return <>
@@ -206,10 +243,11 @@ export function Transactions({openInvoice}){
     </div>
     {error&&<div className="card customer-error">{error}</div>}
 
-    <section className="transaction-summary-grid">
-      <div className="card transaction-summary-card"><span>إجمالي الحوالات الكامل</span><strong>{money(totalAllCad)} CAD</strong><small>{list.length} حوالة</small></div>
-      <div className="card transaction-summary-card unpaid"><span>الرصيد غير المدفوع</span><strong>{money(totalUnpaidCad)} CAD</strong><small>{unpaidCount} حوالة</small></div>
-      <div className="card transaction-summary-card paid"><span>إجمالي المدفوع</span><strong>{money(totalPaidCad)} CAD</strong><small>{paidCount} حوالة</small></div>
+    <section className="transaction-summary-grid transaction-ledger-summary">
+      <div className="card transaction-summary-card"><span>إجمالي الحوالات</span><strong>{list.length}</strong><small>عدد الحوالات المسجلة</small></div>
+      <div className="card transaction-summary-card usd"><span>إجمالي المبلغ (USD)</span><strong>{money(totalUsdAmount)}</strong><small>مجموع الحوالات بالدولار الأمريكي</small></div>
+      <div className="card transaction-summary-card cad"><span>إجمالي القيمة (CAD)</span><strong>{money(totalBaseCad)}</strong><small>القيمة المحولة إلى الدولار الكندي</small></div>
+      <div className="card transaction-summary-card profit"><span>إجمالي الأرباح (CAD)</span><strong>{money(totalProfitCad)}</strong><small>الأرباح المحققة</small></div>
     </section>
 
     <div className="card transaction-mode-tabs no-print">
@@ -354,47 +392,63 @@ export function Transactions({openInvoice}){
       </form>
     }
 
-    <div className="card transaction-list-toolbar no-print">
-      <input value={search} onChange={event=>{setSearch(event.target.value);setVisibleCount(50)}} placeholder="بحث برقم الحوالة أو اسم العميل أو العملة"/>
-      <span>النتائج: <strong>{filteredTransactions.length}</strong></span>
-    </div>
-    <div className="card tablewrap">
-      <table>
+    <section className="card transaction-ledger-controls no-print">
+      <div className="transaction-ledger-actions">
+        <button type="button" className="transaction-export-button" onClick={exportTransactions}>⇩ تصدير</button>
+        <button type="button" className="transaction-filter-reset" onClick={resetFilters}>⌁ تصفية</button>
+      </div>
+      <div className="transaction-ledger-filters">
+        <input value={search} onChange={event=>{setSearch(event.target.value);setPage(1)}} placeholder="بحث برقم الحوالة أو المرجع..."/>
+        <select value={statusFilter} onChange={event=>{setStatusFilter(event.target.value);setPage(1)}}><option value="">جميع الحالات</option><option value="PAID">مدفوعة</option><option value="UNPAID">غير مدفوعة</option></select>
+        <select value={currencyFilter} onChange={event=>{setCurrencyFilter(event.target.value);setPage(1)}}><option value="">العملة الأصلية</option>{[...new Set(list.map(item=>String(item.currency||"USD").toUpperCase()))].map(code=><option key={code} value={code}>{code}</option>)}</select>
+        <input type="date" value={dateFrom} onChange={event=>{setDateFrom(event.target.value);setPage(1)}} aria-label="من تاريخ"/>
+        <input type="date" value={dateTo} onChange={event=>{setDateTo(event.target.value);setPage(1)}} aria-label="إلى تاريخ"/>
+        <select value={customerFilter} onChange={event=>{setCustomerFilter(event.target.value);setPage(1)}}><option value="">جميع العملاء</option>{customers.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}</select>
+      </div>
+    </section>
+
+    <div className="card tablewrap transaction-ledger-tablewrap">
+      <table className="transaction-ledger-table">
         <thead>
           <tr>
-            <th>الرقم</th><th>تاريخ الحوالة</th><th>العميل</th><th>المبلغ</th>
-            <th>الأجور</th><th>الإجمالي</th><th>حالة الدفع</th><th>المتبقي</th><th>الربح</th><th>الفاتورة</th><th>تعديل</th>
+            <th>#</th><th>تاريخ الحوالة</th><th>رقم الحوالة</th><th>العميل</th><th>الشركة</th>
+            <th>العملة الأصلية</th><th>المبلغ الأصلي</th><th>سعر الصرف (CAD)</th><th>القيمة بالكندي (CAD)</th>
+            <th>العمولة (CAD)</th><th>المجموع النهائي (CAD)</th><th>الحالة</th><th>الإجراءات</th>
           </tr>
         </thead>
         <tbody>
-          {visibleTransactions.length?visibleTransactions.map(transaction=><tr key={transaction.id}>
-            <td>{transaction.number}</td>
-            <td>{transaction.transferDate||String(transaction.createdAt||"").slice(0,10)||"-"}</td>
-            <td>{transaction.customerName}</td>
-            <td>{money(transaction.amount)}</td>
-            <td>{money(transaction.transferFee)}</td>
-            <td>{money(transaction.totalCustomerDue)}</td>
-            <td>
-              <span className={`transfer-payment-badge ${transaction.paymentStatus==="PAID"?"paid":"unpaid"}`}>
-                {transaction.paymentStatus==="PAID"?"مدفوع":"غير مدفوع"}
-              </span>
-            </td>
-            <td>
-              <div className="transfer-remaining-cell">
-                <strong>{money(transaction.remaining||0)}</strong>
-                {transaction.paymentStatus!=="PAID"&&
-                  <button type="button" onClick={()=>markTransactionPaid(transaction)}>تسديد كامل</button>
-                }
-              </div>
-            </td>
-            <td>{money(transaction.totalProfit)}</td>
-            <td><button onClick={()=>openInvoice(transaction.id)}>فتح</button></td>
-            <td><button className="transaction-edit-button" onClick={()=>startEditTransaction(transaction)}>✏️ تعديل</button></td>
-          </tr>):<tr><td colSpan="9">لا توجد حوالات.</td></tr>}
+          {visibleTransactions.length?visibleTransactions.map((transaction,index)=>{
+            const exchangeRate=Number(transaction.finalRate||transaction.clientRate||0);
+            const cadValue=Number(transaction.amount||0)*exchangeRate;
+            return <tr key={transaction.id}>
+              <td>{(safePage-1)*pageSize+index+1}</td>
+              <td>{transaction.transferDate||String(transaction.createdAt||"").slice(0,10)||"-"}</td>
+              <td className="transaction-number-cell">{transaction.number}</td>
+              <td>{transaction.customerName||"-"}</td>
+              <td>{transaction.companyName||transaction.partnerName||"-"}</td>
+              <td><span className={`transaction-currency-badge currency-${String(transaction.currency||"USD").toLowerCase()}`}>{transaction.currency||"USD"}</span></td>
+              <td>{money(transaction.amount)} <small>{transaction.currency||"USD"}</small></td>
+              <td>{exchangeRate?exchangeRate.toFixed(4):"-"}</td>
+              <td className="transaction-cad-value">{money(cadValue)}</td>
+              <td>{money(transaction.transferFee||0)}</td>
+              <td className="transaction-final-total">{money(transaction.totalCustomerDue||cadValue)}</td>
+              <td><span className={`transfer-payment-badge ${transaction.paymentStatus==="PAID"?"paid":"unpaid"}`}>{transaction.paymentStatus==="PAID"?"مكتملة":"غير مدفوعة"}</span></td>
+              <td><div className="transaction-row-actions"><button title="فتح الفاتورة" onClick={()=>openInvoice(transaction.id)}>◉</button><button title="تعديل" className="transaction-edit-button" onClick={()=>startEditTransaction(transaction)}>✎</button>{transaction.paymentStatus!=="PAID"&&<button title="تسديد كامل" onClick={()=>markTransactionPaid(transaction)}>✓</button>}</div></td>
+            </tr>;
+          }):<tr><td colSpan="13">لا توجد حوالات مطابقة.</td></tr>}
         </tbody>
       </table>
     </div>
-    {visibleCount<filteredTransactions.length&&<div className="load-more-wrap no-print"><button type="button" onClick={()=>setVisibleCount(count=>count+50)}>تحميل 50 حوالة إضافية</button></div>}
+
+    <div className="transaction-ledger-pagination no-print">
+      <span>عرض {(safePage-1)*pageSize+1}-{Math.min(safePage*pageSize,filteredTransactions.length)} من {filteredTransactions.length} حوالة</span>
+      <div>{Array.from({length:Math.min(pageCount,7)},(_,i)=>i+1).map(number=><button key={number} className={safePage===number?"active":""} onClick={()=>setPage(number)}>{number}</button>)}{pageCount>7&&<><span>…</span><button className={safePage===pageCount?"active":""} onClick={()=>setPage(pageCount)}>{pageCount}</button></>}<button disabled={safePage>=pageCount} onClick={()=>setPage(value=>Math.min(value+1,pageCount))}>‹</button></div>
+    </div>
+
+    <section className="transaction-ledger-formula">
+      <div><strong>معلومات مهمة للقراءة</strong><p><b>العملة الأصلية:</b> العملة التي تم إرسال المبلغ بها.</p><p><b>القيمة بالكندي:</b> قيمة المبلغ بعد التحويل إلى CAD.</p><p><b>المجموع النهائي:</b> المبلغ النهائي الذي يُسجل على العميل.</p></div>
+      <div className="transaction-formula-flow"><strong>طريقة حساب المجموع النهائي</strong><p><span>المجموع النهائي (CAD)</span> = <span>القيمة بالكندي (CAD)</span> + <span>العمولة (CAD)</span></p></div>
+    </section>
   </>;
 }
 
