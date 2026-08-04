@@ -47,6 +47,36 @@ class PostgresEntityRepository {
     return result.rows.map(mergeRaw);
   }
 
+  async listCustomersPage(companyId, { search = "", sort = "name-asc", limit = 50, offset = 0 } = {}) {
+    if (!this.query || this.table !== "customers") return null;
+    const safeLimit = Math.min(500, Math.max(1, Number(limit) || 50));
+    const safeOffset = Math.max(0, Number(offset) || 0);
+    const normalizedName = `regexp_replace(translate(lower(name), 'أإآىة', 'ااايه'), '^[[:space:]]*ال', '')`;
+    const orders = {
+      "name-asc": `${normalizedName} ASC, name ASC, created_at ASC`,
+      "name-desc": `${normalizedName} DESC, name DESC, created_at DESC`,
+      "newest": "created_at DESC, name ASC",
+      "oldest": "created_at ASC, name ASC",
+    };
+    const orderBy = orders[sort] || orders["name-asc"];
+    const term = String(search || "").trim();
+    const values = [companyId];
+    let filter = `company_id=$1 AND COALESCE((raw_payload->>'isDeleted')::boolean,false)=false`;
+    if (term) {
+      values.push(`%${term}%`);
+      filter += ` AND (name ILIKE $2 OR COALESCE(phone,'') ILIKE $2 OR COALESCE(raw_payload->>'customerNumber','') ILIKE $2 OR COALESCE(raw_payload->>'identityNumber','') ILIKE $2)`;
+    }
+    const countResult = await this.query(`SELECT COUNT(*)::int AS count FROM ${quote(this.table)} WHERE ${filter}`, values);
+    values.push(safeLimit, safeOffset);
+    const limitIndex = values.length - 1;
+    const offsetIndex = values.length;
+    const result = await this.query(
+      `SELECT * FROM ${quote(this.table)} WHERE ${filter} ORDER BY ${orderBy} LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+      values
+    );
+    return { rows: result.rows.map(mergeRaw), total: Number(countResult.rows[0]?.count || 0) };
+  }
+
   async findById(companyId, id) {
     if (!this.query) return null;
     const result = await this.query(`SELECT * FROM ${quote(this.table)} WHERE company_id=$1 AND id=$2 LIMIT 1`, [companyId, id]);

@@ -41,10 +41,10 @@ export function Customers({open}){
 
   const [activePanel,setActivePanel]=useState("");
 
-  async function load(){
+  async function load(requestedSort=sortMode,requestedSearch=search){
     setError("");
     try{
-      const customersResponse=await cachedGet("/customers",{params:{limit:500,sort:"name-asc"},cacheTtl:2*60*1000});
+      const customersResponse=await cachedGet("/customers",{params:{limit:500,sort:["name-asc","name-desc","newest"].includes(requestedSort)?requestedSort:"name-asc",search:requestedSearch.trim()},cacheTtl:2*60*1000});
       setList(Array.isArray(customersResponse.data)?customersResponse.data:[]);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل العملاء");
@@ -52,8 +52,15 @@ export function Customers({open}){
   }
 
   useEffect(()=>{
-    load();
+    load(sortMode,search);
   },[]);
+
+  useEffect(()=>{
+    const timer=setTimeout(()=>{
+      if(["name-asc","name-desc","newest"].includes(sortMode))load(sortMode,search);
+    },300);
+    return()=>clearTimeout(timer);
+  },[sortMode,search]);
 
   useEffect(()=>{
     if(activePanel!=="transfer"||!transferForm.currency)return;
@@ -701,7 +708,7 @@ export function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
   const syncingAll=false;
   const autoSyncBusy=useRef(false);
 
-  async function load(){
+  async function load(requestedSort=sortMode,requestedSearch=search){
     setError("");
     try{
       const response=await cachedGet("/customer-alerts");

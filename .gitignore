@@ -1,17 +1,61 @@
-node_modules/
-frontend/dist/
-backend/public/
-data/
+# Environment and secrets
 .env
 .env.*
-*.log
-# Sensitive local exports/backups: customer and financial data must never enter Git.
-alaboud-backup-*.json
-alaboud-backup-*.zip
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+keystore.properties
+local.properties
+
+# Customer data, backups and databases
 backups/
-local-backups/
-backend/jad-diagnostics/
+backup/
+alaboud-backup-*
+*.backup
+*.dump
+*.sql
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.bak
+*.csv
+*.xlsx
+*.xls
+store.json
+data/store*.json
+backend/data/*.json
+!examples/store.example.json
 
+# Dependencies and build output
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+**/build/
+coverage/
+.gradle/
+android/.gradle/
+app/build/
+frontend/dist/
 
-# Generated project archives
-*.zip
+# Logs, caches and temporary files
+*.log
+logs/
+tmp/
+temp/
+.cache/
+.vite/
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/

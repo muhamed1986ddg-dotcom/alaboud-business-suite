@@ -23,7 +23,7 @@ class NativeRepositoryRegistry {
     const startedAt = Date.now();
     try {
       const rows = await nativeRead();
-      if (Array.isArray(rows)) {
+      if (rows !== null && rows !== undefined) {
         this.metrics.nativeSuccess += 1;
         this.metrics.totalDurationMs += Date.now() - startedAt;
         return rows;

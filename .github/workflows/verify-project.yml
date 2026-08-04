@@ -18,6 +18,8 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Block secrets, backups and customer data
+        run: node scripts/check-sensitive-files.js
       - name: Install dependencies
         run: npm run install:all
       - name: Backend syntax and tests

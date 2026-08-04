@@ -1335,23 +1335,87 @@ app.get("/api/monthly-report", auth, (req,res)=>{
 });
 
 
+function normalizeCustomerSortName(value){
+  return String(value||"")
+    .trim()
+    .replace(/[\u064B-\u065F\u0670]/g,"")
+    .replace(/^[اأإآ]ل(?=\S)/,"")
+    .replace(/^[أإآ]/,"ا")
+    .replace(/ى/g,"ي")
+    .replace(/ة/g,"ه")
+    .replace(/\s+/g," ");
+}
+function compareCustomers(sort){
+  const collator=new Intl.Collator("ar",{sensitivity:"base",numeric:true,ignorePunctuation:true});
+  const name=(a,b)=>collator.compare(normalizeCustomerSortName(a.name),normalizeCustomerSortName(b.name));
+  if(sort==="name-desc")return (a,b)=>name(b,a);
+  if(sort==="newest")return (a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))||name(a,b);
+  if(sort==="oldest")return (a,b)=>String(a.createdAt||"").localeCompare(String(b.createdAt||""))||name(a,b);
+  return name;
+}
+
 app.get("/api/customers", auth, async (req,res)=>{
-  const s=readStore();
-  const customers=await branchSafeRead(req,"customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId),()=>Array.from(s.customers));
-  const search=String(req.query.search||"").trim().toLowerCase();
-  const base=customers.filter(c=>!c?.isDeleted).filter(c=>!search||[c.name,c.phone,c.customerNumber,c.identityNumber].some(v=>String(v||"").toLowerCase().includes(search))).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
-  const win=requestedWindow(req,base.length);
-  const items=base.slice(win.start,win.end).map(c=>customerSummary(s,c));
-  res.json(windowResponse(win,items));
+  try{
+    const store=readStore();
+    const search=String(req.query.search||"").trim();
+    const sort=String(req.query.sort||"name-asc");
+    const hasPaging=req.query.page!==undefined||req.query.pageSize!==undefined;
+    const page=Math.max(1,parseInt(req.query.page,10)||1);
+    const pageSize=Math.min(200,Math.max(1,parseInt(req.query.pageSize||req.query.limit,10)||50));
+    const offset=(page-1)*pageSize;
+
+    const nativePage=await branchSafeRead(
+      req,
+      "customers-page",
+      ()=>nativeRepositories.customers.listCustomersPage(req.user.companyId,{search,sort,limit:pageSize,offset}),
+      ()=>null
+    );
+    if(nativePage&&Array.isArray(nativePage.rows)){
+      const items=nativePage.rows.map(customer=>customerSummary(store,customer));
+      if(!hasPaging)return res.json(items);
+      return res.json({items,total:nativePage.total,page,pageSize,totalPages:Math.max(1,Math.ceil(nativePage.total/pageSize))});
+    }
+
+    const customers=Array.from(store.customers||[]);
+    const lowered=search.toLowerCase();
+    const base=customers
+      .filter(customer=>!customer?.isDeleted)
+      .filter(customer=>!lowered||[customer.name,customer.phone,customer.customerNumber,customer.identityNumber].some(value=>String(value||"").toLowerCase().includes(lowered)))
+      .sort(compareCustomers(sort));
+    const win=requestedWindow(req,base.length);
+    const items=base.slice(win.start,win.end).map(customer=>customerSummary(store,customer));
+    res.json(windowResponse(win,items));
+  }catch(error){
+    console.error("Customer list failed",{requestId:req.requestId,error:error?.stack||error});
+    res.status(500).json({code:"CUSTOMERS_LIST_FAILED",message:"تعذر تحميل قائمة العملاء. حاول مرة أخرى.",requestId:req.requestId||null});
+  }
 });
 
 app.get("/api/customers/options",auth,async(req,res)=>{
-  const s=readStore();
-  const customers=await branchSafeRead(req,"customer-options",()=>nativeRepositories.customers.listByCompany(req.user.companyId),()=>Array.from(s.customers));
-  const search=String(req.query.search||"").trim().toLowerCase();
-  const rows=customers.filter(c=>!c?.isDeleted).filter(c=>!search||[c.name,c.phone,c.customerNumber].some(v=>String(v||"").toLowerCase().includes(search))).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"ar")).map(c=>({id:c.id,name:c.name,phone:c.phone||"",customerNumber:c.customerNumber||c.identityNumber||""}));
-  res.set("Cache-Control","private, max-age=60");
-  res.json(paginate(req,rows));
+  try{
+    const store=readStore();
+    const search=String(req.query.search||"").trim();
+    const limit=Math.min(500,Math.max(1,parseInt(req.query.limit,10)||200));
+    const nativePage=await branchSafeRead(
+      req,
+      "customer-options",
+      ()=>nativeRepositories.customers.listCustomersPage(req.user.companyId,{search,sort:"name-asc",limit,offset:0}),
+      ()=>null
+    );
+    const customers=nativePage&&Array.isArray(nativePage.rows)?nativePage.rows:Array.from(store.customers||[]);
+    const lowered=search.toLowerCase();
+    const rows=customers
+      .filter(customer=>!customer?.isDeleted)
+      .filter(customer=>!lowered||[customer.name,customer.phone,customer.customerNumber].some(value=>String(value||"").toLowerCase().includes(lowered)))
+      .sort(compareCustomers("name-asc"))
+      .slice(0,limit)
+      .map(customer=>({id:customer.id,name:customer.name,phone:customer.phone||"",customerNumber:customer.customerNumber||customer.identityNumber||""}));
+    res.set("Cache-Control","private, max-age=60");
+    res.json(rows);
+  }catch(error){
+    console.error("Customer options failed",{requestId:req.requestId,error:error?.stack||error});
+    res.status(500).json({code:"CUSTOMER_OPTIONS_FAILED",message:"تعذر تحميل قائمة اختيار العملاء.",requestId:req.requestId||null});
+  }
 });
 app.post("/api/customers", auth, (req,res)=>{
   try{
