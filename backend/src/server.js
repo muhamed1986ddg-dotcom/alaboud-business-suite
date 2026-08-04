@@ -1763,7 +1763,7 @@ async function fetchOfficialRate(baseCurrency, quoteCurrency) {
 
 async function fetchGlobalUsdRates() {
   const response = await fetch("https://open.er-api.com/v6/latest/USD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/23.0.36" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/23.0.37" }
   });
   if (!response.ok) throw new Error(`Global rate provider returned ${response.status}`);
   const data = await response.json();

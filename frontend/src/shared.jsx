@@ -107,8 +107,13 @@ export function UnifiedModal({open,title,children,onClose,actions=null,size="md"
     const onKey=(event)=>{if(event.key==="Escape"&&!busy)onClose?.();};
     document.addEventListener("keydown",onKey);
     const previous=document.body.style.overflow;
+    document.body.classList.add("unified-modal-open");
     document.body.style.overflow="hidden";
-    return()=>{document.removeEventListener("keydown",onKey);document.body.style.overflow=previous;};
+    return()=>{
+      document.removeEventListener("keydown",onKey);
+      document.body.classList.remove("unified-modal-open");
+      document.body.style.overflow=previous||"";
+    };
   },[open,busy,onClose]);
   if(!open)return null;
   return <div className="unified-modal-backdrop" role="presentation" onMouseDown={(event)=>{

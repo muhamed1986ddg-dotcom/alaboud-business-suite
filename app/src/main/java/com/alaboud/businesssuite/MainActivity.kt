@@ -239,8 +239,20 @@ class MainActivity : AppCompatActivity() {
                 style.id = 'alaboud-mobile-menu-style';
                 style.textContent = `
                   @media (max-width: 900px) {
-                    html, body { overflow-x: hidden !important; }
-                    .app { display: block !important; min-height: 100vh !important; }
+                    html, body {
+                      width:100% !important;
+                      height:100% !important;
+                      overflow:hidden !important;
+                      overscroll-behavior:none !important;
+                    }
+                    .app {
+                      display:block !important;
+                      position:relative !important;
+                      width:100% !important;
+                      height:100dvh !important;
+                      min-height:100dvh !important;
+                      overflow:hidden !important;
+                    }
                     .app > aside {
                       position: fixed !important;
                       top: 0 !important;
@@ -256,11 +268,23 @@ class MainActivity : AppCompatActivity() {
                     }
                     .app > aside.alaboud-menu-open { right: 0 !important; }
                     .app > main {
-                      width: 100% !important;
-                      max-width: 100% !important;
-                      margin: 0 !important;
-                      padding: 72px 12px 20px !important;
-                      box-sizing: border-box !important;
+                      position:absolute !important;
+                      top:60px !important;
+                      bottom:0 !important;
+                      left:0 !important;
+                      right:0 !important;
+                      width:100% !important;
+                      max-width:100% !important;
+                      height:auto !important;
+                      min-height:0 !important;
+                      margin:0 !important;
+                      padding:12px 12px 120px !important;
+                      box-sizing:border-box !important;
+                      overflow-x:hidden !important;
+                      overflow-y:scroll !important;
+                      -webkit-overflow-scrolling:touch !important;
+                      overscroll-behavior-y:contain !important;
+                      touch-action:pan-y !important;
                     }
                     .app > aside h1 { display:none !important; }
                     .app > aside button {
