@@ -1767,7 +1767,8 @@ function Customer({id,back,onStatement}){
     {editingPayment&&
       <form className="card form edit-panel" onSubmit={savePayment}>
         <h3>تعديل الدفعة</h3>
-        <input type="number" min=".01" step=".01" value={editingPayment.amount} onChange={e=>setEditingPayment({...editingPayment,amount:e.target.value})}/>
+        <input type="number" min=".01" step=".01" value={editingPayment.amount} readOnly={Boolean(editingPayment.isGroupedPayment)} onChange={e=>setEditingPayment({...editingPayment,amount:e.target.value})}/>
+        {editingPayment.isGroupedPayment&&<small className="payment-auto-note">مبلغ الدفعة الأصلية ثابت لأنه موزع على عدة حوالات. يمكنك تعديل التاريخ والطريقة والمرجع والملاحظات، أو حذف الدفعة وتسجيلها من جديد.</small>}
         <input type="date" value={editingPayment.paymentDate||String(editingPayment.date||"").slice(0,10)} onChange={e=>setEditingPayment({...editingPayment,paymentDate:e.target.value})}/>
         <select value={editingPayment.method||"CASH"} onChange={e=>setEditingPayment({...editingPayment,method:e.target.value})}>
           <option value="CASH">نقدي</option>
@@ -1803,21 +1804,28 @@ function Customer({id,back,onStatement}){
     <div className="card tablewrap">
       <h3>سجل الدفعات</h3>
       <table>
-        <thead><tr><th>التاريخ</th><th>الحوالة</th><th>المبلغ</th><th>الطريقة</th><th>المرجع</th><th>الإجراءات</th></tr></thead>
+        <thead><tr><th>التاريخ</th><th>البيان</th><th>المبلغ الكامل</th><th>طريقة الدفع</th><th>المرجع</th><th>تفاصيل التوزيع</th><th>الإجراءات</th></tr></thead>
         <tbody>{payments.length?payments.map(payment=>{
           const transaction=transactions.find(item=>item.id===payment.transactionId);
+          const allocations=Array.isArray(payment.allocations)?payment.allocations:[];
           return <tr key={payment.id}>
             <td>{payment.paymentDate||String(payment.date||"").slice(0,10)}</td>
-            <td>{transaction?.number||"-"}</td>
-            <td>{money(payment.amount)}</td>
+            <td>{payment.isGroupedPayment?"دفعة من العميل":transaction?.number||"دفعة حوالة"}</td>
+            <td><strong>{money(payment.amount)} CAD</strong></td>
             <td>{payment.method||"-"}</td>
             <td>{payment.reference||"-"}</td>
+            <td>{allocations.length?
+              <details className="payment-allocation-details"><summary>{allocations.length} حوالة</summary>{allocations.map((allocation,index)=>{
+                const allocatedTransaction=transactions.find(item=>item.id===allocation.transactionId);
+                return <div key={`${payment.id}-${allocation.transactionId||index}`}>{allocatedTransaction?.number||allocation.transactionId||"الحساب القديم"} — {money(allocation.amount)} CAD</div>
+              })}</details>
+              :transaction?.number||"—"}</td>
             <td className="actions">
               <button onClick={()=>setEditingPayment({...payment})}>تعديل</button>
               <button className="danger-button" onClick={()=>deletePayment(payment.id)}>حذف</button>
             </td>
           </tr>
-        }):<tr><td colSpan="6">لا توجد دفعات.</td></tr>}</tbody>
+        }):<tr><td colSpan="7">لا توجد دفعات.</td></tr>}</tbody>
       </table>
     </div>
   </>;
@@ -1961,6 +1969,22 @@ function Statement({customerId,back}){
         </table>
       </div>
 
+
+      <div className="tablewrap statement-payments-ledger">
+        <h3>الدفعات المسجلة</h3>
+        <table className="simple-statement-table">
+          <thead><tr><th>#</th><th>تاريخ الدفعة</th><th>البيان</th><th>قيمة الدفعة</th></tr></thead>
+          <tbody>{Array.isArray(data.payments)&&data.payments.length?
+            data.payments.map((payment,index)=><tr key={payment.id||index}>
+              <td>{index+1}</td>
+              <td>{payment.paymentDate||String(payment.date||payment.createdAt||"").slice(0,10)}</td>
+              <td>{payment.notes||"دفعة من العميل"}</td>
+              <td><strong>{money(payment.amount)} CAD</strong></td>
+            </tr>)
+            :<tr><td colSpan="4">لا توجد دفعات في هذه الفترة.</td></tr>}
+          </tbody>
+        </table>
+      </div>
 
       <div className="simple-statement-old-balance">
         <span>الحساب القديم:</span>

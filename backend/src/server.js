@@ -229,6 +229,67 @@ function safeNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function legacyPaymentGroupKey(payment) {
+  const timestamp = String(payment.date || payment.createdAt || payment.paymentDate || "").slice(0, 19);
+  return [
+    payment.customerId || "",
+    payment.paymentDate || "",
+    payment.receivedBy || "",
+    payment.method || "",
+    payment.reference || "",
+    payment.notes || "",
+    timestamp,
+  ].join("|");
+}
+
+function groupCustomerPaymentRecords(payments, customerId) {
+  const rows = (Array.isArray(payments) ? payments : [])
+    .filter((payment) => payment && !payment.isDeleted && payment.customerId === customerId);
+
+  const receipts = rows.filter((payment) => payment.recordType === "CUSTOMER_PAYMENT_RECEIPT");
+  const receiptBatchIds = new Set(receipts.map((payment) => payment.paymentBatchId).filter(Boolean));
+  const result = receipts.map((receipt) => ({
+    ...receipt,
+    amount: +safeNumber(receipt.originalAmount, receipt.amount).toFixed(2),
+    allocations: Array.isArray(receipt.allocations) ? receipt.allocations : [],
+    isGroupedPayment: true,
+  }));
+
+  const legacyGroups = new Map();
+  for (const payment of rows) {
+    if (payment.recordType === "CUSTOMER_PAYMENT_RECEIPT") continue;
+    if (payment.recordType === "PAYMENT_ALLOCATION" && payment.paymentBatchId && receiptBatchIds.has(payment.paymentBatchId)) continue;
+
+    const key = payment.paymentBatchId || (
+      payment.allocationMode === "CUSTOMER_AUTO" ? legacyPaymentGroupKey(payment) : `single:${payment.id}`
+    );
+    if (!legacyGroups.has(key)) {
+      legacyGroups.set(key, {
+        ...payment,
+        id: payment.id,
+        paymentBatchId: payment.paymentBatchId || null,
+        amount: 0,
+        allocationIds: [],
+        allocations: [],
+        isGroupedPayment: payment.allocationMode === "CUSTOMER_AUTO" || Boolean(payment.paymentBatchId),
+      });
+    }
+    const group = legacyGroups.get(key);
+    group.amount += safeNumber(payment.originalAmount, payment.amount);
+    group.allocationIds.push(payment.id);
+    if (payment.transactionId) {
+      group.allocations.push({transactionId: payment.transactionId, amount: +safeNumber(payment.amount).toFixed(2)});
+    }
+  }
+
+  for (const group of legacyGroups.values()) {
+    group.amount = +group.amount.toFixed(2);
+    result.push(group);
+  }
+
+  return result.sort((a,b)=>String(b.paymentDate||b.date||b.createdAt||"").localeCompare(String(a.paymentDate||a.date||a.createdAt||"")));
+}
+
 // ترقيم صفحات اختياري ومتوافق مع القديم: إن لم يُرسل الطالب ?page أو ?pageSize
 // تُعاد المصفوفة كما هي (بدون كسر الواجهات الحالية). أي طلب يحدد page/pageSize
 // يحصل على كائن {items,total,page,pageSize,totalPages}.
@@ -1390,10 +1451,7 @@ app.get("/api/customers/:id", auth, (req,res)=>{
         };
       });
 
-    const transactionIds = new Set(transactions.map((transaction) => transaction.id));
-    const payments = allPayments.filter(
-      (payment) => payment && transactionIds.has(payment.transactionId)
-    );
+    const payments = groupCustomerPaymentRecords(allPayments, customer.id);
 
     res.json({
       customer: customerSummary(store, customer),
@@ -1543,6 +1601,9 @@ app.post("/api/customers/:id/payments", auth, (req,res)=>{
 
       let left=requested;
       const allocations=[];
+      const paymentBatchId=id();
+      const createdAt=now();
+      const effectivePaymentDate=paymentDate||new Date().toISOString().slice(0,10);
       let oldBalanceAllocation=0;
       if(oldBalanceRemaining>0&&left>0.0001){
         oldBalanceAllocation=Math.min(left,oldBalanceRemaining);
@@ -1560,24 +1621,48 @@ app.post("/api/customers/:id/payments", auth, (req,res)=>{
           method,
           notes,
           reference,
-          paymentDate:paymentDate||new Date().toISOString().slice(0,10),
-          date:now(),
+          paymentDate:effectivePaymentDate,
+          date:createdAt,
           receivedBy:req.user.id,
           isDeleted:false,
-          allocationMode:"CUSTOMER_AUTO"
+          allocationMode:"CUSTOMER_AUTO",
+          recordType:"PAYMENT_ALLOCATION",
+          paymentBatchId
         };
         store.payments.push(payment);
         allocations.push(payment);
         left-=allocated;
       }
 
+      const receipt={
+        id:id(),
+        transactionId:null,
+        customerId:customer.id,
+        amount:+requested.toFixed(2),
+        originalAmount:+requested.toFixed(2),
+        oldBalanceAllocation:+oldBalanceAllocation.toFixed(2),
+        method,
+        notes,
+        reference,
+        paymentDate:effectivePaymentDate,
+        date:createdAt,
+        receivedBy:req.user.id,
+        isDeleted:false,
+        recordType:"CUSTOMER_PAYMENT_RECEIPT",
+        paymentBatchId,
+        allocations:allocations.map(item=>({transactionId:item.transactionId,amount:item.amount}))
+      };
+      store.payments.push(receipt);
+
       audit(store,req.user.id,"PAYMENT","CUSTOMER",customer.id,{
+        paymentId:receipt.id,
+        paymentBatchId,
         amount:+requested.toFixed(2),
         oldBalanceAllocation:+oldBalanceAllocation.toFixed(2),
-        allocations:allocations.map(item=>({transactionId:item.transactionId,amount:item.amount}))
+        allocations:receipt.allocations
       });
 
-      return {customerId:customer.id,amount:+requested.toFixed(2),oldBalanceAllocation:+oldBalanceAllocation.toFixed(2),allocations};
+      return {customerId:customer.id,payment:receipt,amount:+requested.toFixed(2),oldBalanceAllocation:+oldBalanceAllocation.toFixed(2),allocations};
     });
 
     res.status(201).json(result);
@@ -1686,32 +1771,46 @@ app.patch("/api/payments/:id", auth, (req,res)=>{
     const updated=mutate((s)=>{
       const payment=s.payments.find(item=>item.id===req.params.id&&!item.isDeleted);
       if(!payment)return null;
+
+      if(payment.recordType==="CUSTOMER_PAYMENT_RECEIPT" || payment.paymentBatchId){
+        const batchId=payment.paymentBatchId;
+        const batchRows=(s.payments||[]).filter(item=>!item.isDeleted&&(
+          (batchId&&item.paymentBatchId===batchId) || item.id===payment.id
+        ));
+        const receipt=batchRows.find(item=>item.recordType==="CUSTOMER_PAYMENT_RECEIPT")||payment;
+        if(req.body.amount!==undefined && Math.abs(Number(req.body.amount)-safeNumber(receipt.originalAmount,receipt.amount))>0.001){
+          throw new Error("لا يمكن تغيير مبلغ دفعة موزعة. احذف الدفعة وسجلها من جديد.");
+        }
+        for(const item of batchRows){
+          if(req.body.method!==undefined)item.method=req.body.method;
+          if(req.body.notes!==undefined)item.notes=req.body.notes;
+          if(req.body.reference!==undefined)item.reference=req.body.reference;
+          if(req.body.paymentDate!==undefined)item.paymentDate=req.body.paymentDate;
+          item.updatedAt=now();
+          item.updatedBy=req.user.id;
+        }
+        audit(s,req.user.id,"UPDATE","PAYMENT",receipt.id,{paymentBatchId:batchId,newData:{...receipt}});
+        return {...receipt,amount:+safeNumber(receipt.originalAmount,receipt.amount).toFixed(2)};
+      }
+
       const transaction=s.transactions.find(item=>item.id===payment.transactionId&&!item.isDeleted);
       if(!transaction)throw new Error("الحوالة غير موجودة");
-
       const oldData={...payment};
       if(req.body.amount!==undefined)payment.amount=Number(req.body.amount);
       if(req.body.method!==undefined)payment.method=req.body.method;
       if(req.body.notes!==undefined)payment.notes=req.body.notes;
       if(req.body.reference!==undefined)payment.reference=req.body.reference;
       if(req.body.paymentDate!==undefined)payment.paymentDate=req.body.paymentDate;
-
       if(!Number.isFinite(payment.amount)||payment.amount<=0)throw new Error("مبلغ الدفعة غير صحيح");
-
       const totalPaid=s.payments
-        .filter(item=>item.transactionId===transaction.id&&!item.isDeleted)
+        .filter(item=>item.transactionId===transaction.id&&!item.isDeleted&&item.recordType!=="CUSTOMER_PAYMENT_RECEIPT")
         .reduce((sum,item)=>sum+Number(item.amount||0),0);
-
-      if(totalPaid>Number(transaction.totalCustomerDue)+0.001){
-        throw new Error("إجمالي الدفعات أكبر من رصيد الحوالة");
-      }
-
+      if(totalPaid>Number(transaction.totalCustomerDue)+0.001)throw new Error("إجمالي الدفعات أكبر من رصيد الحوالة");
       payment.updatedAt=now();
       payment.updatedBy=req.user.id;
       audit(s,req.user.id,"UPDATE","PAYMENT",payment.id,{oldData,newData:{...payment}});
       return payment;
     });
-
     if(!updated)return res.status(404).json({message:"الدفعة غير موجودة"});
     res.json(updated);
   }catch(error){
@@ -1723,15 +1822,26 @@ app.delete("/api/payments/:id", auth, (req,res)=>{
   const deleted=mutate((s)=>{
     const payment=s.payments.find(item=>item.id===req.params.id&&!item.isDeleted);
     if(!payment)return null;
-    payment.isDeleted=true;
-    payment.deletedAt=now();
-    payment.deletedBy=req.user.id;
-    audit(s,req.user.id,"DELETE","PAYMENT",payment.id,{softDelete:true});
+    const batchId=payment.paymentBatchId;
+    const targets=(batchId
+      ? s.payments.filter(item=>!item.isDeleted&&item.paymentBatchId===batchId)
+      : [payment]);
+    for(const item of targets){
+      item.isDeleted=true;
+      item.deletedAt=now();
+      item.deletedBy=req.user.id;
+    }
+    if(payment.recordType==="CUSTOMER_PAYMENT_RECEIPT"&&safeNumber(payment.oldBalanceAllocation)>0){
+      const customer=s.customers.find(item=>item.id===payment.customerId);
+      if(customer){
+        customer.oldBalancePaid=+Math.max(0,safeNumber(customer.oldBalancePaid)-safeNumber(payment.oldBalanceAllocation)).toFixed(2);
+      }
+    }
+    audit(s,req.user.id,"DELETE","PAYMENT",payment.id,{softDelete:true,paymentBatchId:batchId,deletedCount:targets.length});
     return payment;
   });
-
   if(!deleted)return res.status(404).json({message:"الدفعة غير موجودة"});
-  res.json({message:"تم حذف الدفعة"});
+  res.json({message:"تم حذف الدفعة كاملة مع توزيعها"});
 });
 
 
@@ -1763,7 +1873,7 @@ async function fetchOfficialRate(baseCurrency, quoteCurrency) {
 
 async function fetchGlobalUsdRates() {
   const response = await fetch("https://open.er-api.com/v6/latest/USD", {
-    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/24.0.2" }
+    headers: { "Accept": "application/json", "User-Agent": "AlAboud-Cloud/24.0.3" }
   });
   if (!response.ok) throw new Error(`Global rate provider returned ${response.status}`);
   const data = await response.json();
@@ -2524,6 +2634,13 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
       })
       .sort((a,b)=>String(a.transferDate).localeCompare(String(b.transferDate)));
 
+    const paymentRecords=groupCustomerPaymentRecords(allPayments, customer.id)
+      .filter(payment=>{
+        const date=String(payment.paymentDate||payment.date||payment.createdAt||"").slice(0,10);
+        return (!from||date>=from)&&(!to||date<=to);
+      })
+      .sort((a,b)=>String(a.paymentDate||a.date||"").localeCompare(String(b.paymentDate||b.date||"")));
+
     const accountWasReset=Boolean(customer.accountResetAt);
     const oldBalance=accountWasReset?0:Math.max(safeNumber(customer.oldBalance),0);
     const oldBalancePaid=accountWasReset?0:Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),oldBalance);
@@ -2562,6 +2679,7 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
       generatedAt:now(),
       lastActivity,
       transactions,
+      payments:paymentRecords,
       totals:{
         usdAmount:+totals.usdAmount.toFixed(2),
         costCad:+totals.costCad.toFixed(2),

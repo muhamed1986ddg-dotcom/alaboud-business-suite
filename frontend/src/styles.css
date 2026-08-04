@@ -6000,3 +6000,14 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
   .desktop-dashboard-layout .executive-intelligence-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
   .desktop-dashboard-layout .executive-comparison{grid-column:1/-1!important}
 }
+
+/* v24.0.3 - original customer payment receipts and allocation details */
+.payment-allocation-details{min-width:170px}
+.payment-allocation-details summary{cursor:pointer;color:#d7b85f;font-weight:700}
+.payment-allocation-details div{padding:5px 0;border-bottom:1px solid rgba(255,255,255,.08);font-size:.9rem}
+.statement-payments-ledger{margin-top:18px}
+.statement-payments-ledger h3{margin:0 0 10px;color:#b8860b}
+@media(max-width:720px){
+  .payment-allocation-details{min-width:140px}
+  .statement-payments-ledger{overflow-x:auto}
+}
