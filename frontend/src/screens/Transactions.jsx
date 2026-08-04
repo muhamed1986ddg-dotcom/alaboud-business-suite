@@ -38,8 +38,8 @@ export function Transactions({openInvoice}){
   async function load(){
     try{
       const [customersResponse,transactionsResponse]=await Promise.all([
-        cachedGet("/customers"),
-        cachedGet("/transactions")
+        cachedGet("/customers/options",{params:{limit:200},cacheTtl:5*60*1000}),
+        cachedGet("/transactions",{params:{limit:200},cacheTtl:2*60*1000})
       ]);
       const customerList=Array.isArray(customersResponse.data)?customersResponse.data:[];
       setCustomers(customerList);

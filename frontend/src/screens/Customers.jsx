@@ -41,7 +41,7 @@ export function Customers({open}){
   async function load(){
     setError("");
     try{
-      const customersResponse=await cachedGet("/customers");
+      const customersResponse=await cachedGet("/customers",{params:{limit:100},cacheTtl:2*60*1000});
       setList(Array.isArray(customersResponse.data)?customersResponse.data:[]);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل العملاء");

@@ -2,6 +2,9 @@ import axios from "axios";
 
 const getResponseCache=new Map();
 const DEFAULT_GET_CACHE_TTL=60000;
+const PERSISTED_CACHE_PREFIX="alaboud_get_cache_v1:";
+function persistedGet(key){try{const raw=sessionStorage.getItem(PERSISTED_CACHE_PREFIX+key);if(!raw)return null;const value=JSON.parse(raw);return value?.expiresAt>Date.now()?value:null}catch{return null}}
+function persistedSet(key,response,expiresAt){try{sessionStorage.setItem(PERSISTED_CACHE_PREFIX+key,JSON.stringify({expiresAt,data:response.data,status:response.status,statusText:response.statusText,headers:response.headers}))}catch{}}
 
 function cacheKey(url,config={}){
   const branchId=localStorage.getItem("alaboud_branch_id")||"main";
@@ -41,7 +44,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="23.0.34";
+  config.headers["X-Alaboud-Client-Version"]="24.1.1";
   // Do not append a timestamp to every GET request. The in-memory cache below
   // already controls freshness, while cache-busting forced needless server and
   // database work on every navigation.
@@ -114,13 +117,16 @@ api.interceptors.response.use(
 // clears the cache through the response interceptor above.
 export function cachedGet(url,config={}){
   const ttl=Number.isFinite(Number(config.cacheTtl))?Math.max(0,Number(config.cacheTtl)):DEFAULT_GET_CACHE_TTL;
-  const requestConfig={...config};delete requestConfig.cacheTtl;
+  const persist=config.persistCache===true;
+  const requestConfig={...config};delete requestConfig.cacheTtl;delete requestConfig.persistCache;
   if(ttl===0)return api.get(url,requestConfig);
   const key=cacheKey(url,requestConfig);
   const current=getResponseCache.get(key);
   if(current&&current.expiresAt>Date.now())return current.promise;
-  const promise=api.get(url,requestConfig).catch(error=>{getResponseCache.delete(key);throw error;});
-  getResponseCache.set(key,{promise,expiresAt:Date.now()+ttl});
+  if(persist){const saved=persistedGet(key);if(saved){const response={data:saved.data,status:saved.status||200,statusText:saved.statusText||"OK",headers:saved.headers||{},config:requestConfig};const promise=Promise.resolve(response);getResponseCache.set(key,{promise,expiresAt:saved.expiresAt});return promise;}}
+  const expiresAt=Date.now()+ttl;
+  const promise=api.get(url,requestConfig).then(response=>{if(persist)persistedSet(key,response,expiresAt);return response;}).catch(error=>{getResponseCache.delete(key);throw error;});
+  getResponseCache.set(key,{promise,expiresAt});
   return promise;
 }
 

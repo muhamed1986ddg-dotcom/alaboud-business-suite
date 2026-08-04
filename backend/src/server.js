@@ -294,10 +294,14 @@ function groupCustomerPaymentRecords(payments, customerId) {
 // تُعاد المصفوفة كما هي (بدون كسر الواجهات الحالية). أي طلب يحدد page/pageSize
 // يحصل على كائن {items,total,page,pageSize,totalPages}.
 function paginate(req, rows) {
-  const hasPaging = req?.query && (req.query.page !== undefined || req.query.pageSize !== undefined);
-  if (!hasPaging) return rows;
-  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const pageSize = Math.min(200, Math.max(1, parseInt(req.query.pageSize, 10) || 25));
+  const query=req?.query||{};
+  const hasPaging = query.page !== undefined || query.pageSize !== undefined;
+  const legacyLimit = Math.min(200, Math.max(0, parseInt(query.limit,10)||0));
+  // Backward-compatible lightweight list requests: ?limit=50 returns an array,
+  // while page/pageSize returns metadata for screens that support pagination.
+  if (!hasPaging) return legacyLimit ? rows.slice(0,legacyLimit) : rows;
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const pageSize = Math.min(200, Math.max(1, parseInt(query.pageSize, 10) || legacyLimit || 25));
   const total = rows.length;
   const start = (page - 1) * pageSize;
   return {
@@ -307,6 +311,21 @@ function paginate(req, rows) {
     pageSize,
     totalPages: Math.max(1, Math.ceil(total / pageSize)),
   };
+}
+
+function requestedWindow(req,total){
+  const query=req?.query||{};
+  const hasPaging=query.page!==undefined||query.pageSize!==undefined;
+  const limit=Math.min(200,Math.max(0,parseInt(query.limit,10)||0));
+  if(!hasPaging)return {start:0,end:limit||total,hasPaging:false,page:1,pageSize:limit||total,total};
+  const page=Math.max(1,parseInt(query.page,10)||1);
+  const pageSize=Math.min(200,Math.max(1,parseInt(query.pageSize,10)||limit||25));
+  const start=(page-1)*pageSize;
+  return {start,end:start+pageSize,hasPaging:true,page,pageSize,total};
+}
+function windowResponse(window,items){
+  if(!window.hasPaging)return items;
+  return {items,total:window.total,page:window.page,pageSize:window.pageSize,totalPages:Math.max(1,Math.ceil(window.total/window.pageSize))};
 }
 
 function latestExchangeGraph(store) {
@@ -874,15 +893,23 @@ app.get("/api/legal/privacy", (_req,res)=>res.json({version:"1.0",updatedAt:"202
 app.get("/api/legal/terms", (_req,res)=>res.json({version:"1.0",updatedAt:"2026-07-18",title:"شروط الاستخدام",content:"استخدام البرنامج مخصص للحسابات والأجهزة المصرح بها. يمنع نسخ البرنامج أو إعادة بيعه أو محاولة تجاوز الحماية دون إذن. المستخدم مسؤول عن صحة البيانات والنسخ الاحتياطية والالتزام بالقوانين المحلية."}));
 
 
-app.get("/api/dashboard", auth, (_req,res)=>{
+const dashboardSummaryCache=new Map();
+app.get("/api/dashboard", auth, (req,res)=>{
+  const cacheKey=`${req.user.companyId||"main"}:${req.headers["x-branch-id"]||"main"}`;
+  const cached=dashboardSummaryCache.get(cacheKey);
+  if(cached&&cached.expiresAt>Date.now())return res.json(cached.value);
   const s = readStore();
   const today = new Date().toISOString().slice(0,10);
-  const todayTx = s.transactions.filter((t)=>t.createdAt.slice(0,10)===today && t.status!=="CANCELLED");
-  const todayExpenses = s.expenses.filter((e)=>e.date===today).reduce((a,e)=>a+Number(e.cadAmount??e.amount),0);
+  const activeTransactions=(s.transactions||[]).filter(t=>!t.isDeleted&&t.status!=="CANCELLED");
+  const todayTx = activeTransactions.filter((t)=>String(t.createdAt||t.transferDate||"").slice(0,10)===today);
+  const todayExpenses = (s.expenses||[]).filter((e)=>e.date===today&&!e.isDeleted).reduce((a,e)=>a+Number(e.cadAmount??e.amount),0);
   const totalProfit = todayTx.reduce((a,t)=>a+Number(t.totalProfit||0),0)-todayExpenses;
-  const receivables = s.customers.reduce((a,c)=>a+customerSummary(s,c).finalBalance,0);
-  const capital = s.capitalMovements.reduce((a,m)=>a+(m.type==="IN"?capitalCadAmount(s,m):-capitalCadAmount(s,m)),0);
-  res.json({customers:s.customers.length,todayTransactions:todayTx.length,todayProfit:+totalProfit.toFixed(2),receivables:+receivables.toFixed(2),capital:+capital.toFixed(2),recent:todayTx.slice(-8).reverse()});
+  const receivables = (s.customers||[]).filter(c=>!c.isDeleted).reduce((a,c)=>a+customerSummary(s,c).finalBalance,0);
+  const capital = (s.capitalMovements||[]).filter(m=>!m.isDeleted).reduce((a,m)=>a+(m.type==="IN"?capitalCadAmount(s,m):-capitalCadAmount(s,m)),0);
+  const value={customers:(s.customers||[]).filter(c=>!c.isDeleted).length,todayTransactions:todayTx.length,todayProfit:+totalProfit.toFixed(2),receivables:+receivables.toFixed(2),capital:+capital.toFixed(2),recent:todayTx.slice(-8).reverse()};
+  dashboardSummaryCache.set(cacheKey,{value,expiresAt:Date.now()+15000});
+  res.set("Cache-Control","private, max-age=15");
+  res.json(value);
 });
 
 
@@ -1311,7 +1338,20 @@ app.get("/api/monthly-report", auth, (req,res)=>{
 app.get("/api/customers", auth, async (req,res)=>{
   const s=readStore();
   const customers=await branchSafeRead(req,"customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId),()=>Array.from(s.customers));
-  res.json(paginate(req, customers.filter(c=>!c?.isDeleted).map(c=>customerSummary(s,c)).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")))));
+  const search=String(req.query.search||"").trim().toLowerCase();
+  const base=customers.filter(c=>!c?.isDeleted).filter(c=>!search||[c.name,c.phone,c.customerNumber,c.identityNumber].some(v=>String(v||"").toLowerCase().includes(search))).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")));
+  const win=requestedWindow(req,base.length);
+  const items=base.slice(win.start,win.end).map(c=>customerSummary(s,c));
+  res.json(windowResponse(win,items));
+});
+
+app.get("/api/customers/options",auth,async(req,res)=>{
+  const s=readStore();
+  const customers=await branchSafeRead(req,"customer-options",()=>nativeRepositories.customers.listByCompany(req.user.companyId),()=>Array.from(s.customers));
+  const search=String(req.query.search||"").trim().toLowerCase();
+  const rows=customers.filter(c=>!c?.isDeleted).filter(c=>!search||[c.name,c.phone,c.customerNumber].some(v=>String(v||"").toLowerCase().includes(search))).sort((a,b)=>String(a.name||"").localeCompare(String(b.name||""),"ar")).map(c=>({id:c.id,name:c.name,phone:c.phone||"",customerNumber:c.customerNumber||c.identityNumber||""}));
+  res.set("Cache-Control","private, max-age=60");
+  res.json(paginate(req,rows));
 });
 app.post("/api/customers", auth, (req,res)=>{
   try{
@@ -1492,11 +1532,20 @@ app.get("/api/transactions", auth, async (req,res)=>{
     branchSafeRead(req,"payments",()=>nativeRepositories.payments.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.payments).filter(p=>!p.isDeleted)),
     branchSafeRead(req,"transaction-customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.customers).filter(c=>!c.isDeleted))
   ]);
-  res.json(paginate(req, transactions.map(t=>{
-    const paidAmount=payments.filter(payment=>payment.transactionId===t.id&&!payment.isDeleted).reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
+  const paidByTransaction=new Map();
+  for(const payment of payments){if(payment.isDeleted||!payment.transactionId)continue;paidByTransaction.set(payment.transactionId,(paidByTransaction.get(payment.transactionId)||0)+safeNumber(payment.amount));}
+  const customerNameById=new Map(customers.map(c=>[c.id,c.name||"-"]));
+  const search=String(req.query.search||"").trim().toLowerCase();
+  const status=String(req.query.status||"").toUpperCase();
+  const currency=String(req.query.currency||"").toUpperCase();
+  const base=transactions.filter(t=>(!currency||String(t.currency||"").toUpperCase()===currency)&&(!search||[t.id,t.reference,t.customerId,customerNameById.get(t.customerId)].some(v=>String(v||"").toLowerCase().includes(search))));
+  const win=requestedWindow(req,base.length);
+  const items=base.slice(win.start,win.end).map(t=>{
+    const paidAmount=paidByTransaction.get(t.id)||0;
     const remaining=Math.max(safeNumber(t.totalCustomerDue)-paidAmount,0);
-    return {...t,customerName:customers.find(c=>c.id===t.customerId)?.name||"-",paidAmount:+paidAmount.toFixed(2),remaining:+remaining.toFixed(2),paymentStatus:remaining<=0.001?"PAID":"UNPAID"};
-  })));
+    return {...t,customerName:customerNameById.get(t.customerId)||"-",paidAmount:+paidAmount.toFixed(2),remaining:+remaining.toFixed(2),paymentStatus:remaining<=0.001?"PAID":"UNPAID"};
+  }).filter(t=>!status||t.paymentStatus===status||String(t.status||"").toUpperCase()===status);
+  res.json(windowResponse({...win,total:status?items.length:win.total},items));
 });
 app.post("/api/transactions", auth, (req,res)=>{
   const {

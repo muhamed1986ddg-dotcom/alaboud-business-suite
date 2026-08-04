@@ -32,8 +32,8 @@ export function Dashboard({navigate}){
       lastCompactRefresh=now;
       try{
         const [dashboardResponse,notificationResponse]=await Promise.allSettled([
-          cachedGet("/dashboard",{cacheTtl:force?0:60*1000}),
-          cachedGet("/notifications",{cacheTtl:force?0:60*1000})
+          cachedGet("/dashboard",{cacheTtl:force?0:60*1000,persistCache:!force}),
+          cachedGet("/notifications",{cacheTtl:force?0:60*1000,persistCache:!force})
         ]);
         if(!active)return;
         if(dashboardResponse.status==="fulfilled")setData(dashboardResponse.value.data);
@@ -47,12 +47,12 @@ export function Dashboard({navigate}){
         if(refreshRates){setRatesRefreshing(true);setRatesError("");await api.post("/exchange-rates/refresh");}
         if(refreshCompact)await loadCompact(true);
         const results=await Promise.allSettled([
-          cachedGet("/transactions",{params:{limit:50},cacheTtl:2*60*1000}),
-          cachedGet("/exchange-rates",{cacheTtl:10*60*1000}),
-          cachedGet("/exchange-rates/history",{params:{limit:60},cacheTtl:10*60*1000}),
+          cachedGet("/transactions",{params:{limit:50},cacheTtl:2*60*1000,persistCache:true}),
+          cachedGet("/exchange-rates",{cacheTtl:10*60*1000,persistCache:true}),
+          cachedGet("/exchange-rates/history",{params:{limit:60},cacheTtl:10*60*1000,persistCache:true}),
           cachedGet("/ai/overview",{cacheTtl:5*60*1000}),
-          cachedGet("/customers",{params:{limit:100},cacheTtl:2*60*1000}),
-          cachedGet("/expenses",{params:{limit:100},cacheTtl:2*60*1000})
+          cachedGet("/customers",{params:{limit:100},cacheTtl:2*60*1000,persistCache:true}),
+          cachedGet("/expenses",{params:{limit:100},cacheTtl:2*60*1000,persistCache:true})
         ]);
         if(!active)return;
         const value=index=>results[index]?.status==="fulfilled"?results[index].value?.data:null;

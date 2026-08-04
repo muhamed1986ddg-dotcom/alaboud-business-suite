@@ -16,7 +16,7 @@ function Simple({type}){
     {code:"JOD",flag:"🇯🇴",name:"دينار أردني"}
   ];
   const flagOf=code=>expenseCurrencies.find(x=>x.code===String(code||"").toUpperCase())?.flag||"🏳️";
-  const load=()=>cachedGet(endpoint).then(r=>setList(r.data));
+  const load=()=>cachedGet(endpoint,{params:{limit:150},cacheTtl:2*60*1000}).then(r=>setList(Array.isArray(r.data)?r.data:(r.data?.items||[])));
   useEffect(()=>{load();},[type]);
   useEffect(()=>{if(currency==="CAD")setExchangeRate("1");},[currency]);
   function resetExpenseForm(){setEditingId(null);setTitle("");setAmount("");setCurrency("CAD");setExchangeRate("1");setCategory("Other");setDate(new Date().toISOString().slice(0,10));}
