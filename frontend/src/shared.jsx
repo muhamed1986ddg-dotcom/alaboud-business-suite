@@ -4,6 +4,7 @@
 // LazyScreens.jsx (الشاشات المؤجّلة). فُصلت هنا لتفادي التكرار ولضمان
 // مصدر واحد للحقيقة بعد تقسيم الملف لتسريع التحميل الأولي على الهاتف.
 import React from "react";
+import {createRoot} from "react-dom/client";
 
 export function CurrencyFlag({code,className=""}){
   const normalized=String(code||"").toUpperCase();
@@ -97,4 +98,72 @@ export function rateTrend(rate, history = []) {
   if (currentValue > previousValue) return { type: "up", symbol: "▲", label: "صعود" };
   if (currentValue < previousValue) return { type: "down", symbol: "▼", label: "نزول" };
   return { type: "same", symbol: "→", label: "ثابت" };
+}
+
+
+export function UnifiedModal({open,title,children,onClose,actions=null,size="md",busy=false,closeOnBackdrop=true}){
+  React.useEffect(()=>{
+    if(!open)return undefined;
+    const onKey=(event)=>{if(event.key==="Escape"&&!busy)onClose?.();};
+    document.addEventListener("keydown",onKey);
+    const previous=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    return()=>{document.removeEventListener("keydown",onKey);document.body.style.overflow=previous;};
+  },[open,busy,onClose]);
+  if(!open)return null;
+  return <div className="unified-modal-backdrop" role="presentation" onMouseDown={(event)=>{
+    if(closeOnBackdrop&&!busy&&event.target===event.currentTarget)onClose?.();
+  }}>
+    <section className={`unified-modal-shell unified-modal-${size}`} role="dialog" aria-modal="true" aria-label={title||"نافذة"}>
+      <header className="unified-modal-header">
+        <h3>{title}</h3>
+        <button type="button" className="unified-modal-close" onClick={()=>!busy&&onClose?.()} disabled={busy} aria-label="إغلاق">×</button>
+      </header>
+      <div className="unified-modal-body">{children}</div>
+      {actions&&<footer className="unified-modal-actions">{actions}</footer>}
+    </section>
+  </div>;
+}
+
+export function LoadingButton({busy=false,busyText="جاري الحفظ...",children,disabled,...props}){
+  return <button {...props} disabled={disabled||busy} aria-busy={busy?"true":"false"}>
+    {busy?<><span className="button-spinner" aria-hidden="true"/>{busyText}</>:children}
+  </button>;
+}
+
+export function confirmAction({
+  title="تأكيد العملية",
+  message="هل تريد المتابعة؟",
+  confirmText="تأكيد",
+  cancelText="إلغاء",
+  tone="danger"
+}={}){
+  return new Promise(resolve=>{
+    const host=document.createElement("div");
+    host.className="imperative-confirm-host";
+    document.body.appendChild(host);
+    const root=createRoot(host);
+    let settled=false;
+    const finish=(value)=>{
+      if(settled)return;
+      settled=true;
+      root.unmount();
+      host.remove();
+      resolve(value);
+    };
+    function ConfirmView(){
+      return <UnifiedModal
+        open
+        title={title}
+        onClose={()=>finish(false)}
+        actions={<>
+          <button type="button" className="secondary" onClick={()=>finish(false)}>{cancelText}</button>
+          <button type="button" className={`confirm-${tone}`} onClick={()=>finish(true)} autoFocus>{confirmText}</button>
+        </>}
+      >
+        <p className="unified-confirm-message">{message}</p>
+      </UnifiedModal>;
+    }
+    root.render(<ConfirmView/>);
+  });
 }

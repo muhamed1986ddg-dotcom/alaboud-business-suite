@@ -1,5 +1,5 @@
 import React,{useEffect,useRef,useState}from"react";import api,{cachedGet} from"./api";import {APP_VERSION} from"./version";
-import{money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend}from"./shared";
+import{money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction}from"./shared";
 
 // شاشات مؤجّلة التحميل: تُحمَّل فقط عند فتحها فعليًا، لا مع كل شاشة أساسية.
 // هذا يقلّل حجم التحميل الأولي للتطبيق بشكل كبير (خصوصًا على الهاتف).
@@ -639,7 +639,7 @@ function Customers({open}){
   }
 
   async function deleteCustomer(customer){
-    const confirmed=window.confirm(`هل أنت متأكد من حذف العميل «${customer.name}»؟\nسيتم إخفاء العميل مع الحفاظ على السجلات المالية المرتبطة به.`);
+    const confirmed=await confirmAction({title:"تأكيد حذف العميل",message:`هل أنت متأكد من حذف العميل «${customer.name}»؟\nسيتم إخفاء العميل مع الحفاظ على السجلات المالية المرتبطة به.`,confirmText:"حذف العميل"});
     if(!confirmed)return;
     setError("");
     try{
@@ -653,9 +653,7 @@ function Customers({open}){
 
   async function resetCustomerAccount(customer){
     const balance=Number(customer.finalBalance||0).toFixed(2);
-    const confirmed=window.confirm(
-      `تصفير حساب العميل «${customer.name}»؟\n\nالرصيد الحالي: ${balance} CAD\nسيبدأ حساب جديد من الصفر، ولن تظهر الحوالات والدفعات السابقة في الحساب الجديد.\nلن يتم حذف أي بيانات وسيبقى الحساب السابق محفوظًا في الأرشيف.`
-    );
+    const confirmed=await confirmAction({title:"تأكيد تصفير الحساب",message:`تصفير حساب العميل «${customer.name}»؟\n\nالرصيد الحالي: ${balance} CAD\nسيبدأ حساب جديد من الصفر، ولن تظهر الحوالات والدفعات السابقة في الحساب الجديد.\nلن يتم حذف أي بيانات وسيبقى الحساب السابق محفوظًا في الأرشيف.`,confirmText:"تصفير الحساب",tone:"warning"});
     if(!confirmed)return;
     setError("");
     try{
@@ -1647,7 +1645,7 @@ function Customer({id,back,onStatement}){
   }
 
   async function deleteTransaction(transactionId){
-    if(!window.confirm("هل أنت متأكد من حذف الحوالة؟ سيتم حذف دفعاتها منطقيًا."))return;
+    if(!await confirmAction({title:"تأكيد حذف الحوالة",message:"هل أنت متأكد من حذف الحوالة؟ سيتم حذف دفعاتها منطقيًا.",confirmText:"حذف الحوالة"}))return;
     try{
       await api.delete(`/transactions/${transactionId}`);
       await load();
@@ -1668,7 +1666,7 @@ function Customer({id,back,onStatement}){
   }
 
   async function deletePayment(paymentId){
-    if(!window.confirm("هل تريد حذف هذه الدفعة؟"))return;
+    if(!await confirmAction({title:"تأكيد حذف الدفعة",message:"هل تريد حذف هذه الدفعة؟",confirmText:"حذف الدفعة"}))return;
     try{
       await api.delete(`/payments/${paymentId}`);
       await load();

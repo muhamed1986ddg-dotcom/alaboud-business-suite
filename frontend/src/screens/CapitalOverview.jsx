@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
-import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend} from"../shared";
+import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from"../shared";
 
 function CapitalOverview(){
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
@@ -83,7 +83,7 @@ function CapitalOverview(){
   }
 
   async function deleteCapital(item){
-    if(!window.confirm(`هل تريد حذف حركة رأس المال بقيمة ${money(item.amount)} ${item.currency||"CAD"}؟`))return;
+    if(!await confirmAction({title:"تأكيد حذف حركة رأس المال",message:`هل تريد حذف حركة رأس المال بقيمة ${money(item.amount)} ${item.currency||"CAD"}؟`,confirmText:"حذف الحركة"}))return;
     setError("");setMessage("");
     try{
       await api.delete(`/capital/${item.id}`);

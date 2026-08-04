@@ -5202,3 +5202,17 @@ body.app-language-en aside{
 .unified-page-tabs button{min-width:180px}
 .unified-page-tabs button.active{background:linear-gradient(135deg,#d8aa2c,#a87500);color:#111;border-color:#f2c651;font-weight:800}
 @media(max-width:700px){.unified-page-tabs{display:grid;grid-template-columns:1fr 1fr}.unified-page-tabs button{min-width:0}}
+
+
+/* v23.0.32 — Unified modal and confirmation system */
+.unified-modal-backdrop{position:fixed;inset:0;z-index:12000;background:rgba(8,15,28,.72);backdrop-filter:blur(5px);display:flex;align-items:center;justify-content:center;padding:18px}
+.unified-modal-shell{width:min(560px,100%);max-height:92vh;overflow:hidden;display:flex;flex-direction:column;background:var(--card-bg,#fff);color:var(--text-color,#172033);border:1px solid rgba(148,163,184,.28);border-radius:22px;box-shadow:0 28px 90px rgba(0,0,0,.42);animation:unifiedModalIn .16s ease-out}
+.unified-modal-sm{width:min(430px,100%)}.unified-modal-lg{width:min(920px,100%)}.unified-modal-xl{width:min(1180px,100%)}
+.unified-modal-header{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 20px;border-bottom:1px solid rgba(148,163,184,.22)}
+.unified-modal-header h3{margin:0;font-size:1.14rem}.unified-modal-close{width:40px;height:40px;border-radius:12px;font-size:1.7rem;line-height:1;padding:0}
+.unified-modal-body{padding:20px;overflow:auto}.unified-modal-actions{display:flex;justify-content:flex-end;gap:10px;padding:15px 20px;border-top:1px solid rgba(148,163,184,.22)}
+.unified-modal-actions button{min-width:112px}.unified-modal-actions .confirm-danger{background:#b42318;color:#fff}.unified-modal-actions .confirm-warning{background:#b76e00;color:#fff}.unified-modal-actions .confirm-primary{background:#0b6bcb;color:#fff}
+.unified-confirm-message{white-space:pre-line;line-height:1.9;margin:0;font-weight:650}.button-spinner{display:inline-block;width:15px;height:15px;margin-inline-end:8px;border:2px solid currentColor;border-bottom-color:transparent;border-radius:50%;animation:buttonSpin .75s linear infinite;vertical-align:-2px}
+button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{position:relative;z-index:12000}
+@keyframes unifiedModalIn{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}@keyframes buttonSpin{to{transform:rotate(360deg)}}
+@media(max-width:640px){.unified-modal-backdrop{padding:0;align-items:flex-end}.unified-modal-shell{width:100%;max-height:94vh;border-radius:22px 22px 0 0}.unified-modal-header,.unified-modal-body,.unified-modal-actions{padding-left:16px;padding-right:16px}.unified-modal-actions{display:grid;grid-template-columns:1fr 1fr}.unified-modal-actions button{min-width:0}}

@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
-import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend} from"../shared";
+import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from"../shared";
 
 function PartnerProfile({id,back}){
   const [data,setData]=useState(null);
@@ -226,7 +226,7 @@ function Partners({open,view="companies"}){
   }
 
   async function deletePartner(partner){
-    const confirmed=window.confirm(`هل أنت متأكد من حذف شركة «${partner.name}»؟\nسيتم حذف الشركة وحركاتها ودفعاتها المرتبطة بها.`);
+    const confirmed=await confirmAction({title:"تأكيد حذف الشركة",message:`هل أنت متأكد من حذف شركة «${partner.name}»؟\nسيتم حذف الشركة وحركاتها ودفعاتها المرتبطة بها.`,confirmText:"حذف الشركة"});
     if(!confirmed)return;
     setError("");setMessage("");
     try{

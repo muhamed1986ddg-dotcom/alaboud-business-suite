@@ -1,5 +1,13 @@
 # سجل التغييرات (Changelog)
 
+## v23.0.32 — Unified Modal System
+
+- Added a shared modal component and standardized confirmation dialogs.
+- Replaced browser confirm dialogs for destructive and sensitive operations.
+- Added Escape/backdrop close behavior and mobile layout.
+- Added a reusable loading button to prevent duplicate submissions.
+- No database schema or customer-data changes.
+
 ## v23.0.20 - Production safety and release cleanup
 
 - Removed bundled customer/store data and generated frontend assets from the source archive.

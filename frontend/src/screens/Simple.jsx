@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
-import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend} from"../shared";
+import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from"../shared";
 
 function Simple({type}){
   const [list,setList]=useState([]),[title,setTitle]=useState(""),[amount,setAmount]=useState(""),[move,setMove]=useState("IN");
@@ -32,7 +32,7 @@ function Simple({type}){
   }
   function editExpense(x){setEditingId(x.id);setTitle(x.title||"");setAmount(String(x.amount??""));setCurrency(x.currency||"CAD");setExchangeRate(String(x.exchangeRate||1));setCategory(x.category||"Other");setDate(x.date||new Date().toISOString().slice(0,10));setMessage("");window.scrollTo({top:0,behavior:"smooth"});}
   async function deleteExpense(x){
-    if(!window.confirm(`هل أنت متأكد من حذف المصروف: ${x.title}؟`))return;
+    if(!await confirmAction({title:"تأكيد حذف المصروف",message:`هل أنت متأكد من حذف المصروف: ${x.title}؟`,confirmText:"حذف المصروف"}))return;
     try{await api.delete(`${endpoint}/${x.id}`);if(String(editingId)===String(x.id))resetExpenseForm();setMessage("تم حذف المصروف بنجاح");await load();}
     catch(err){setMessage(err?.response?.data?.message||"تعذر حذف المصروف");}
   }

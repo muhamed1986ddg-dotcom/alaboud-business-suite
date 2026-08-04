@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
-import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend} from"../shared";
+import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from"../shared";
 
 function NotificationSettings({embedded=false}){
   const [settings,setSettings]=useState({overdueDays:7,lowCashLimit:5000,whatsappTemplate:""});
@@ -241,7 +241,7 @@ function SettingsPanel(){
     const file=event.target.files?.[0];
     event.target.value="";
     if(!file)return;
-    if(!window.confirm("سيتم استبدال بيانات هذه الشركة بمحتوى النسخة الاحتياطية. هل تريد المتابعة؟"))return;
+    if(!await confirmAction({title:"استعادة نسخة احتياطية",message:"سيتم استبدال بيانات هذه الشركة بمحتوى النسخة الاحتياطية. هل تريد المتابعة؟",confirmText:"استعادة النسخة",tone:"warning"}))return;
     setBackupBusy(true);setMessage("");
     try{
       const payload=JSON.parse(await file.text());
