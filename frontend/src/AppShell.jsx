@@ -8,7 +8,7 @@ export default function AppShell(){
   if(!authenticated){
     return <LoginShell onLogin={()=>setAuthenticated(Boolean(localStorage.getItem("afs_token")))}/>;
   }
-  return <Suspense fallback={<div className="app-boot-loading" role="status">جاري تحميل البرنامج…</div>}>
+  return <Suspense fallback={<div className="app-boot-loading" role="status"><span className="app-loading-spinner" aria-hidden="true"/><strong>جاري تحميل الصفحة…</strong><small>يتم تحميل الجزء المطلوب فقط</small></div>}>
     <BusinessApp/>
   </Suspense>;
 }

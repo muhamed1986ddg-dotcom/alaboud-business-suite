@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const getResponseCache=new Map();
-const DEFAULT_GET_CACHE_TTL=30000;
+const DEFAULT_GET_CACHE_TTL=60000;
 
 function cacheKey(url,config={}){
   const branchId=localStorage.getItem("alaboud_branch_id")||"main";
@@ -12,6 +12,13 @@ function cacheKey(url,config={}){
 }
 
 export function clearApiGetCache(){getResponseCache.clear();}
+export function pruneApiGetCache(){
+  const now=Date.now();
+  for(const [key,value] of getResponseCache){if(value.expiresAt<=now)getResponseCache.delete(key);}
+}
+if(typeof document!=="undefined"){
+  document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")pruneApiGetCache();});
+}
 
 const api=axios.create({
   baseURL:"/api",
@@ -34,12 +41,10 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="23.0.31";
-  config.params={
-    ...(config.params||{}),
-    _live:Date.now()
-  };
-
+  config.headers["X-Alaboud-Client-Version"]="23.0.34";
+  // Do not append a timestamp to every GET request. The in-memory cache below
+  // already controls freshness, while cache-busting forced needless server and
+  // database work on every navigation.
   return config;
 });
 

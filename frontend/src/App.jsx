@@ -201,59 +201,72 @@ function Dashboard({navigate}){
 
   useEffect(()=>{
     let active=true;
-    const loadDashboard=async(refreshRates=false)=>{
+    let lastCompactRefresh=0;
+    let lastRatesRefresh=Date.now();
+
+    const loadCompact=async(force=false)=>{
+      if(!active||document.visibilityState==="hidden")return;
+      const now=Date.now();
+      if(!force&&now-lastCompactRefresh<5*60*1000)return;
+      lastCompactRefresh=now;
+      try{
+        const [dashboardResponse,notificationResponse]=await Promise.allSettled([
+          cachedGet("/dashboard",{cacheTtl:force?0:60*1000}),
+          cachedGet("/notifications",{cacheTtl:force?0:60*1000})
+        ]);
+        if(!active)return;
+        if(dashboardResponse.status==="fulfilled")setData(dashboardResponse.value.data);
+        if(notificationResponse.status==="fulfilled")setNoticeData(notificationResponse.value.data);
+        setLastRefresh(new Date());
+      }catch{}
+    };
+
+    const loadEnhancements=async(refreshRates=false)=>{
       try{
         if(refreshRates){setRatesRefreshing(true);setRatesError("");await api.post("/exchange-rates/refresh");}
-        // Render the main page as soon as its compact summary arrives. The
-        // heavier reports below are enhancements and must not block navigation.
-        const dashboardResponse=await cachedGet("/dashboard");
-        if(!active)return;
-        setData(dashboardResponse.data);
-        setLastRefresh(new Date());
-
+        await loadCompact(true);
         const results=await Promise.allSettled([
-          cachedGet("/notifications"),
-          cachedGet("/transactions"),
-          cachedGet("/exchange-rates"),
-          cachedGet("/exchange-rates/history"),
-          cachedGet("/ai/overview"),
-          cachedGet("/customers"),
-          cachedGet("/expenses")
+          cachedGet("/transactions",{params:{limit:50},cacheTtl:2*60*1000}),
+          cachedGet("/exchange-rates",{cacheTtl:10*60*1000}),
+          cachedGet("/exchange-rates/history",{params:{limit:60},cacheTtl:10*60*1000}),
+          cachedGet("/ai/overview",{cacheTtl:5*60*1000}),
+          cachedGet("/customers",{params:{limit:100},cacheTtl:2*60*1000}),
+          cachedGet("/expenses",{params:{limit:100},cacheTtl:2*60*1000})
         ]);
         if(!active)return;
         const value=index=>results[index]?.status==="fulfilled"?results[index].value?.data:null;
-        const notificationData=value(0),transactionData=value(1),rateData=value(2),historyData=value(3),intelligenceData=value(4),customerData=value(5),expenseData=value(6);
-        if(notificationData)setNoticeData(notificationData);
+        const transactionData=value(0),rateData=value(1),historyData=value(2),intelligenceData=value(3),customerData=value(4),expenseData=value(5);
         if(transactionData){
-          const rows=Array.isArray(transactionData)?transactionData:[];
+          const rows=Array.isArray(transactionData)?transactionData:(Array.isArray(transactionData?.items)?transactionData.items:[]);
           setAllTransactions(rows);
           setRecent(rows.slice().sort((a,b)=>new Date(b.createdAt||b.transferDate)-new Date(a.createdAt||a.transferDate)).slice(0,4));
         }
         if(Array.isArray(customerData))setCustomers(customerData);
+        else if(Array.isArray(customerData?.items))setCustomers(customerData.items);
         if(Array.isArray(expenseData))setExpenses(expenseData);
-        const rateRows=Array.isArray(rateData)?rateData:[];
-        // Keep every latest currency pair. Grouping only by base currency caused
-        // CAD/USD to be treated as CAD/CAD and produced incorrect cross-rates.
-        if(rateData)setDashboardRates(rateRows);
+        else if(Array.isArray(expenseData?.items))setExpenses(expenseData.items);
+        if(rateData)setDashboardRates(Array.isArray(rateData)?rateData:[]);
         if(Array.isArray(historyData))setDashboardRateHistory(historyData);
+        else if(Array.isArray(historyData?.items))setDashboardRateHistory(historyData.items);
         if(intelligenceData)setIntelligence(intelligenceData);
         setLastRefresh(new Date());
       }catch(error){
-        setRatesError(error.response?.data?.message||(refreshRates?"تعذر تحديث أسعار الصرف. تم الاحتفاظ بآخر أسعار صحيحة.":"تعذر تحميل ملخص القائمة الرئيسية؛ حاول مرة أخرى."));
+        setRatesError(error.response?.data?.message||(refreshRates?"تعذر تحديث أسعار الصرف. تم الاحتفاظ بآخر أسعار صحيحة.":"تعذر تحميل بعض تفاصيل القائمة الرئيسية."));
       }finally{
         if(refreshRates)setRatesRefreshing(false);
       }
     };
-    loadDashboard(false);
-    let lastRatesRefresh=Date.now();
-    const refreshVisible=()=>{
+
+    loadEnhancements(false);
+    const live=setInterval(()=>loadCompact(false),5*60*1000);
+    const onVisibility=()=>{
       if(document.visibilityState!=="visible")return;
-      const refreshRates=Date.now()-lastRatesRefresh>=60*60*1000;
-      if(refreshRates)lastRatesRefresh=Date.now();
-      loadDashboard(refreshRates);
+      loadCompact(false);
+      if(Date.now()-lastRatesRefresh>=60*60*1000){
+        lastRatesRefresh=Date.now();
+        loadEnhancements(true);
+      }
     };
-    const live=setInterval(refreshVisible,60*1000);
-    const onVisibility=()=>{if(document.visibilityState==="visible")refreshVisible()};
     document.addEventListener("visibilitychange",onVisibility);
     return ()=>{
       active=false;
@@ -2433,12 +2446,11 @@ export default function App(){
   },[]);
 
   useEffect(()=>{
-    if(token){
-      cachedGet("/customer-alerts")
-        .then(response=>setOverdueCount(Number(response.data?.count||0)))
-        .catch(()=>setOverdueCount(0));
-    }
-  },[token,page,customerId]);
+    if(!token||!["dashboard","customers","overdue-customers"].includes(page))return;
+    cachedGet("/customer-alerts",{cacheTtl:2*60*1000})
+      .then(response=>setOverdueCount(Number(response.data?.count||0)))
+      .catch(()=>setOverdueCount(0));
+  },[token,page]);
 
   useEffect(()=>{
     if(typeof window==="undefined")return;
