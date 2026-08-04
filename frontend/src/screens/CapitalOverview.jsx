@@ -17,6 +17,7 @@ function CapitalOverview(){
   const [message,setMessage]=useState("");
   const [editing,setEditing]=useState(null);
   const [financialDetails,setFinancialDetails]=useState(null);
+  const [budgetModal,setBudgetModal]=useState(null);
   const [movementFilter,setMovementFilter]=useState("ALL");
   const [movementSearch,setMovementSearch]=useState("");
   const [form,setForm]=useState({
@@ -49,6 +50,15 @@ function CapitalOverview(){
   }
 
   useEffect(()=>{load();},[month]);
+
+  useEffect(()=>{
+    if(!budgetModal&&!editing)return;
+    const previous=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    const closeOnEscape=event=>{if(event.key==="Escape"){setBudgetModal(null);setEditing(null);}};
+    window.addEventListener("keydown",closeOnEscape);
+    return()=>{document.body.style.overflow=previous;window.removeEventListener("keydown",closeOnEscape);};
+  },[budgetModal,editing]);
 
   async function addCapital(event){
     event.preventDefault();
@@ -195,6 +205,13 @@ function CapitalOverview(){
     {error&&<div className="card customer-error">{error}</div>}
     {message&&<div className="card rate-message">{message}</div>}
 
+    <section className="budget-action-bar no-print" aria-label="وظائف الميزانية">
+      <button type="button" onClick={()=>setBudgetModal("movement")}>➕ إضافة حركة رأس مال</button>
+      <button type="button" onClick={()=>setBudgetModal("history")}>📋 سجل الحركات</button>
+      <button type="button" onClick={()=>setBudgetModal("goals")}>🎯 الأهداف المالية</button>
+      <button type="button" onClick={()=>setBudgetModal("report")}>📊 تقرير الميزانية</button>
+    </section>
+
     <section className="financial-summary-grid" aria-label="ملخص الميزانية">
       <button type="button" className="card financial-summary-card assets-card" onClick={()=>setFinancialDetails("assets")}>
         <span className="financial-card-icon">💰</span>
@@ -284,17 +301,10 @@ function CapitalOverview(){
     </section>
 
     <section className="budget-pro-grid">
-      <article className="card budget-goals-card no-print">
-        <div className="section-heading"><h3>🎯 الأهداف المالية</h3><small>تُحفظ على الجهاز</small></div>
-        <label><span>هدف الأرباح</span><input type="number" value={goals.profit} onChange={e=>saveGoals({...goals,profit:Number(e.target.value)})}/></label>
-        <div className="goal-track"><span style={{width:`${progress(data.monthlyProfit,goals.profit)}%`}}></span></div>
-        <small>{progress(data.monthlyProfit,goals.profit).toFixed(0)}% من الهدف</small>
-        <label><span>الحد الأعلى للمصروفات</span><input type="number" value={goals.expenses} onChange={e=>saveGoals({...goals,expenses:Number(e.target.value)})}/></label>
-        <div className="goal-track expense-goal"><span style={{width:`${progress(data.monthlyExpenses,goals.expenses)}%`}}></span></div>
-        <small>{progress(data.monthlyExpenses,goals.expenses).toFixed(0)}% مستخدم</small>
-        <label><span>هدف صافي رأس المال</span><input type="number" value={goals.capital} onChange={e=>saveGoals({...goals,capital:Number(e.target.value)})}/></label>
-        <div className="goal-track capital-goal"><span style={{width:`${progress(netWorth,goals.capital)}%`}}></span></div>
-        <small>{progress(netWorth,goals.capital).toFixed(0)}% من الهدف</small>
+      <article className="card budget-goals-card budget-launch-card no-print">
+        <div className="section-heading"><h3>🎯 الأهداف المالية</h3><small>إدارة داخل نافذة مستقلة</small></div>
+        <p>راجع أهداف الأرباح والمصروفات وصافي رأس المال من دون ازدحام الصفحة.</p>
+        <button type="button" onClick={()=>setBudgetModal("goals")}>فتح الأهداف</button>
       </article>
       <article className="card budget-alerts-card">
         <div className="section-heading"><h3>🔔 التنبيهات الذكية</h3><small>{alerts.length} ملاحظة</small></div>
@@ -334,111 +344,51 @@ function CapitalOverview(){
       </div>)}</div>
     </section>}
 
-    <form className="card form capital-manage-form no-print" onSubmit={addCapital}>
-      <h3>➕ إضافة رأس مال أو سحب</h3>
-      <select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}>
-        <option value="IN">إضافة رأس مال</option>
-        <option value="OUT">سحب من رأس المال</option>
-      </select>
-      <input
-        type="number"
-        min=".01"
-        step=".01"
-        value={form.amount}
-        onChange={e=>setForm({...form,amount:e.target.value})}
-        placeholder="المبلغ"
-        required
-      />
-      <select value={form.currency} onChange={e=>setForm({...form,currency:e.target.value})}>
-        {debtCurrencies.map(item=>item.code).map(currency=><option key={currency}>{currency}</option>)}
-      </select>
-      <label className="capital-today-field">
-        <span>📅 تاريخ اليوم</span>
-        <input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/>
-      </label>
-      <input value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="الوصف أو سبب الإضافة / السحب"/>
-      <div className={`capital-conversion-preview ${form.currency!=="CAD"&&!formCadRate?"conversion-missing":""}`}>
-        <span>القيمة المعتمدة في الميزانية</span>
-        <strong>{formCadAmount!=null?`${money(formCadAmount)} CAD`:(form.currency==="CAD"?"0.00 CAD":"سعر الصرف غير متوفر")}</strong>
-        {form.currency!=="CAD"&&formCadRate&&<small>1 {form.currency} = {Number(formCadRate).toFixed(6)} CAD</small>}
-      </div>
-      <button disabled={form.currency!=="CAD"&&!formCadRate}>{form.type==="IN"?"إضافة رأس المال":"تسجيل السحب"}</button>
-    </form>
-
-    {editing&&<form className="card form edit-panel capital-edit-form no-print" onSubmit={saveEdit}>
-      <h3>✏️ تعديل حركة رأس المال</h3>
-      <select value={editing.type} onChange={e=>setEditing({...editing,type:e.target.value})}>
-        <option value="IN">إضافة رأس مال</option>
-        <option value="OUT">سحب من رأس المال</option>
-      </select>
-      <input type="number" min=".01" step=".01" value={editing.amount} onChange={e=>setEditing({...editing,amount:e.target.value})} required/>
-      <select value={editing.currency||"CAD"} onChange={e=>setEditing({...editing,currency:e.target.value})}>
-        {debtCurrencies.map(item=>item.code).map(currency=><option key={currency}>{currency}</option>)}
-      </select>
-      <input type="date" value={editing.date||""} onChange={e=>setEditing({...editing,date:e.target.value})}/>
-      <input value={editing.description||""} onChange={e=>setEditing({...editing,description:e.target.value})} placeholder="الوصف"/>
-      <button>حفظ التعديل</button>
-      <button type="button" onClick={()=>setEditing(null)}>إلغاء</button>
-    </form>}
-
-    <div className="card tablewrap capital-movements-table">
-      <div className="capital-table-toolbar">
-        <div><h3>📋 سجل رأس المال</h3><small>{filteredMovements.length} حركة</small></div>
-        <div className="capital-table-filters no-print">
-          <input value={movementSearch} onChange={e=>setMovementSearch(e.target.value)} placeholder="ابحث في السجل..."/>
-          <select value={movementFilter} onChange={e=>setMovementFilter(e.target.value)}><option value="ALL">جميع الحركات</option><option value="IN">الإضافات فقط</option><option value="OUT">السحوبات فقط</option></select>
+    {budgetModal&&<div className="budget-modal-overlay" onClick={()=>setBudgetModal(null)}>
+      <section className="budget-modal card" role="dialog" aria-modal="true" onClick={event=>event.stopPropagation()}>
+        <div className="budget-modal-head">
+          <div><small>إدارة الميزانية</small><h3>{budgetModal==="movement"?"➕ إضافة رأس مال أو سحب":budgetModal==="history"?"📋 سجل رأس المال":budgetModal==="goals"?"🎯 الأهداف المالية":"📊 تقرير الميزانية"}</h3></div>
+          <button type="button" onClick={()=>setBudgetModal(null)} aria-label="إغلاق">×</button>
         </div>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>التاريخ</th>
-            <th>النوع</th>
-            <th>المبلغ الأصلي</th>
-            <th>العملة</th>
-            <th>سعر التحويل</th>
-            <th>القيمة CAD</th>
-            <th>الوصف</th>
-            <th className="no-print">الإجراءات</th>
-          </tr>
-        </thead>
-        <tbody>{filteredMovements.length?filteredMovements.map(item=><tr key={item.id}>
-          <td>{item.date||String(item.createdAt||"").slice(0,10)}</td>
-          <td><span className={`capital-type-badge ${item.type==="IN"?"capital-in":"capital-out"}`}>
-            {item.type==="IN"?"إضافة":"سحب"}
-          </span></td>
-          <td><strong>{money(item.amount)}</strong></td>
-          <td>{item.currency||"CAD"}</td>
-          <td>{Number(item.exchangeRate||1).toFixed(6)}</td>
-          <td><strong>{item.cadAmount!=null?money(item.cadAmount):"—"} CAD</strong></td>
-          <td>{item.description||"-"}</td>
-          <td className="actions no-print">
-            <button type="button" onClick={()=>setEditing({...item})}>تعديل</button>
-            <button type="button" className="danger-button" onClick={()=>deleteCapital(item)}>حذف</button>
-          </td>
-        </tr>):<tr><td colSpan="8">لا توجد حركات رأس مال مسجلة.</td></tr>}</tbody>
-      </table>
-    </div>
 
-    <div className="stats">
-      <div className="card transfer-total-card">
-        <span>إجمالي الحوالات في الشهر</span>
-        <strong>{money(data.monthlyTransferValue)}</strong>
-      </div>
-      <div className="card turnover-card">
-        <span>معدل دوران رأس المال</span>
-        <strong>{Number(data.turnoverRate).toFixed(2)} مرة</strong>
-        <small>{efficiency}</small>
-      </div>
-      <div className="card"><span>أرباح الشهر</span><strong>{money(data.monthlyProfit)}</strong></div>
-      <div className="card"><span>مصروفات الشهر</span><strong>{money(data.monthlyExpenses)}</strong></div>
-    </div>
+        {budgetModal==="movement"&&<form className="form capital-manage-form" onSubmit={async event=>{await addCapital(event);setBudgetModal(null);}}>
+          <select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}><option value="IN">إضافة رأس مال</option><option value="OUT">سحب من رأس المال</option></select>
+          <input type="number" min=".01" step=".01" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} placeholder="المبلغ" required/>
+          <select value={form.currency} onChange={e=>setForm({...form,currency:e.target.value})}>{debtCurrencies.map(item=>item.code).map(currency=><option key={currency}>{currency}</option>)}</select>
+          <label className="capital-today-field"><span>📅 تاريخ الحركة</span><input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></label>
+          <input value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="الوصف أو سبب الإضافة / السحب"/>
+          <div className={`capital-conversion-preview ${form.currency!=="CAD"&&!formCadRate?"conversion-missing":""}`}><span>القيمة المعتمدة في الميزانية</span><strong>{formCadAmount!=null?`${money(formCadAmount)} CAD`:(form.currency==="CAD"?"0.00 CAD":"سعر الصرف غير متوفر")}</strong>{form.currency!=="CAD"&&formCadRate&&<small>1 {form.currency} = {Number(formCadRate).toFixed(6)} CAD</small>}</div>
+          <div className="budget-modal-actions"><button disabled={form.currency!=="CAD"&&!formCadRate}>{form.type==="IN"?"إضافة رأس المال":"تسجيل السحب"}</button><button type="button" className="secondary-button" onClick={()=>setBudgetModal(null)}>إلغاء</button></div>
+        </form>}
 
-    <div className="card capital-formula">
-      <h3>حركة دوران رأس المال</h3>
-      <p><strong>إجمالي قيمة الحوالات الشهرية ÷ رأس المال المستخدم</strong></p>
-      <p>النتيجة الحالية: <strong>{Number(data.turnoverRate).toFixed(2)} مرة</strong> خلال شهر {data.month}.</p>
-    </div>
+        {budgetModal==="history"&&<div className="tablewrap capital-movements-table">
+          <div className="capital-table-toolbar"><div><h3>جميع الحركات</h3><small>{filteredMovements.length} حركة</small></div><div className="capital-table-filters"><input value={movementSearch} onChange={e=>setMovementSearch(e.target.value)} placeholder="ابحث في السجل..."/><select value={movementFilter} onChange={e=>setMovementFilter(e.target.value)}><option value="ALL">جميع الحركات</option><option value="IN">الإضافات فقط</option><option value="OUT">السحوبات فقط</option></select></div></div>
+          <table><thead><tr><th>التاريخ</th><th>النوع</th><th>المبلغ الأصلي</th><th>العملة</th><th>سعر التحويل</th><th>القيمة CAD</th><th>الوصف</th><th>الإجراءات</th></tr></thead><tbody>{filteredMovements.length?filteredMovements.map(item=><tr key={item.id}><td>{item.date||String(item.createdAt||"").slice(0,10)}</td><td><span className={`capital-type-badge ${item.type==="IN"?"capital-in":"capital-out"}`}>{item.type==="IN"?"إضافة":"سحب"}</span></td><td><strong>{money(item.amount)}</strong></td><td>{item.currency||"CAD"}</td><td>{Number(item.exchangeRate||1).toFixed(6)}</td><td><strong>{item.cadAmount!=null?money(item.cadAmount):"—"} CAD</strong></td><td>{item.description||"-"}</td><td className="actions"><button type="button" onClick={()=>{setBudgetModal(null);setEditing({...item});}}>تعديل</button><button type="button" className="danger-button" onClick={()=>deleteCapital(item)}>حذف</button></td></tr>):<tr><td colSpan="8">لا توجد حركات رأس مال مسجلة.</td></tr>}</tbody></table>
+        </div>}
+
+        {budgetModal==="goals"&&<div className="budget-goals-modal">
+          <label><span>هدف الأرباح</span><input type="number" value={goals.profit} onChange={e=>saveGoals({...goals,profit:Number(e.target.value)})}/></label><div className="goal-track"><span style={{width:`${progress(data.monthlyProfit,goals.profit)}%`}}></span></div><small>{progress(data.monthlyProfit,goals.profit).toFixed(0)}% من الهدف</small>
+          <label><span>الحد الأعلى للمصروفات</span><input type="number" value={goals.expenses} onChange={e=>saveGoals({...goals,expenses:Number(e.target.value)})}/></label><div className="goal-track expense-goal"><span style={{width:`${progress(data.monthlyExpenses,goals.expenses)}%`}}></span></div><small>{progress(data.monthlyExpenses,goals.expenses).toFixed(0)}% مستخدم</small>
+          <label><span>هدف صافي رأس المال</span><input type="number" value={goals.capital} onChange={e=>saveGoals({...goals,capital:Number(e.target.value)})}/></label><div className="goal-track capital-goal"><span style={{width:`${progress(netWorth,goals.capital)}%`}}></span></div><small>{progress(netWorth,goals.capital).toFixed(0)}% من الهدف</small>
+        </div>}
+
+        {budgetModal==="report"&&<div className="budget-report-modal">
+          <div className="budget-report-grid"><div><span>إجمالي الحوالات في الشهر</span><strong>{money(data.monthlyTransferValue)} CAD</strong></div><div><span>معدل دوران رأس المال</span><strong>{Number(data.turnoverRate).toFixed(2)} مرة</strong></div><div><span>أرباح الشهر</span><strong>{money(data.monthlyProfit)} CAD</strong></div><div><span>مصروفات الشهر</span><strong>{money(data.monthlyExpenses)} CAD</strong></div></div>
+          <div className="capital-formula"><h3>حركة دوران رأس المال</h3><p><strong>إجمالي قيمة الحوالات الشهرية ÷ رأس المال المستخدم</strong></p><p>النتيجة الحالية: <strong>{Number(data.turnoverRate).toFixed(2)} مرة</strong> خلال شهر {data.month}.</p></div>
+          {currencySummary.length>0&&<div className="budget-currency-grid">{currencySummary.map(item=><div key={item.currency}><strong>{item.currency}</strong><span className="positive-value">+ {money(item.in)}</span><span className="negative-value">- {money(item.out)}</span></div>)}</div>}
+          <button type="button" onClick={()=>window.print()}>🖨️ طباعة التقرير</button>
+        </div>}
+      </section>
+    </div>}
+
+    {editing&&<div className="budget-modal-overlay" onClick={()=>setEditing(null)}><form className="budget-modal card form capital-edit-form" onSubmit={saveEdit} onClick={event=>event.stopPropagation()}>
+      <div className="budget-modal-head"><div><small>حركة رأس المال</small><h3>✏️ تعديل الحركة</h3></div><button type="button" onClick={()=>setEditing(null)}>×</button></div>
+      <select value={editing.type} onChange={e=>setEditing({...editing,type:e.target.value})}><option value="IN">إضافة رأس مال</option><option value="OUT">سحب من رأس المال</option></select>
+      <input type="number" min=".01" step=".01" value={editing.amount} onChange={e=>setEditing({...editing,amount:e.target.value})} required/>
+      <select value={editing.currency||"CAD"} onChange={e=>setEditing({...editing,currency:e.target.value})}>{debtCurrencies.map(item=>item.code).map(currency=><option key={currency}>{currency}</option>)}</select>
+      <input type="date" value={editing.date||""} onChange={e=>setEditing({...editing,date:e.target.value})}/><input value={editing.description||""} onChange={e=>setEditing({...editing,description:e.target.value})} placeholder="الوصف"/>
+      <div className="budget-modal-actions"><button>حفظ التعديل</button><button type="button" className="secondary-button" onClick={()=>setEditing(null)}>إلغاء</button></div>
+    </form></div>}
   </>;
 }
 

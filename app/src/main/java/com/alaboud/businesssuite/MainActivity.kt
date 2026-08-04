@@ -41,7 +41,6 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.json.JSONObject
 import java.io.File
 
@@ -55,7 +54,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var webView: WebView
-    private lateinit var refreshLayout: SwipeRefreshLayout
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -74,14 +72,12 @@ class MainActivity : AppCompatActivity() {
         createNotificationChannel()
         requestNotificationPermission()
 
-        refreshLayout = findViewById(R.id.refreshLayout)
         webView = findViewById(R.id.webView)
 
         configureWebView()
         configureDownloads()
         webView.clearCache(false)
 
-        refreshLayout.setOnRefreshListener { webView.reload() }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -107,7 +103,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/18.6.28"
+            userAgentString = "$userAgentString AlAboudMobile/24.1.0"
         }
 
         CookieManager.getInstance().apply {
@@ -140,7 +136,6 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                refreshLayout.isRefreshing = false
                 injectMobileNavigation()
                 checkOverdueCustomers()
                 super.onPageFinished(view, url)
@@ -152,8 +147,7 @@ class MainActivity : AppCompatActivity() {
                 error: WebResourceError?
             ) {
                 if (request?.isForMainFrame == true) {
-                    refreshLayout.isRefreshing = false
-                    view?.loadDataWithBaseURL(
+                        view?.loadDataWithBaseURL(
                         null,
                         offlineHtml(),
                         "text/html",

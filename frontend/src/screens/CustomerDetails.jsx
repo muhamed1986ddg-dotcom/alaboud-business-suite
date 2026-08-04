@@ -335,8 +335,23 @@ export function Customer({id,back,onStatement}){
   const transactions=Array.isArray(data?.transactions)?data.transactions:[];
   const payments=Array.isArray(data?.payments)?data.payments:[];
   const unpaidTransactions=transactions.filter(transaction=>Number(transaction?.remaining||0)>0);
+  const transactionRows=transactions.map(transaction=>{
+    const usdAmount=Number(transaction.usdAmount ?? transaction.amount ?? 0);
+    const exchangeRate=Number(transaction.customerRate ?? transaction.finalRate ?? 0);
+    const cadValue=Number(
+      transaction.formulaResultCad ??
+      transaction.totalCad ??
+      (usdAmount*exchangeRate)
+    );
+    return {transaction,usdAmount,exchangeRate,cadValue};
+  });
+  const totalTransactionUsd=transactionRows.reduce((sum,row)=>sum+row.usdAmount,0);
+  const totalTransactionCad=transactionRows.reduce((sum,row)=>sum+row.cadValue,0);
+  const averageExchangeRate=transactionRows.length
+    ? transactionRows.reduce((sum,row)=>sum+row.exchangeRate,0)/transactionRows.length
+    : 0;
 
-  return <>
+  return <div className="customer-details-page">
     <div className="card no-print form">
       <button onClick={back}>رجوع</button>
       <button onClick={()=>onStatement(id)}>كشف حساب العميل</button>
@@ -424,23 +439,38 @@ export function Customer({id,back,onStatement}){
       </form>
     }
 
-    <div className="card tablewrap">
-      <h3>الحوالات</h3>
-      <table>
-        <thead><tr><th>الرقم</th><th>التاريخ</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th><th>الإجراءات</th></tr></thead>
-        <tbody>{transactions.length?transactions.map(transaction=><tr key={transaction.id}>
-          <td>{transaction.number}</td>
-          <td>{transaction.transferDate||String(transaction.createdAt||"").slice(0,10)}</td>
-          <td>{money(transaction.totalCustomerDue)}</td>
-          <td>{money(transaction.paid)}</td>
-          <td>{money(transaction.remaining)}</td>
-          <td className="actions">
-            <button onClick={()=>setEditingTransaction({...transaction})}>تعديل</button>
-            <button className="danger-button" onClick={()=>deleteTransaction(transaction.id)}>حذف</button>
-          </td>
-        </tr>):<tr><td colSpan="6">لا توجد حوالات.</td></tr>}</tbody>
-      </table>
-    </div>
+    <section className="customer-transfer-ledger">
+      <div className="customer-transfer-heading">
+        <div>
+          <h3>سجل الحوالات</h3>
+          <p>عرض حوالات العميل بالدولار الأمريكي وقيمتها النهائية بالدولار الكندي.</p>
+        </div>
+      </div>
+
+      <div className="customer-transfer-summary">
+        <div className="customer-transfer-summary-card usd"><span>إجمالي الحوالات (USD)</span><strong>{money(totalTransactionUsd)} USD</strong></div>
+        <div className="customer-transfer-summary-card rate"><span>متوسط سعر التحويل</span><strong>{averageExchangeRate.toFixed(4)}</strong></div>
+        <div className="customer-transfer-summary-card cad"><span>إجمالي القيمة (CAD)</span><strong>{money(totalTransactionCad)} CAD</strong></div>
+        <div className="customer-transfer-summary-card count"><span>عدد الحوالات</span><strong>{transactionRows.length}</strong></div>
+      </div>
+
+      <div className="card tablewrap customer-transfer-tablewrap">
+        <table className="customer-transfer-table">
+          <thead><tr><th>رقم الحوالة</th><th>تاريخ الحوالة</th><th>المبلغ بالدولار الأمريكي (USD)</th><th>سعر التحويل</th><th>القيمة بالدولار الكندي (CAD)</th><th>الإجراءات</th></tr></thead>
+          <tbody>{transactionRows.length?transactionRows.map(({transaction,usdAmount,exchangeRate,cadValue})=><tr key={transaction.id}>
+            <td className="customer-transfer-number">{transaction.number}</td>
+            <td>{transaction.transferDate||String(transaction.createdAt||"").slice(0,10)}</td>
+            <td className="customer-transfer-usd">{money(usdAmount)} USD</td>
+            <td className="customer-transfer-rate">{exchangeRate.toFixed(4)}</td>
+            <td className="customer-transfer-cad">{money(cadValue)} CAD</td>
+            <td className="actions customer-transfer-actions">
+              <button onClick={()=>setEditingTransaction({...transaction})}>تعديل</button>
+              <button className="danger-button" onClick={()=>deleteTransaction(transaction.id)}>حذف</button>
+            </td>
+          </tr>):<tr><td colSpan="6">لا توجد حوالات.</td></tr>}</tbody>
+        </table>
+      </div>
+    </section>
 
     <div className="card tablewrap">
       <h3>سجل الدفعات</h3>
@@ -469,7 +499,7 @@ export function Customer({id,back,onStatement}){
         }):<tr><td colSpan="7">لا توجد دفعات.</td></tr>}</tbody>
       </table>
     </div>
-  </>;
+  </div>;
 }
 
 export function Invoice({transactionId,back}){

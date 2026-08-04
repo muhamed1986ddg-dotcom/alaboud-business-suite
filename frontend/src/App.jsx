@@ -1,24 +1,37 @@
-import React,{useEffect,useState}from"react";import LoginShell from"./LoginShell";import api,{cachedGet} from"./api";import {APP_VERSION} from"./version";
+import React,{useEffect,useState}from"react";import LoginShell from"./LoginShell";import api,{cachedGet} from"./api";import {APP_VERSION} from"./version";import {Dashboard} from"./screens/Dashboard";
 import{money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction}from"./shared";
 
 // شاشات مؤجّلة التحميل: تُحمَّل فقط عند فتحها فعليًا، لا مع كل شاشة أساسية.
 // هذا يقلّل حجم التحميل الأولي للتطبيق بشكل كبير (خصوصًا على الهاتف).
-const ExchangeRates=React.lazy(()=>import("./screens/ExchangeRates").then(m=>({default:m.ExchangeRates})));
-const GeneralDebts=React.lazy(()=>import("./screens/GeneralDebts").then(m=>({default:m.GeneralDebts})));
-const PartnerProfile=React.lazy(()=>import("./screens/Partners").then(m=>({default:m.PartnerProfile})));
-const CompaniesList=React.lazy(()=>import("./screens/CompaniesList").then(m=>({default:m.CompaniesList})));
-const CapitalOverview=React.lazy(()=>import("./screens/CapitalOverview").then(m=>({default:m.CapitalOverview})));
-const ReportsProfits=React.lazy(()=>import("./screens/ReportsProfits").then(m=>({default:m.ReportsProfits})));
-const SettingsPanel=React.lazy(()=>import("./screens/SettingsPanel").then(m=>({default:m.SettingsPanel})));
-const AICommandCenter=React.lazy(()=>import("./screens/AICommandCenter").then(m=>({default:m.AICommandCenter})));
-const Simple=React.lazy(()=>import("./screens/Simple").then(m=>({default:m.Simple})));
-const Dashboard=React.lazy(()=>import("./screens/Dashboard").then(m=>({default:m.Dashboard})));
-const Customers=React.lazy(()=>import("./screens/Customers").then(m=>({default:m.Customers})));
-const OverdueCustomers=React.lazy(()=>import("./screens/Customers").then(m=>({default:m.OverdueCustomers})));
-const Customer=React.lazy(()=>import("./screens/CustomerDetails").then(m=>({default:m.Customer})));
-const Invoice=React.lazy(()=>import("./screens/CustomerDetails").then(m=>({default:m.Invoice})));
-const Statement=React.lazy(()=>import("./screens/CustomerDetails").then(m=>({default:m.Statement})));
-const Transactions=React.lazy(()=>import("./screens/Transactions").then(m=>({default:m.Transactions})));
+const screenLoaders={
+  exchangeRates:()=>import("./screens/ExchangeRates"),
+  debts:()=>import("./screens/GeneralDebts"),
+  partners:()=>import("./screens/Partners"),
+  companies:()=>import("./screens/CompaniesList"),
+  capital:()=>import("./screens/CapitalOverview"),
+  reports:()=>import("./screens/ReportsProfits"),
+  settings:()=>import("./screens/SettingsPanel"),
+  ai:()=>import("./screens/AICommandCenter"),
+  simple:()=>import("./screens/Simple"),
+  customers:()=>import("./screens/Customers"),
+  customerDetails:()=>import("./screens/CustomerDetails"),
+  transactions:()=>import("./screens/Transactions")
+};
+const ExchangeRates=React.lazy(()=>screenLoaders.exchangeRates().then(m=>({default:m.ExchangeRates})));
+const GeneralDebts=React.lazy(()=>screenLoaders.debts().then(m=>({default:m.GeneralDebts})));
+const PartnerProfile=React.lazy(()=>screenLoaders.partners().then(m=>({default:m.PartnerProfile})));
+const CompaniesList=React.lazy(()=>screenLoaders.companies().then(m=>({default:m.CompaniesList})));
+const CapitalOverview=React.lazy(()=>screenLoaders.capital().then(m=>({default:m.CapitalOverview})));
+const ReportsProfits=React.lazy(()=>screenLoaders.reports().then(m=>({default:m.ReportsProfits})));
+const SettingsPanel=React.lazy(()=>screenLoaders.settings().then(m=>({default:m.SettingsPanel})));
+const AICommandCenter=React.lazy(()=>screenLoaders.ai().then(m=>({default:m.AICommandCenter})));
+const Simple=React.lazy(()=>screenLoaders.simple().then(m=>({default:m.Simple})));
+const Customers=React.lazy(()=>screenLoaders.customers().then(m=>({default:m.Customers})));
+const OverdueCustomers=React.lazy(()=>screenLoaders.customers().then(m=>({default:m.OverdueCustomers})));
+const Customer=React.lazy(()=>screenLoaders.customerDetails().then(m=>({default:m.Customer})));
+const Invoice=React.lazy(()=>screenLoaders.customerDetails().then(m=>({default:m.Invoice})));
+const Statement=React.lazy(()=>screenLoaders.customerDetails().then(m=>({default:m.Statement})));
+const Transactions=React.lazy(()=>screenLoaders.transactions().then(m=>({default:m.Transactions})));
 
 
 class AppErrorBoundary extends React.Component{
@@ -226,6 +239,17 @@ export default function App(){
     typeof window!=="undefined" ? window.matchMedia("(max-width: 800px)").matches : false
   );
 
+  // Warm lazy chunks after the first screen is interactive. Navigation then opens without a full-page loading state.
+  useEffect(()=>{
+    const prefetch=()=>Promise.allSettled(Object.values(screenLoaders).map(load=>load()));
+    if(typeof window!=="undefined"&&"requestIdleCallback" in window){
+      const id=window.requestIdleCallback(prefetch,{timeout:3500});
+      return()=>window.cancelIdleCallback?.(id);
+    }
+    const timer=setTimeout(prefetch,1200);
+    return()=>clearTimeout(timer);
+  },[]);
+
   useEffect(()=>{
     let timer;
     const showOperationToast=event=>{
@@ -277,7 +301,10 @@ export default function App(){
     setPartnerId(null);
     if(typeof window!=="undefined"&&window.matchMedia("(max-width: 800px)").matches){
       setMobileMenuOpen(false);
-      window.scrollTo({top:0,behavior:"smooth"});
+      requestAnimationFrame(()=>{
+        const scroller=document.querySelector("main.app-main-content");
+        if(scroller&&typeof scroller.scrollTo==="function")scroller.scrollTo({top:0,behavior:"auto"});
+      });
     }
   }
 
@@ -374,7 +401,7 @@ export default function App(){
           <small>{APP_VERSION}</small>
         </div>
       </div>
-      {branches.length>0&&<label className="branch-switcher no-print"><span>🏢 الفرع النشط</span><select value={activeBranchId} onChange={event=>{localStorage.setItem("alaboud_branch_id",event.target.value);setActiveBranchId(event.target.value);window.location.reload()}}>{branches.map(branch=><option key={branch.id} value={branch.id}>{branch.name} ({branch.code})</option>)}</select></label>}
+      {branches.length>0&&<label className="branch-switcher no-print"><span>🏢 الفرع النشط</span><select value={activeBranchId} onChange={event=>{localStorage.setItem("alaboud_branch_id",event.target.value);setActiveBranchId(event.target.value);window.dispatchEvent(new CustomEvent("alaboud-branch-changed",{detail:{branchId:event.target.value}}))}}>{branches.map(branch=><option key={branch.id} value={branch.id}>{branch.name} ({branch.code})</option>)}</select></label>}
       {menu.map(([key,label])=><button
         key={key}
         className={page===key&&!customerId&&!invoiceId&&!statementCustomerId&&!partnerId?"active":""}
@@ -398,7 +425,7 @@ export default function App(){
     </aside>
     <main className="app-main-content">
       <AppErrorBoundary key={`${page}-${customerId}-${invoiceId}-${statementCustomerId}-${partnerId}`}>
-        <React.Suspense fallback={<div className="card" style={{textAlign:"center",padding:"2rem"}}>...جارٍ التحميل</div>}>
+        <React.Suspense fallback={<div className="route-inline-loader" role="status"><span className="app-loading-spinner" aria-hidden="true"/><small>تحميل المحتوى…</small></div>}>
           {content}
         </React.Suspense>
       </AppErrorBoundary>
