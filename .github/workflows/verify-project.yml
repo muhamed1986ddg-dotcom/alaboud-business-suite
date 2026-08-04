@@ -1,0 +1,33 @@
+name: Verify Project
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install dependencies
+        run: npm run install:all
+      - name: Backend syntax and tests
+        run: |
+          npm run check --prefix backend
+          node backend/src/access-control.test.js
+          npm run test:migration --prefix backend
+          npm run test:projector --prefix backend
+          npm run test:api-platform --prefix backend
+          npm run test:branches --prefix backend
+          npm run test:production --prefix backend
+      - name: Build frontend
+        run: npm run build

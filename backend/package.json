@@ -1,10 +1,9 @@
 {
   "name": "alaboud-stable-backend",
-  "version": "23.0.37",
+  "version": "24.0.2",
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "postinstall": "npx playwright install chromium",
     "start": "node src/server.js",
     "test": "node src/selftest.js",
     "check": "node --check src/server.js && node --check src/store.js && node --check src/database/DatabaseService.js && node --check src/database/MigrationRunner.js && node --check src/database/adapters/PostgresStateAdapter.js && node --check src/migration/StateToRelationalMapper.js && node --check src/migration/RelationalMigrationEngine.js && node --check src/migration/cli.js && node --check src/repositories/RelationalProjector.js && node --check src/repositories/PostgresEntityRepository.js && node --check src/repositories/NativeRepositoryRegistry.js && node --check src/repositories/PostgresEntityRepository.test.js && node --check src/access-control.js && node --check src/session-registry.js && node --check src/security-enterprise.test.js && node --check src/api-platform.js && node --check src/api-platform.test.js && node --check src/branch-manager.js && node --check src/branch-manager.test.js && node --check src/production-readiness.js && node --check src/production-readiness.test.js",

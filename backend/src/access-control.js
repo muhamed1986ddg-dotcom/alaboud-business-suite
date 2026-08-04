@@ -20,6 +20,28 @@ const ROLE_PERMISSIONS = Object.freeze({
   ]
 });
 
+const PUBLIC_API_PREFIXES = Object.freeze([
+  "/api/auth/",
+  "/api/health",
+  "/api/public/"
+]);
+
+const RESOURCE_PERMISSION = Object.freeze([
+  ["/api/customers", "customers"],
+  ["/api/transactions", "transactions"],
+  ["/api/payments", "transactions"],
+  ["/api/debts", "debts"],
+  ["/api/general-debts", "debts"],
+  ["/api/expenses", "expenses"],
+  ["/api/capital", "capital"],
+  ["/api/partners", "partners"],
+  ["/api/companies", "partners"],
+  ["/api/exchange-rates", "rates"],
+  ["/api/rates", "rates"],
+  ["/api/reports", "reports"],
+  ["/api/dashboard", "dashboard"]
+]);
+
 function normalizeRole(role){
   const value=String(role||"USER").trim().toUpperCase();
   return ROLE_PERMISSIONS[value]?value:"USER";
@@ -35,6 +57,27 @@ function hasPermission(user, permission){
   return permissions.includes("*")||permissions.includes(permission);
 }
 
+function requiredPermissionForRequest(method, requestPath){
+  const verb=String(method||"GET").toUpperCase();
+  const pathname=String(requestPath||"").split("?")[0].replace(/\/+$/, "") || "/";
+
+  if (PUBLIC_API_PREFIXES.some((prefix) => pathname === prefix.replace(/\/$/, "") || pathname.startsWith(prefix))) {
+    return null;
+  }
+  if (pathname.startsWith("/api/users") || pathname.startsWith("/api/branches") || pathname.startsWith("/api/admin")) {
+    return "admin.only";
+  }
+  if (pathname.startsWith("/api/audit-logs") || pathname.startsWith("/api/audit")) {
+    return verb === "GET" || verb === "HEAD" ? "audit.read" : "admin.only";
+  }
+
+  const resource=RESOURCE_PERMISSION.find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  if (!resource) return null;
+  const [, permissionPrefix]=resource;
+  const action=(verb === "GET" || verb === "HEAD" || verb === "OPTIONS") ? "read" : "write";
+  return `${permissionPrefix}.${action}`;
+}
+
 function requirePermission(permission){
   return (req,res,next)=>{
     if(!hasPermission(req.user,permission)){
@@ -44,4 +87,11 @@ function requirePermission(permission){
   };
 }
 
-module.exports={ROLE_PERMISSIONS,normalizeRole,permissionsFor,hasPermission,requirePermission};
+module.exports={
+  ROLE_PERMISSIONS,
+  normalizeRole,
+  permissionsFor,
+  hasPermission,
+  requiredPermissionForRequest,
+  requirePermission
+};
