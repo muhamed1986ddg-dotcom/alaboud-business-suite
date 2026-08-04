@@ -1,3 +1,10 @@
+# v24.0.5
+
+- Split the monolithic App.jsx into lazy-loaded dashboard, customer, detail, and transaction modules.
+- Removed duplicate login and unused compatibility screens.
+- Optimized language DOM translation and deferred non-critical dashboard data.
+- Unified application version to 24.0.5.
+
 # سجل التغييرات (Changelog)
 
 ## v23.0.32 — Unified Modal System
