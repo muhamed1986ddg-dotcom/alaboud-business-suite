@@ -537,8 +537,7 @@ function Customers({open}){
     transferDate:new Date().toISOString().slice(0,10),
     rateMode:"auto",
     rateSource:"exchange-rates",
-    rateUpdatedAt:null,
-    paymentStatus:"UNPAID"
+    rateUpdatedAt:null
   });
   const [selectedRateMeta,setSelectedRateMeta]=useState(null);
 
