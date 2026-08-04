@@ -5558,3 +5558,126 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
     padding-bottom:calc(var(--mobile-nav-height) + 54px + var(--app-safe-bottom))!important;
   }
 }
+
+
+/* =========================================================
+   v23.0.38 — Mobile color, contrast and number readability
+   ========================================================= */
+@media screen and (max-width: 768px) {
+  :root {
+    --mobile-surface: #111827;
+    --mobile-surface-2: #172033;
+    --mobile-border: rgba(214, 168, 62, .42);
+    --mobile-text: #f8fafc;
+    --mobile-muted: #cbd5e1;
+    --mobile-gold: #f6c453;
+    --mobile-success: #4ade80;
+    --mobile-danger: #fb7185;
+  }
+
+  /* Overdue collection page: remove bright white statistic blocks. */
+  .overdue-customer-card,
+  .overdue-customer-card.card {
+    background: linear-gradient(145deg, #171a20 0%, #0d1118 100%) !important;
+    color: var(--mobile-text) !important;
+    border-color: var(--mobile-border) !important;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .34) !important;
+  }
+
+  .overdue-customer-head h3 {
+    color: var(--mobile-gold) !important;
+    font-weight: 900 !important;
+  }
+
+  .overdue-customer-head p {
+    color: var(--mobile-muted) !important;
+  }
+
+  .overdue-customer-details,
+  .overdue-customer-details.expanded {
+    background: transparent !important;
+  }
+
+  .overdue-customer-details > div {
+    min-height: 92px !important;
+    padding: 14px 16px !important;
+    background: linear-gradient(145deg, #1c2535, #111827) !important;
+    border: 1px solid rgba(214, 168, 62, .26) !important;
+    border-radius: 16px !important;
+    color: var(--mobile-text) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025) !important;
+  }
+
+  .overdue-customer-details span {
+    color: var(--mobile-muted) !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    line-height: 1.5 !important;
+  }
+
+  .overdue-customer-details strong {
+    display: block !important;
+    margin-top: 7px !important;
+    color: var(--mobile-gold) !important;
+    font-size: 20px !important;
+    font-weight: 900 !important;
+    line-height: 1.25 !important;
+    direction: ltr !important;
+    text-align: right !important;
+    unicode-bidi: plaintext !important;
+    text-shadow: 0 0 12px rgba(246, 196, 83, .12) !important;
+  }
+
+  /* Dates and text-only values remain bright and readable. */
+  .overdue-customer-details > div:nth-child(n+4) strong {
+    color: var(--mobile-text) !important;
+    font-size: 17px !important;
+  }
+
+  .overdue-top-stats > .card,
+  .expected-today-card {
+    background: linear-gradient(145deg, #182234, #101722) !important;
+    color: var(--mobile-text) !important;
+    border: 1px solid var(--mobile-border) !important;
+  }
+
+  .overdue-top-stats .card span,
+  .overdue-top-stats .card small {
+    color: var(--mobile-muted) !important;
+  }
+
+  .overdue-top-stats .card strong {
+    color: var(--mobile-gold) !important;
+    font-weight: 900 !important;
+    direction: ltr !important;
+    unicode-bidi: plaintext !important;
+  }
+
+  /* Inputs in dark pages must not fall back to white browser styling. */
+  .overdue-customer-card input,
+  .overdue-customer-card select,
+  .overdue-customer-card textarea,
+  .overdue-filters input,
+  .overdue-filters select {
+    background: #0f1724 !important;
+    color: var(--mobile-text) !important;
+    border-color: rgba(214, 168, 62, .38) !important;
+    -webkit-text-fill-color: var(--mobile-text) !important;
+  }
+
+  .overdue-customer-card input::placeholder,
+  .overdue-customer-card textarea::placeholder,
+  .overdue-filters input::placeholder {
+    color: #94a3b8 !important;
+    opacity: 1 !important;
+  }
+
+  /* Consistent number rendering across mobile summary cards. */
+  .card strong,
+  .stat-value,
+  .customer-stat-value,
+  .money,
+  [data-value-type="money"] {
+    font-variant-numeric: tabular-nums lining-nums !important;
+  }
+}

@@ -1199,14 +1199,14 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
     const templates={
       gentle:[
         `السلام عليكم ${customer.name}،`,
-        `نذكّركم بلطف بوجود رصيد مستحق قدره ${cad(customer.finalBalance)} CAD.`,
+        `نذكّركم بلطف بوجود رصيد مستحق قدره ${cad(customer.finalBalance)}.`,
         `مدة التأخير: ${customer.overdueDays} يوم.`,
         `نرجو التكرم بالسداد في الوقت المناسب.`,
         `شكراً لتعاملكم مع شركة العبود للتجارة.`
       ],
       formal:[
         `السيد/السيدة ${customer.name} المحترم/ة،`,
-        `نفيدكم بوجود رصيد مستحق على حسابكم بقيمة ${cad(customer.finalBalance)} CAD.`,
+        `نفيدكم بوجود رصيد مستحق على حسابكم بقيمة ${cad(customer.finalBalance)}.`,
         `وقد تجاوزت مدة التأخير ${customer.overdueDays} يومًا.`,
         `يرجى تسوية الرصيد أو التواصل معنا لتحديد موعد الدفع.`,
         `شركة العبود للتجارة.`
@@ -1214,9 +1214,9 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
       statement:[
         `السلام عليكم ${customer.name}،`,
         `ملخص حسابكم الحالي:`,
-        `إجمالي الحساب: ${cad(customer.totalTransactions)} CAD`,
-        `إجمالي المدفوع: ${cad(customer.totalPaid)} CAD`,
-        `الرصيد المتبقي: ${cad(customer.finalBalance)} CAD`,
+        `إجمالي الحساب: ${cad(customer.totalTransactions)}`,
+        `إجمالي المدفوع: ${cad(customer.totalPaid)}`,
+        `الرصيد المتبقي: ${cad(customer.finalBalance)}`,
         `يمكننا تزويدكم بكشف الحساب الكامل عند الطلب.`
       ]
     };
@@ -1320,9 +1320,9 @@ function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
           </div>
 
           <div className="overdue-customer-details expanded">
-            <div><span>الرصيد المتبقي</span><strong>{cad(customer.finalBalance)} CAD</strong></div>
-            <div><span>إجمالي الحساب</span><strong>{cad(customer.totalTransactions)} CAD</strong></div>
-            <div><span>إجمالي المدفوع</span><strong>{cad(customer.totalPaid)} CAD</strong></div>
+            <div><span>الرصيد المتبقي</span><strong>{cad(customer.finalBalance)}</strong></div>
+            <div><span>إجمالي الحساب</span><strong>{cad(customer.totalTransactions)}</strong></div>
+            <div><span>إجمالي المدفوع</span><strong>{cad(customer.totalPaid)}</strong></div>
             <div><span>أقدم حوالة غير مدفوعة</span><strong>{customer.oldestUnpaidDate||"-"}</strong></div>
             <div><span>آخر دفعة</span><strong>{customer.lastPaymentDate||"-"}</strong></div>
             <div><span>آخر متابعة</span><strong>{customer.latestAction?.action||"-"}</strong></div>
