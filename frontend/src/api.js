@@ -44,7 +44,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="24.1.2";
+  config.headers["X-Alaboud-Client-Version"]="24.2.0";
   // Do not append a timestamp to every GET request. The in-memory cache below
   // already controls freshness, while cache-busting forced needless server and
   // database work on every navigation.

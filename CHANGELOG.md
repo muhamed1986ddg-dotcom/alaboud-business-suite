@@ -1,3 +1,9 @@
+## 24.2.0
+- Unified the dark design system across all application pages.
+- Removed unintended white surfaces from cards, tables, forms, modals, reports, settings, customer screens, payments, debts, budget, exchange rates and the AI command center.
+- Added common color tokens, stronger text contrast, tabular financial numbers and consistent form/table/modal styling.
+- Preserved a light print stylesheet for statements and reports.
+
 # v24.0.7
 
 - Treat customer old balance as an opening balance, never as a payment.

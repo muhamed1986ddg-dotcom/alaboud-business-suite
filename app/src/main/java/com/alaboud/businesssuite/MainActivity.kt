@@ -103,7 +103,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/24.1.2"
+            userAgentString = "$userAgentString AlAboudMobile/24.2.0"
         }
 
         CookieManager.getInstance().apply {
