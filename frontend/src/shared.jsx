@@ -5,6 +5,7 @@
 // مصدر واحد للحقيقة بعد تقسيم الملف لتسريع التحميل الأولي على الهاتف.
 import React from "react";
 import {createRoot} from "react-dom/client";
+import {AppButton,AppModal} from "./components/ui";
 
 export function CurrencyFlag({code,className=""}){
   const normalized=String(code||"").toUpperCase();
@@ -101,39 +102,12 @@ export function rateTrend(rate, history = []) {
 }
 
 
-export function UnifiedModal({open,title,children,onClose,actions=null,size="md",busy=false,closeOnBackdrop=true}){
-  React.useEffect(()=>{
-    if(!open)return undefined;
-    const onKey=(event)=>{if(event.key==="Escape"&&!busy)onClose?.();};
-    document.addEventListener("keydown",onKey);
-    const previous=document.body.style.overflow;
-    document.body.classList.add("unified-modal-open");
-    document.body.style.overflow="hidden";
-    return()=>{
-      document.removeEventListener("keydown",onKey);
-      document.body.classList.remove("unified-modal-open");
-      document.body.style.overflow=previous||"";
-    };
-  },[open,busy,onClose]);
-  if(!open)return null;
-  return <div className="unified-modal-backdrop" role="presentation" onMouseDown={(event)=>{
-    if(closeOnBackdrop&&!busy&&event.target===event.currentTarget)onClose?.();
-  }}>
-    <section className={`unified-modal-shell unified-modal-${size}`} role="dialog" aria-modal="true" aria-label={title||"نافذة"}>
-      <header className="unified-modal-header">
-        <h3>{title}</h3>
-        <button type="button" className="unified-modal-close" onClick={()=>!busy&&onClose?.()} disabled={busy} aria-label="إغلاق">×</button>
-      </header>
-      <div className="unified-modal-body">{children}</div>
-      {actions&&<footer className="unified-modal-actions">{actions}</footer>}
-    </section>
-  </div>;
+export function UnifiedModal(props){
+  return <AppModal {...props}/>;
 }
 
 export function LoadingButton({busy=false,busyText="جاري الحفظ...",children,disabled,...props}){
-  return <button {...props} disabled={disabled||busy} aria-busy={busy?"true":"false"}>
-    {busy?<><span className="button-spinner" aria-hidden="true"/>{busyText}</>:children}
-  </button>;
+  return <AppButton {...props} busy={busy} busyText={busyText} disabled={disabled}>{children}</AppButton>;
 }
 
 export function confirmAction({

@@ -1,3 +1,9 @@
+# v25.0.0
+- Added shared UI foundation components.
+- Migrated Exchange Rates modals, buttons, cards and tables to the shared UI system.
+- Added design tokens and centralized CSS entry point.
+- Preserved legacy CSS temporarily for non-migrated screens.
+
 # v24.2.4
 
 - Completed API permission wiring for backups, restore, notification settings, reports, AI, developer, device and security routes.

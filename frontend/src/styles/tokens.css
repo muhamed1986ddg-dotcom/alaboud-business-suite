@@ -1,0 +1,17 @@
+:root{
+  --ui-bg:#08111f;
+  --ui-surface:#0f1b2d;
+  --ui-card:#142238;
+  --ui-card-hover:#182a45;
+  --ui-border:#304663;
+  --ui-border-strong:#d6ad3c;
+  --ui-text:#f8fafc;
+  --ui-text-muted:#b7c3d4;
+  --ui-gold:#d6ad3c;
+  --ui-success:#22c55e;
+  --ui-danger:#ef4444;
+  --ui-warning:#f59e0b;
+  --ui-info:#38bdf8;
+  --ui-radius:16px;
+  --ui-shadow:0 16px 40px rgba(0,0,0,.28);
+}

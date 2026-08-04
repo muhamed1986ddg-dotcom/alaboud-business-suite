@@ -1,1 +1,1 @@
-export const APP_VERSION="v24.2.4 Stable";
+export const APP_VERSION="v25.0.0 UI Foundation";

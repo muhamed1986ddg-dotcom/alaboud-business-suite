@@ -1,18 +1,9 @@
 import React,{useEffect,useMemo,useState}from"react";
 import api,{cachedGet}from"../api";
 import{EXCHANGE_CURRENCY_CATALOG,CurrencyFlag,rateTrend}from"../shared";
+import{AppButton,AppCard,AppModal,AppStatCard,AppTable}from"../components/ui";
 
 const DEFAULT_CODES=["CAD","EUR","GBP","TRY","SYP","SAR","AED","JOD","LBP","EGP","IQD","KWD","QAR","BHD","OMR","CHF","AUD","NZD","CNY","JPY","INR","SEK","NOK"];
-
-function RateModal({title,onClose,children,wide=false}){
-  useEffect(()=>{const onKey=e=>{if(e.key==="Escape")onClose()};document.addEventListener("keydown",onKey);return()=>document.removeEventListener("keydown",onKey)},[onClose]);
-  return <div className="rate-modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)onClose()}}>
-    <section className={`rate-modal ${wide?"rate-modal-wide":""}`} role="dialog" aria-modal="true">
-      <header><h3>{title}</h3><button type="button" onClick={onClose} aria-label="إغلاق">×</button></header>
-      <div className="rate-modal-content">{children}</div>
-    </section>
-  </div>;
-}
 
 function ExchangeRates(){
   const [list,setList]=useState([]);
@@ -67,45 +58,43 @@ function ExchangeRates(){
     </div>
 
     <div className="exchange-summary-cards">
-      <article><span>العملات المعروضة</span><strong>{rates.length}</strong><small>مقابل الدولار الأمريكي</small></article>
-      <article><span>آخر تحديث عالمي</span><strong>{latestAt?safeDate(latestAt).split("،")[0]:"—"}</strong><small>{latestAt?safeDate(latestAt):"لم يتم التحديث"}</small></article>
-      <article><span>المصدر</span><strong>Global USD Feed</strong><small>نشرة مرجعية عالمية تلقائية</small></article>
-      <article><span>التحديث التلقائي</span><strong>كل ساعة</strong><small>يُحفظ آخر سعر ناجح عند تعذر المصدر</small></article>
+      <AppStatCard label="العملات المعروضة" value={rates.length} hint="مقابل الدولار الأمريكي"/>
+      <AppStatCard label="آخر تحديث عالمي" value={latestAt?safeDate(latestAt).split("،")[0]:"—"} hint={latestAt?safeDate(latestAt):"لم يتم التحديث"} tone="info"/>
+      <AppStatCard label="المصدر" value="Global USD Feed" hint="نشرة مرجعية عالمية تلقائية"/>
+      <AppStatCard label="التحديث التلقائي" value="كل ساعة" hint="يُحفظ آخر سعر ناجح عند تعذر المصدر" tone="success"/>
     </div>
 
     <div className="exchange-action-bar">
-      <button className="primary" type="button" onClick={()=>refresh(true)} disabled={refreshing}>{refreshing?"جاري التحديث...":"↻ تحديث الأسعار الآن"}</button>
-      <button type="button" onClick={()=>setModal("currencies")}>⚙ إدارة العملات</button>
-      <button type="button" onClick={()=>setModal("history")}>▤ سجل التحديثات</button>
-      <button type="button" onClick={()=>setModal("settings")}>⏱ إعدادات التحديث</button>
+      <AppButton variant="primary" type="button" onClick={()=>refresh(true)} busy={refreshing} busyText="جاري التحديث...">↻ تحديث الأسعار الآن</AppButton>
+      <AppButton type="button" onClick={()=>setModal("currencies")}>⚙ إدارة العملات</AppButton>
+      <AppButton type="button" onClick={()=>setModal("history")}>▤ سجل التحديثات</AppButton>
+      <AppButton type="button" onClick={()=>setModal("settings")}>⏱ إعدادات التحديث</AppButton>
     </div>
     {message&&<div className="exchange-inline-message">{message}</div>}
 
-    <section className="exchange-table-card">
-      <div className="exchange-table-toolbar">
-        <div><h3>أسعار العملات العالمية</h3><small>كل القيم توضح ما يعادل 1 دولار أمريكي</small></div>
-        <div className="exchange-search"><span>⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ابحث بالعملة أو الرمز..."/></div>
-        <div className="exchange-filter-buttons">{[["ALL","الكل"],["FAVORITES","المفضلة"],["MAJOR","الرئيسية"],["OTHER","أخرى"]].map(([k,l])=><button type="button" className={filter===k?"active":""} onClick={()=>setFilter(k)} key={k}>{l}</button>)}</div>
-      </div>
-      <div className="exchange-responsive-table">
-        <table><thead><tr><th>العملة</th><th>الرمز</th><th>مقابل 1 USD</th><th>الحركة</th><th>آخر تحديث</th><th>الإجراء</th></tr></thead>
-        <tbody>{filtered.map(r=>{const trend=trendFor(r),fav=favorites.includes(String(r.id));return <tr key={r.id}>
-          <td><div className="exchange-currency-cell"><CurrencyFlag code={r.quoteCurrency}/><div><b>{info[r.quoteCurrency]?.name||r.quoteCurrency}</b><small>الدولار الأمريكي ← {r.quoteCurrency}</small></div></div></td>
-          <td><span className="exchange-code">{r.quoteCurrency}</span></td>
-          <td><strong className="exchange-value">{Number(r.sellRate||r.buyRate||0).toLocaleString("en-CA",{maximumFractionDigits:6})}</strong></td>
-          <td><span className={`trend trend-${trend.type}`}>{trend.symbol} {trend.label}</span></td>
-          <td>{safeDate(r.createdAt)}</td>
-          <td><div className="exchange-row-actions"><button type="button" onClick={()=>setFavorites(cur=>fav?cur.filter(x=>x!==String(r.id)):[...cur,String(r.id)])}>{fav?"★":"☆"}</button><button type="button" onClick={()=>openDetails(r)}>عرض</button></div></td>
-        </tr>})}{!filtered.length&&<tr><td colSpan="6" className="exchange-empty">لا توجد أسعار مطابقة. اضغط تحديث الأسعار الآن.</td></tr>}</tbody></table>
-      </div>
-    </section>
+    <AppCard className="exchange-table-card" title="أسعار العملات العالمية" subtitle="كل القيم توضح ما يعادل 1 دولار أمريكي" actions={<div className="exchange-filter-buttons">{[["ALL","الكل"],["FAVORITES","المفضلة"],["MAJOR","الرئيسية"],["OTHER","أخرى"]].map(([k,l])=><AppButton type="button" className={filter===k?"active":""} onClick={()=>setFilter(k)} key={k}>{l}</AppButton>)}</div>}>
+      <div className="exchange-search"><span>⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ابحث بالعملة أو الرمز..."/></div>
+      <AppTable
+        className="exchange-responsive-table"
+        rows={filtered}
+        emptyText="لا توجد أسعار مطابقة. اضغط تحديث الأسعار الآن."
+        columns={[
+          {key:"currency",label:"العملة",render:r=><div className="exchange-currency-cell"><CurrencyFlag code={r.quoteCurrency}/><div><b>{info[r.quoteCurrency]?.name||r.quoteCurrency}</b><small>الدولار الأمريكي ← {r.quoteCurrency}</small></div></div>},
+          {key:"code",label:"الرمز",render:r=><span className="exchange-code">{r.quoteCurrency}</span>},
+          {key:"value",label:"مقابل 1 USD",render:r=><strong className="exchange-value">{Number(r.sellRate||r.buyRate||0).toLocaleString("en-CA",{maximumFractionDigits:6})}</strong>},
+          {key:"trend",label:"الحركة",render:r=>{const trend=trendFor(r);return <span className={`trend trend-${trend.type}`}>{trend.symbol} {trend.label}</span>}},
+          {key:"updated",label:"آخر تحديث",render:r=>safeDate(r.createdAt)},
+          {key:"actions",label:"الإجراء",render:r=>{const fav=favorites.includes(String(r.id));return <div className="exchange-row-actions"><AppButton type="button" onClick={()=>setFavorites(cur=>fav?cur.filter(x=>x!==String(r.id)):[...cur,String(r.id)])}>{fav?"★":"☆"}</AppButton><AppButton variant="info" type="button" onClick={()=>openDetails(r)}>عرض</AppButton></div>}}
+        ]}
+      />
+    </AppCard>
 
     {!!goldRates.length&&<section className="exchange-table-card exchange-gold-compact"><div className="exchange-table-toolbar"><div><h3>أسعار الذهب التلقائية</h3><small>محسوبة تلقائيًا للغرام بالدولار الكندي</small></div></div><div className="exchange-gold-grid">{goldRates.map(r=><article key={r.id}><span>{r.baseCurrency.replace("XAU","")} قيراط</span><strong>{Number(r.sellRate||0).toFixed(2)} CAD</strong><small>{safeDate(r.createdAt)}</small></article>)}</div></section>}
 
-    {modal==="currencies"&&<RateModal title="إدارة العملات المعروضة" onClose={()=>setModal(null)} wide><p className="rate-modal-note">اختر العملات التي تريد إظهارها. الأسعار نفسها تُجلب تلقائيًا ولا يمكن تعديلها يدويًا.</p><div className="rate-currency-picker">{EXCHANGE_CURRENCY_CATALOG.filter(x=>x.code!=="USD").map(x=><button type="button" className={enabledCodes.includes(x.code)?"active":""} key={x.code} onClick={()=>toggleCode(x.code)}><span>{x.flag}</span><div><b>{x.code}</b><small>{x.name}</small></div><strong>{enabledCodes.includes(x.code)?"✓":"+"}</strong></button>)}</div></RateModal>}
-    {modal==="history"&&<RateModal title="سجل تحديثات الأسعار" onClose={()=>setModal(null)} wide><div className="rate-modal-table"><table><thead><tr><th>التاريخ</th><th>الزوج</th><th>السعر</th><th>المصدر</th></tr></thead><tbody>{history.filter(x=>x.baseCurrency==="USD").map(x=><tr key={x.id}><td>{safeDate(x.createdAt)}</td><td>USD/{x.quoteCurrency}</td><td>{Number(x.sellRate||x.buyRate||0).toLocaleString("en-CA",{maximumFractionDigits:6})}</td><td>{x.source||"GLOBAL_USD_FEED"}</td></tr>)}</tbody></table></div></RateModal>}
-    {modal==="settings"&&<RateModal title="إعدادات التحديث التلقائي" onClose={()=>setModal(null)}><div className="rate-settings-list"><div><b>العملة الأساسية</b><span>USD — الدولار الأمريكي</span></div><div><b>مدة التحديث</b><span>كل ساعة</span></div><div><b>طريقة الحفظ</b><span>آخر سعر عالمي ناجح فقط</span></div><div><b>التعديل اليدوي</b><span className="disabled-label">معطل</span></div><div><b>عند تعذر المصدر</b><span>الاحتفاظ بآخر سعر محفوظ</span></div></div></RateModal>}
-    {modal==="details"&&selected&&<RateModal title={`تفاصيل ${info[selected.quoteCurrency]?.name||selected.quoteCurrency}`} onClose={()=>setModal(null)}><div className="rate-detail-card"><CurrencyFlag code={selected.quoteCurrency}/><h3>1 USD = {Number(selected.sellRate||selected.buyRate||0).toLocaleString("en-CA",{maximumFractionDigits:6})} {selected.quoteCurrency}</h3><p>المصدر: {selected.source||"GLOBAL_USD_FEED"}</p><p>آخر تحديث: {safeDate(selected.createdAt)}</p><p>هذا سعر مرجعي عالمي، وليس سعر شراء أو بيع مصرفي.</p></div></RateModal>}
+    {modal==="currencies"&&<AppModal open title="إدارة العملات المعروضة" onClose={()=>setModal(null)} size="xl"><p className="rate-modal-note">اختر العملات التي تريد إظهارها. الأسعار نفسها تُجلب تلقائيًا ولا يمكن تعديلها يدويًا.</p><div className="rate-currency-picker">{EXCHANGE_CURRENCY_CATALOG.filter(x=>x.code!=="USD").map(x=><button type="button" className={enabledCodes.includes(x.code)?"active":""} key={x.code} onClick={()=>toggleCode(x.code)}><span>{x.flag}</span><div><b>{x.code}</b><small>{x.name}</small></div><strong>{enabledCodes.includes(x.code)?"✓":"+"}</strong></button>)}</div></AppModal>}
+    {modal==="history"&&<AppModal open title="سجل تحديثات الأسعار" onClose={()=>setModal(null)} size="xl"><AppTable className="rate-modal-table" rows={history.filter(x=>x.baseCurrency==="USD")} emptyText="لا يوجد سجل تحديثات" columns={[{key:"date",label:"التاريخ",render:x=>safeDate(x.createdAt)},{key:"pair",label:"الزوج",render:x=>`USD/${x.quoteCurrency}`},{key:"rate",label:"السعر",render:x=>Number(x.sellRate||x.buyRate||0).toLocaleString("en-CA",{maximumFractionDigits:6})},{key:"source",label:"المصدر",render:x=>x.source||"GLOBAL_USD_FEED"}]}/></AppModal>}
+    {modal==="settings"&&<AppModal open title="إعدادات التحديث التلقائي" onClose={()=>setModal(null)}><div className="rate-settings-list"><div><b>العملة الأساسية</b><span>USD — الدولار الأمريكي</span></div><div><b>مدة التحديث</b><span>كل ساعة</span></div><div><b>طريقة الحفظ</b><span>آخر سعر عالمي ناجح فقط</span></div><div><b>التعديل اليدوي</b><span className="disabled-label">معطل</span></div><div><b>عند تعذر المصدر</b><span>الاحتفاظ بآخر سعر محفوظ</span></div></div></AppModal>}
+    {modal==="details"&&selected&&<AppModal open title={`تفاصيل ${info[selected.quoteCurrency]?.name||selected.quoteCurrency}`} onClose={()=>setModal(null)}><div className="rate-detail-card"><CurrencyFlag code={selected.quoteCurrency}/><h3>1 USD = {Number(selected.sellRate||selected.buyRate||0).toLocaleString("en-CA",{maximumFractionDigits:6})} {selected.quoteCurrency}</h3><p>المصدر: {selected.source||"GLOBAL_USD_FEED"}</p><p>آخر تحديث: {safeDate(selected.createdAt)}</p><p>هذا سعر مرجعي عالمي، وليس سعر شراء أو بيع مصرفي.</p></div></AppModal>}
   </section>;
 }
 export{ExchangeRates};
