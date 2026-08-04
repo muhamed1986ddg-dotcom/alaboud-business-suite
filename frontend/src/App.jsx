@@ -2546,7 +2546,7 @@ export default function App(){
     ["settings","⚙️ الإعدادات والتنبيهات"]
   ];
 
-  return <><AppLanguageBridge/>{saveToast&&<div className={`global-save-toast ${saveToast.type==="error"?"global-save-toast-error":"global-save-toast-success"}`} role={saveToast.type==="error"?"alert":"status"}>{saveToast.message}</div>}<div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"}`}>
+  return <><AppLanguageBridge/>{saveToast&&<div className={`global-save-toast ${saveToast.type==="error"?"global-save-toast-error":"global-save-toast-success"}`} role={saveToast.type==="error"?"alert":"status"}>{saveToast.message}</div>}<div className={`app ${mobileMenuOpen?"mobile-menu-view":"mobile-page-view"} ${page==="dashboard"?"desktop-dashboard-layout":""}`}>
     <div className="mobile-page-header no-print">
       <button className="mobile-header-action mobile-menu-action" onClick={()=>setMobileMenuOpen(true)} aria-label="فتح القائمة">
         <span className="mobile-header-icon">☰</span><span>القائمة</span>
