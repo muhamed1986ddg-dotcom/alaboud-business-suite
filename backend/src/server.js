@@ -4876,6 +4876,14 @@ async function startServer(){
 
 let serverInstance=null;
 let shuttingDown=false;
+// أخطاء الاتصال العابرة بقاعدة البيانات (انقطاع مؤقت شائع في خطط الاستضافة
+// المجانية) قابلة للتعافي الذاتي عبر منطق إعادة المحاولة الموجود أصلًا في
+// PostgresStateAdapter، فلا داعي لإسقاط السيرفر بالكامل بسببها — هذا كان
+// يسبب توقف الخدمة لثوانٍ لكل المستخدمين عند كل انقطاع عابر.
+function isTransientConnectionError(error){
+  const message=String(error?.message||"").toLowerCase();
+  return ["connection terminated","econnreset","socket hang up","57p01","08006","08000","08003","08001"].some(x=>message.includes(x))||String(error?.code||"").startsWith("08");
+}
 async function shutdown(signal){
   if(shuttingDown)return;
   shuttingDown=true;
@@ -4888,8 +4896,22 @@ async function shutdown(signal){
 }
 process.on("SIGTERM",()=>shutdown("SIGTERM"));
 process.on("SIGINT",()=>shutdown("SIGINT"));
-process.on("unhandledRejection",error=>{console.error("Unhandled promise rejection:",error);shutdown("UNHANDLED_REJECTION");});
-process.on("uncaughtException",error=>{console.error("Uncaught exception:",error);shutdown("UNCAUGHT_EXCEPTION");});
+process.on("unhandledRejection",error=>{
+  console.error("Unhandled promise rejection:",error);
+  if(isTransientConnectionError(error)){
+    console.warn("تم تجاهل خطأ اتصال عابر بقاعدة البيانات دون إسقاط السيرفر.");
+    return;
+  }
+  shutdown("UNHANDLED_REJECTION");
+});
+process.on("uncaughtException",error=>{
+  console.error("Uncaught exception:",error);
+  if(isTransientConnectionError(error)){
+    console.warn("تم تجاهل خطأ اتصال عابر بقاعدة البيانات دون إسقاط السيرفر.");
+    return;
+  }
+  shutdown("UNCAUGHT_EXCEPTION");
+});
 startServer().catch(error=>{
   console.error("Server startup failed:",error);
   process.exit(1);
