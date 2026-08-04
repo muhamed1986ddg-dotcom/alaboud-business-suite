@@ -5328,3 +5328,154 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 .app-loading-spinner{width:42px;height:42px;margin:auto;border:4px solid rgba(255,255,255,.14);border-top-color:#d4a72c;border-radius:50%;animation:alaboud-spin .75s linear infinite}
 @keyframes alaboud-spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.app-loading-spinner{animation-duration:1.8s}}
+
+
+/* ============================================================
+   v23.0.35 — Mobile safe areas + official-brand layout
+   Prevents top/bottom controls from overlapping Android/iPhone UI.
+   ============================================================ */
+:root{
+  --app-safe-top:env(safe-area-inset-top,0px);
+  --app-safe-bottom:env(safe-area-inset-bottom,0px);
+  --mobile-nav-height:68px;
+  --mobile-edge-gap:12px;
+}
+
+@supports(height:100dvh){
+  html,body,#root{min-height:100dvh}
+}
+
+@media(max-width:800px){
+  html,body,#root{
+    width:100%;
+    min-height:100%;
+    background:#07111f!important;
+    overscroll-behavior-y:none;
+  }
+
+  body{
+    margin:0!important;
+    padding:0!important;
+  }
+
+  .app.mobile-page-view,
+  .app.mobile-menu-view{
+    min-height:100dvh!important;
+    background:#07111f!important;
+  }
+
+  /* Header begins below the phone status bar / camera cutout. */
+  .app.mobile-page-view .mobile-page-header{
+    box-sizing:border-box!important;
+    top:0!important;
+    height:calc(58px + var(--app-safe-top))!important;
+    min-height:calc(58px + var(--app-safe-top))!important;
+    padding:calc(6px + var(--app-safe-top)) 10px 6px!important;
+    background:rgba(4,11,21,.98)!important;
+    border-bottom:1px solid rgba(225,181,63,.30)!important;
+    z-index:500!important;
+  }
+
+  .app.mobile-page-view .mobile-brand-center{
+    min-width:0!important;
+    max-width:calc(100vw - 120px)!important;
+  }
+
+  .app.mobile-page-view .mobile-header-logo,
+  .app.mobile-menu-view .alaboud-sidebar-logo{
+    object-fit:contain!important;
+    background:#fff!important;
+    border:2px solid #dcb33e!important;
+    padding:2px!important;
+  }
+
+  /* Content always clears both the app navigation and system navigation. */
+  .app.mobile-page-view main.app-main-content{
+    box-sizing:border-box!important;
+    width:100%!important;
+    min-height:calc(100dvh - 58px - var(--app-safe-top))!important;
+    padding:10px 10px calc(var(--mobile-nav-height) + var(--mobile-edge-gap) * 2 + var(--app-safe-bottom) + 18px)!important;
+    background:#07111f!important;
+    overflow-x:hidden!important;
+  }
+
+  /* Floating navigation remains inside the visible safe region. */
+  .mobile-bottom-nav{
+    position:fixed!important;
+    left:10px!important;
+    right:10px!important;
+    bottom:calc(var(--mobile-edge-gap) + var(--app-safe-bottom))!important;
+    width:auto!important;
+    height:var(--mobile-nav-height)!important;
+    min-height:var(--mobile-nav-height)!important;
+    box-sizing:border-box!important;
+    padding:6px 7px!important;
+    border:1px solid rgba(225,181,63,.27)!important;
+    border-radius:22px!important;
+    background:rgba(4,11,21,.97)!important;
+    box-shadow:0 12px 35px rgba(0,0,0,.55)!important;
+    backdrop-filter:blur(18px)!important;
+    z-index:520!important;
+  }
+
+  .mobile-bottom-nav button{
+    min-width:0!important;
+    min-height:52px!important;
+    border-radius:15px!important;
+  }
+
+  /* AI button sits above navigation, never on the Android buttons. */
+  .ai-floating.ai-floating-v172{
+    position:fixed!important;
+    left:18px!important;
+    right:auto!important;
+    bottom:calc(var(--mobile-nav-height) + var(--mobile-edge-gap) * 2 + var(--app-safe-bottom))!important;
+    z-index:530!important;
+  }
+
+  /* Full menu respects display cutouts and the system gesture area. */
+  .app.mobile-menu-view aside{
+    top:0!important;
+    bottom:0!important;
+    height:100dvh!important;
+    box-sizing:border-box!important;
+    padding:calc(10px + var(--app-safe-top)) 12px calc(18px + var(--app-safe-bottom))!important;
+    overflow-y:auto!important;
+    overscroll-behavior:contain!important;
+    background:linear-gradient(180deg,#06101d,#070b11)!important;
+  }
+
+  .app.mobile-menu-view .mobile-menu-heading{
+    position:sticky!important;
+    top:0!important;
+    z-index:4!important;
+    background:linear-gradient(180deg,#06101d 80%,rgba(6,16,29,0))!important;
+  }
+
+  .app.mobile-menu-view aside>.sidebar-logout-bottom{
+    margin-bottom:calc(8px + var(--app-safe-bottom))!important;
+  }
+
+  /* Official logo on the welcome/dashboard card stays fully visible. */
+  .premium-hero img,
+  .dashboard-pro-brand img,
+  .luxury-brand-card img{
+    object-fit:contain!important;
+    background:#fff!important;
+    padding:3px!important;
+    border:2px solid #dcb33e!important;
+  }
+
+  /* Fixed bars must not cover final page actions. */
+  .home-return-bottom{
+    margin-bottom:18px!important;
+  }
+}
+
+@media(max-width:380px){
+  :root{--mobile-edge-gap:8px;--mobile-nav-height:64px}
+  .mobile-bottom-nav{left:7px!important;right:7px!important;border-radius:19px!important}
+  .app.mobile-page-view .mobile-page-header{padding-inline:7px!important}
+  .app.mobile-page-view main.app-main-content{padding-inline:7px!important}
+  .ai-floating.ai-floating-v172{left:12px!important}
+}
