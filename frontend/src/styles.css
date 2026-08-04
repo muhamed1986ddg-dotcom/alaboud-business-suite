@@ -5681,3 +5681,158 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
     font-variant-numeric: tabular-nums lining-nums !important;
   }
 }
+
+/* =========================================================
+   v23.0.39 — Final mobile UX audit
+   Global contrast, touch targets, tables, loading and safe spacing
+   ========================================================= */
+@media screen and (max-width: 900px) {
+  :root {
+    --app-mobile-bg: #070c14;
+    --app-mobile-card: #111827;
+    --app-mobile-card-2: #162033;
+    --app-mobile-line: rgba(214, 168, 62, .32);
+    --app-mobile-text: #f8fafc;
+    --app-mobile-muted: #cbd5e1;
+    --app-mobile-gold: #f6c453;
+  }
+
+  /* Never expose a white page while a lazy screen is loading. */
+  body,
+  #root,
+  .app,
+  .app-shell,
+  main.app-main-content {
+    background: var(--app-mobile-bg) !important;
+  }
+
+  .app-boot-loading,
+  .screen-loading,
+  .page-loading,
+  .loading-screen {
+    min-height: 100dvh !important;
+    background: linear-gradient(180deg, #08111f, #050a11) !important;
+    color: var(--app-mobile-text) !important;
+  }
+
+  /* Universal mobile cards: dark, readable and visually consistent. */
+  main.app-main-content .card:not(.invoice-sheet),
+  main.app-main-content .panel:not(.invoice-sheet),
+  main.app-main-content article,
+  main.app-main-content .summary-card,
+  main.app-main-content .stat-card {
+    border-color: var(--app-mobile-line);
+  }
+
+  main.app-main-content .card strong,
+  main.app-main-content .summary-card strong,
+  main.app-main-content .stat-card strong,
+  main.app-main-content .money,
+  main.app-main-content [data-value-type="money"] {
+    color: var(--app-mobile-gold);
+    font-weight: 900;
+    font-variant-numeric: tabular-nums lining-nums;
+    letter-spacing: .01em;
+  }
+
+  /* Standard controls must stay readable in dark mode. */
+  main.app-main-content input,
+  main.app-main-content select,
+  main.app-main-content textarea {
+    min-height: 46px;
+    background: #0d1726;
+    color: var(--app-mobile-text);
+    border-color: rgba(214, 168, 62, .36);
+    -webkit-text-fill-color: var(--app-mobile-text);
+  }
+
+  main.app-main-content input::placeholder,
+  main.app-main-content textarea::placeholder {
+    color: #94a3b8;
+    opacity: 1;
+  }
+
+  /* Improve tap accuracy and prevent accidental double taps. */
+  main.app-main-content button,
+  aside button,
+  .mobile-bottom-nav button,
+  .mobile-bottom-nav a {
+    min-height: 44px;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Responsive tables become horizontally scrollable without locking page scroll. */
+  .tablewrap,
+  .responsive-table,
+  .exchange-responsive-table,
+  .rate-modal-table {
+    max-width: 100%;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  table {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  th,
+  td {
+    white-space: nowrap;
+  }
+
+  /* Keep the final action and last row above the fixed phone navigation. */
+  main.app-main-content > :last-child {
+    margin-bottom: calc(var(--mobile-nav-height, 72px) + var(--app-safe-bottom, 0px) + 28px) !important;
+  }
+
+  /* Toasts remain visible but do not hide the active form. */
+  .global-save-toast {
+    bottom: calc(var(--mobile-nav-height, 72px) + var(--app-safe-bottom, 0px) + 18px) !important;
+    z-index: 10050 !important;
+  }
+
+  /* Modal scroll isolation: only the dialog scrolls while open. */
+  .unified-modal,
+  .rate-modal {
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px) !important;
+  }
+
+  .unified-modal-content,
+  .rate-modal-content {
+    overflow-y: auto !important;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Floating AI control must not block list rows or bottom navigation. */
+  .ai-floating,
+  .ai-floating.ai-floating-v172 {
+    bottom: calc(var(--mobile-nav-height, 72px) + var(--app-safe-bottom, 0px) + 20px) !important;
+    pointer-events: auto;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  main.app-main-content {
+    font-size: 16px;
+  }
+
+  main.app-main-content h1,
+  main.app-main-content h2 {
+    line-height: 1.35;
+  }
+
+  main.app-main-content .actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  main.app-main-content .actions > button,
+  main.app-main-content .actions > a {
+    width: 100%;
+  }
+}
