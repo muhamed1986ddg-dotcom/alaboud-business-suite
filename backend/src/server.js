@@ -2677,31 +2677,41 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     };
   }
 
-  const convertedTotals={
-    receivable:+convertedReceivable.toFixed(2),
-    payable:+convertedPayable.toFixed(2),
-    net:+(convertedReceivable-convertedPayable).toFixed(2)
-  };
+  // Use one authoritative customer-balance calculation everywhere. customerSummary
+  // already includes the customer's opening balance, transfers and payments, so
+  // summing CUSTOMER_OLD_BALANCE and TRANSFER rows again would double-count debt.
+  const authoritativeCustomerDebtCad = customers
+    .filter((customer)=>customer && !customer.isDeleted)
+    .map((customer)=>customerSummary(store,customer))
+    .filter((customer)=>safeNumber(customer.finalBalance)>0)
+    .reduce((sum,customer)=>sum+safeNumber(customer.finalBalance),0);
+  const customerConversion=findConversion("CAD",summaryCurrency);
+  const authoritativeCustomerReceivable=customerConversion
+    ? authoritativeCustomerDebtCad*customerConversion.factor
+    : 0;
 
-  // Breakdown used by the lower "debt for us" summary. Partner-linked rows are
-  // company debt; every other receivable row belongs to customers/other clients.
-  // Both values are normalized to the same summary currency and always add up to
-  // the top receivable total, so the compact view cannot disagree with the header.
-  let customerReceivable=0;
+  // Company debt comes only from partner/company rows. It is kept separate from
+  // customer debt and is converted using the same exchange-rate graph.
   let companyReceivable=0;
-  for(const row of rows){
+  for(const row of partnerRows){
     if(row.type!=="RECEIVABLE")continue;
     const currency=String(row.currency||"CAD").toUpperCase();
     const conversion=findConversion(currency,summaryCurrency);
     if(!conversion)continue;
-    const converted=safeNumber(row.remaining)*conversion.factor;
-    if(row.source==="PARTNER"||row.source==="PARTNER_EXTERNAL") companyReceivable+=converted;
-    else customerReceivable+=converted;
+    companyReceivable+=safeNumber(row.remaining)*conversion.factor;
   }
+
+  const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable;
+  const convertedTotals={
+    receivable:+authoritativeReceivable.toFixed(2),
+    payable:+convertedPayable.toFixed(2),
+    net:+(authoritativeReceivable-convertedPayable).toFixed(2)
+  };
+
   const receivableBreakdown={
-    customers:+customerReceivable.toFixed(2),
+    customers:+authoritativeCustomerReceivable.toFixed(2),
     companies:+companyReceivable.toFixed(2),
-    total:+(customerReceivable+companyReceivable).toFixed(2)
+    total:+authoritativeReceivable.toFixed(2)
   };
 
   const manualDebtById=new Map(manualRows.map((item)=>[item.id,item]));

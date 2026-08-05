@@ -1,3 +1,10 @@
+## v25.4.9 — Unified Debt Balance
+
+- توحيد رصيد دين العملاء في صفحة العملاء وصفحة الدين العام باستخدام نفس دالة الحساب.
+- منع احتساب الحوالات والحساب القديم مرتين داخل ملخص الدين العام.
+- احتساب دين الشركات من أرصدة الشركاء فقط.
+- جعل المجموع الكلي يساوي رصيد العملاء + رصيد الشركات بدقة.
+
 ## v25.4.8 — Receivable Balance Summary
 - Kept the complete upper section of General Debts unchanged.
 - Replaced the lower receivable list with three balances only: customers, companies, and total.

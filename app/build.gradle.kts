@@ -11,8 +11,8 @@ android {
         applicationId = "com.alaboud.businesssuite"
         minSdk = 24
         targetSdk = 35
-        versionCode = 25408
-        versionName = "25.4.8"
+        versionCode = 25409
+        versionName = "25.4.9"
     }
 
     buildTypes {
