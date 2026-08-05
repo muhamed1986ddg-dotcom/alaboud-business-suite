@@ -6,4 +6,4 @@ if(!server.includes('/api/transactions/unpaid-summary'))throw new Error('missing
 if(!server.includes('totalCad:+totalCad.toFixed(2)'))throw new Error('summary must return CAD total');
 if(!ui.includes('transaction-unpaid-total-button'))throw new Error('missing unpaid total button');
 if(!ui.includes('unpaidSummary.count'))throw new Error('missing unpaid count');
-console.log('unpaid transfers summary v25.4.4 test passed');
+console.log('unpaid transfers summary v25.4.5 test passed');

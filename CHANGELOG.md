@@ -2097,3 +2097,12 @@ git push origin main
 - Node.js 22 for project verification workflow.
 - Unified application versions and Android build metadata.
 - Removed unused SwipeRefreshLayout dependency.
+
+## v25.4.5 — Professional Cleanup
+
+- Removed obsolete duplicated release notes and backend setup documents from the runtime package.
+- Added a comprehensive `.gitignore` to block secrets, backups, build outputs, archives, logs, and local runtime data.
+- Losslessly optimized Android PNG assets.
+- Verified that all declared production dependencies remain actively used.
+- Preserved Playwright because the Jad integration depends on Chromium automation.
+- Preserved security, persistence, migration, and UI tests.

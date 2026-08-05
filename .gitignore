@@ -1,3 +1,15 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Build outputs
+frontend/dist/
+backend/public/
+app/build/
+build/
+.gradle/
+
 # Environment and secrets
 .env
 .env.*
@@ -5,57 +17,33 @@
 *.pem
 *.key
 *.p12
-*.pfx
 *.jks
 keystore.properties
-local.properties
 
-# Customer data, backups and databases
+# Runtime data and backups
+data/
 backups/
-backup/
-alaboud-backup-*
 *.backup
-*.dump
-*.sql
-*.sqlite
-*.sqlite3
-*.db
-*.db-shm
-*.db-wal
 *.bak
-*.csv
-*.xlsx
-*.xls
+*.dump
 store.json
-data/store*.json
-backend/data/*.json
-!examples/store.example.json
+store-*.json
 
-# Dependencies and build output
-node_modules/
-**/node_modules/
-dist/
-**/dist/
-build/
-**/build/
-coverage/
-.gradle/
-android/.gradle/
-app/build/
-frontend/dist/
-
-# Logs, caches and temporary files
+# Logs and caches
 *.log
-logs/
-tmp/
-temp/
 .cache/
 .vite/
-*.tmp
-*.swp
+coverage/
+playwright-report/
+test-results/
+
+# IDE / OS
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
 
-# IDE
-.idea/
-.vscode/
+# Archives and generated packages
+*.zip
+*.apk
+*.aab
