@@ -74,8 +74,27 @@ function ExchangeRates(){
 
     <AppCard className="exchange-table-card" title="أسعار العملات العالمية" subtitle="كل القيم توضح ما يعادل 1 دولار أمريكي" actions={<div className="exchange-filter-buttons">{[["ALL","الكل"],["FAVORITES","المفضلة"],["MAJOR","الرئيسية"],["OTHER","أخرى"]].map(([k,l])=><AppButton type="button" className={filter===k?"active":""} onClick={()=>setFilter(k)} key={k}>{l}</AppButton>)}</div>}>
       <div className="exchange-search"><span>⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="ابحث بالعملة أو الرمز..."/></div>
+      <div className="exchange-mobile-list" aria-label="أسعار الصرف على الهاتف">
+        {filtered.length?filtered.map(r=>{
+          const fav=favorites.includes(String(r.id));
+          const trend=trendFor(r);
+          const rate=Number(r.sellRate||r.buyRate||0).toLocaleString("en-CA",{maximumFractionDigits:6});
+          return <article className="exchange-mobile-rate" key={r.id}>
+            <button className="exchange-mobile-equation" type="button" onClick={()=>openDetails(r)} aria-label={`1 USD يساوي ${rate} ${r.quoteCurrency}`}>
+              <span className="exchange-mobile-side exchange-mobile-usd"><span className="exchange-mobile-flag">🇺🇸</span><b>1</b><strong>USD</strong></span>
+              <span className="exchange-mobile-equals">=</span>
+              <span className="exchange-mobile-side exchange-mobile-quote"><b>{rate}</b><CurrencyFlag code={r.quoteCurrency}/><strong>{r.quoteCurrency}</strong></span>
+            </button>
+            <div className="exchange-mobile-meta">
+              <span className={`trend trend-${trend.type}`}>{trend.symbol} {trend.label}</span>
+              <small>{safeDate(r.createdAt)}</small>
+              <button type="button" className="exchange-mobile-favorite" onClick={()=>setFavorites(cur=>fav?cur.filter(x=>x!==String(r.id)):[...cur,String(r.id)])} aria-label={fav?"إزالة من المفضلة":"إضافة إلى المفضلة"}>{fav?"★":"☆"}</button>
+            </div>
+          </article>
+        }):<div className="exchange-mobile-empty">لا توجد أسعار مطابقة. اضغط تحديث الأسعار الآن.</div>}
+      </div>
       <AppTable
-        className="exchange-responsive-table"
+        className="exchange-responsive-table exchange-desktop-table"
         rows={filtered}
         emptyText="لا توجد أسعار مطابقة. اضغط تحديث الأسعار الآن."
         columns={[

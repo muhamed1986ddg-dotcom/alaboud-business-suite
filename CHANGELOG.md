@@ -1,3 +1,9 @@
+## v25.4.6 — Compact Mobile Exchange Rates
+
+- Added compact mobile exchange-rate rows using the format `🇺🇸 1 USD = 1.40 🇨🇦 CAD`.
+- Reduced mobile card height, spacing, controls, and summary clutter.
+- Preserved the full desktop exchange-rate table.
+
 # v25.3.5
 
 - تحويل سجل الحوالات على الهاتف إلى بطاقات قصيرة حقيقية من صفوف مضغوطة.

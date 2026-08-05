@@ -6054,3 +6054,50 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
     margin:6px 0;
   }
 }
+
+/* v25.4.6 — Compact mobile exchange-rate rows */
+.exchange-mobile-list{display:none}
+@media screen and (max-width:760px){
+  .exchange-page{gap:10px}
+  .exchange-page-head{display:none}
+  .exchange-summary-cards{display:none}
+  .exchange-action-bar{display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:8px;border-radius:13px}
+  .exchange-action-bar button{min-height:40px!important;padding:7px 8px!important;font-size:12px}
+  .exchange-table-card{border-radius:14px;overflow:visible}
+  .exchange-table-card .app-card__header{padding:10px!important}
+  .exchange-table-card .app-card__subtitle{display:none}
+  .exchange-filter-buttons{display:grid;grid-template-columns:repeat(4,1fr);width:100%;gap:5px}
+  .exchange-filter-buttons button{min-height:38px!important;padding:6px 4px!important;font-size:11px}
+  .exchange-search{min-width:0;width:auto;margin:0 9px 8px;padding:0 9px}
+  .exchange-search input{min-height:40px!important;font-size:14px}
+  .exchange-desktop-table{display:none!important}
+  .exchange-mobile-list{display:grid;gap:7px;padding:0 8px 10px}
+  .exchange-mobile-rate{background:#0b111c!important;border:1px solid rgba(214,168,62,.32)!important;border-radius:12px!important;overflow:hidden;box-shadow:0 5px 14px rgba(0,0,0,.18)}
+  .exchange-mobile-equation{width:100%;min-height:58px!important;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;padding:9px 11px!important;border:0!important;background:transparent!important;color:#f8fafc!important;direction:ltr}
+  .exchange-mobile-side{display:flex;align-items:center;gap:6px;min-width:0;white-space:nowrap}
+  .exchange-mobile-usd{justify-content:flex-start}
+  .exchange-mobile-quote{justify-content:flex-end}
+  .exchange-mobile-side b{font-size:19px;line-height:1;color:#fff!important;font-variant-numeric:tabular-nums lining-nums}
+  .exchange-mobile-side strong{font-size:13px;color:#f1c75b!important;letter-spacing:.03em}
+  .exchange-mobile-flag,.exchange-mobile-quote .currency-flag{font-size:22px!important;width:auto!important;height:auto!important;line-height:1}
+  .exchange-mobile-equals{font-size:18px;font-weight:900;color:#d6a83e}
+  .exchange-mobile-meta{min-height:33px;display:flex;align-items:center;gap:8px;padding:5px 9px;border-top:1px solid rgba(148,163,184,.14);direction:rtl}
+  .exchange-mobile-meta .trend{font-size:11px;padding:3px 6px;border-radius:7px;background:rgba(255,255,255,.035);white-space:nowrap}
+  .exchange-mobile-meta small{flex:1;text-align:center;color:#93a4b8;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .exchange-mobile-favorite{min-width:34px!important;width:34px;height:30px;min-height:30px!important;padding:0!important;border:1px solid rgba(214,168,62,.35)!important;border-radius:8px!important;background:#172236!important;color:#f2c75b!important;font-size:18px!important}
+  .exchange-mobile-empty{padding:24px 12px;text-align:center;color:#9eafc3}
+  .exchange-gold-grid{grid-template-columns:1fr 1fr;padding:8px;gap:7px}
+  .exchange-gold-grid article{padding:9px;border-radius:10px}
+}
+@media screen and (max-width:380px){
+  .exchange-mobile-equation{gap:5px;padding-inline:8px!important}
+  .exchange-mobile-side b{font-size:17px}
+  .exchange-mobile-side strong{font-size:12px}
+  .exchange-mobile-flag,.exchange-mobile-quote .currency-flag{font-size:20px!important}
+}
+@media screen and (max-width:760px){
+  .exchange-table-card .app-card__header p{display:none}
+  .exchange-table-card .app-card__header{gap:7px}
+  .exchange-table-card .app-card__body{padding:8px 0!important}
+  .exchange-table-card .app-card__actions{width:100%}
+}
