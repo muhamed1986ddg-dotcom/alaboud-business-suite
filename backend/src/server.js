@@ -4656,87 +4656,123 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
   }
 });
 
-app.post("/api/partners/:id/sync", auth, async (req,res)=>{
-  const syncStartedAt=Date.now();
-  const syncTrigger=String(req.body?.trigger||"MANUAL").toUpperCase();
-  const snapshot=readStore();const partner=(snapshot.partners||[]).find(item=>item.id===req.params.id);
+const partnerSyncJobs=new Map();
+const activePartnerSyncJobs=new Map();
+const PARTNER_SYNC_JOB_TTL_MS=15*60*1000;
+function partnerSyncJobView(job){
+  return {
+    jobId:job.id,
+    partnerId:job.partnerId,
+    status:job.status,
+    acceptedAt:job.acceptedAt,
+    startedAt:job.startedAt||null,
+    finishedAt:job.finishedAt||null,
+    progress:job.progress||"QUEUED",
+    result:job.status==="SUCCESS"?job.result:null,
+    error:job.status==="FAILED"?job.error:null
+  };
+}
+function syncJobErrorPayload(error){
+  return {
+    message:error?.message||"تعذر جلب الرصيد",
+    code:error?.code||"JAD_ERROR",
+    diagnostic:Array.isArray(error?.jadTrace)?error.jadTrace.slice(-10):[],
+    artifacts:error?.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null,
+    details:error?.jadDetails||null
+  };
+}
+async function executePartnerSync({partnerId,body,user,companyId,branchId,onProgress}){
+  return runWithTenant(companyId,branchId,async()=>{
+    const syncStartedAt=Date.now();
+    const syncTrigger=String(body?.trigger||"MANUAL").toUpperCase();
+    const snapshot=readStore();const partner=(snapshot.partners||[]).find(item=>item.id===partnerId);
+    if(!partner){const error=new Error("الشركة غير موجودة");error.code="PARTNER_NOT_FOUND";throw error;}
+    const connector=resolvePartnerConnector(partner);
+    if(!["JAD","TAWASUL","DAHAB","SURYANA"].includes(connector)){const error=new Error("لا يوجد موصل فعلي محدد لهذه الشركة");error.code="CONNECTOR_NOT_CONFIGURED";throw error;}
+    if(syncTrigger==="AUTO"&&["JAD","DAHAB","SURYANA"].includes(connector)){const error=new Error("تم تعطيل المزامنة التلقائية لهذه الشركة لحماية استقرار الخادم؛ استخدم زر جلب الرصيد يدويًا");error.code="AUTO_SYNC_DISABLED";throw error;}
+    try{
+      onProgress?.("CONNECTING");
+      const result=connector==="DAHAB"
+        ? await syncDahabPartner(partner,{fromDate:body?.fromDate,toDate:body?.toDate,otp:body?.otp})
+        : connector==="TAWASUL"
+          ? await syncKontorunPartner(partner,{fromDate:body?.fromDate,toDate:body?.toDate,otp:body?.otp})
+          : await syncJadPartner(partner,{fromDate:body?.fromDate,toDate:body?.toDate,otp:body?.otp});
+      onProgress?.("SAVING");
+      const storageState=result?._storageState||null;
+      if(result&&Object.prototype.hasOwnProperty.call(result,"_storageState"))delete result._storageState;
+      let publicPartner=null;
+      await mutateDurable(store=>{
+        const item=store.partners.find(x=>x.id===partner.id);if(!item)return;
+        item.connectorType=connector;
+        const mainDebt=normalizeJadCurrencyDebt(result.receivable,result.payable,{prefer:safeNumber(result.balance)<0?"PAYABLE":"RECEIVABLE"});
+        const normalizedCurrencies={};
+        for(const [currency,value] of Object.entries((result.currencies&&typeof result.currencies==="object")?result.currencies:{})){
+          const code=String(currency).toUpperCase();
+          if(!/^[A-Z]{3}$/.test(code))continue;
+          normalizedCurrencies[code]=normalizeJadCurrencyDebt(value?.receivable,value?.payable,{prefer:safeNumber(value?.balance)<0?"PAYABLE":"RECEIVABLE"});
+        }
+        result.receivable=mainDebt.receivable;result.payable=mainDebt.payable;result.balance=mainDebt.balance;result.currencies=normalizedCurrencies;
+        item.externalReceivable=result.receivable;item.externalPayable=result.payable;item.externalBalance=result.balance;item.externalBalances=normalizedCurrencies;
+        if(storageState)item.jadStorageStateEncrypted=encryptIntegrationSecret(JSON.stringify(storageState));
+        item.lastSyncAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.connectionStatus="READY";item.updatedAt=now();
+        item.lastImportedMovementCount=result.movements.length;
+        item.lastFeeTotal=safeNumber(result.totalFees);item.lastFeeFromDate=result.fromDate||body?.fromDate||"";item.lastFeeToDate=result.toDate||body?.toDate||"";item.lastFeeCurrency=partner.accountCurrency||"USD";
+        const {passwordEncrypted,...safe}=item;publicPartner={...safe,hasPassword:Boolean(passwordEncrypted)};
+        audit(store,user.id,"SYNC","PARTNER",item.id,{connector,balance:result.balance,receivable:result.receivable,payable:result.payable,currencies:Object.keys(result.currencies||{}),count:result.movements.length});
+        recordPartnerSyncLog(store,item,{status:"SUCCESS",trigger:syncTrigger,durationMs:Date.now()-syncStartedAt,beforeBalance:safeNumber(partner.externalBalance),afterBalance:result.balance,changed:Math.abs(safeNumber(partner.externalBalance)-safeNumber(result.balance))>0.0001,importedCount:result.movements.length,message:"تمت المزامنة بنجاح"});
+      });
+      const connectorNames={TAWASUL:"تواصل",JAD:"جاد",DAHAB:"دهب",SURYANA:"سوريانا"};
+      return {message:`تم جلب الرصيد من شركة ${connectorNames[connector]||partner.name}`,partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}};
+    }catch(error){
+      let stalePartner=null;
+      let hasSuccessfulSync=false;
+      await mutateDurable(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){
+        hasSuccessfulSync=Boolean(item.lastSyncAt) && (Number.isFinite(Number(item.externalBalance)) || (item.externalBalances&&typeof item.externalBalances==="object"&&Object.keys(item.externalBalances).length>0));
+        item.connectionStatus=hasSuccessfulSync?"READY":"ERROR";
+        item.lastSyncError=String(error.message||error);
+        if(["JAD_SESSION_REJECTED","JAD_LOGIN_REJECTED"].includes(String(error.code||"")))item.jadStorageStateEncrypted="";
+        item.lastSyncAttemptErrorAt=now();item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];item.lastJadArtifacts=error.jadArtifacts||null;item.updatedAt=now();
+        recordPartnerSyncLog(store,item,{status:"FAILED",trigger:syncTrigger,durationMs:Date.now()-syncStartedAt,beforeBalance:safeNumber(partner.externalBalance),afterBalance:safeNumber(item.externalBalance),changed:false,importedCount:0,message:String(error.message||"تعذر جلب الرصيد")});
+        if(hasSuccessfulSync){const {passwordEncrypted,...safe}=item;stalePartner={...safe,hasPassword:Boolean(passwordEncrypted)};}
+      }});
+      if(hasSuccessfulSync&&stalePartner){
+        return {ok:true,stale:true,message:"تعذر تحديث الرصيد الآن؛ تم الاحتفاظ بآخر رصيد ناجح",reason:String(error.message||"تعذر تحديث البيانات مؤقتًا"),partner:stalePartner,lastSyncAt:stalePartner.lastSyncAt,result:{balance:safeNumber(stalePartner.externalBalance),receivable:safeNumber(stalePartner.externalReceivable),payable:safeNumber(stalePartner.externalPayable),currencies:stalePartner.externalBalances&&typeof stalePartner.externalBalances==="object"?stalePartner.externalBalances:{},movements:[]},warningCode:error.code||"JAD_TEMPORARY_ERROR"};
+      }
+      throw error;
+    }
+  });
+}
+
+app.post("/api/partners/:id/sync", auth, (req,res)=>{
+  const partnerId=req.params.id;
+  const snapshot=readStore();const partner=(snapshot.partners||[]).find(item=>item.id===partnerId);
   if(!partner)return res.status(404).json({message:"الشركة غير موجودة"});
   const connector=resolvePartnerConnector(partner);
   if(!["JAD","TAWASUL","DAHAB","SURYANA"].includes(connector))return res.status(400).json({message:"لا يوجد موصل فعلي محدد لهذه الشركة"});
-  if(syncTrigger==="AUTO"&&["JAD","DAHAB","SURYANA"].includes(connector))return res.status(409).json({message:"تم تعطيل المزامنة التلقائية لهذه الشركة لحماية استقرار الخادم؛ استخدم زر جلب الرصيد يدويًا"});
-  try{
-    const result=connector==="DAHAB"
-      ? await syncDahabPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp})
-      : connector==="TAWASUL"
-        ? await syncKontorunPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp})
-        : await syncJadPartner(partner,{fromDate:req.body?.fromDate,toDate:req.body?.toDate,otp:req.body?.otp});
-    const storageState=result?._storageState||null;
-    if(result&&Object.prototype.hasOwnProperty.call(result,"_storageState"))delete result._storageState;
-    let publicPartner=null;
-    await mutateDurable(store=>{
-      const item=store.partners.find(x=>x.id===partner.id);if(!item)return;
-      item.connectorType=connector;
-      const mainDebt=normalizeJadCurrencyDebt(result.receivable,result.payable,{prefer:safeNumber(result.balance)<0?"PAYABLE":"RECEIVABLE"});
-      const normalizedCurrencies={};
-      for(const [currency,value] of Object.entries((result.currencies&&typeof result.currencies==="object")?result.currencies:{})){
-        const code=String(currency).toUpperCase();
-        if(!/^[A-Z]{3}$/.test(code))continue;
-        normalizedCurrencies[code]=normalizeJadCurrencyDebt(value?.receivable,value?.payable,{prefer:safeNumber(value?.balance)<0?"PAYABLE":"RECEIVABLE"});
-      }
-      result.receivable=mainDebt.receivable;result.payable=mainDebt.payable;result.balance=mainDebt.balance;result.currencies=normalizedCurrencies;
-      item.externalReceivable=result.receivable;item.externalPayable=result.payable;item.externalBalance=result.balance;item.externalBalances=normalizedCurrencies;
-      if(storageState)item.jadStorageStateEncrypted=encryptIntegrationSecret(JSON.stringify(storageState));
-      item.lastSyncAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.connectionStatus="READY";item.updatedAt=now();
-      item.lastImportedMovementCount=result.movements.length;
-      item.lastFeeTotal=safeNumber(result.totalFees);item.lastFeeFromDate=result.fromDate||req.body?.fromDate||"";item.lastFeeToDate=result.toDate||req.body?.toDate||"";item.lastFeeCurrency=partner.accountCurrency||"USD";
-      const {passwordEncrypted,...safe}=item;publicPartner={...safe,hasPassword:Boolean(passwordEncrypted)};
-      audit(store,req.user.id,"SYNC","PARTNER",item.id,{connector,balance:result.balance,receivable:result.receivable,payable:result.payable,currencies:Object.keys(result.currencies||{}),count:result.movements.length});
-      recordPartnerSyncLog(store,item,{status:"SUCCESS",trigger:syncTrigger,durationMs:Date.now()-syncStartedAt,beforeBalance:safeNumber(partner.externalBalance),afterBalance:result.balance,changed:Math.abs(safeNumber(partner.externalBalance)-safeNumber(result.balance))>0.0001,importedCount:result.movements.length,message:"تمت المزامنة بنجاح"});
-    });
-    const connectorNames={TAWASUL:"تواصل",JAD:"جاد",DAHAB:"دهب",SURYANA:"سوريانا"};
-    res.json({message:`تم جلب الرصيد من شركة ${connectorNames[connector]||partner.name}`,partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}});
-  }catch(error){
-    let stalePartner=null;
-    let hasSuccessfulSync=false;
-    await mutateDurable(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){
-      // لا نمسح آخر رصيد ناجح عند انتهاء OTP أو انقطاع جاد مؤقتًا.
-      hasSuccessfulSync=Boolean(item.lastSyncAt) && (
-        Number.isFinite(Number(item.externalBalance)) ||
-        (item.externalBalances && typeof item.externalBalances==="object" && Object.keys(item.externalBalances).length>0)
-      );
-      item.connectionStatus=hasSuccessfulSync?"READY":"ERROR";
-      item.lastSyncError=String(error.message||error);
-      if(["JAD_SESSION_REJECTED","JAD_LOGIN_REJECTED"].includes(String(error.code||"")))item.jadStorageStateEncrypted="";
-      item.lastSyncAttemptErrorAt=now();
-      item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];
-      item.lastJadArtifacts=error.jadArtifacts||null;
-      item.updatedAt=now();
-      recordPartnerSyncLog(store,item,{status:"FAILED",trigger:syncTrigger,durationMs:Date.now()-syncStartedAt,beforeBalance:safeNumber(partner.externalBalance),afterBalance:safeNumber(item.externalBalance),changed:false,importedCount:0,message:String(error.message||"تعذر جلب الرصيد")});
-      if(hasSuccessfulSync){
-        const {passwordEncrypted,...safe}=item;
-        stalePartner={...safe,hasPassword:Boolean(passwordEncrypted)};
-      }
-    }});
-    if(hasSuccessfulSync&&stalePartner){
-      return res.json({
-        ok:true,
-        stale:true,
-        message:"تعذر تحديث الرصيد الآن؛ تم الاحتفاظ بآخر رصيد ناجح",
-        reason:String(error.message||"تعذر تحديث البيانات مؤقتًا"),
-        partner:stalePartner,
-        lastSyncAt:stalePartner.lastSyncAt,
-        result:{
-          balance:safeNumber(stalePartner.externalBalance),
-          receivable:safeNumber(stalePartner.externalReceivable),
-          payable:safeNumber(stalePartner.externalPayable),
-          currencies:stalePartner.externalBalances&&typeof stalePartner.externalBalances==="object"?stalePartner.externalBalances:{},
-          movements:[]
-        },
-        warningCode:error.code||"JAD_TEMPORARY_ERROR"
-      });
+  const trigger=String(req.body?.trigger||"MANUAL").toUpperCase();
+  const dedupeKey=[req.user.companyId,req.user.branchId||"",partnerId,trigger,req.body?.fromDate||"",req.body?.toDate||""].join(":");
+  const activeId=activePartnerSyncJobs.get(dedupeKey);
+  if(activeId){const active=partnerSyncJobs.get(activeId);if(active&&["QUEUED","RUNNING"].includes(active.status))return res.status(202).json({accepted:true,reused:true,...partnerSyncJobView(active)});}
+  const job={id:id(),companyId:req.user.companyId,branchId:req.user.branchId||null,userId:req.user.id,partnerId,status:"QUEUED",progress:"QUEUED",acceptedAt:now(),startedAt:null,finishedAt:null,result:null,error:null};
+  partnerSyncJobs.set(job.id,job);activePartnerSyncJobs.set(dedupeKey,job.id);
+  res.status(202).json({accepted:true,...partnerSyncJobView(job)});
+  setImmediate(async()=>{
+    job.status="RUNNING";job.progress="STARTING";job.startedAt=now();
+    try{
+      job.result=await executePartnerSync({partnerId,body:{...req.body},user:{...req.user},companyId:req.user.companyId,branchId:req.user.branchId||null,onProgress:value=>{job.progress=value;}});
+      job.status="SUCCESS";job.progress="DONE";
+    }catch(error){job.status="FAILED";job.progress="FAILED";job.error=syncJobErrorPayload(error);}
+    finally{
+      job.finishedAt=now();activePartnerSyncJobs.delete(dedupeKey);
+      const timer=setTimeout(()=>partnerSyncJobs.delete(job.id),PARTNER_SYNC_JOB_TTL_MS);timer.unref?.();
     }
-    res.status(400).json({message:error.message||"تعذر جلب الرصيد",code:error.code||"JAD_ERROR",diagnostic:Array.isArray(error.jadTrace)?error.jadTrace.slice(-10):[],artifacts:error.jadArtifacts?{available:true,createdAt:error.jadArtifacts.createdAt}:null,details:error.jadDetails||null});
-  }
+  });
+});
+
+app.get("/api/partners/sync-jobs/:jobId", auth, (req,res)=>{
+  const job=partnerSyncJobs.get(req.params.jobId);
+  if(!job||job.companyId!==req.user.companyId)return res.status(404).json({message:"مهمة المزامنة غير موجودة أو انتهت"});
+  res.json(partnerSyncJobView(job));
 });
 
 app.get("/api/partners/:id/jad-diagnostic", auth, (req,res)=>{

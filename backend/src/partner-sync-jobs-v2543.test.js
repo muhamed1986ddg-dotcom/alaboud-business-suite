@@ -1,0 +1,12 @@
+const assert=require("assert");
+const fs=require("fs");
+const server=fs.readFileSync(require("path").join(__dirname,"server.js"),"utf8");
+const ui=fs.readFileSync(require("path").join(__dirname,"../../frontend/src/screens/Partners.jsx"),"utf8");
+assert(server.includes('res.status(202).json({accepted:true'),"sync start must return 202 immediately");
+assert(server.includes('/api/partners/sync-jobs/:jobId'),"job status endpoint missing");
+assert(server.includes('setImmediate(async()=>'),"sync must run outside request lifecycle");
+assert(server.includes('activePartnerSyncJobs'),"duplicate sync protection missing");
+assert(ui.includes('startPartnerSyncJob'),"frontend background sync helper missing");
+assert(ui.includes('/partners/sync-jobs/${jobId}'),"frontend job polling missing");
+assert(!ui.includes('`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||"",trigger:"MANUAL"},{timeout:90000}'),"old long-running manual sync request remains");
+console.log("partner background sync v25.4.3 tests passed");

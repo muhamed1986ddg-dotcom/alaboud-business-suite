@@ -286,17 +286,45 @@ function Partners({open,view="companies"}){
     return raw||"تعذر تحديث البيانات مؤقتًا";
   };
 
+  const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  const syncProgressLabel=progress=>({QUEUED:"تم إدراج الطلب",STARTING:"جارٍ بدء الاتصال",CONNECTING:"جارٍ الاتصال بالشركة وقراءة الرصيد",SAVING:"جارٍ تحديث الرصيد",DONE:"اكتملت المزامنة",FAILED:"تعذرت المزامنة"}[progress]||"جارٍ جلب الرصيد");
+  async function startPartnerSyncJob(partner,payload={}){
+    const started=await api.post(`/partners/${partner.id}/sync`,payload,{timeout:10000});
+    const jobId=started.data?.jobId;
+    if(!jobId)throw Object.assign(new Error("لم يُرجع الخادم رقم مهمة المزامنة"),{response:{data:started.data||{}}});
+    let consecutiveErrors=0;
+    for(let attempt=0;attempt<100;attempt+=1){
+      await wait(attempt===0?500:1500);
+      try{
+        const statusResponse=await api.get(`/partners/sync-jobs/${jobId}`,{timeout:10000});
+        consecutiveErrors=0;
+        const job=statusResponse.data||{};
+        setMessage(`${partner.name}: ${syncProgressLabel(job.progress)}`);
+        if(job.status==="SUCCESS")return job.result||{};
+        if(job.status==="FAILED"){
+          const failure=job.error||{message:"تعذرت مزامنة الشركة"};
+          throw Object.assign(new Error(failure.message),{response:{data:failure}});
+        }
+      }catch(error){
+        if(error.response?.data&&error.response.data.code)throw error;
+        consecutiveErrors+=1;
+        if(consecutiveErrors>=4)throw error;
+      }
+    }
+    throw Object.assign(new Error("استغرقت مزامنة الشركة وقتًا أطول من المتوقع"),{response:{data:{code:"PARTNER_SYNC_TIMEOUT",message:"استغرقت مزامنة الشركة وقتًا أطول من المتوقع؛ المهمة قد تكون ما زالت تعمل في الخلفية"}}});
+  }
+
   async function syncPartner(partner){
-    setError("");setMessage("");setSyncingId(partner.id);
+    setError("");setMessage(`${partner.name}: جارٍ إرسال طلب جلب الرصيد...`);setSyncingId(partner.id);
     try{
-      const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||"",trigger:"MANUAL"},{timeout:90000});
+      const data=await startPartnerSyncJob(partner,{otp:otpById[partner.id]||"",trigger:"MANUAL"});
       setOtpById(current=>({...current,[partner.id]:""}));
-      if(response.data?.stale){
-        const reason=syncFailureReason(response.data);
-        setMessage(`${partner.name}: ${reason}. يتم عرض آخر رصيد ناجح${response.data.lastSyncAt?` من ${new Date(response.data.lastSyncAt).toLocaleString("ar-CA")}`:""}.`);
+      if(data?.stale){
+        const reason=syncFailureReason(data);
+        setMessage(`${partner.name}: ${reason}. يتم عرض آخر رصيد ناجح${data.lastSyncAt?` من ${new Date(data.lastSyncAt).toLocaleString("ar-CA")}`:""}.`);
       }else{
-        const syncedCurrencies=Object.entries(response.data.result?.currencies||{}).map(([code,value])=>`${code}: لنا ${money(value?.receivable)} / علينا ${money(value?.payable)}`).join(" — ");
-        setMessage(`${partner.name}: ${response.data.message}${syncedCurrencies?` — ${syncedCurrencies}`:` — الرصيد ${money(response.data.result.balance)} ${partner.accountCurrency||"USD"}`}`);
+        const syncedCurrencies=Object.entries(data.result?.currencies||{}).map(([code,value])=>`${code}: لنا ${money(value?.receivable)} / علينا ${money(value?.payable)}`).join(" — ");
+        setMessage(`${partner.name}: ${data.message}${syncedCurrencies?` — ${syncedCurrencies}`:` — الرصيد ${money(data.result?.balance)} ${partner.accountCurrency||"USD"}`}`);
       }
       await load();
     }catch(requestError){
@@ -309,17 +337,16 @@ function Partners({open,view="companies"}){
         setError(syncFailureReason(data));
         await load().catch(()=>{});
       }
-    }
-    finally{setSyncingId("");}
+    }finally{setSyncingId("");}
   }
 
   async function fetchJadFees(partner,selectedFilter=feeFilter){
     if(!selectedFilter.fromDate||!selectedFilter.toDate){setError("اختر تاريخ البداية والنهاية");return;}
     if(selectedFilter.fromDate>selectedFilter.toDate){setError("تاريخ البداية يجب أن يسبق تاريخ النهاية");return;}
-    setError("");setMessage("");setSyncingId(partner.id);
+    setError("");setMessage(`${partner.name}: جارٍ إعداد تقرير الأجور...`);setSyncingId(partner.id);
     try{
-      const response=await api.post(`/partners/${partner.id}/sync`,{fromDate:selectedFilter.fromDate,toDate:selectedFilter.toDate,otp:otpById[partner.id]||"",trigger:"FEE_REPORT"},{timeout:90000});
-      const result=response.data?.result||{};
+      const data=await startPartnerSyncJob(partner,{fromDate:selectedFilter.fromDate,toDate:selectedFilter.toDate,otp:otpById[partner.id]||"",trigger:"FEE_REPORT"});
+      const result=data?.result||{};
       setFeeReport({partnerId:partner.id,partnerName:partner.name,currency:partner.accountCurrency||"USD",fromDate:result.fromDate||selectedFilter.fromDate,toDate:result.toDate||selectedFilter.toDate,totalFees:Number(result.totalFees||0),rows:result.feeMovements||[]});
       setOtpById(current=>({...current,[partner.id]:""}));
       setMessage(`تم جلب إجمالي الأجور لشركة ${partner.name} حسب الفترة المطلوبة`);
@@ -371,10 +398,10 @@ function Partners({open,view="companies"}){
       for(const partner of partners){
         setSyncingId(partner.id);
         try{
-          const response=await api.post(`/partners/${partner.id}/sync`,{otp:otpById[partner.id]||"",trigger:"MANUAL"},{timeout:90000});
-          if(response.data?.stale){
-            console.warn("Partner sync stale",partner.name,response.data);
-            setMessage(`${partner.name}: ${syncFailureReason(response.data)}. يتم عرض آخر رصيد ناجح.`);
+          const responseData=await startPartnerSyncJob(partner,{otp:otpById[partner.id]||"",trigger:"MANUAL"});
+          if(responseData?.stale){
+            console.warn("Partner sync stale",partner.name,responseData);
+            setMessage(`${partner.name}: ${syncFailureReason(responseData)}. يتم عرض آخر رصيد ناجح.`);
           }else{
             successCount+=1;
             setOtpById(current=>({...current,[partner.id]:""}));
