@@ -6127,3 +6127,9 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
   .debt-balance-row span{font-size:.92rem}
   .debt-balance-row strong{font-size:1.05rem;white-space:nowrap}
 }
+
+/* v25.5.1 — simplified numbers-only general debt dashboard */
+.debt-numbers-only{display:grid;gap:12px;margin-top:14px}
+.debt-numbers-only .debt-balance-row{min-height:76px}
+.debt-numbers-only .debt-balance-total{border-color:#d7a62b;background:linear-gradient(135deg,rgba(215,166,43,.16),rgba(8,24,43,.96))}
+@media(max-width:700px){.debt-currency-summary{padding:12px}.debt-currency-totals{display:grid;grid-template-columns:1fr}.debt-numbers-only .debt-balance-row{min-height:64px}}

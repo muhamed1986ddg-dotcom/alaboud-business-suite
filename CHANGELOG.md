@@ -1,3 +1,10 @@
+## v25.5.1 — Simplified Debt Dashboard
+
+- Simplified the General Debt page into a numbers-only financial dashboard.
+- Removed customer/company names and detailed debt rows from the page display.
+- Kept totals, currency summaries, counts, and hidden action modals.
+- Receivable view now shows customer debt, final company balance, and grand total only.
+
 ## v25.5.0 — Automatic Financial Consistency
 
 - توحيد التحويلات الحالية على آخر سعر صرف آلي ناجح.

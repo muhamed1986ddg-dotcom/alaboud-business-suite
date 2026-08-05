@@ -1,16 +1,14 @@
-import React,{useEffect,useMemo,useState}from"react";
+import React,{useEffect,useState}from"react";
 import api,{cachedGet} from"../api";
 import {money,debtCurrencies} from"../shared";
-import {AppButton,AppModal,AppTable} from"../components/ui";
+import {AppButton,AppModal} from"../components/ui";
 
 function GeneralDebts(){
   const [data,setData]=useState({rows:[],payments:[],totals:{receivable:0,payable:0,net:0},receivableBreakdown:{customers:0,companies:0,total:0},totalsByCurrency:{}});
   const [mode,setMode]=useState("ALL");
-  const [search,setSearch]=useState("");
   const [message,setMessage]=useState("");
   const [refreshingRates,setRefreshingRates]=useState(false);
   const [showAddModal,setShowAddModal]=useState(false);
-  const [visibleCount,setVisibleCount]=useState(50);
   const [payment,setPayment]=useState({debtId:"",amount:"",paymentDate:"",method:"CASH",notes:""});
   const [settlementDebt,setSettlementDebt]=useState(null);
   const [settlementMode,setSettlementMode]=useState("PARTIAL");
@@ -33,7 +31,6 @@ function GeneralDebts(){
   }
 
   useEffect(()=>{load();},[]);
-  useEffect(()=>{setVisibleCount(50);},[mode,search]);
 
   async function refreshRatesAndRecalculate(){
     setRefreshingRates(true);setMessage("");
@@ -75,19 +72,6 @@ function GeneralDebts(){
   const statusLabel={OPEN:"مفتوح",PARTIAL:"مدفوع جزئيًا",PAID:"مدفوع",OVERDUE:"متأخر"};
   const nowDate=new Date().toISOString().slice(0,10);
 
-  const filteredRows=useMemo(()=>{
-    const q=search.trim().toLowerCase();
-    return data.rows.filter(item=>{
-      if(mode==="RECEIVABLE"&&item.type!=="RECEIVABLE")return false;
-      if(mode==="PAYABLE"&&item.type!=="PAYABLE")return false;
-      if(mode==="OVERDUE"&&!(item.status==="OVERDUE"||(Number(item.remaining||0)>0&&item.dueDate&&item.dueDate<nowDate)))return false;
-      if(mode==="PAID"&&!(item.status==="PAID"||Number(item.remaining||0)<=0.001))return false;
-      if(!q)return true;
-      return [item.partyName,item.reference,item.description,item.currency,item.status].some(v=>String(v||"").toLowerCase().includes(q));
-    });
-  },[data.rows,mode,search,nowDate]);
-
-  const visibleRows=filteredRows.slice(0,visibleCount);
   const openCount=data.rows.filter(x=>Number(x.remaining||0)>0.001).length;
   const overdueCount=data.rows.filter(x=>x.status==="OVERDUE"||(Number(x.remaining||0)>0&&x.dueDate&&x.dueDate<nowDate)).length;
   const paidCount=data.rows.filter(x=>x.status==="PAID"||Number(x.remaining||0)<=0.001).length;
@@ -132,27 +116,31 @@ function GeneralDebts(){
 
     {message&&<div className="card debt-message">{message}</div>}
 
-    {mode==="RECEIVABLE"?
-      <div className="debt-receivable-balance-summary">
+    <div className="debt-numbers-only">
+      {mode==="ALL"&&<>
+        <div className="card debt-balance-row"><span>💰 إجمالي الدين لنا</span><strong>{money(data.totals.receivable)} {data.summaryCurrency||"CAD"}</strong></div>
+        <div className="card debt-balance-row"><span>💸 إجمالي الدين علينا</span><strong>{money(data.totals.payable)} {data.summaryCurrency||"CAD"}</strong></div>
+        <div className="card debt-balance-row debt-balance-total"><span>🧮 الصافي النهائي</span><strong>{money(data.totals.net)} {data.summaryCurrency||"CAD"}</strong></div>
+      </>}
+      {mode==="RECEIVABLE"&&<>
         <div className="card debt-balance-row"><span>👤 رصيد دين العملاء</span><strong>{money(data.receivableBreakdown?.customers)} {data.summaryCurrency||"CAD"}</strong></div>
-        <div className="card debt-balance-row"><span>🏢 رصيد دين الشركات</span><strong>{money(data.receivableBreakdown?.companies)} {data.summaryCurrency||"CAD"}</strong></div>
+        <div className="card debt-balance-row"><span>🏢 الرصيد النهائي للشركات</span><strong>{money(data.receivableBreakdown?.companies)} {data.summaryCurrency||"CAD"}</strong></div>
         <div className="card debt-balance-row debt-balance-total"><span>💰 المجموع الكلي</span><strong>{money(data.receivableBreakdown?.total??data.totals.receivable)} {data.summaryCurrency||"CAD"}</strong></div>
-      </div>
-    :mode==="PAYMENTS"?<>
-      {openDebts.length>0&&<form className="card form debt-payment-form" onSubmit={addPayment}>
-        <select value={payment.debtId} onChange={e=>setPayment({...payment,debtId:e.target.value})} required><option value="">اختر الدين لتسجيل دفعة</option>{openDebts.map(item=><option key={item.id} value={item.id}>{item.type==="RECEIVABLE"?"لنا":"علينا"} — {item.partyName} — متبقي {money(item.remaining)} {item.currency}</option>)}</select>
-        <input type="number" min="0.01" step="0.01" value={payment.amount} onChange={e=>setPayment({...payment,amount:e.target.value})} placeholder="مبلغ الدفعة" required/>
-        <input type="date" value={payment.paymentDate} onChange={e=>setPayment({...payment,paymentDate:e.target.value})}/>
-        <select value={payment.method||"CASH"} onChange={e=>setPayment({...payment,method:e.target.value})}><option value="CASH">نقدي</option><option value="BANK">بنك</option><option value="TRANSFER">تحويل</option><option value="CARD">بطاقة</option></select>
-        <input value={payment.notes} onChange={e=>setPayment({...payment,notes:e.target.value})} placeholder="ملاحظات الدفعة"/>
-        <button>تسجيل الدفعة</button>
-      </form>}
-      <div className="card tablewrap"><AppTable><thead><tr><th>التاريخ</th><th>الجهة</th><th>نوع الدين</th><th>اتجاه الدفعة</th><th>المبلغ</th><th>الطريقة</th><th>العملة</th><th>ملاحظات</th></tr></thead><tbody>{data.payments.length?data.payments.map(item=><tr key={item.id}><td>{item.paymentDate||String(item.createdAt||"").slice(0,10)}</td><td>{item.partyName||"-"}</td><td>{item.debtType==="RECEIVABLE"?"دين لنا":"دين علينا"}</td><td>{item.direction==="OUTGOING"?"دفعنا":"استلمنا"}</td><td>{money(item.amount)}</td><td>{item.method||"CASH"}</td><td>{item.currency||"CAD"}</td><td>{item.notes||"-"}</td></tr>):<tr><td colSpan="8">لا توجد دفعات ديون مسجلة.</td></tr>}</tbody></AppTable></div>
-    </>:<>
-      <div className="card debt-search-row"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم الجهة أو المرجع أو العملة..."/><span>النتائج: {filteredRows.length}</span></div>
-      <div className="card tablewrap"><AppTable><thead><tr><th>النوع</th><th>المصدر</th><th>الشخص/الجهة</th><th>المبلغ</th><th>المدفوع</th><th>المتبقي</th><th>العملة</th><th>الاستحقاق</th><th>الحالة</th><th>المرجع</th><th>الإجراء</th></tr></thead><tbody>{visibleRows.length?visibleRows.map(item=><tr key={item.id}><td><span className={`debt-type ${item.type==="RECEIVABLE"?"receivable":"payable"}`}>{item.type==="RECEIVABLE"?"دين لنا":"دين علينا"}</span></td><td>{item.source==="PARTNER"||item.source==="PARTNER_EXTERNAL"?"شركة":item.source==="TRANSFER"?"حوالة":item.source==="CUSTOMER_OLD_BALANCE"?"حساب عميل قديم":"يدوي"}</td><td>{item.partyName}</td><td>{money(item.amount)}</td><td>{money(item.paid)}</td><td><strong>{money(item.remaining)}</strong></td><td><span className="debt-table-currency">{currencyMeta[item.currency]?.flag||"💱"} {item.currency}</span></td><td>{item.dueDate||"-"}</td><td>{statusLabel[item.status]||item.status}</td><td>{item.reference||"-"}</td><td>{Number(item.remaining||0)>0.001&&item.source==="MANUAL"?<button type="button" className={item.type==="PAYABLE"?"payable-settle-button":"receivable-settle-button"} onClick={()=>openSettlement(item)}>{item.type==="PAYABLE"?"🏦 تسديد الدين علينا":"💵 تسجيل دفعة من العميل"}</button>:<span>—</span>}</td></tr>):<tr><td colSpan="11">لا توجد ديون مطابقة.</td></tr>}</tbody></AppTable></div>
-      {visibleCount<filteredRows.length&&<div className="load-more-row"><button type="button" onClick={()=>setVisibleCount(v=>v+50)}>تحميل 50 سجلًا إضافيًا</button></div>}
-    </>}
+      </>}
+      {mode==="PAYABLE"&&<>
+        <div className="card debt-balance-row"><span>💸 إجمالي الدين علينا</span><strong>{money(data.totals.payable)} {data.summaryCurrency||"CAD"}</strong></div>
+        <div className="card debt-balance-row"><span>📋 عدد الديون المفتوحة علينا</span><strong>{data.rows.filter(item=>item.type==="PAYABLE"&&Number(item.remaining||0)>0.001).length}</strong></div>
+      </>}
+      {mode==="OVERDUE"&&<>
+        <div className="card debt-balance-row"><span>⏳ عدد الديون المتأخرة</span><strong>{overdueCount}</strong></div>
+      </>}
+      {mode==="PAID"&&<>
+        <div className="card debt-balance-row"><span>✅ عدد الديون المسددة</span><strong>{paidCount}</strong></div>
+      </>}
+      {mode==="PAYMENTS"&&<>
+        <div className="card debt-balance-row"><span>💳 عدد الدفعات المسجلة</span><strong>{data.payments.length}</strong></div>
+      </>}
+    </div>
 
     <AppModal open={Boolean(settlementDebt)} title={settlementDebt?.type==="PAYABLE"?"تسديد الدين علينا":"تسجيل دفعة من العميل"} onClose={()=>setSettlementDebt(null)}>
       {settlementDebt&&<form className="form debt-add-form" onSubmit={async event=>{await addPayment(event);setSettlementDebt(null)}}>
