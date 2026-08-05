@@ -9,6 +9,9 @@ function GeneralDebts(){
   const [message,setMessage]=useState("");
   const [refreshingRates,setRefreshingRates]=useState(false);
   const [showAddModal,setShowAddModal]=useState(false);
+  const [actionMode,setActionMode]=useState("");
+  const [selectedDebtId,setSelectedDebtId]=useState("");
+  const [editForm,setEditForm]=useState({partyName:"",amount:"",currency:"CAD",dueDate:"",description:"",reference:""});
   const [payment,setPayment]=useState({debtId:"",amount:"",paymentDate:"",method:"CASH",notes:""});
   const [settlementDebt,setSettlementDebt]=useState(null);
   const [settlementMode,setSettlementMode]=useState("PARTIAL");
@@ -67,6 +70,31 @@ function GeneralDebts(){
     if(settlementDebt&&mode==="FULL")setPayment(current=>({...current,amount:String(settlementDebt.remaining||"")}));
   }
 
+
+  const selectedDebt=data.rows.find(item=>item.id===selectedDebtId&&item.source==="MANUAL")||null;
+
+  function openAction(mode){
+    setMessage("");setActionMode(mode);setSelectedDebtId("");
+  }
+
+  function chooseDebt(id){
+    setSelectedDebtId(id);
+    const item=data.rows.find(row=>row.id===id);
+    if(item)setEditForm({partyName:item.partyName||"",amount:String(item.amount||""),currency:item.currency||"CAD",dueDate:item.dueDate||"",description:item.description||"",reference:item.reference||""});
+  }
+
+  async function updateDebt(event){
+    event.preventDefault();if(!selectedDebtId)return;setMessage("");
+    try{await api.patch(`/general-debts/${selectedDebtId}`,editForm);setActionMode("");setSelectedDebtId("");setMessage("تم تعديل الدين بنجاح");await load();}
+    catch(error){setMessage(error.response?.data?.message||"تعذر تعديل الدين");}
+  }
+
+  async function deleteDebt(){
+    if(!selectedDebtId||!window.confirm("هل أنت متأكد من حذف هذا الدين؟ لا يمكن حذف دين مرتبط بدفعات."))return;setMessage("");
+    try{await api.delete(`/general-debts/${selectedDebtId}`);setActionMode("");setSelectedDebtId("");setMessage("تم حذف الدين بنجاح");await load();}
+    catch(error){setMessage(error.response?.data?.message||"تعذر حذف الدين");}
+  }
+
   const openDebts=data.rows.filter(item=>Number(item.remaining||0)>0&&item.source==="MANUAL");
   const currencyMeta=Object.fromEntries(debtCurrencies.map(item=>[item.code,item]));
   const statusLabel={OPEN:"مفتوح",PARTIAL:"مدفوع جزئيًا",PAID:"مدفوع",OVERDUE:"متأخر"};
@@ -99,6 +127,9 @@ function GeneralDebts(){
 
     <div className="card debt-mode-tabs no-print">
       <button type="button" className="primary debt-add-open" onClick={()=>setShowAddModal(true)}>➕ إضافة دين</button>
+      <button type="button" onClick={()=>openAction("PAY")}>💳 تسديد دين</button>
+      <button type="button" onClick={()=>openAction("EDIT")}>✏️ تعديل دين</button>
+      <button type="button" className="danger" onClick={()=>openAction("DELETE")}>🗑️ حذف دين</button>
       {[['ALL','📋 جميع الديون'],['RECEIVABLE','🟢 الدين لنا'],['PAYABLE','🔴 الدين علينا'],['OVERDUE','⏳ المتأخرة'],['PAID','✅ المسددة'],['PAYMENTS','💳 الدفعات']].map(([key,label])=><button key={key} type="button" className={mode===key?"active":""} onClick={()=>setMode(key)}>{label}</button>)}
     </div>
 
@@ -129,6 +160,25 @@ function GeneralDebts(){
         <div className="card debt-balance-row"><span>💳 عدد الدفعات المسجلة</span><strong>{data.payments.length}</strong></div>
       </>}
     </div>
+
+
+    <AppModal open={Boolean(actionMode)} title={actionMode==="PAY"?"تسديد دين":actionMode==="EDIT"?"تعديل دين":"حذف دين"} onClose={()=>{setActionMode("");setSelectedDebtId("")}}>
+      <div className="form debt-add-form">
+        <select value={selectedDebtId} onChange={e=>chooseDebt(e.target.value)} required>
+          <option value="">اختر الدين</option>
+          {(actionMode==="PAY"?openDebts:data.rows.filter(item=>item.source==="MANUAL")).map(item=><option key={item.id} value={item.id}>{item.partyName} — {money(item.remaining??item.amount)} {item.currency} — {item.type==="PAYABLE"?"دين علينا":"دين لنا"}</option>)}
+        </select>
+        {selectedDebt&&actionMode==="PAY"&&<div className="debt-settlement-summary"><strong>{selectedDebt.partyName}</strong><span>المتبقي: {money(selectedDebt.remaining)} {selectedDebt.currency}</span><AppButton variant="primary" onClick={()=>{setActionMode("");openSettlement(selectedDebt)}}>متابعة التسديد</AppButton></div>}
+        {selectedDebt&&actionMode==="EDIT"&&<form className="form debt-add-form" onSubmit={updateDebt}>
+          <input value={editForm.partyName} onChange={e=>setEditForm({...editForm,partyName:e.target.value})} placeholder="اسم الشخص أو الجهة" required/>
+          <input type="number" min="0.01" step="0.01" value={editForm.amount} onChange={e=>setEditForm({...editForm,amount:e.target.value})} placeholder="مبلغ الدين" required/>
+          <select value={editForm.currency} onChange={e=>setEditForm({...editForm,currency:e.target.value})}>{debtCurrencies.map(item=><option key={item.code}>{item.code}</option>)}</select>
+          <input type="date" value={editForm.dueDate} onChange={e=>setEditForm({...editForm,dueDate:e.target.value})}/><input value={editForm.reference} onChange={e=>setEditForm({...editForm,reference:e.target.value})} placeholder="المرجع"/><input value={editForm.description} onChange={e=>setEditForm({...editForm,description:e.target.value})} placeholder="ملاحظات"/>
+          <div className="transaction-modal-actions"><AppButton type="button" onClick={()=>setActionMode("")}>إلغاء</AppButton><AppButton variant="primary">حفظ التعديل</AppButton></div>
+        </form>}
+        {selectedDebt&&actionMode==="DELETE"&&<><div className="debt-settlement-summary"><strong>{selectedDebt.partyName}</strong><span>{money(selectedDebt.amount)} {selectedDebt.currency}</span></div><div className="transaction-modal-actions"><AppButton type="button" onClick={()=>setActionMode("")}>إلغاء</AppButton><AppButton variant="danger" onClick={deleteDebt}>تأكيد الحذف</AppButton></div></>}
+      </div>
+    </AppModal>
 
     <AppModal open={Boolean(settlementDebt)} title={settlementDebt?.type==="PAYABLE"?"تسديد الدين علينا":"تسجيل دفعة من العميل"} onClose={()=>setSettlementDebt(null)}>
       {settlementDebt&&<form className="form debt-add-form" onSubmit={async event=>{await addPayment(event);setSettlementDebt(null)}}>

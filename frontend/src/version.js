@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.5.2 Compact Net Debt Summary";
+export const APP_VERSION="v25.5.3 Debt Actions";

@@ -2886,6 +2886,13 @@ app.patch("/api/general-debts/:id", auth, async (req,res)=>{
     const before={...debt};
 
     if (req.body?.partyName !== undefined) debt.partyName = String(req.body.partyName);
+    if (req.body?.amount !== undefined) {
+      const nextAmount=Number(req.body.amount);
+      const paid=(store.generalDebtPayments||[]).filter(item=>item.debtId===debt.id).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      if(!Number.isFinite(nextAmount)||nextAmount<=0||nextAmount+0.0001<paid)return {validationError:"المبلغ الجديد لا يمكن أن يكون أقل من مجموع الدفعات"};
+      debt.amount=+nextAmount.toFixed(2);debt.paid=+paid.toFixed(2);debt.remaining=+Math.max(nextAmount-paid,0).toFixed(2);debt.status=debt.remaining<=0.001?"PAID":paid>0?"PARTIAL":"OPEN";
+    }
+    if (req.body?.currency !== undefined) debt.currency = String(req.body.currency||"CAD").toUpperCase();
     if (req.body?.dueDate !== undefined) debt.dueDate = req.body.dueDate || "";
     if (req.body?.description !== undefined) debt.description = req.body.description || "";
     if (req.body?.reference !== undefined) debt.reference = req.body.reference || "";
@@ -2897,7 +2904,24 @@ app.patch("/api/general-debts/:id", auth, async (req,res)=>{
   });
 
   if (!updated) return res.status(404).json({message:"الدين غير موجود"});
+  if(updated.validationError)return res.status(400).json({message:updated.validationError});
   res.json(updated);
+});
+
+app.delete("/api/general-debts/:id", auth, async (req,res)=>{
+  const result=await mutateDurable((store)=>{
+    const index=(store.generalDebts||[]).findIndex(item=>item.id===req.params.id);
+    if(index<0)return {notFound:true};
+    const debt=store.generalDebts[index];
+    const payments=(store.generalDebtPayments||[]).filter(item=>item.debtId===debt.id);
+    if(payments.length)return {hasPayments:true};
+    store.generalDebts.splice(index,1);
+    audit(store,req.user.id,"DELETE","GENERAL_DEBT",debt.id,{before:{...debt},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
+    return {deleted:true,id:debt.id};
+  });
+  if(result?.notFound)return res.status(404).json({message:"الدين غير موجود"});
+  if(result?.hasPayments)return res.status(409).json({message:"لا يمكن حذف دين مرتبط بدفعات. عدّل الدين أو راجع سجل الدفعات أولًا."});
+  res.json(result);
 });
 
 
