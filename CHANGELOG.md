@@ -1,3 +1,11 @@
+# v25.1.0
+
+- Expanded the shared UI component library with inputs, selects, badges, toolbars, loaders, empty states, pagination, and responsive tables.
+- Migrated Reports & Profits to the shared design system.
+- Migrated General Debts modals to AppModal and AppButton.
+- Added mobile card rendering for AppTable and unified dark form styles.
+- Preserved all accounting logic and database behavior.
+
 # v25.0.0
 - Added shared UI foundation components.
 - Migrated Exchange Rates modals, buttons, cards and tables to the shared UI system.

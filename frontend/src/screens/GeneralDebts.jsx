@@ -1,6 +1,7 @@
 import React,{useEffect,useMemo,useState}from"react";
 import api,{cachedGet} from"../api";
 import {money,debtCurrencies} from"../shared";
+import {AppButton,AppModal} from"../components/ui";
 
 function GeneralDebts(){
   const [data,setData]=useState({rows:[],payments:[],totals:{receivable:0,payable:0,net:0},totalsByCurrency:{}});
@@ -146,36 +147,30 @@ function GeneralDebts(){
       {visibleCount<filteredRows.length&&<div className="load-more-row"><button type="button" onClick={()=>setVisibleCount(v=>v+50)}>تحميل 50 سجلًا إضافيًا</button></div>}
     </>}
 
-    {settlementDebt&&<div className="transaction-modal-backdrop no-print" role="dialog" aria-modal="true">
-      <div className="transaction-modal-panel debt-modal-panel">
-        <div className="transaction-modal-header"><h3>{settlementDebt.type==="PAYABLE"?"تسديد الدين علينا":"تسجيل دفعة من العميل"}</h3><button type="button" onClick={()=>setSettlementDebt(null)}>✕</button></div>
-        <form className="card form debt-add-form" onSubmit={async event=>{await addPayment(event);setSettlementDebt(null)}}>
-          <div className="debt-settlement-summary"><strong>{settlementDebt.partyName}</strong><span>المتبقي: {money(settlementDebt.remaining)} {settlementDebt.currency}</span></div>
-          <div className="debt-settlement-modes"><button type="button" className={settlementMode==="FULL"?"active":""} onClick={()=>changeSettlementMode("FULL")}>تسديد كامل</button><button type="button" className={settlementMode==="PARTIAL"?"active":""} onClick={()=>changeSettlementMode("PARTIAL")}>تسديد جزئي</button></div>
-          <input type="number" min="0.01" max={settlementDebt.remaining} step="0.01" value={payment.amount} onChange={e=>{setSettlementMode("PARTIAL");setPayment({...payment,amount:e.target.value})}} placeholder="مبلغ الدفعة" required/>
-          <input type="date" value={payment.paymentDate} onChange={e=>setPayment({...payment,paymentDate:e.target.value})}/>
-          <select value={payment.method||"CASH"} onChange={e=>setPayment({...payment,method:e.target.value})}><option value="CASH">نقدي</option><option value="BANK">بنك</option><option value="TRANSFER">تحويل</option><option value="CARD">بطاقة</option></select>
-          <input value={payment.notes} onChange={e=>setPayment({...payment,notes:e.target.value})} placeholder="ملاحظات السداد"/>
-          <div className="transaction-modal-actions"><button type="button" onClick={()=>setSettlementDebt(null)}>إلغاء</button><button className="primary">{settlementDebt.type==="PAYABLE"?"تأكيد الدفع":"تأكيد الاستلام"}</button></div>
-        </form>
-      </div>
-    </div>}
+    <AppModal open={Boolean(settlementDebt)} title={settlementDebt?.type==="PAYABLE"?"تسديد الدين علينا":"تسجيل دفعة من العميل"} onClose={()=>setSettlementDebt(null)}>
+      {settlementDebt&&<form className="form debt-add-form" onSubmit={async event=>{await addPayment(event);setSettlementDebt(null)}}>
+        <div className="debt-settlement-summary"><strong>{settlementDebt.partyName}</strong><span>المتبقي: {money(settlementDebt.remaining)} {settlementDebt.currency}</span></div>
+        <div className="debt-settlement-modes"><AppButton type="button" variant={settlementMode==="FULL"?"primary":"secondary"} onClick={()=>changeSettlementMode("FULL")}>تسديد كامل</AppButton><AppButton type="button" variant={settlementMode==="PARTIAL"?"primary":"secondary"} onClick={()=>changeSettlementMode("PARTIAL")}>تسديد جزئي</AppButton></div>
+        <input type="number" min="0.01" max={settlementDebt.remaining} step="0.01" value={payment.amount} onChange={e=>{setSettlementMode("PARTIAL");setPayment({...payment,amount:e.target.value})}} placeholder="مبلغ الدفعة" required/>
+        <input type="date" value={payment.paymentDate} onChange={e=>setPayment({...payment,paymentDate:e.target.value})}/>
+        <select value={payment.method||"CASH"} onChange={e=>setPayment({...payment,method:e.target.value})}><option value="CASH">نقدي</option><option value="BANK">بنك</option><option value="TRANSFER">تحويل</option><option value="CARD">بطاقة</option></select>
+        <input value={payment.notes} onChange={e=>setPayment({...payment,notes:e.target.value})} placeholder="ملاحظات السداد"/>
+        <div className="transaction-modal-actions"><AppButton type="button" onClick={()=>setSettlementDebt(null)}>إلغاء</AppButton><AppButton variant="primary">{settlementDebt.type==="PAYABLE"?"تأكيد الدفع":"تأكيد الاستلام"}</AppButton></div>
+      </form>}
+    </AppModal>
 
-    {showAddModal&&<div className="transaction-modal-backdrop no-print" role="dialog" aria-modal="true">
-      <div className="transaction-modal-panel debt-modal-panel">
-        <div className="transaction-modal-header"><h3>إضافة دين جديد</h3><button type="button" onClick={()=>setShowAddModal(false)}>✕</button></div>
-        <form className="card form debt-add-form" onSubmit={addDebt}>
-          <select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}><option value="RECEIVABLE">دين لنا</option><option value="PAYABLE">دين علينا</option></select>
-          <input value={form.partyName} onChange={e=>setForm({...form,partyName:e.target.value})} placeholder="اسم الشخص أو الجهة" required/>
-          <input type="number" min="0.01" step="0.01" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} placeholder="مبلغ الدين" required/>
-          <select value={form.currency} onChange={e=>setForm({...form,currency:e.target.value})}>{debtCurrencies.map(item=><option key={item.code}>{item.code}</option>)}</select>
-          <input type="date" value={form.dueDate} onChange={e=>setForm({...form,dueDate:e.target.value})}/>
-          <input value={form.reference} onChange={e=>setForm({...form,reference:e.target.value})} placeholder="رقم مرجع أو فاتورة"/>
-          <input value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="ملاحظات"/>
-          <div className="transaction-modal-actions"><button type="button" onClick={()=>setShowAddModal(false)}>إلغاء</button><button className="primary">حفظ الدين</button></div>
-        </form>
-      </div>
-    </div>}
+    <AppModal open={showAddModal} title="إضافة دين جديد" onClose={()=>setShowAddModal(false)}>
+      <form className="form debt-add-form" onSubmit={addDebt}>
+        <select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}><option value="RECEIVABLE">دين لنا</option><option value="PAYABLE">دين علينا</option></select>
+        <input value={form.partyName} onChange={e=>setForm({...form,partyName:e.target.value})} placeholder="اسم الشخص أو الجهة" required/>
+        <input type="number" min="0.01" step="0.01" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} placeholder="مبلغ الدين" required/>
+        <select value={form.currency} onChange={e=>setForm({...form,currency:e.target.value})}>{debtCurrencies.map(item=><option key={item.code}>{item.code}</option>)}</select>
+        <input type="date" value={form.dueDate} onChange={e=>setForm({...form,dueDate:e.target.value})}/>
+        <input value={form.reference} onChange={e=>setForm({...form,reference:e.target.value})} placeholder="رقم مرجع أو فاتورة"/>
+        <input value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="ملاحظات"/>
+        <div className="transaction-modal-actions"><AppButton type="button" onClick={()=>setShowAddModal(false)}>إلغاء</AppButton><AppButton variant="primary">حفظ الدين</AppButton></div>
+      </form>
+    </AppModal>
   </>;
 }
 
