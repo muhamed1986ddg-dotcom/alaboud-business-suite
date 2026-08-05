@@ -9,14 +9,18 @@ const TRANSIENT_CODES = new Set([
   "57P03", // cannot connect now / recovery mode
   "57P04", // database dropped
   "53300", // too many connections
-  "08000", "08001", "08003", "08004", "08006", "08007", "08P01",
-  "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "ETIMEDOUT"
+  "08000", "08001", "08003", "08004", "08006", "08007", "08P01"
 ]);
 
 function isTransientPostgresError(error) {
   const code = String(error?.code || "").toUpperCase();
+  const syscall = String(error?.syscall || "").toLowerCase();
   const message = String(error?.message || "").toLowerCase();
   if (TRANSIENT_CODES.has(code) || code.startsWith("08")) return true;
+  // Render private DNS can be temporarily unavailable while PostgreSQL is
+  // restarting or its private network record is being refreshed.
+  if (["ENOTFOUND", "EAI_AGAIN", "ETIMEOUT", "ECONNRESET", "ECONNREFUSED"].includes(code)) return true;
+  if (syscall === "getaddrinfo" && ["ENOTFOUND", "EAI_AGAIN"].includes(code)) return true;
   return [
     "connection terminated",
     "connection reset",
@@ -35,9 +39,7 @@ function isTransientPostgresError(error) {
     "timeout expired",
     "getaddrinfo enotfound",
     "getaddrinfo eai_again",
-    "temporary failure in name resolution",
-    "name or service not known",
-    "dns lookup failed"
+    "temporary failure in name resolution"
   ].some((part) => message.includes(part));
 }
 
@@ -55,6 +57,10 @@ class PostgresStateAdapter {
     this.mode = "postgres-native-transition";
     this.relationalMirrorEnabled = String(process.env.RELATIONAL_MIRROR_ENABLED || "true").toLowerCase() !== "false";
     this.projector = new RelationalProjector({ logger });
+    this.mirrorPendingSnapshot = null;
+    this.mirrorPromise = Promise.resolve();
+    this.mirrorRunning = false;
+    this.lastMirrorError = null;
     this.poolGeneration = 0;
     this.poolResetPromise = null;
     this.pool = this.createPool();
@@ -115,42 +121,13 @@ class PostgresStateAdapter {
   }
 
   async init() {
-    // Render can temporarily withdraw the private PostgreSQL DNS record while the
-    // database restarts or enters recovery. MigrationRunner uses the pool directly,
-    // so the whole initialization sequence must be retried, not only normal queries.
-    const attempts = Math.max(1, Number(process.env.PG_STARTUP_RETRIES || 20));
-    const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 500));
-    const maxMs = Math.max(baseMs, Number(process.env.PG_RETRY_MAX_MS || 16000));
-    let lastError;
-
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      try {
-        const runner = new MigrationRunner({ pool: this.pool, logger: this.logger });
-        await runner.run();
-        await this.queryWithRetry(`CREATE TABLE IF NOT EXISTS app_state (
-          state_key TEXT PRIMARY KEY,
-          payload JSONB NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )`, [], { operation: "initialization" });
-        return;
-      } catch (error) {
-        lastError = error;
-        const transient = isTransientPostgresError(error);
-        if (!transient || attempt === attempts) {
-          if (transient) {
-            error.status = 503;
-            error.code = error.code || "DATABASE_TEMPORARILY_UNAVAILABLE";
-            error.publicMessage = "قاعدة البيانات غير متاحة مؤقتًا أثناء بدء الخدمة. سيعاد الاتصال تلقائيًا.";
-          }
-          throw error;
-        }
-        await this.resetPool(`startup:${error.code || error.message}`);
-        const delay = retryDelay(attempt, baseMs, maxMs);
-        this.logger.warn(`PostgreSQL startup unavailable; retrying (${attempt}/${attempts}) in ${delay}ms. ${error.code || error.message}`);
-        await wait(delay);
-      }
-    }
-    throw lastError;
+    const runner = new MigrationRunner({ pool: this.pool, logger: this.logger });
+    await runner.run();
+    await this.queryWithRetry(`CREATE TABLE IF NOT EXISTS app_state (
+      state_key TEXT PRIMARY KEY,
+      payload JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`, [], { operation: "initialization" });
   }
 
   async load() {
@@ -185,10 +162,46 @@ class PostgresStateAdapter {
     throw lastError;
   }
 
+  queueRelationalMirror(snapshot) {
+    if (!this.relationalMirrorEnabled) return;
+    // The JSONB app_state row is the durable source of truth. Relational tables
+    // are a reporting/search mirror, so they must not delay interactive saves.
+    this.mirrorPendingSnapshot = structuredClone(snapshot);
+    if (this.mirrorRunning) return;
+    this.mirrorRunning = true;
+    this.mirrorPromise = (async () => {
+      while (this.mirrorPendingSnapshot) {
+        const next = this.mirrorPendingSnapshot;
+        this.mirrorPendingSnapshot = null;
+        let client;
+        let detach = () => {};
+        try {
+          client = await this.pool.connect();
+          detach = this.attachClientErrorGuard(client, "mirror-client");
+          await client.query("BEGIN");
+          await this.projector.project(client, next);
+          await client.query("COMMIT");
+          this.lastMirrorError = null;
+        } catch (error) {
+          this.lastMirrorError = error;
+          if (client) { try { await client.query("ROLLBACK"); } catch {} }
+          this.logger.warn(`Relational mirror deferred: ${error?.code || error?.message || error}`);
+          // Do not retry in a tight loop. The next successful app mutation will
+          // enqueue the newest complete snapshot and repair the mirror.
+        } finally {
+          try { detach(); } catch {}
+          if (client) { try { client.release(Boolean(this.lastMirrorError)); } catch {} }
+        }
+      }
+    })().finally(() => { this.mirrorRunning = false; });
+  }
+
   async save(snapshot) {
     const attempts = Math.max(1, Number(process.env.PG_WRITE_RETRIES || 8));
-    const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 500));
-    const maxMs = Math.max(baseMs, Number(process.env.PG_RETRY_MAX_MS || 16000));
+    const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 400));
+    const maxMs = Math.max(baseMs, Number(process.env.PG_RETRY_MAX_MS || 4000));
+    const retryBudgetMs = Math.max(1000, Number(process.env.PG_WRITE_RETRY_BUDGET_MS || 12000));
+    const startedAt = Date.now();
     let lastError;
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -205,10 +218,12 @@ class PostgresStateAdapter {
            DO UPDATE SET payload=EXCLUDED.payload,updated_at=NOW()`,
           [JSON.stringify(snapshot)]
         );
-        if (this.relationalMirrorEnabled) await this.projector.project(client, snapshot);
         await client.query("COMMIT");
         detachClientErrorGuard();
         client.release();
+        // Return success as soon as the canonical app_state snapshot is durable.
+        // The relational reporting mirror is updated in the background.
+        this.queueRelationalMirror(snapshot);
         return;
       } catch (error) {
         lastError = error;
@@ -218,7 +233,8 @@ class PostgresStateAdapter {
           try { client.release(isTransientPostgresError(error)); } catch {}
         }
 
-        if (!isTransientPostgresError(error) || attempt === attempts) {
+        const budgetExhausted = Date.now() - startedAt >= retryBudgetMs;
+        if (!isTransientPostgresError(error) || attempt === attempts || budgetExhausted) {
           if (isTransientPostgresError(error)) {
             error.status = 503;
             error.code = error.code || "DATABASE_TEMPORARILY_UNAVAILABLE";
@@ -248,7 +264,9 @@ class PostgresStateAdapter {
       mode: this.mode,
       relationalMirrorEnabled: this.relationalMirrorEnabled,
       latencyMs: Date.now() - startedAt,
-      poolGeneration: this.poolGeneration
+      poolGeneration: this.poolGeneration,
+      mirrorPending: this.mirrorRunning || Boolean(this.mirrorPendingSnapshot),
+      lastMirrorError: this.lastMirrorError?.message || null
     };
   }
 

@@ -33,5 +33,7 @@ services:
         value: "2"
       - key: PG_WRITE_RETRIES
         value: "8"
-      - key: PG_STARTUP_RETRIES
-        value: "20"
+      - key: PG_WRITE_RETRY_BUDGET_MS
+        value: "12000"
+      - key: PG_RETRY_MAX_MS
+        value: "4000"

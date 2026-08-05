@@ -3,7 +3,7 @@
 const TRANSIENT_CODES = new Set([
   "57P01", "57P02", "57P03",
   "08000", "08001", "08003", "08004", "08006", "08007", "08P01",
-  "ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT",
+  "ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN",
   "DATABASE_TEMPORARILY_UNAVAILABLE"
 ]);
 
@@ -19,7 +19,10 @@ const TRANSIENT_MESSAGES = [
   "database system is in recovery mode",
   "database system is not yet accepting connections",
   "consistent recovery state has not been yet reached",
-  "terminating connection due to administrator command"
+  "terminating connection due to administrator command",
+  "getaddrinfo enotfound",
+  "getaddrinfo eai_again",
+  "temporary failure in name resolution"
 ];
 
 function isTransientDatabaseError(error, seen = new Set()) {

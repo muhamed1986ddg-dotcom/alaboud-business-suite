@@ -82,9 +82,8 @@ async function sendEmail(to, subject, text) {
 }
 const app = express();
 let serviceReady = false;
-let startupState = "starting";
-let startupError = null;
-let initializationPromise = null;
+let serviceStartupError = null;
+let startupAttempt = 0;
 // التقاط تلقائي لأي خطأ (متزامن أو غير متزامن) يحدث داخل أي مسار API لم يكن
 // يحتوي على try/catch صريح. بدون هذا، أي استثناء داخل مسار async كان يتحول
 // إلى "unhandled rejection" وبما أن السيرفر مهيأ لإيقاف نفسه عند أي رفض غير
@@ -112,6 +111,21 @@ app.use((req,res,next)=>{ req.requestId=crypto.randomUUID(); res.setHeader("X-Re
 app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:","blob:"], connectSrc:["'self'","https:"], objectSrc:["'none'"], baseUri:["'self'"], frameAncestors:["'none'"] } }, crossOriginEmbedderPolicy:false, hsts: IS_PROD ? {maxAge:31536000,includeSubDomains:true,preload:true}:false }));
 app.use(express.json({ limit: "2mb", strict:true }));
 app.use(express.urlencoded({extended:false,limit:"256kb"}));
+// Start the HTTP listener even when PostgreSQL private DNS is temporarily
+// unavailable. API writes/reads stay gated with 503 until initialization
+// succeeds, allowing Render to keep the deployment alive and the service to
+// recover automatically without an exit/redeploy loop.
+app.use((req,res,next)=>{
+  if(serviceReady || !String(req.path||"").startsWith("/api/") ||
+     ["/api/health","/api/openapi.json","/api/docs"].includes(req.path)) return next();
+  return res.status(503).json({
+    message:"الخدمة تعيد الاتصال بقاعدة البيانات حاليًا. يرجى المحاولة بعد لحظات.",
+    code:"SERVICE_STARTING_DATABASE_RETRY",
+    retryable:true,
+    startupAttempt,
+    error:serviceStartupError?.message||null
+  });
+});
 app.use(versionAliasMiddleware);
 app.use(apiKeyMiddleware({readStore,mutate,now}));
 app.use(integrationLogger({mutate,now,id}));
@@ -127,20 +141,6 @@ app.use("/api",(_req,res,next)=>{
   res.setHeader("Expires","0");
   res.setHeader("Surrogate-Control","no-store");
   next();
-});
-
-// Keep the web process alive while Render PostgreSQL is restarting or its private
-// DNS record is temporarily unavailable. Health/docs stay reachable; business API
-// calls receive a clear retryable response until the durable store is ready.
-app.use("/api",(req,res,next)=>{
-  if(serviceReady || ["/health","/openapi.json","/docs"].includes(req.path))return next();
-  return res.status(503).json({
-    message:"قاعدة البيانات قيد إعادة الاتصال. حاول مرة أخرى بعد لحظات.",
-    code:"DATABASE_STARTING",
-    retryable:true,
-    startupState,
-    requestId:req.requestId
-  });
 });
 
 async function seedAdmin(){
@@ -564,17 +564,14 @@ app.get("/api/health", async (_req,res)=>{
   const database=await databaseHealth();
   const readiness=productionReadiness();
   const ok=serviceReady&&database.ok&&readiness.ok;
-  // Return HTTP 200 while starting so Render keeps the deployment alive long
-  // enough for PostgreSQL private DNS/recovery to come back. The JSON `ok` field
-  // remains false until the application is genuinely ready for business traffic.
-  const httpStatus=startupState==="failed"?503:200;
-  res.status(httpStatus).json({
+  res.status(ok?200:503).json({
     ok,
-    status:serviceReady?"ready":startupState,
     version:APP_VERSION,
+    serviceReady,
+    startupAttempt,
+    startupError:serviceStartupError?.message||null,
     database,
     readiness,
-    startupError:startupError?String(startupError.message||startupError):null,
     nativeRepositories:nativeRepositories.health(),
     time:now()
   });
@@ -5227,64 +5224,48 @@ app.use((err,req,res,_next)=>{
   });
 });
 
-async function initializeRuntime(){
-  if(initializationPromise)return initializationPromise;
-  initializationPromise=(async()=>{
-    let cycle=0;
-    while(!serviceReady&&!shuttingDown){
-      cycle+=1;
-      startupState="starting";
-      startupError=null;
-      try{
-        await initStore();
-        nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
-        await seedAdmin();
-        serviceReady=true;
-        startupState="ready";
-        console.log(`Database runtime ready after ${cycle} startup cycle(s)`);
-        return;
-      }catch(error){
-        startupError=error;
-        if(!isRecoverableOperationalError(error)){
-          startupState="failed";
-          console.error("Permanent server initialization failure:",error);
-          return;
-        }
-        const delay=Math.min(30000,Math.max(2000,cycle*3000));
-        console.warn(`Recoverable startup database failure; retrying in ${delay}ms:`,error?.code||error?.message||error);
-        await new Promise(resolve=>setTimeout(resolve,delay));
-      }
-    }
-  })().finally(()=>{initializationPromise=null;});
-  return initializationPromise;
-}
-
-async function startServer(){
-  if(!serverInstance){
-    serverInstance=app.listen(PORT,"0.0.0.0",()=>{
-      console.log(`AlAboud Enterprise Cloud v${APP_VERSION} listening on port ${PORT}`);
-      console.log(`Frontend directory: ${publicDir}`);
-      console.log("Database initialization is running with automatic recovery");
-    });
-  }
-  initializeRuntime().catch(error=>{
-    startupError=error;
-    startupState="failed";
-    console.error("Runtime initialization loop failed:",error);
-  });
-
-  const runHourlyRateRefresh=async()=>{
-    if(!serviceReady)return;
+const startupWait=(ms)=>new Promise(resolve=>setTimeout(resolve,ms));
+async function initializeApplicationWithRetry(){
+  const baseMs=Math.max(1000,Number(process.env.STARTUP_DB_RETRY_BASE_MS||3000));
+  const maxMs=Math.max(baseMs,Number(process.env.STARTUP_DB_RETRY_MAX_MS||30000));
+  while(!shuttingDown&&!serviceReady){
+    startupAttempt+=1;
     try{
-      const results=await refreshAutomaticRates("SYSTEM_HOURLY");
-      const successCount=results.filter(item=>item.ok).length;
-      console.log(`Hourly exchange-rate refresh: ${successCount}/${results.length} updated`);
+      await initStore();
+      nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
+      await seedAdmin();
+      serviceReady=true;
+      serviceStartupError=null;
+      console.log(`Database initialization completed after ${startupAttempt} attempt(s)`);
+      const runHourlyRateRefresh=async()=>{
+        if(!serviceReady)return;
+        try{
+          const results=await refreshAutomaticRates("SYSTEM_HOURLY");
+          const successCount=results.filter(item=>item.ok).length;
+          console.log(`Hourly exchange-rate refresh: ${successCount}/${results.length} updated`);
+        }catch(error){
+          console.error("Hourly exchange-rate refresh failed:",error.message);
+        }
+      };
+      setTimeout(runHourlyRateRefresh,60*1000);
+      setInterval(runHourlyRateRefresh,60*60*1000);
+      return;
     }catch(error){
-      console.error("Hourly exchange-rate refresh failed:",error.message);
+      serviceStartupError=error;
+      if(!isRecoverableOperationalError(error)) throw error;
+      const delay=Math.min(maxMs,baseMs*(2**Math.min(startupAttempt-1,4)));
+      console.warn(`Database startup unavailable; retrying attempt ${startupAttempt+1} in ${delay}ms:`,error?.code||error?.message||error);
+      await startupWait(delay);
     }
-  };
-  setTimeout(runHourlyRateRefresh,60*1000);
-  setInterval(runHourlyRateRefresh,60*60*1000);
+  }
+}
+async function startServer(){
+  serverInstance=app.listen(PORT,"0.0.0.0",()=>{
+    console.log(`AlAboud Enterprise Cloud v${APP_VERSION} running on port ${PORT}`);
+    console.log(`Frontend directory: ${publicDir}`);
+    console.log("HTTP service is live; database initialization is running");
+  });
+  await initializeApplicationWithRetry();
 }
 
 let serverInstance=null;
@@ -5325,8 +5306,12 @@ process.on("uncaughtException",error=>{
   shutdown("UNCAUGHT_EXCEPTION");
 });
 startServer().catch(error=>{
-  startupError=error;
-  startupState="failed";
-  console.error("Server listener startup failed:",error);
+  serviceStartupError=error;
+  console.error("Server startup failed with a non-recoverable error:",error);
+  if(serverInstance){
+    // Keep the diagnostic HTTP endpoint available instead of entering a rapid
+    // crash loop. API requests remain gated with a clear 503 response.
+    return;
+  }
   process.exit(1);
 });

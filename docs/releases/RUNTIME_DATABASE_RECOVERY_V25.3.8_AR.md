@@ -1,4 +1,4 @@
-# v25.3.8 — Runtime Database Recovery
+# v25.3.9 — Runtime Database Recovery
 
 - منع إيقاف الخادم عند أخطاء PostgreSQL المؤقتة ذات الرمز DATABASE_TEMPORARILY_UNAVAILABLE أو الحالة 503.
 - تصنيف الأخطاء المتداخلة عبر cause/originalError/parent.
