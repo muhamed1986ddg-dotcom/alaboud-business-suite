@@ -44,13 +44,13 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.4.1";
+  config.headers["X-Alaboud-Client-Version"]="25.4.2";
   // PostgreSQL recovery retries can legitimately take longer than the normal
   // navigation timeout. Keep write requests open until the backend confirms
   // whether the durable save succeeded, otherwise Axios can report a false
   // failure while the server continues retrying and eventually commits it.
   const method=String(config.method||"get").toLowerCase();
-  config.timeout=method==="get"?30000:15000;
+  config.timeout=method==="get"?30000:10000;
   // Do not append a timestamp to every GET request. The in-memory cache below
   // already controls freshness, while cache-busting forced needless server and
   // database work on every navigation.
@@ -81,7 +81,7 @@ function successToastMessage(method,url,response){
 
 function errorToastMessage(method,error){
   if(error?.code==="ECONNABORTED"||/timeout/i.test(String(error?.message||""))){
-    return "لم يصل تأكيد العملية خلال 15 ثانية. تحقق من الاتصال وحالة العملية قبل إعادة المحاولة.";
+    return "لم يصل رد العملية خلال 10 ثوانٍ. تحقق من الاتصال وحالة العملية قبل إعادة المحاولة.";
   }
   const backendMessage=String(error.response?.data?.message||"").trim();
   if(backendMessage)return backendMessage;

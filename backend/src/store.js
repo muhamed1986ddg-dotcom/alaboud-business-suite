@@ -62,6 +62,7 @@ function writeStore(store){
   return database.queueSave();
 }
 async function writeStoreDurable(store){
+  // Kept for maintenance/import paths that explicitly require a confirmed save.
   rootStore=database.replaceStore(normalizeStore(unwrapStore(store)));
   await database.saveDurable(rootStore);
   return rootStore;
@@ -144,18 +145,15 @@ function mutateDurable(fn){
   const context=tenantContext.getStore();
   const companyId=context?.companyId||null;
   const branchId=context?.branchId||null;
-  const execute=async()=>{
-    const before=structuredClone(unwrapStore(rootStore));
+  // Apply mutations serially in memory, then enqueue the newest full snapshot.
+  // API routes awaiting this function receive the result immediately instead
+  // of waiting for Render/PostgreSQL network recovery.
+  const execute=()=>{
     const view=companyId?tenantView(rootStore,companyId,branchId):rootStore;
-    try{
-      const result=fn(view);
-      await writeStoreDurable(rootStore);
-      return result;
-    }catch(error){
-      // Never leave the in-memory view ahead of durable storage after a failed save.
-      rootStore=database.replaceStore(normalizeStore(before));
-      throw error;
-    }
+    const result=fn(view);
+    rootStore=database.replaceStore(normalizeStore(rootStore));
+    database.queueSave();
+    return result;
   };
   const task=durableMutationChain.then(execute,execute);
   durableMutationChain=task.catch(()=>undefined);

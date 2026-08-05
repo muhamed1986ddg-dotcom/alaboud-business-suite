@@ -14,4 +14,4 @@ assert(server.includes('await mutateDurable(store=>{\n      for(const key of BAC
 assert(server.includes('const updated=await mutateDurable(s=>{\n    const rows=Array.from(s.expenses'),'Expense updates must be durable');
 assert(android.includes('allowFileAccess = false')&&android.includes('allowContentAccess = false'),'WebView local access must be disabled');
 assert(!fs.readdirSync('.').some(name=>name.endsWith('_AR.md')),'Release notes must not remain in project root');
-console.log('v25.4.1 hardening verification passed');
+console.log('v25.4.2 hardening verification passed');

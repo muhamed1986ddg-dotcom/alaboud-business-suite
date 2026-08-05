@@ -201,10 +201,10 @@ class PostgresStateAdapter {
     // checked-out client plus BEGIN/COMMIT added two network round trips and
     // made every button wait longer, especially on Render free instances.
     const interactive = options.interactive !== false;
-    const attempts = Math.max(1, Number(process.env.PG_WRITE_RETRIES || (interactive ? 4 : 8)));
+    const attempts = Math.max(1, Number(interactive ? (process.env.PG_INTERACTIVE_WRITE_RETRIES || 2) : (process.env.PG_WRITE_RETRIES || 6)));
     const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 250));
     const maxMs = Math.max(baseMs, Number(process.env.PG_WRITE_RETRY_MAX_MS || (interactive ? 1200 : 4000)));
-    const retryBudgetMs = Math.max(1000, Number(process.env.PG_WRITE_RETRY_BUDGET_MS || (interactive ? 6000 : 12000)));
+    const retryBudgetMs = Math.max(1000, Number(interactive ? (process.env.PG_INTERACTIVE_WRITE_BUDGET_MS || 2500) : (process.env.PG_WRITE_RETRY_BUDGET_MS || 15000)));
     const startedAt = Date.now();
     const payload = JSON.stringify(snapshot);
     let lastError;

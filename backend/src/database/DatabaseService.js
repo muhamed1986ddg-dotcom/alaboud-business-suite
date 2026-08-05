@@ -13,6 +13,11 @@ class DatabaseService {
     this.persisting = false;
     this.lastPersistError = null;
     this.durableSaveChain = Promise.resolve();
+    this.writeBehindRevision = 0;
+    this.persistedRevision = 0;
+    this.writeBehindRetryCount = 0;
+    this.writeBehindRetryTimer = null;
+    this.writeBehindLastError = null;
   }
 
   async init() {
@@ -80,32 +85,63 @@ class DatabaseService {
   }
 
   queueSave() {
-    // Coalesce bursts of mutations into one latest snapshot. The old implementation
-    // retained a full cloned store for every write in the promise chain, which could
-    // exhaust a 512 MB Render instance during rate refreshes and imports.
+    // Responsive write-behind persistence: keep only the newest complete
+    // snapshot and acknowledge the API request immediately. The queue retries
+    // until PostgreSQL accepts the newest state, so bursts never create one
+    // full JSON snapshot per request.
     this.pendingSnapshot = structuredClone(this.store);
-    if (this.persisting) return this.persistChain;
+    this.writeBehindRevision += 1;
+    const queuedRevision = this.writeBehindRevision;
+    this.startWriteBehindWorker();
+    return { queued: true, revision: queuedRevision };
+  }
 
+  startWriteBehindWorker() {
+    if (this.persisting || !this.pendingSnapshot) return;
     this.persisting = true;
     this.persistChain = (async () => {
       while (this.pendingSnapshot) {
         const snapshot = this.pendingSnapshot;
+        const targetRevision = this.writeBehindRevision;
         this.pendingSnapshot = null;
         try {
-          await this.adapter.save(snapshot);
+          await this.adapter.save(snapshot, { interactive: false });
+          this.persistedRevision = Math.max(this.persistedRevision, targetRevision);
+          this.writeBehindRetryCount = 0;
+          this.writeBehindLastError = null;
           this.lastPersistError = null;
         } catch (error) {
           this.lastPersistError = error;
-          this.logger.error("Database persistence failed:", error.message);
+          this.writeBehindLastError = error;
+          this.writeBehindRetryCount += 1;
+          // A newer snapshot already contains this failed mutation. Requeue the
+          // failed snapshot only when no newer state is waiting.
+          if (!this.pendingSnapshot) this.pendingSnapshot = snapshot;
+          const base = Math.max(500, Number(process.env.WRITE_BEHIND_RETRY_BASE_MS || 1000));
+          const cap = Math.max(base, Number(process.env.WRITE_BEHIND_RETRY_MAX_MS || 30000));
+          const delay = Math.min(cap, base * (2 ** Math.min(this.writeBehindRetryCount - 1, 5)));
+          this.logger.warn?.(`Write-behind persistence deferred; retrying in ${delay}ms: ${error.message}`);
+          clearTimeout(this.writeBehindRetryTimer);
+          this.writeBehindRetryTimer = setTimeout(() => { this.writeBehindRetryTimer = null; this.startWriteBehindWorker(); }, delay);
+          this.writeBehindRetryTimer.unref?.();
+          break;
         }
       }
-    })().finally(() => { this.persisting = false; });
-    return this.persistChain;
+    })().finally(() => {
+      this.persisting = false;
+      if (this.pendingSnapshot && !this.writeBehindRetryTimer) this.startWriteBehindWorker();
+    });
   }
 
-  async flush() {
-    await this.persistChain;
+  async flush({ timeoutMs = 15000 } = {}) {
+    if (this.pendingSnapshot) this.startWriteBehindWorker();
+    const timeout = new Promise((_, reject) => {
+      const timer = setTimeout(() => reject(new Error("Database flush timed out")), timeoutMs);
+      timer.unref?.();
+    });
+    await Promise.race([this.persistChain, timeout]);
     if (this.lastPersistError) throw this.lastPersistError;
+    if (this.pendingSnapshot || this.persisting) throw new Error("Database still has pending writes");
   }
 
   async health() {
@@ -114,7 +150,7 @@ class DatabaseService {
     }
     try {
       const adapterHealth = await this.adapter.health();
-      return { ...adapterHealth, initialized: true, pendingWrites: this.persisting || Boolean(this.pendingSnapshot), lastPersistError: this.lastPersistError?.message || null };
+      return { ...adapterHealth, initialized: true, pendingWrites: this.persisting || Boolean(this.pendingSnapshot), queuedRevision: this.writeBehindRevision, persistedRevision: this.persistedRevision, retryCount: this.writeBehindRetryCount, lastPersistError: this.lastPersistError?.message || null };
     } catch (error) {
       return { ok: false, mode: this.adapter.mode, initialized: true, error: error.message };
     }
@@ -126,7 +162,8 @@ class DatabaseService {
   }
 
   async close() {
-    await this.flush();
+    clearTimeout(this.writeBehindRetryTimer);
+    try { await this.flush({ timeoutMs: Number(process.env.SHUTDOWN_FLUSH_TIMEOUT_MS || 15000) }); } catch (error) { this.logger.error("Final database flush failed:", error.message); }
     if (this.adapter) await this.adapter.close();
   }
 }
