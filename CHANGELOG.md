@@ -1,8 +1,10 @@
-# v25.2.0 — UI Migration Completion
+# v25.2.1 — UI Cleanup & Test Foundation
 
-- Migrated remaining screen tables to the shared AppTable component.
-- Migrated Transactions, CapitalOverview, and SettingsPanel modal shells to AppModal.
-- Added an automated UI quality gate blocking manual tables and modal backdrops in screens.
+- Removed retired modal CSS rules left after the shared UI migration.
+- Removed LoadingButton and UnifiedModal compatibility wrappers.
+- Updated confirmAction to use AppModal and AppButton directly.
+- Added unit tests for AppModal, AppTable, AppButton and AppPagination.
+- Added UI component tests to GitHub Actions and strengthened the UI quality gate.
 - Preserved financial logic and database behavior.
 
 # v25.1.0

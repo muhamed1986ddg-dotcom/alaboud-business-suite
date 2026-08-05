@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.2.0 UI Migration Completion";
+export const APP_VERSION="v25.2.1 UI Migration Completion";

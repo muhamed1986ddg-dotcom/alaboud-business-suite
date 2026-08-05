@@ -33,5 +33,7 @@ jobs:
           npm run test:production --prefix backend
       - name: Verify shared UI migration
         run: npm run check:ui
+      - name: UI component tests
+        run: npm run test:ui
       - name: Build frontend
         run: npm run build

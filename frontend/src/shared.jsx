@@ -102,13 +102,6 @@ export function rateTrend(rate, history = []) {
 }
 
 
-export function UnifiedModal(props){
-  return <AppModal {...props}/>;
-}
-
-export function LoadingButton({busy=false,busyText="جاري الحفظ...",children,disabled,...props}){
-  return <AppButton {...props} busy={busy} busyText={busyText} disabled={disabled}>{children}</AppButton>;
-}
 
 export function confirmAction({
   title="تأكيد العملية",
@@ -131,17 +124,17 @@ export function confirmAction({
       resolve(value);
     };
     function ConfirmView(){
-      return <UnifiedModal
+      return <AppModal
         open
         title={title}
         onClose={()=>finish(false)}
         actions={<>
-          <button type="button" className="secondary" onClick={()=>finish(false)}>{cancelText}</button>
-          <button type="button" className={`confirm-${tone}`} onClick={()=>finish(true)} autoFocus>{confirmText}</button>
+          <AppButton type="button" variant="secondary" onClick={()=>finish(false)}>{cancelText}</AppButton>
+          <AppButton type="button" variant={tone==="danger"?"danger":"primary"} onClick={()=>finish(true)} autoFocus>{confirmText}</AppButton>
         </>}
       >
         <p className="unified-confirm-message">{message}</p>
-      </UnifiedModal>;
+      </AppModal>;
     }
     root.render(<ConfirmView/>);
   });
