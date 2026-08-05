@@ -7,6 +7,7 @@ import {AppTable,AppModal,AppButton} from "../components/ui";
 export function Transactions({openInvoice}){
   const [customers,setCustomers]=useState([]);
   const [list,setList]=useState([]);
+  const [unpaidSummary,setUnpaidSummary]=useState({totalCad:0,count:0});
   const [error,setError]=useState("");
   const [f,setF]=useState({
     customerId:"",
@@ -38,13 +39,18 @@ export function Transactions({openInvoice}){
 
   async function load(){
     try{
-      const [customersResponse,transactionsResponse]=await Promise.all([
+      const [customersResponse,transactionsResponse,unpaidSummaryResponse]=await Promise.all([
         cachedGet("/customers/options",{params:{limit:200},cacheTtl:5*60*1000}),
-        cachedGet("/transactions",{params:{limit:200},cacheTtl:2*60*1000})
+        cachedGet("/transactions",{params:{limit:200},cacheTtl:2*60*1000}),
+        cachedGet("/transactions/unpaid-summary",{cacheTtl:30*1000})
       ]);
       const customerList=Array.isArray(customersResponse.data)?customersResponse.data:[];
       setCustomers(customerList);
       setList(Array.isArray(transactionsResponse.data)?transactionsResponse.data:[]);
+      setUnpaidSummary({
+        totalCad:Number(unpaidSummaryResponse.data?.totalCad||0),
+        count:Number(unpaidSummaryResponse.data?.count||0)
+      });
       if(!f.customerId&&customerList[0]){
         setF(current=>({...current,customerId:customerList[0].id}));
       }
@@ -227,7 +233,7 @@ export function Transactions({openInvoice}){
   const totalBaseCad=list.reduce((sum,transaction)=>sum+(Number(transaction.amount||0)*Number(transaction.finalRate||transaction.clientRate||0)),0);
   const totalUsdAmount=list.filter(transaction=>String(transaction.currency||"").toUpperCase()==="USD").reduce((sum,transaction)=>sum+Number(transaction.amount||0),0);
   const totalProfitCad=list.reduce((sum,transaction)=>sum+Number(transaction.totalProfit||0),0);
-  const totalUnpaidCad=list.reduce((sum,transaction)=>sum+Math.max(Number(transaction.remaining||0),0),0);
+  const totalUnpaidCad=Number(unpaidSummary.totalCad||0);
   const totalPaidCad=Math.max(totalAllCad-totalUnpaidCad,0);
   const paidCount=list.filter(transaction=>Number(transaction.remaining||0)<=0||String(transaction.paymentStatus||"").toUpperCase()==="PAID").length;
   const unpaidCount=list.length-paidCount;
@@ -274,6 +280,11 @@ export function Transactions({openInvoice}){
       <button type="button" className={activeMode==="all"?"active":""} onClick={()=>selectMode("all")}>📋 جميع الحوالات</button>
       <button type="button" className={activeMode==="paid"?"active":""} onClick={()=>selectMode("paid")}>✅ الحوالات المدفوعة</button>
       <button type="button" className={activeMode==="unpaid"?"active":""} onClick={()=>selectMode("unpaid")}>⏳ غير المدفوعة</button>
+      <button type="button" className={`transaction-unpaid-total-button ${activeMode==="unpaid"?"active":""}`} onClick={()=>selectMode("unpaid")} title="عرض الحوالات غير المدفوعة">
+        <span>💰 مجموع غير المدفوع</span>
+        <strong>{money(totalUnpaidCad)} CAD</strong>
+        <small>{unpaidSummary.count} حوالة</small>
+      </button>
       <button type="button" className={activeMode==="payments"?"active":""} onClick={()=>selectMode("payments")}>💳 الدفعات</button>
       <button type="button" className={activeMode==="overdue"?"active":""} onClick={()=>selectMode("overdue")}>⏰ المتأخرة</button>
     </div>

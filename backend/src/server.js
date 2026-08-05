@@ -1693,6 +1693,33 @@ app.get("/api/transactions", auth, async (req,res)=>{
   }).filter(t=>!status||t.paymentStatus===status||String(t.status||"").toUpperCase()===status);
   res.json(windowResponse({...win,total:status?items.length:win.total},items));
 });
+app.get("/api/transactions/unpaid-summary", auth, async (req,res)=>{
+  try{
+    const s=readStore();
+    const [transactions,payments]=await Promise.all([
+      branchSafeRead(req,"transactions-unpaid-summary",()=>nativeRepositories.transactions.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.transactions).filter(t=>!t.isDeleted)),
+      branchSafeRead(req,"payments-unpaid-summary",()=>nativeRepositories.payments.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.payments).filter(p=>!p.isDeleted))
+    ]);
+    const paidByTransaction=new Map();
+    for(const payment of payments){
+      if(payment.isDeleted||!payment.transactionId)continue;
+      paidByTransaction.set(payment.transactionId,(paidByTransaction.get(payment.transactionId)||0)+safeNumber(payment.amount));
+    }
+    let totalCad=0;
+    let count=0;
+    for(const transaction of transactions){
+      if(transaction.isDeleted)continue;
+      const due=safeNumber(transaction.totalCustomerDue,safeNumber(transaction.amount)*safeNumber(transaction.finalRate||transaction.clientRate));
+      const remaining=Math.max(due-(paidByTransaction.get(transaction.id)||0),0);
+      if(remaining>0.001){totalCad+=remaining;count+=1;}
+    }
+    res.json({totalCad:+totalCad.toFixed(2),count});
+  }catch(error){
+    console.error("Transactions unpaid summary error:",error);
+    res.status(500).json({message:"تعذر حساب مجموع الحوالات غير المدفوعة"});
+  }
+});
+
 app.post("/api/transactions", auth, async (req,res)=>{
   const {
     customerId,
