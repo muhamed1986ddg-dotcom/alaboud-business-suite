@@ -25,7 +25,7 @@ if(typeof document!=="undefined"){
 
 const api=axios.create({
   baseURL:"/api",
-  timeout:20000,
+  timeout:30000,
   headers:{
     "Cache-Control":"no-cache, no-store, must-revalidate",
     "Pragma":"no-cache",
@@ -44,7 +44,13 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="24.2.4";
+  config.headers["X-Alaboud-Client-Version"]="25.3.3";
+  // PostgreSQL recovery retries can legitimately take longer than the normal
+  // navigation timeout. Keep write requests open until the backend confirms
+  // whether the durable save succeeded, otherwise Axios can report a false
+  // failure while the server continues retrying and eventually commits it.
+  const method=String(config.method||"get").toLowerCase();
+  config.timeout=method==="get"?30000:180000;
   // Do not append a timestamp to every GET request. The in-memory cache below
   // already controls freshness, while cache-busting forced needless server and
   // database work on every navigation.
@@ -74,6 +80,9 @@ function successToastMessage(method,url,response){
 }
 
 function errorToastMessage(method,error){
+  if(error?.code==="ECONNABORTED"||/timeout/i.test(String(error?.message||""))){
+    return "استغرق تأكيد الحفظ وقتًا أطول من المتوقع. تحقق من ظهور العملية قبل إعادة المحاولة.";
+  }
   const backendMessage=String(error.response?.data?.message||"").trim();
   if(backendMessage)return backendMessage;
   if(method==="delete")return "تعذر الحذف";

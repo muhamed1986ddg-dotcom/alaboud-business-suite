@@ -1,3 +1,10 @@
+# v25.3.3
+
+- Prevent false save-failure messages during PostgreSQL recovery by allowing durable write requests to wait for backend retry completion.
+- Use a 180-second timeout for write requests and 30 seconds for reads.
+- Add a safer timeout message that does not claim the operation definitely failed.
+- Update client and Android version metadata.
+
 # v25.3.2
 
 - Guard checked-out PostgreSQL clients against unhandled error events.
