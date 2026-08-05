@@ -20,13 +20,22 @@ for (const name of fs.readdirSync(screensDir).filter((item) => item.endsWith('.j
 
 
 const legacyFiles = [path.join(frontendRoot, "src", "styles.css"), path.join(frontendRoot, "src", "shared.jsx")];
-const forbiddenLegacy = ["transaction-modal-backdrop", "transaction-modal-panel", "settings-modal-backdrop", "rate-modal-backdrop", "budget-modal-overlay", "debt-modal-panel", "export function LoadingButton", "export function UnifiedModal"];
+const forbiddenLegacy = ["transaction-modal-backdrop", "transaction-modal-panel", "settings-modal-backdrop", "rate-modal-backdrop", "budget-modal-overlay", "debt-modal-panel", "export function LoadingButton", "export function UnifiedModal", ".rate-modal{", ".budget-modal{"];
 for (const file of legacyFiles) {
   const content = fs.readFileSync(file, "utf8");
   for (const token of forbiddenLegacy) {
     if (content.includes(token)) failures.push(`${path.relative(projectRoot,file)} still contains retired UI token: ${token}`);
   }
 }
+
+const uiDir = path.join(frontendRoot, "src", "components", "ui");
+const uiTestFile = path.join(frontendRoot, "tests", "ui-components.test.mjs");
+const uiTests = fs.readFileSync(uiTestFile, "utf8");
+for (const name of fs.readdirSync(uiDir).filter((item) => /^App.+\.jsx$/.test(item))) {
+  const component = path.basename(name, ".jsx");
+  if (!uiTests.includes(component)) failures.push(`Missing shared UI test coverage: ${component}`);
+}
+
 if (failures.length) {
   console.error('UI foundation quality gate failed:\n' + failures.map((x) => `- ${x}`).join('\n'));
   process.exit(1);

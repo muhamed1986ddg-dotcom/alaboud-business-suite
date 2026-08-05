@@ -1,3 +1,7 @@
+# v25.2.2
+- Complete test coverage for all 12 shared UI components.
+- Remove the final unused `.rate-modal` and `.budget-modal` CSS wrappers.
+
 # v25.2.1 — UI Cleanup & Test Foundation
 
 - Removed retired modal CSS rules left after the shared UI migration.
