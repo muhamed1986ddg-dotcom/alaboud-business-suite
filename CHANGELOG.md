@@ -1,4 +1,4 @@
-# v25.2.2
+# v25.3.0
 - Complete test coverage for all 12 shared UI components.
 - Remove the final unused `.rate-modal` and `.budget-modal` CSS wrappers.
 

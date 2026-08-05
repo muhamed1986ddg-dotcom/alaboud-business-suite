@@ -1445,11 +1445,11 @@ app.get("/api/customers/options",auth,async(req,res)=>{
     res.status(500).json({code:"CUSTOMER_OPTIONS_FAILED",message:"تعذر تحميل قائمة اختيار العملاء.",requestId:req.requestId||null});
   }
 });
-app.post("/api/customers", auth, (req,res)=>{
+app.post("/api/customers", auth, async (req,res)=>{
   try{
   const {name,phone="",email="",identityNumber="",customerNumber="",notes="",oldBalance=0}=req.body||{};
   if(!String(name).trim()) return res.status(400).json({message:"Customer name is required"});
-  const customer=mutate((s)=>{
+  const customer=await mutateDurable((s)=>{
     const requested=String(customerNumber||identityNumber||"").trim();
     if(requested&&s.customers.some(item=>!item.isDeleted&&String(item.customerNumber||item.identityNumber||"").trim()===requested))throw new Error("رقم العميل مضاف مسبقًا");
     const normalizedPhone=normalizePhone(phone);
@@ -1470,9 +1470,9 @@ app.post("/api/customers", auth, (req,res)=>{
   }catch(error){res.status(400).json({message:error.message||"تعذر إضافة العميل",code:error.code||undefined,existingCustomer:error.existingCustomer||undefined});}
 });
 
-app.patch("/api/customers/:id", auth, (req,res)=>{
+app.patch("/api/customers/:id", auth, async (req,res)=>{
   try{
-    const updated=mutate((store)=>{
+    const updated=await mutateDurable((store)=>{
       const customer=(Array.isArray(store.customers)?store.customers:[])
         .find(item=>item?.id===req.params.id);
       if(!customer)return null;
@@ -1515,9 +1515,9 @@ app.patch("/api/customers/:id", auth, (req,res)=>{
   }
 });
 
-app.post("/api/customers/:id/reset-account", auth, (req,res)=>{
+app.post("/api/customers/:id/reset-account", auth, async (req,res)=>{
   try{
-    const result=mutate((store)=>{
+    const result=await mutateDurable((store)=>{
       const customer=(Array.isArray(store.customers)?store.customers:[])
         .find(item=>item?.id===req.params.id && !item?.isDeleted);
       if(!customer)return null;
@@ -1554,9 +1554,9 @@ app.post("/api/customers/:id/reset-account", auth, (req,res)=>{
   }
 });
 
-app.delete("/api/customers/:id", auth, (req,res)=>{
+app.delete("/api/customers/:id", auth, async (req,res)=>{
   try{
-    const deleted=mutate((store)=>{
+    const deleted=await mutateDurable((store)=>{
       const customer=(Array.isArray(store.customers)?store.customers:[])
         .find(item=>item?.id===req.params.id && !item?.isDeleted);
       if(!customer)return null;
@@ -1639,7 +1639,7 @@ app.get("/api/transactions", auth, async (req,res)=>{
   }).filter(t=>!status||t.paymentStatus===status||String(t.status||"").toUpperCase()===status);
   res.json(windowResponse({...win,total:status?items.length:win.total},items));
 });
-app.post("/api/transactions", auth, (req,res)=>{
+app.post("/api/transactions", auth, async (req,res)=>{
   const {
     customerId,
     currency="USD",
@@ -1668,7 +1668,7 @@ app.post("/api/transactions", auth, (req,res)=>{
   const exchangeProfit=a*(clientRate-cost);
   const totalProfit=exchangeProfit+fee;
 
-  const tx=mutate((s)=>{
+  const tx=await mutateDurable((s)=>{
     if(!s.customers.some(c=>c.id===customerId))throw new Error("Customer not found");
     const n=s.transactions.length+1;
     const t={
@@ -1727,7 +1727,7 @@ app.post("/api/transactions", auth, (req,res)=>{
   res.status(201).json(tx);
 });
 
-app.post("/api/customers/:id/payments", auth, (req,res)=>{
+app.post("/api/customers/:id/payments", auth, async (req,res)=>{
   try{
     const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{};
     const requested=Number(amount);
@@ -1735,7 +1735,7 @@ app.post("/api/customers/:id/payments", auth, (req,res)=>{
       return res.status(400).json({message:"مبلغ الدفعة غير صحيح"});
     }
 
-    const result=mutate((store)=>{
+    const result=await mutateDurable((store)=>{
       const customer=store.customers.find(item=>item.id===req.params.id);
       if(!customer)throw new Error("العميل غير موجود");
 
@@ -1844,9 +1844,9 @@ app.post("/api/customers/:id/payments", auth, (req,res)=>{
   }
 });
 
-app.post("/api/transactions/:id/payments", auth, (req,res)=>{
+app.post("/api/transactions/:id/payments", auth, async (req,res)=>{
   const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{}; const n=Number(amount); if(!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid amount"});
-  const payment=mutate((s)=>{const t=s.transactions.find(x=>x.id===req.params.id);if(!t)throw new Error("Transaction not found");const already=s.payments.filter(p=>p.transactionId===t.id).reduce((a,p)=>a+Number(p.amount),0);if(already+n>Number(t.totalCustomerDue)+0.001)throw new Error("Payment exceeds remaining balance");const p={
+  const payment=await mutateDurable((s)=>{const t=s.transactions.find(x=>x.id===req.params.id);if(!t)throw new Error("Transaction not found");const already=s.payments.filter(p=>p.transactionId===t.id).reduce((a,p)=>a+Number(p.amount),0);if(already+n>Number(t.totalCustomerDue)+0.001)throw new Error("Payment exceeds remaining balance");const p={
       id:id(),
       transactionId:t.id,
       amount:+n.toFixed(2),
@@ -1862,9 +1862,9 @@ app.post("/api/transactions/:id/payments", auth, (req,res)=>{
   res.status(201).json(payment);
 });
 
-app.patch("/api/transactions/:id", auth, (req,res)=>{
+app.patch("/api/transactions/:id", auth, async (req,res)=>{
   try{
-    const updated=mutate((s)=>{
+    const updated=await mutateDurable((s)=>{
       const transaction=s.transactions.find(item=>item.id===req.params.id&&!item.isDeleted);
       if(!transaction)return null;
 
@@ -1915,8 +1915,8 @@ app.patch("/api/transactions/:id", auth, (req,res)=>{
   }
 });
 
-app.delete("/api/transactions/:id", auth, (req,res)=>{
-  const deleted=mutate((s)=>{
+app.delete("/api/transactions/:id", auth, async (req,res)=>{
+  const deleted=await mutateDurable((s)=>{
     const transaction=s.transactions.find(item=>item.id===req.params.id&&!item.isDeleted);
     if(!transaction)return null;
     transaction.isDeleted=true;
@@ -1939,9 +1939,9 @@ app.delete("/api/transactions/:id", auth, (req,res)=>{
   res.json({message:"تم حذف الحوالة ونقلها إلى المحذوفات"});
 });
 
-app.patch("/api/payments/:id", auth, (req,res)=>{
+app.patch("/api/payments/:id", auth, async (req,res)=>{
   try{
-    const updated=mutate((s)=>{
+    const updated=await mutateDurable((s)=>{
       const payment=s.payments.find(item=>item.id===req.params.id&&!item.isDeleted);
       if(!payment)return null;
 
@@ -1991,8 +1991,8 @@ app.patch("/api/payments/:id", auth, (req,res)=>{
   }
 });
 
-app.delete("/api/payments/:id", auth, (req,res)=>{
-  const deleted=mutate((s)=>{
+app.delete("/api/payments/:id", auth, async (req,res)=>{
+  const deleted=await mutateDurable((s)=>{
     const payment=s.payments.find(item=>item.id===req.params.id&&!item.isDeleted);
     if(!payment)return null;
     const batchId=payment.paymentBatchId;
@@ -2080,8 +2080,8 @@ async function fetchGoldPriceCad() {
   };
 }
 
-function saveAutomaticRate({baseCurrency,quoteCurrency,rate,source,notes,sourceDate,userId}) {
-  return mutate((store)=>{
+async function saveAutomaticRate({baseCurrency,quoteCurrency,rate,source,notes,sourceDate,userId}) {
+  return await mutateDurable((store)=>{
     const x = {
       id:id(),
       baseCurrency,
@@ -2110,7 +2110,7 @@ async function refreshAutomaticRates(userId="SYSTEM") {
     for (const code of GLOBAL_USD_RATE_CODES) {
       const rate = globalFeed.rates[code];
       if (!rate) { results.push({ok:false,pair:`USD/${code}`,error:`${code} rate is unavailable`}); continue; }
-      const saved = saveAutomaticRate({
+      const saved = await saveAutomaticRate({
         baseCurrency:"USD", quoteCurrency:code, rate, source:"GLOBAL_USD_FEED",
         notes:`تحديث تلقائي عالمي لسعر USD/${code}`, sourceDate:globalFeed.updatedAt, userId
       });
@@ -2125,7 +2125,7 @@ async function refreshAutomaticRates(userId="SYSTEM") {
     const pureGramCad = gold.pricePerOunceCad / TROY_OUNCE_GRAMS;
     for (const [baseCurrency, purity] of GOLD_KARATS) {
       const gramRate = +(pureGramCad * purity).toFixed(4);
-      const saved = saveAutomaticRate({ baseCurrency, quoteCurrency:"CAD", rate:gramRate, source:"GOLD_API", notes:`سعر غرام الذهب التلقائي — ${baseCurrency.replace("XAU","")} قيراط`, sourceDate:gold.updatedAt, userId });
+      const saved = await saveAutomaticRate({ baseCurrency, quoteCurrency:"CAD", rate:gramRate, source:"GOLD_API", notes:`سعر غرام الذهب التلقائي — ${baseCurrency.replace("XAU","")} قيراط`, sourceDate:gold.updatedAt, userId });
       results.push({ok:true,pair:`${baseCurrency}/CAD`,rate:saved.buyRate,source:"GOLD_API"});
     }
   } catch (error) {
@@ -2599,7 +2599,7 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   });
 });
 
-app.post("/api/general-debts", auth, (req,res)=>{
+app.post("/api/general-debts", auth, async (req,res)=>{
   const {
     type,
     partyName,
@@ -2624,7 +2624,7 @@ app.post("/api/general-debts", auth, (req,res)=>{
     return res.status(400).json({message:"عملة الدين غير مدعومة"});
   }
 
-  const debt = mutate((store)=>{
+  const debt = await mutateDurable((store)=>{
     const item = {
       id:id(),
       type,
@@ -2656,7 +2656,7 @@ app.get("/api/general-debts/:id/payments", auth, (req,res)=>{
   res.json(list);
 });
 
-app.post("/api/general-debts/:id/payments", auth, (req,res)=>{
+app.post("/api/general-debts/:id/payments", auth, async (req,res)=>{
   const numericAmount = Number(req.body?.amount);
   const paymentDate = req.body?.paymentDate || new Date().toISOString().slice(0,10);
   const notes = req.body?.notes || "";
@@ -2683,7 +2683,7 @@ app.post("/api/general-debts/:id/payments", auth, (req,res)=>{
     return res.status(400).json({message:"الدفعة أكبر من المبلغ المتبقي"});
   }
 
-  const payment = mutate((currentStore)=>{
+  const payment = await mutateDurable((currentStore)=>{
     const currentDebt=(currentStore.generalDebts||[]).find(item=>item.id===debt.id);
     const remainingBefore=Math.max(safeNumber(currentDebt?.amount)-previousPaid,0);
     const remainingAfter=Math.max(remainingBefore-numericAmount,0);
@@ -2713,8 +2713,8 @@ app.post("/api/general-debts/:id/payments", auth, (req,res)=>{
   res.status(201).json(payment);
 });
 
-app.patch("/api/general-debts/:id", auth, (req,res)=>{
-  const updated = mutate((store)=>{
+app.patch("/api/general-debts/:id", auth, async (req,res)=>{
+  const updated = await mutateDurable((store)=>{
     const debt = store.generalDebts.find((item)=>item.id===req.params.id);
     if (!debt) return null;
     const before={...debt};
@@ -4940,7 +4940,7 @@ app.post("/api/ai/assistant",auth,(req,res)=>{
 });
 
 app.get("/api/expenses", auth, async (req,res)=>{const store=readStore();const rows=await branchSafeRead(req,"expenses",()=>nativeRepositories.expenses.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.expenses).reverse());res.json(paginate(req,rows));});
-app.post("/api/expenses", auth, (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=mutate(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
+app.post("/api/expenses", auth, async (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=await mutateDurable(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
 app.put("/api/expenses/:id", auth, (req,res)=>{
   const {title,amount,currency="CAD",exchangeRate=1,category="Other",date}=req.body||{};
   const n=Number(amount),rate=Number(exchangeRate),normalizedCurrency=String(currency||"CAD").toUpperCase();
@@ -4959,8 +4959,8 @@ app.put("/api/expenses/:id", auth, (req,res)=>{
   if(!updated)return res.status(404).json({message:"المصروف غير موجود"});
   res.json(updated);
 });
-app.delete("/api/expenses/:id", auth, (req,res)=>{
-  const removed=mutate(s=>{
+app.delete("/api/expenses/:id", auth, async (req,res)=>{
+  const removed=await mutateDurable(s=>{
     const rows=Array.from(s.expenses||[]);
     const index=rows.findIndex(x=>String(x.id)===String(req.params.id));
     if(index<0)return null;
@@ -4984,11 +4984,11 @@ app.get("/api/capital", auth, async (req,res)=>{
   });
   res.json(rows);
 });
-app.post("/api/capital", auth, (req,res)=>{
+app.post("/api/capital", auth, async (req,res)=>{
   const {type="IN",amount,currency="CAD",description="",date=new Date().toISOString().slice(0,10)}=req.body||{};
   const n=Number(amount), normalizedCurrency=String(currency||"CAD").toUpperCase();
   if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0)return res.status(400).json({message:"بيانات حركة رأس المال غير صحيحة"});
-  const m=mutate(s=>{
+  const m=await mutateDurable(s=>{
     const conversion=currencyConversion(s,normalizedCurrency,"CAD");
     if(!conversion)return {error:"لا يوجد سعر صرف لهذه العملة إلى CAD. يرجى تحديث أسعار الصرف أولًا."};
     const exchangeRate=conversion.factor;
@@ -4999,13 +4999,13 @@ app.post("/api/capital", auth, (req,res)=>{
   res.status(201).json(m);
 });
 
-app.patch("/api/capital/:id", auth, (req,res)=>{
+app.patch("/api/capital/:id", auth, async (req,res)=>{
   const {type,amount,currency,description,date}=req.body||{};
   const n=Number(amount);
   if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0){
     return res.status(400).json({message:"بيانات حركة رأس المال غير صحيحة"});
   }
-  const updated=mutate(store=>{
+  const updated=await mutateDurable(store=>{
     const item=store.capitalMovements.find(entry=>entry.id===req.params.id);
     if(!item)return null;
     const normalizedCurrency=String(currency||"CAD").toUpperCase();
@@ -5031,8 +5031,8 @@ app.patch("/api/capital/:id", auth, (req,res)=>{
   res.json(updated);
 });
 
-app.delete("/api/capital/:id", auth, (req,res)=>{
-  const removed=mutate(store=>{
+app.delete("/api/capital/:id", auth, async (req,res)=>{
+  const removed=await mutateDurable(store=>{
     const index=store.capitalMovements.findIndex(entry=>entry.id===req.params.id);
     if(index<0)return null;
     const [item]=store.capitalMovements.splice(index,1);

@@ -1,11 +1,17 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
 import api,{cachedGet} from "../api";
 import {APP_VERSION} from "../version";
+import {AppPagination} from "../components/ui";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
 
 export function Customers({open}){
   const [list,setList]=useState([]);
+  const [customerOptions,setCustomerOptions]=useState([]);
   const [search,setSearch]=useState("");
+  const [page,setPage]=useState(1);
+  const pageSize=20;
+  const [serverTotal,setServerTotal]=useState(0);
+  const [serverTotalPages,setServerTotalPages]=useState(1);
   const [sortMode,setSortMode]=useState(()=>{
     try{return localStorage.getItem("alaboud_customer_sort")||"name-asc"}catch{return "name-asc"}
   });
@@ -41,26 +47,44 @@ export function Customers({open}){
 
   const [activePanel,setActivePanel]=useState("");
 
-  async function load(requestedSort=sortMode,requestedSearch=search){
+  const serverSortMode=["name-asc","name-desc","newest"].includes(sortMode);
+
+  async function load(requestedSort=sortMode,requestedSearch=search,requestedPage=page){
     setError("");
     try{
-      const customersResponse=await cachedGet("/customers",{params:{limit:500,sort:["name-asc","name-desc","newest"].includes(requestedSort)?requestedSort:"name-asc",search:requestedSearch.trim()},cacheTtl:2*60*1000});
-      setList(Array.isArray(customersResponse.data)?customersResponse.data:[]);
+      const serverPaging=["name-asc","name-desc","newest"].includes(requestedSort);
+      const params=serverPaging
+        ? {page:requestedPage,pageSize,sort:requestedSort,search:requestedSearch.trim()}
+        : {limit:500,sort:"name-asc",search:requestedSearch.trim()};
+      const customersResponse=await cachedGet("/customers",{params,cacheTtl:30*1000});
+      const payload=customersResponse.data;
+      if(payload&&Array.isArray(payload.items)){
+        setList(payload.items);
+        setServerTotal(Number(payload.total||0));
+        setServerTotalPages(Math.max(1,Number(payload.totalPages||1)));
+      }else{
+        const rows=Array.isArray(payload)?payload:[];
+        setList(rows);
+        setServerTotal(rows.length);
+        setServerTotalPages(Math.max(1,Math.ceil(rows.length/pageSize)));
+      }
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل العملاء");
     }
   }
 
   useEffect(()=>{
-    load(sortMode,search);
+    cachedGet("/customers/options",{params:{limit:500},cacheTtl:2*60*1000})
+      .then(response=>setCustomerOptions(Array.isArray(response.data)?response.data:[]))
+      .catch(()=>setCustomerOptions([]));
   },[]);
 
   useEffect(()=>{
-    const timer=setTimeout(()=>{
-      if(["name-asc","name-desc","newest"].includes(sortMode))load(sortMode,search);
-    },300);
+    const timer=setTimeout(()=>load(sortMode,search,page),300);
     return()=>clearTimeout(timer);
-  },[sortMode,search]);
+  },[sortMode,search,page]);
+
+  useEffect(()=>{setPage(1)},[sortMode,search]);
 
   useEffect(()=>{
     if(activePanel!=="transfer"||!transferForm.currency)return;
@@ -433,9 +457,18 @@ export function Customers({open}){
     try{localStorage.setItem("alaboud_customer_sort",sortMode)}catch{}
   },[sortMode]);
 
-  const filtered=sortedCustomers.filter(customer=>
+  const filtered=useMemo(()=>sortedCustomers.filter(customer=>
     `${customer.name} ${customer.phone||""}`.toLowerCase().includes(search.trim().toLowerCase())
-  );
+  ),[sortedCustomers,search]);
+  const clientTotalPages=Math.max(1,Math.ceil(filtered.length/pageSize));
+  const effectiveTotalPages=serverSortMode?serverTotalPages:clientTotalPages;
+  const visibleCustomers=useMemo(()=>serverSortMode
+    ? filtered
+    : filtered.slice((page-1)*pageSize,page*pageSize),[filtered,page,serverSortMode]);
+
+  useEffect(()=>{
+    if(page>effectiveTotalPages)setPage(effectiveTotalPages);
+  },[page,effectiveTotalPages]);
 
   const customerActionFocus=activePanel==="transfer"||activePanel==="payment";
 
@@ -452,21 +485,21 @@ export function Customers({open}){
       <div className="card customer-stat-row">
         <div className="customer-stat-icon">👥</div>
         <span className="customer-stat-label">عدد العملاء</span>
-        <strong className="customer-stat-value">{list.length}</strong>
+        <strong className="customer-stat-value">{serverSortMode?serverTotal:list.length}</strong>
       </div>
       <div className="card customer-stat-row">
         <div className="customer-stat-icon">👛</div>
-        <span className="customer-stat-label">مجموع الحسابات الكلي</span>
+        <span className="customer-stat-label">مجموع حسابات الصفحة</span>
         <strong className="customer-stat-value">{cad(list.reduce((sum,item)=>sum+Number(item.totalTransactions||0),0))}</strong>
       </div>
       <div className="card customer-stat-row">
         <div className="customer-stat-icon">🫴</div>
-        <span className="customer-stat-label">مجموع المدفوع</span>
+        <span className="customer-stat-label">مدفوعات الصفحة</span>
         <strong className="customer-stat-value">{cad(list.reduce((sum,item)=>sum+Number(item.totalPaid||0),0))}</strong>
       </div>
       <div className="card final customer-stat-row">
         <div className="customer-stat-icon">🧮</div>
-        <span className="customer-stat-label">المجموع النهائي (CAD) المتبقي</span>
+        <span className="customer-stat-label">متبقي الصفحة (CAD)</span>
         <strong className="customer-stat-value">{cad(list.reduce((sum,item)=>sum+Number(item.finalBalance||0),0))}</strong>
       </div>
     </div>
@@ -520,7 +553,7 @@ export function Customers({open}){
         <h3>إضافة حوالة</h3>
         <select value={transferForm.customerId} onChange={e=>setTransferForm({...transferForm,customerId:e.target.value})} required>
           <option value="">اختر العميل</option>
-          {sortedCustomers.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
+          {customerOptions.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
         <input type="date" value={transferForm.transferDate} onChange={e=>setTransferForm({...transferForm,transferDate:e.target.value})}/>
         <label className="currency-field">
@@ -606,7 +639,7 @@ export function Customers({open}){
         <p className="payment-auto-note">تُخصم الدفعة تلقائيًا من أقدم الحوالات غير المدفوعة للعميل.</p>
         <select value={paymentForm.customerId} onChange={e=>setPaymentForm({...paymentForm,customerId:e.target.value})} required>
           <option value="">اختر العميل</option>
-          {sortedCustomers.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
+          {customerOptions.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
         </select>
         <input type="number" min=".01" step=".01" value={paymentForm.amount} onChange={e=>setPaymentForm({...paymentForm,amount:e.target.value})} placeholder="مبلغ الدفعة" required/>
         <input type="date" value={paymentForm.paymentDate} onChange={e=>setPaymentForm({...paymentForm,paymentDate:e.target.value})}/>
@@ -629,7 +662,7 @@ export function Customers({open}){
       <div className="customer-list-panel-header">
         <div>
           <h3>📋 قائمة العملاء</h3>
-          <small>{filtered.length} من أصل {list.length} عميل</small>
+          <small>{serverSortMode?serverTotal:filtered.length} عميل</small>
         </div>
         <button type="button" onClick={()=>{setActivePanel("");setSearch("")}}>✕ إغلاق القائمة</button>
       </div>
@@ -650,7 +683,7 @@ export function Customers({open}){
     </div>
 
     <div className="customer-cards customer-list-simple">
-      {filtered.length?filtered.map(customer=><div
+      {visibleCustomers.length?visibleCustomers.map(customer=><div
         className={`customer-simple-row customer-row-with-actions ${customer.overdue?"is-overdue":customer.finalBalance>0?"has-balance":"is-paid"}`}
         key={customer.id}
       >
@@ -689,6 +722,7 @@ export function Customers({open}){
         </div>
       </div>):<div className="card">لا توجد نتائج.</div>}
     </div>
+    <AppPagination page={page} totalPages={effectiveTotalPages} onChange={setPage}/>
     </>}
   </>;
 }

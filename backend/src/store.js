@@ -61,6 +61,11 @@ function writeStore(store){
   rootStore=database.replaceStore(normalizeStore(unwrapStore(store)));
   return database.queueSave();
 }
+async function writeStoreDurable(store){
+  writeStore(store);
+  await database.flush();
+  return rootStore;
+}
 function tenantArray(root,key,companyId,branchId){
   root=unwrapStore(root);
   const source=()=>Array.isArray(root[key])?root[key]:[];
@@ -115,12 +120,27 @@ function mutate(fn){
   writeStore(rootStore);
   return result;
 }
-async function mutateDurable(fn){
+let durableMutationChain=Promise.resolve();
+function mutateDurable(fn){
   const context=tenantContext.getStore();
-  const view=context?.companyId?tenantView(rootStore,context.companyId,context.branchId):rootStore;
-  const result=fn(view);
-  await writeStore(rootStore);
-  return result;
+  const companyId=context?.companyId||null;
+  const branchId=context?.branchId||null;
+  const execute=async()=>{
+    const before=structuredClone(unwrapStore(rootStore));
+    const view=companyId?tenantView(rootStore,companyId,branchId):rootStore;
+    try{
+      const result=fn(view);
+      await writeStoreDurable(rootStore);
+      return result;
+    }catch(error){
+      // Never leave the in-memory view ahead of durable storage after a failed save.
+      rootStore=database.replaceStore(normalizeStore(before));
+      throw error;
+    }
+  };
+  const task=durableMutationChain.then(execute,execute);
+  durableMutationChain=task.catch(()=>undefined);
+  return task;
 }
 function runWithTenant(companyId,branchId,fn){
   if(typeof branchId==="function")return tenantContext.run({companyId,branchId:null},branchId);
@@ -131,4 +151,4 @@ function now(){return new Date().toISOString()}
 async function databaseHealth(){return database.health()}
 async function closeStore(){return database.close()}
 function getDatabaseQuery(){return database.getQueryFunction()}
-module.exports={readStore,writeStore,mutate,mutateDurable,id,now,dataFile,runWithTenant,readRootStore,initStore,databaseHealth,closeStore,getDatabaseQuery};
+module.exports={readStore,writeStore,writeStoreDurable,mutate,mutateDurable,id,now,dataFile,runWithTenant,readRootStore,initStore,databaseHealth,closeStore,getDatabaseQuery};

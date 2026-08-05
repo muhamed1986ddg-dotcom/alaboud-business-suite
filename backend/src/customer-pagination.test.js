@@ -1,0 +1,10 @@
+const assert=require('assert');
+const fs=require('fs');
+const path=require('path');
+const source=fs.readFileSync(path.join(__dirname,'../../frontend/src/screens/Customers.jsx'),'utf8');
+assert(source.includes('pageSize=20'),'Customers must define a bounded page size');
+assert(source.includes('<AppPagination'),'Customers must render AppPagination');
+assert(source.includes('visibleCustomers.map'),'Customers must render only the visible page');
+assert(!source.includes('filtered.length?filtered.map'),'Customers must not render every filtered customer');
+assert(source.includes('/customers/options'),'Customer forms must use a separate lightweight options list');
+console.log('Customer pagination test passed');

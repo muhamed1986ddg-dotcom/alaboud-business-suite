@@ -1,4 +1,4 @@
-# v25.2.2 — Complete UI Component Tests
+# v25.3.0 — Complete UI Component Tests
 
 - حذف تعريفَي CSS غير المستخدمين `.rate-modal` و`.budget-modal` مع إبقاء الأنماط الفرعية المستخدمة.
 - رفع اختبارات مكتبة UI من 4 إلى 12 مكونًا.
