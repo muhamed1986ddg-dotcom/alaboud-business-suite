@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const guardPgClient = require("./guardPgClient");
 
 class MigrationRunner {
   constructor({ pool, migrationsDir = path.resolve(__dirname, "../../migrations"), logger = console }) {
@@ -26,6 +27,7 @@ class MigrationRunner {
       if (completed.has(file)) continue;
       const sql = fs.readFileSync(path.join(this.migrationsDir, file), "utf8");
       const client = await this.pool.connect();
+      const detachClientErrorGuard = guardPgClient(client, { logger: this.logger, context: "migration-client" });
       try {
         await client.query(sql);
         await client.query("INSERT INTO schema_migrations(version) VALUES ($1) ON CONFLICT DO NOTHING", [file]);
@@ -35,6 +37,7 @@ class MigrationRunner {
         this.logger.error(`Database migration failed (${file}):`, error.message);
         throw error;
       } finally {
+        detachClientErrorGuard();
         client.release();
       }
     }

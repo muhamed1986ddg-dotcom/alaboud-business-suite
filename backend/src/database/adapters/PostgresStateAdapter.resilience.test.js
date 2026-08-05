@@ -11,3 +11,19 @@ assert(delays[1] >= 1000 && delays[1] < 1200);
 assert(delays[4] >= 8000 && delays[4] < 9200);
 
 console.log("PostgreSQL resilience classification/backoff tests passed");
+
+const { EventEmitter } = require("events");
+const guardPgClient = require("../guardPgClient");
+const client = new EventEmitter();
+let recoveryCalled = false;
+const detach = guardPgClient(client, {
+  logger: { warn() {}, error() {} },
+  context: "test-client",
+  onTransientError: async () => { recoveryCalled = true; }
+});
+assert.doesNotThrow(() => client.emit("error", new Error("Connection terminated unexpectedly")));
+setImmediate(() => {
+  assert.equal(recoveryCalled, true);
+  detach();
+  console.log("PostgreSQL checked-out client error guard test passed");
+});

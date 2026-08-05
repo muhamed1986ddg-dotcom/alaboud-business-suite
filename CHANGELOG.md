@@ -1,3 +1,10 @@
+# v25.3.2
+
+- Guard checked-out PostgreSQL clients against unhandled error events.
+- Recreate the pool safely after transient client disconnections.
+- Protect migration, verification, and rollback clients.
+- Avoid logging recoverable database disconnects as fatal uncaught exceptions.
+
 # v25.3.1
 
 - Added PostgreSQL recovery-mode resilience with exponential backoff and jitter.

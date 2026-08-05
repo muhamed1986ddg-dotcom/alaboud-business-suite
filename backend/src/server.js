@@ -5205,19 +5205,19 @@ async function shutdown(signal){
 process.on("SIGTERM",()=>shutdown("SIGTERM"));
 process.on("SIGINT",()=>shutdown("SIGINT"));
 process.on("unhandledRejection",error=>{
-  console.error("Unhandled promise rejection:",error);
   if(isTransientConnectionError(error)){
-    console.warn("تم تجاهل خطأ اتصال عابر بقاعدة البيانات دون إسقاط السيرفر.");
+    console.warn("PostgreSQL transient promise rejection handled without stopping the server:",error?.code||error?.message||error);
     return;
   }
+  console.error("Unhandled promise rejection:",error);
   shutdown("UNHANDLED_REJECTION");
 });
 process.on("uncaughtException",error=>{
-  console.error("Uncaught exception:",error);
   if(isTransientConnectionError(error)){
-    console.warn("تم تجاهل خطأ اتصال عابر بقاعدة البيانات دون إسقاط السيرفر.");
+    console.warn("PostgreSQL transient connection exception handled without stopping the server:",error?.code||error?.message||error);
     return;
   }
+  console.error("Uncaught exception:",error);
   shutdown("UNCAUGHT_EXCEPTION");
 });
 startServer().catch(error=>{

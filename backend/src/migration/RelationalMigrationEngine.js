@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { mapState, TABLE_ORDER } = require("./StateToRelationalMapper");
+const guardPgClient = require("../database/guardPgClient");
 
 const TABLE_COLUMNS = {
   companies: ["id","name","code","base_currency","is_active","created_at","updated_at","raw_payload"],
@@ -29,6 +30,7 @@ class RelationalMigrationEngine {
     const insertedIds = Object.fromEntries(TABLE_ORDER.map((table) => [table, []]));
     const insertedCounts = Object.fromEntries(TABLE_ORDER.map((table) => [table, 0]));
     const client = await this.pool.connect();
+    const detachClientErrorGuard = guardPgClient(client, { logger: this.logger, context: "relational-migration-client" });
     try {
       await client.query("BEGIN");
       await client.query(`INSERT INTO data_import_runs(id, source_type, source_reference, status, source_counts)
@@ -53,7 +55,7 @@ class RelationalMigrationEngine {
         VALUES ($1,$2,$3,'failed',$4::jsonb,$5,NOW()) ON CONFLICT (id) DO UPDATE SET status='failed', error_message=$5, completed_at=NOW()`,
         [runId, sourceType, sourceReference, JSON.stringify(sourceCounts), error.message]); } catch (_) {}
       throw error;
-    } finally { client.release(); }
+    } finally { detachClientErrorGuard(); client.release(); }
   }
 
   async insertRow(client, table, row) {
@@ -93,11 +95,12 @@ class RelationalMigrationEngine {
     if (!run.rowCount) throw new Error("No completed migration run was found");
     const row = run.rows[0];
     const client = await this.pool.connect();
+    const detachClientErrorGuard = guardPgClient(client, { logger: this.logger, context: "relational-verify-client" });
     try {
       const verification = await this.verifyWithClient(client, row.source_counts || {}, row.inserted_counts || {});
       await client.query("UPDATE data_import_runs SET verification=$2::jsonb WHERE id=$1", [row.id, JSON.stringify(verification)]);
       return { runId: row.id, ...verification };
-    } finally { client.release(); }
+    } finally { detachClientErrorGuard(); client.release(); }
   }
 
   async rollback(runId = null) {
@@ -109,6 +112,7 @@ class RelationalMigrationEngine {
     const insertedIds = run.inserted_ids || {};
     const deletedCounts = {};
     const client = await this.pool.connect();
+    const detachClientErrorGuard = guardPgClient(client, { logger: this.logger, context: "relational-rollback-client" });
     try {
       await client.query("BEGIN");
       for (const table of DELETE_ORDER) {
@@ -130,7 +134,7 @@ class RelationalMigrationEngine {
       await client.query("COMMIT");
       return { runId: run.id, deletedCounts };
     } catch (error) { await client.query("ROLLBACK"); throw error; }
-    finally { client.release(); }
+    finally { detachClientErrorGuard(); client.release(); }
   }
 }
 

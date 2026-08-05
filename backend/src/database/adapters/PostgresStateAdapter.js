@@ -72,6 +72,25 @@ class PostgresStateAdapter {
     return pool;
   }
 
+  attachClientErrorGuard(client, context = "checked-out-client") {
+    if (!client || typeof client.on !== "function") return () => {};
+    let handled = false;
+    const onError = (error) => {
+      handled = true;
+      const label = error?.code || error?.message || "unknown-error";
+      this.logger.warn(`PostgreSQL ${context} connection error handled: ${label}`);
+      if (isTransientPostgresError(error)) {
+        this.resetPool(`${context}:${label}`).catch((resetError) => {
+          this.logger.error("PostgreSQL pool reset failed after client error:", resetError?.message || resetError);
+        });
+      }
+    };
+    client.on("error", onError);
+    return () => {
+      if (!handled && typeof client.removeListener === "function") client.removeListener("error", onError);
+    };
+  }
+
   async resetPool(reason = "transient-error") {
     if (this.poolResetPromise) return this.poolResetPromise;
     this.poolResetPromise = (async () => {
@@ -139,8 +158,10 @@ class PostgresStateAdapter {
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       let client;
+      let detachClientErrorGuard = () => {};
       try {
         client = await this.pool.connect();
+        detachClientErrorGuard = this.attachClientErrorGuard(client, "write-client");
         await client.query("BEGIN");
         await client.query(
           `INSERT INTO app_state (state_key,payload,updated_at)
@@ -151,12 +172,14 @@ class PostgresStateAdapter {
         );
         if (this.relationalMirrorEnabled) await this.projector.project(client, snapshot);
         await client.query("COMMIT");
+        detachClientErrorGuard();
         client.release();
         return;
       } catch (error) {
         lastError = error;
         if (client) {
           try { await client.query("ROLLBACK"); } catch {}
+          try { detachClientErrorGuard(); } catch {}
           try { client.release(isTransientPostgresError(error)); } catch {}
         }
 
