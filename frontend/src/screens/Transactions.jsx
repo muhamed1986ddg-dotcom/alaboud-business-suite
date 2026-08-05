@@ -405,6 +405,60 @@ export function Transactions({openInvoice}){
       </div>
     </section>
 
+    <div className="transaction-mobile-cards">
+      {visibleTransactions.length?visibleTransactions.map((transaction)=>{
+        const exchangeRate=Number(transaction.finalRate||transaction.clientRate||0);
+        const cadValue=Number(transaction.amount||0)*exchangeRate;
+        const finalTotal=Number(transaction.totalCustomerDue||cadValue);
+        return <article className="transaction-mobile-card" key={`mobile-${transaction.id}`}>
+          <header className="transaction-mobile-card__head">
+            <div><strong>{transaction.number}</strong><small>{transaction.transferDate||String(transaction.createdAt||"").slice(0,10)||"-"}</small></div>
+            <span className={`transfer-payment-badge ${transaction.paymentStatus==="PAID"?"paid":"unpaid"}`}>{transaction.paymentStatus==="PAID"?"مدفوعة":"غير مدفوعة"}</span>
+          </header>
+          <div className="transaction-mobile-card__customer">{transaction.customerName||"-"}</div>
+          <div className="transaction-mobile-card__grid">
+            <div><span>المبلغ</span><strong>{money(transaction.amount)} {transaction.currency||"USD"}</strong></div>
+            <div><span>سعر التحويل</span><strong>{exchangeRate?exchangeRate.toFixed(4):"-"}</strong></div>
+            <div><span>القيمة CAD</span><strong>{money(cadValue)}</strong></div>
+            <div className="transaction-mobile-card__total"><span>الإجمالي CAD</span><strong>{money(finalTotal)}</strong></div>
+          </div>
+          {Number(transaction.transferFee||0)>0&&<div className="transaction-mobile-card__fee">العمولة: <strong>{money(transaction.transferFee)} CAD</strong></div>}
+          <footer className="transaction-mobile-card__actions">
+            <button title="فتح الفاتورة" onClick={()=>openInvoice(transaction.id)}>فاتورة</button>
+            <button title="تعديل" onClick={()=>startEditTransaction(transaction)}>تعديل</button>
+            {transaction.paymentStatus!=="PAID"&&<button title="تسديد كامل" onClick={()=>markTransactionPaid(transaction)}>تسديد</button>}
+          </footer>
+        </article>;
+      }):<div className="transaction-mobile-empty">لا توجد حوالات مطابقة.</div>}
+    </div>
+
+    <div className="transaction-mobile-cards">
+      {visibleTransactions.length?visibleTransactions.map((transaction)=>{
+        const exchangeRate=Number(transaction.finalRate||transaction.clientRate||0);
+        const cadValue=Number(transaction.amount||0)*exchangeRate;
+        const finalTotal=Number(transaction.totalCustomerDue||cadValue);
+        return <article className="transaction-mobile-card" key={`mobile-${transaction.id}`}>
+          <header className="transaction-mobile-card__head">
+            <div><strong>{transaction.number}</strong><small>{transaction.transferDate||String(transaction.createdAt||"").slice(0,10)||"-"}</small></div>
+            <span className={`transfer-payment-badge ${transaction.paymentStatus==="PAID"?"paid":"unpaid"}`}>{transaction.paymentStatus==="PAID"?"مدفوعة":"غير مدفوعة"}</span>
+          </header>
+          <div className="transaction-mobile-card__customer">{transaction.customerName||"-"}</div>
+          <div className="transaction-mobile-card__grid">
+            <div><span>المبلغ</span><strong>{money(transaction.amount)} {transaction.currency||"USD"}</strong></div>
+            <div><span>سعر التحويل</span><strong>{exchangeRate?exchangeRate.toFixed(4):"-"}</strong></div>
+            <div><span>القيمة CAD</span><strong>{money(cadValue)}</strong></div>
+            <div className="transaction-mobile-card__total"><span>الإجمالي CAD</span><strong>{money(finalTotal)}</strong></div>
+          </div>
+          {Number(transaction.transferFee||0)>0&&<div className="transaction-mobile-card__fee">العمولة: <strong>{money(transaction.transferFee)} CAD</strong></div>}
+          <footer className="transaction-mobile-card__actions">
+            <button title="فتح الفاتورة" onClick={()=>openInvoice(transaction.id)}>فاتورة</button>
+            <button title="تعديل" onClick={()=>startEditTransaction(transaction)}>تعديل</button>
+            {transaction.paymentStatus!=="PAID"&&<button title="تسديد كامل" onClick={()=>markTransactionPaid(transaction)}>تسديد</button>}
+          </footer>
+        </article>;
+      }):<div className="transaction-mobile-empty">لا توجد حوالات مطابقة.</div>}
+    </div>
+
     <div className="card tablewrap transaction-ledger-tablewrap">
       <AppTable tableClassName="transaction-ledger-table">
         <thead>

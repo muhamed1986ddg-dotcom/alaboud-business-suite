@@ -1,4 +1,10 @@
-# v25.3.4
+# v25.3.5
+
+- تحويل سجل الحوالات على الهاتف إلى بطاقات قصيرة حقيقية من صفوف مضغوطة.
+- إخفاء الجدول الطويل على الهاتف مع إبقائه على الكمبيوتر.
+- عدم تغيير الحسابات أو البيانات.
+
+# v25.3.5
 - Compact two-column transfer cards on mobile.
 - Added visible labels and a single-row action area.
 - Desktop ledger remains unchanged.

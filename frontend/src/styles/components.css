@@ -17,7 +17,7 @@
 .ui-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}.ui-page-stack{display:grid;gap:16px}.ui-form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));align-items:end;gap:12px}
 @media(max-width:700px){.app-toolbar{align-items:stretch;flex-direction:column}.app-toolbar__content,.app-toolbar__actions{width:100%}.app-toolbar__actions>.app-button{flex:1}.app-table--cards{}.app-table-wrap{border:0;background:transparent;overflow:visible}.app-table{min-width:0}.app-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.app-table,.app-table tbody,.app-table tr,.app-table td{display:block;width:100%}.app-table tr{margin-bottom:12px;border:1px solid var(--ui-border);border-radius:14px;background:var(--ui-card);overflow:hidden}.app-table td{display:grid;grid-template-columns:minmax(110px,42%) 1fr;gap:12px;border-bottom:1px solid rgba(48,70,99,.5);text-align:start}.app-table td::before{content:attr(data-label);color:var(--ui-gold);font-weight:800}.app-table td:last-child{border-bottom:0}}
 
-/* v25.3.4 — compact transfer cards on phones */
+/* v25.3.5 — compact transfer cards on phones */
 @media(max-width:700px){
   .transaction-ledger-tablewrap{padding:0!important;border:0!important;background:transparent!important;overflow:visible!important}
   .transaction-ledger-table{min-width:0!important}
@@ -40,4 +40,29 @@
   .transaction-ledger-table .transaction-row-actions{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
   .transaction-ledger-table .transaction-row-actions button{width:100%!important;height:40px!important;min-width:0!important}
   .transaction-ledger-pagination{padding-inline:4px!important}
+}
+
+
+/* v25.3.5 — truly compact transfer cards on phones */
+.transaction-mobile-cards{display:none}
+@media(max-width:700px){
+  .transaction-ledger-tablewrap{display:none!important}
+  .transaction-mobile-cards{display:grid;gap:10px;margin:0 0 14px}
+  .transaction-mobile-card{border:1px solid rgba(214,170,56,.34);border-radius:16px;background:linear-gradient(145deg,#07111f,#0b1829);overflow:hidden;box-shadow:0 8px 20px rgba(0,0,0,.2)}
+  .transaction-mobile-card__head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;border-bottom:1px solid rgba(48,70,99,.55)}
+  .transaction-mobile-card__head>div{min-width:0;display:flex;flex-direction:column;gap:2px}
+  .transaction-mobile-card__head strong{font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#f8fafc}
+  .transaction-mobile-card__head small{font-size:.78rem;color:#94a3b8}
+  .transaction-mobile-card__head .transfer-payment-badge{padding:6px 10px;font-size:.78rem;white-space:nowrap}
+  .transaction-mobile-card__customer{padding:9px 12px;color:#d6aa38;font-weight:800;border-bottom:1px solid rgba(48,70,99,.45)}
+  .transaction-mobile-card__grid{display:grid;grid-template-columns:1fr 1fr}
+  .transaction-mobile-card__grid>div{padding:9px 12px;display:flex;flex-direction:column;gap:3px;border-bottom:1px solid rgba(48,70,99,.4)}
+  .transaction-mobile-card__grid>div:nth-child(odd){border-inline-end:1px solid rgba(48,70,99,.4)}
+  .transaction-mobile-card__grid span{font-size:.72rem;color:#c5a451}
+  .transaction-mobile-card__grid strong{font-size:.98rem;color:#eef2f7;font-variant-numeric:tabular-nums}
+  .transaction-mobile-card__total strong{color:#4ade80;font-size:1.08rem}
+  .transaction-mobile-card__fee{padding:7px 12px;font-size:.78rem;color:#cbd5e1;border-bottom:1px solid rgba(48,70,99,.4)}
+  .transaction-mobile-card__actions{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;padding:9px}
+  .transaction-mobile-card__actions button{min-height:38px;border:1px solid rgba(214,170,56,.45);border-radius:10px;background:linear-gradient(135deg,#d6aa38,#f0ce68);color:#07111f;font-weight:900;font-size:.82rem}
+  .transaction-mobile-empty{padding:22px;text-align:center;color:#94a3b8;border:1px solid rgba(214,170,56,.25);border-radius:14px}
 }
