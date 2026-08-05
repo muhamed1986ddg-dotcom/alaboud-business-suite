@@ -1,3 +1,8 @@
+## v25.4.8 — Receivable Balance Summary
+- Kept the complete upper section of General Debts unchanged.
+- Replaced the lower receivable list with three balances only: customers, companies, and total.
+- Added a server-calculated CAD-normalized receivable breakdown.
+
 ## v25.4.7 — Customer Debt Total
 
 - إضافة بطاقة واحدة واضحة تعرض إجمالي الدين الكامل المستحق على جميع العملاء بالدولار الكندي.

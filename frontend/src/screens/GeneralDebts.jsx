@@ -4,7 +4,7 @@ import {money,debtCurrencies} from"../shared";
 import {AppButton,AppModal,AppTable} from"../components/ui";
 
 function GeneralDebts(){
-  const [data,setData]=useState({rows:[],payments:[],totals:{receivable:0,payable:0,net:0},totalsByCurrency:{}});
+  const [data,setData]=useState({rows:[],payments:[],totals:{receivable:0,payable:0,net:0},receivableBreakdown:{customers:0,companies:0,total:0},totalsByCurrency:{}});
   const [mode,setMode]=useState("ALL");
   const [search,setSearch]=useState("");
   const [message,setMessage]=useState("");
@@ -23,6 +23,7 @@ function GeneralDebts(){
         rows:Array.isArray(data?.rows)?data.rows:[],
         payments:Array.isArray(data?.payments)?data.payments:[],
         totals:data?.totals||{receivable:0,payable:0,net:0},
+        receivableBreakdown:data?.receivableBreakdown||{customers:0,companies:0,total:Number(data?.totals?.receivable||0)},
         summaryCurrency:data?.summaryCurrency||"CAD",
         totalsByCurrency:data?.totalsByCurrency||{},
         missingRates:Array.isArray(data?.missingRates)?data.missingRates:[],
@@ -131,7 +132,13 @@ function GeneralDebts(){
 
     {message&&<div className="card debt-message">{message}</div>}
 
-    {mode==="PAYMENTS"?<>
+    {mode==="RECEIVABLE"?
+      <div className="debt-receivable-balance-summary">
+        <div className="card debt-balance-row"><span>👤 رصيد دين العملاء</span><strong>{money(data.receivableBreakdown?.customers)} {data.summaryCurrency||"CAD"}</strong></div>
+        <div className="card debt-balance-row"><span>🏢 رصيد دين الشركات</span><strong>{money(data.receivableBreakdown?.companies)} {data.summaryCurrency||"CAD"}</strong></div>
+        <div className="card debt-balance-row debt-balance-total"><span>💰 المجموع الكلي</span><strong>{money(data.receivableBreakdown?.total??data.totals.receivable)} {data.summaryCurrency||"CAD"}</strong></div>
+      </div>
+    :mode==="PAYMENTS"?<>
       {openDebts.length>0&&<form className="card form debt-payment-form" onSubmit={addPayment}>
         <select value={payment.debtId} onChange={e=>setPayment({...payment,debtId:e.target.value})} required><option value="">اختر الدين لتسجيل دفعة</option>{openDebts.map(item=><option key={item.id} value={item.id}>{item.type==="RECEIVABLE"?"لنا":"علينا"} — {item.partyName} — متبقي {money(item.remaining)} {item.currency}</option>)}</select>
         <input type="number" min="0.01" step="0.01" value={payment.amount} onChange={e=>setPayment({...payment,amount:e.target.value})} placeholder="مبلغ الدفعة" required/>

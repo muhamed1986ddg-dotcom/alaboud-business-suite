@@ -2683,6 +2683,27 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     net:+(convertedReceivable-convertedPayable).toFixed(2)
   };
 
+  // Breakdown used by the lower "debt for us" summary. Partner-linked rows are
+  // company debt; every other receivable row belongs to customers/other clients.
+  // Both values are normalized to the same summary currency and always add up to
+  // the top receivable total, so the compact view cannot disagree with the header.
+  let customerReceivable=0;
+  let companyReceivable=0;
+  for(const row of rows){
+    if(row.type!=="RECEIVABLE")continue;
+    const currency=String(row.currency||"CAD").toUpperCase();
+    const conversion=findConversion(currency,summaryCurrency);
+    if(!conversion)continue;
+    const converted=safeNumber(row.remaining)*conversion.factor;
+    if(row.source==="PARTNER"||row.source==="PARTNER_EXTERNAL") companyReceivable+=converted;
+    else customerReceivable+=converted;
+  }
+  const receivableBreakdown={
+    customers:+customerReceivable.toFixed(2),
+    companies:+companyReceivable.toFixed(2),
+    total:+(customerReceivable+companyReceivable).toFixed(2)
+  };
+
   const manualDebtById=new Map(manualRows.map((item)=>[item.id,item]));
   const paymentRows=debtPayments
     .map((payment)=>{
@@ -2700,6 +2721,7 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     rows,
     payments:paymentRows,
     totals:convertedTotals,
+    receivableBreakdown,
     summaryCurrency,
     totalsByCurrency,
     conversionDetails,

@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.4.7 Customer Debt Total";
+export const APP_VERSION="v25.4.8 Receivable Balance Summary";

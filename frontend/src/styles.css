@@ -6112,3 +6112,18 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 .customer-total-debt-copy strong{font-size:34px;line-height:1.15;color:#fff;font-variant-numeric:tabular-nums}
 .customer-total-debt-copy small{color:#b7c4d2;font-size:13px}
 @media(max-width:600px){.customer-total-debt-wrap{margin:10px 0 12px}.customer-total-debt-card{gap:12px;padding:16px 14px}.customer-total-debt-icon{font-size:31px}.customer-total-debt-copy span{font-size:15px}.customer-total-debt-copy strong{font-size:27px}.customer-total-debt-copy small{font-size:11px}}
+
+
+/* v25.4.8 — compact receivable balance summary */
+.debt-receivable-balance-summary{display:grid;gap:12px;margin:14px 0}
+.debt-balance-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 20px}
+.debt-balance-row span{font-weight:700;color:var(--text-muted,#a9b6c8)}
+.debt-balance-row strong{font-size:1.35rem;color:#f4f7fb;direction:ltr}
+.debt-balance-total{border-color:rgba(245,185,66,.55);background:linear-gradient(135deg,rgba(245,185,66,.12),rgba(21,29,42,.96))}
+.debt-balance-total span,.debt-balance-total strong{color:#f5c86b}
+@media(max-width:640px){
+  .debt-receivable-balance-summary{gap:8px;margin:10px 0}
+  .debt-balance-row{padding:14px 12px;border-radius:12px}
+  .debt-balance-row span{font-size:.92rem}
+  .debt-balance-row strong{font-size:1.05rem;white-space:nowrap}
+}
