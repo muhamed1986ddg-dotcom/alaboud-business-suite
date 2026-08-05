@@ -1,3 +1,9 @@
+## v25.4.7 — Customer Debt Total
+
+- إضافة بطاقة واحدة واضحة تعرض إجمالي الدين الكامل المستحق على جميع العملاء بالدولار الكندي.
+- الحساب يشمل جميع العملاء وليس الصفحة الحالية فقط.
+- تحديث الإجمالي بعد الإضافة والتعديل والحذف والدفعات.
+
 ## v25.4.6 — Compact Mobile Exchange Rates
 
 - Added compact mobile exchange-rate rows using the format `🇺🇸 1 USD = 1.40 🇨🇦 CAD`.

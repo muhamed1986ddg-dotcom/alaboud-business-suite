@@ -12,6 +12,7 @@ export function Customers({open}){
   const pageSize=20;
   const [serverTotal,setServerTotal]=useState(0);
   const [serverTotalPages,setServerTotalPages]=useState(1);
+  const [totalCustomerDebt,setTotalCustomerDebt]=useState(0);
   const [sortMode,setSortMode]=useState(()=>{
     try{return localStorage.getItem("alaboud_customer_sort")||"name-asc"}catch{return "name-asc"}
   });
@@ -49,6 +50,15 @@ export function Customers({open}){
 
   const serverSortMode=["name-asc","name-desc","newest"].includes(sortMode);
 
+  async function loadDebtSummary(){
+    try{
+      const response=await cachedGet("/customers/debt-summary",{cacheTtl:0});
+      setTotalCustomerDebt(Number(response.data?.totalDebtCad||0));
+    }catch{
+      // لا نعطل قائمة العملاء إذا تعذر تحميل الملخص مؤقتًا.
+    }
+  }
+
   async function load(requestedSort=sortMode,requestedSearch=search,requestedPage=page){
     setError("");
     try{
@@ -83,6 +93,8 @@ export function Customers({open}){
     const timer=setTimeout(()=>load(sortMode,search,page),300);
     return()=>clearTimeout(timer);
   },[sortMode,search,page]);
+
+  useEffect(()=>{loadDebtSummary()},[]);
 
   useEffect(()=>{setPage(1)},[sortMode,search]);
 
@@ -149,6 +161,7 @@ export function Customers({open}){
       setError("✅ تم حفظ العميل بنجاح");
       setActivePanel("");
       await load();
+      await loadDebtSummary();
     }catch(requestError){
       const existing=requestError.response?.data?.existingCustomer||null;
       setDuplicateCustomer(existing);
@@ -164,6 +177,7 @@ export function Customers({open}){
       setEditingCustomer(null);
       setActivePanel("");
       await load();
+      await loadDebtSummary();
     }catch(requestError){
       const existing=requestError.response?.data?.existingCustomer||null;
       setDuplicateCustomer(existing);
@@ -179,6 +193,7 @@ export function Customers({open}){
       await api.delete(`/customers/${customer.id}`);
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
       await load();
+      await loadDebtSummary();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر حذف العميل");
     }
@@ -193,6 +208,7 @@ export function Customers({open}){
       await api.post(`/customers/${customer.id}/reset-account`,{});
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
       await load();
+      await loadDebtSummary();
       window.alert("تم تصفير الحساب وبدء حساب جديد بنجاح. الحساب السابق محفوظ في الأرشيف.");
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تصفير حساب العميل");
@@ -258,6 +274,7 @@ export function Customers({open}){
       setSelectedRateMeta(null);
       setActivePanel("");
       await load();
+      await loadDebtSummary();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر إضافة الحوالة");
     }
@@ -294,6 +311,7 @@ export function Customers({open}){
       });
       setActivePanel("");
       await load();
+      await loadDebtSummary();
     }catch(error){
       setError(error.response?.data?.message||error.message||"تعذر إضافة الدفعة");
     }
@@ -481,26 +499,14 @@ export function Customers({open}){
     </div>}
 
     {!customerActionFocus&&<>
-    <div className="stats customer-stats-final">
-      <div className="card customer-stat-row">
-        <div className="customer-stat-icon">👥</div>
-        <span className="customer-stat-label">عدد العملاء</span>
-        <strong className="customer-stat-value">{serverSortMode?serverTotal:list.length}</strong>
-      </div>
-      <div className="card customer-stat-row">
-        <div className="customer-stat-icon">👛</div>
-        <span className="customer-stat-label">مجموع حسابات الصفحة</span>
-        <strong className="customer-stat-value">{cad(list.reduce((sum,item)=>sum+Number(item.totalTransactions||0),0))}</strong>
-      </div>
-      <div className="card customer-stat-row">
-        <div className="customer-stat-icon">🫴</div>
-        <span className="customer-stat-label">مدفوعات الصفحة</span>
-        <strong className="customer-stat-value">{cad(list.reduce((sum,item)=>sum+Number(item.totalPaid||0),0))}</strong>
-      </div>
-      <div className="card final customer-stat-row">
-        <div className="customer-stat-icon">🧮</div>
-        <span className="customer-stat-label">متبقي الصفحة (CAD)</span>
-        <strong className="customer-stat-value">{cad(list.reduce((sum,item)=>sum+Number(item.finalBalance||0),0))}</strong>
+    <div className="customer-total-debt-wrap">
+      <div className="card customer-total-debt-card" aria-label="إجمالي دين العملاء">
+        <div className="customer-total-debt-icon">💰</div>
+        <div className="customer-total-debt-copy">
+          <span>إجمالي دين العملاء</span>
+          <strong>{cad(totalCustomerDebt)}</strong>
+          <small>المبلغ الكامل المستحق على جميع العملاء</small>
+        </div>
       </div>
     </div>
 

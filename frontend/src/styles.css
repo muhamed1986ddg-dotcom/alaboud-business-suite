@@ -6101,3 +6101,14 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
   .exchange-table-card .app-card__body{padding:8px 0!important}
   .exchange-table-card .app-card__actions{width:100%}
 }
+
+
+/* v25.4.7 — إجمالي دين العملاء */
+.customer-total-debt-wrap{display:flex;justify-content:center;margin:14px 0 18px}
+.customer-total-debt-card{width:min(680px,100%);display:flex;align-items:center;justify-content:center;gap:18px;padding:22px 28px;border:1px solid rgba(212,175,55,.7);background:linear-gradient(135deg,rgba(14,35,55,.98),rgba(8,22,37,.98));box-shadow:0 12px 28px rgba(0,0,0,.22)}
+.customer-total-debt-icon{font-size:42px;line-height:1}
+.customer-total-debt-copy{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center}
+.customer-total-debt-copy span{font-size:17px;font-weight:800;color:#e8cf7a}
+.customer-total-debt-copy strong{font-size:34px;line-height:1.15;color:#fff;font-variant-numeric:tabular-nums}
+.customer-total-debt-copy small{color:#b7c4d2;font-size:13px}
+@media(max-width:600px){.customer-total-debt-wrap{margin:10px 0 12px}.customer-total-debt-card{gap:12px;padding:16px 14px}.customer-total-debt-icon{font-size:31px}.customer-total-debt-copy span{font-size:15px}.customer-total-debt-copy strong{font-size:27px}.customer-total-debt-copy small{font-size:11px}}

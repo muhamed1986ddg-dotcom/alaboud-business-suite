@@ -1473,6 +1473,27 @@ app.get("/api/customers", auth, async (req,res)=>{
   }
 });
 
+app.get("/api/customers/debt-summary",auth,(req,res)=>{
+  try{
+    const store=readStore();
+    const customers=Array.from(store.customers||[]).filter(customer=>!customer?.isDeleted);
+    const balances=customers.map(customer=>customerSummary(store,customer));
+    const debtors=balances.filter(customer=>safeNumber(customer.finalBalance)>0);
+    const totalDebtCad=debtors.reduce((sum,customer)=>sum+safeNumber(customer.finalBalance),0);
+    res.set("Cache-Control","no-store");
+    res.json({
+      currency:"CAD",
+      totalDebtCad:+totalDebtCad.toFixed(2),
+      debtorsCount:debtors.length,
+      customersCount:customers.length,
+      calculatedAt:now()
+    });
+  }catch(error){
+    console.error("Customer debt summary failed",{requestId:req.requestId,error:error?.stack||error});
+    res.status(500).json({code:"CUSTOMER_DEBT_SUMMARY_FAILED",message:"تعذر حساب إجمالي دين العملاء.",requestId:req.requestId||null});
+  }
+});
+
 app.get("/api/customers/options",auth,async(req,res)=>{
   try{
     const store=readStore();
