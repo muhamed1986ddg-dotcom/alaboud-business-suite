@@ -4174,6 +4174,27 @@ async function syncJadPartner(partner,options={}){
 }
 
 
+function partnerLocalBalancesCad(store,partnerId){
+  const transactions=(Array.isArray(store.partnerTransactions)?store.partnerTransactions:[]).filter(item=>item.partnerId===partnerId);
+  const payments=(Array.isArray(store.partnerPayments)?store.partnerPayments:[]).filter(item=>item.partnerId===partnerId);
+  const currencies=new Set([...transactions.map(item=>String(item.currency||"CAD").toUpperCase()),...payments.map(item=>String(item.currency||"CAD").toUpperCase())]);
+  let receivable=0,payable=0;const missingRates=new Set();let ratesUpdatedAt=null;
+  for(const currency of currencies){
+    const txReceivable=transactions.filter(item=>item.type==="RECEIVABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+    const txPayable=transactions.filter(item=>item.type==="PAYABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+    const received=payments.filter(item=>item.direction==="RECEIVED"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+    const paid=payments.filter(item=>item.direction==="PAID"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+    const net=txReceivable-txPayable-received+paid;
+    if(Math.abs(net)<=0.001)continue;
+    const conversion=currencyConversion(store,currency,"CAD");
+    if(!conversion){missingRates.add(currency);continue;}
+    const cad=Math.abs(net)*conversion.factor;
+    if(net>0)receivable+=cad;else payable+=cad;
+    if(conversion.updatedAt&&(!ratesUpdatedAt||conversion.updatedAt>ratesUpdatedAt))ratesUpdatedAt=conversion.updatedAt;
+  }
+  return {receivable,payable,net:receivable-payable,missingRates:[...missingRates],ratesUpdatedAt};
+}
+
 app.get("/api/partners", auth, async (req,res)=>{
   const store=readStore();
   const summaryCurrency=String(req.query.summaryCurrency||"CAD").toUpperCase();
@@ -4193,27 +4214,11 @@ app.get("/api/partners", auth, async (req,res)=>{
   const payments=Array.isArray(store.partnerPayments)?store.partnerPayments:[];
 
   const rows=partners.map(partner=>{
-    const partnerTransactions=transactions.filter(item=>item.partnerId===partner.id);
-    const partnerPayments=payments.filter(item=>item.partnerId===partner.id);
+    const localBalance=partnerLocalBalancesCad(store,partner.id);
+    const localReceivable=localBalance.receivable;
+    const localPayable=localBalance.payable;
+    for(const currency of localBalance.missingRates)missingRates.add(currency);
 
-    const receivable=partnerTransactions
-      .filter(item=>item.type==="RECEIVABLE")
-      .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-
-    const payable=partnerTransactions
-      .filter(item=>item.type==="PAYABLE")
-      .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-
-    const receivedPayments=partnerPayments
-      .filter(item=>item.direction==="RECEIVED")
-      .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-
-    const paidPayments=partnerPayments
-      .filter(item=>item.direction==="PAID")
-      .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-
-    const localReceivable=Math.max(receivable-receivedPayments,0);
-    const localPayable=Math.max(payable-paidPayments,0);
     const multi=partner.externalBalances&&typeof partner.externalBalances==="object"?partner.externalBalances:null;
     const entries=multi?Object.entries(multi).filter(([currency,value])=>currency&&value&&typeof value==="object"):[];
     let externalReceivable=0;
@@ -4666,6 +4671,9 @@ app.post("/api/partners", auth, async (req,res)=>{
     password="",
     externalAccountId="",
     connectorType="GENERIC",
+    companyMode="CONNECTED",
+    openingBalance=0,
+    openingBalanceDirection="RECEIVABLE",
     pathPrefix="/ssljd/merkez112/1/2",
     syncFromDate="",
     syncEnabled=false,
@@ -4674,6 +4682,10 @@ app.post("/api/partners", auth, async (req,res)=>{
   }=req.body||{};
 
   if(!name)return res.status(400).json({message:"اسم المورد أو الشركة مطلوب"});
+  const normalizedCompanyMode=String(companyMode||"CONNECTED").toUpperCase()==="MANUAL"?"MANUAL":"CONNECTED";
+  const numericOpeningBalance=Number(openingBalance||0);
+  if(!Number.isFinite(numericOpeningBalance)||numericOpeningBalance<0)return res.status(400).json({message:"الرصيد الافتتاحي غير صحيح"});
+  if(!["RECEIVABLE","PAYABLE"].includes(String(openingBalanceDirection||"").toUpperCase()))return res.status(400).json({message:"اتجاه الرصيد الافتتاحي غير صحيح"});
 
   const partner=await mutateDurable(store=>{
     const item={
@@ -4694,19 +4706,31 @@ app.post("/api/partners", auth, async (req,res)=>{
       username:String(username||""),
       passwordEncrypted:encryptIntegrationSecret(password),
       externalAccountId:String(externalAccountId||""),
-      connectorType:normalizeConnectorType(connectorType),
+      companyMode:normalizedCompanyMode,
+      connectorType:normalizedCompanyMode==="MANUAL"?"GENERIC":normalizeConnectorType(connectorType),
       pathPrefix:String(pathPrefix||"/ssljd/merkez112/1/2"),
       syncFromDate:String(syncFromDate||""),
       externalReceivable:0,externalPayable:0,externalBalance:0,
-      syncEnabled:Boolean(syncEnabled),
+      syncEnabled:normalizedCompanyMode==="MANUAL"?false:Boolean(syncEnabled),
       syncIntervalMinutes:Math.max(1,Math.min(1440,Number(syncIntervalMinutes)||5)),
       syncMode:["BALANCE_ONLY","BALANCE_AND_STATEMENT"].includes(String(syncMode).toUpperCase())?String(syncMode).toUpperCase():"BALANCE_ONLY",
-      connectionStatus:String(systemUrl||"").trim()?"CONFIGURED":"MANUAL",
+      connectionStatus:normalizedCompanyMode==="MANUAL"?"MANUAL":(String(systemUrl||"").trim()?"CONFIGURED":"MANUAL"),
       lastSyncAt:null,
       createdAt:now(),
       createdBy:req.user.id
     };
     store.partners.push(item);
+    if(normalizedCompanyMode==="MANUAL"&&numericOpeningBalance>0){
+      const currency=String(accountCurrency||"CAD").toUpperCase();
+      const conversion=currencyConversion(store,currency,"CAD");
+      if(!conversion)throw Object.assign(new Error(`لا يوجد سعر صرف آلي لتحويل ${currency} إلى CAD`),{status:400,code:"MISSING_AUTOMATIC_RATE"});
+      store.partnerTransactions.push({
+        id:id(),partnerId:item.id,type:String(openingBalanceDirection).toUpperCase(),amount:numericOpeningBalance,
+        currency,cadAmount:+(numericOpeningBalance*conversion.factor).toFixed(2),date:new Date().toISOString().slice(0,10),
+        dueDate:"",reference:"OPENING_BALANCE",description:"الرصيد الافتتاحي",isOpeningBalance:true,
+        automaticRate:conversion.factor,automaticRateUpdatedAt:conversion.updatedAt||null,createdAt:now(),createdBy:req.user.id
+      });
+    }
     audit(store,req.user.id,"CREATE","PARTNER",item.id,{after:{...item,passwordEncrypted:undefined},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
     return item;
   });
@@ -4715,7 +4739,7 @@ app.post("/api/partners", auth, async (req,res)=>{
 });
 
 app.patch("/api/partners/:id", auth, async (req,res)=>{
-  const allowed=["name","contactName","phone","whatsapp","email","country","city","address","notes","systemUrl","connectionType","accountCurrency","integrationName","username","externalAccountId","connectorType","pathPrefix","syncFromDate","syncEnabled","syncIntervalMinutes","syncMode"];
+  const allowed=["name","contactName","phone","whatsapp","email","country","city","address","notes","systemUrl","connectionType","accountCurrency","integrationName","username","externalAccountId","connectorType","companyMode","pathPrefix","syncFromDate","syncEnabled","syncIntervalMinutes","syncMode"];
   let updated=null;
   await mutateDurable(store=>{
     const partner=store.partners.find(item=>item.id===req.params.id);
@@ -4728,8 +4752,10 @@ app.patch("/api/partners/:id", auth, async (req,res)=>{
     }
     partner.connectionType=String(partner.connectionType||"WEB").toUpperCase();
     partner.accountCurrency=String(partner.accountCurrency||"CAD").toUpperCase();
-    partner.connectorType=normalizeConnectorType(partner.connectorType);
-    partner.connectionStatus=String(partner.systemUrl||"").trim()?"CONFIGURED":"MANUAL";
+    partner.companyMode=String(partner.companyMode||"CONNECTED").toUpperCase()==="MANUAL"?"MANUAL":"CONNECTED";
+    partner.connectorType=partner.companyMode==="MANUAL"?"GENERIC":normalizeConnectorType(partner.connectorType);
+    if(partner.companyMode==="MANUAL")partner.syncEnabled=false;
+    partner.connectionStatus=partner.companyMode==="MANUAL"?"MANUAL":(String(partner.systemUrl||"").trim()?"CONFIGURED":"MANUAL");
     partner.updatedAt=now();
     audit(store,req.user.id,"UPDATE","PARTNER",partner.id,{before,after:{...partner,passwordEncrypted:undefined},integration:true,ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
     updated={...partner};
@@ -4962,25 +4988,29 @@ app.get("/api/partners/:id", auth, (req,res)=>{
     .filter(item=>item.partnerId===partner.id)
     .sort((a,b)=>String(b.date||b.createdAt).localeCompare(String(a.date||a.createdAt)));
 
-  const receivable=transactions.filter(item=>item.type==="RECEIVABLE")
-    .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-  const payable=transactions.filter(item=>item.type==="PAYABLE")
-    .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-  const received=payments.filter(item=>item.direction==="RECEIVED")
-    .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-  const paid=payments.filter(item=>item.direction==="PAID")
-    .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-
+  const localBalance=partnerLocalBalancesCad(store,partner.id);
+  let externalReceivableCad=0,externalPayableCad=0;
+  const externalEntries=partner.externalBalances&&typeof partner.externalBalances==="object"?Object.entries(partner.externalBalances):[];
+  if(externalEntries.length){
+    for(const [currency,value] of externalEntries){
+      const conversion=currencyConversion(store,String(currency).toUpperCase(),"CAD");if(!conversion)continue;
+      externalReceivableCad+=Math.max(safeNumber(value?.receivable),0)*conversion.factor;
+      externalPayableCad+=Math.max(safeNumber(value?.payable),0)*conversion.factor;
+    }
+  }else{
+    const conversion=currencyConversion(store,String(partner.accountCurrency||"USD").toUpperCase(),"CAD");
+    if(conversion){
+      let extReceivable=Math.max(safeNumber(partner.externalReceivable),0),extPayable=Math.max(safeNumber(partner.externalPayable),0);
+      if(extReceivable<=0.001&&extPayable<=0.001){const balance=safeNumber(partner.externalBalance);if(balance>0)extReceivable=balance;if(balance<0)extPayable=Math.abs(balance);}
+      externalReceivableCad=extReceivable*conversion.factor;externalPayableCad=extPayable*conversion.factor;
+    }
+  }
+  const totalNet=localBalance.net+externalReceivableCad-externalPayableCad;
   const {passwordEncrypted,...safePartner}=partner;
   res.json({
-    partner:{...safePartner,hasPassword:Boolean(passwordEncrypted)},
-    transactions,
-    payments,
-    totals:{
-      receivable:+(Math.max(receivable-received,0)+safeNumber(partner.externalReceivable)).toFixed(2),
-      payable:+(Math.max(payable-paid,0)+safeNumber(partner.externalPayable)).toFixed(2),
-      net:+(Math.max(receivable-received,0)-Math.max(payable-paid,0)).toFixed(2)
-    }
+    partner:{...safePartner,hasPassword:Boolean(passwordEncrypted)},transactions,payments,
+    totals:{receivable:+Math.max(totalNet,0).toFixed(2),payable:+Math.max(-totalNet,0).toFixed(2),net:+totalNet.toFixed(2)},
+    localBalance:{receivable:+localBalance.receivable.toFixed(2),payable:+localBalance.payable.toFixed(2),net:+localBalance.net.toFixed(2),missingRates:localBalance.missingRates}
   });
 });
 
@@ -5001,12 +5031,18 @@ app.post("/api/partners/:id/transactions", auth, async (req,res)=>{
   if(!partner)return res.status(404).json({message:"المورد أو الشركة غير موجود"});
 
   const transaction=await mutateDurable(currentStore=>{
+    const normalizedCurrency=String(currency||partner.accountCurrency||"CAD").toUpperCase();
+    const conversion=currencyConversion(currentStore,normalizedCurrency,"CAD");
+    if(!conversion)throw Object.assign(new Error(`لا يوجد سعر صرف آلي لتحويل ${normalizedCurrency} إلى CAD`),{status:400,code:"MISSING_AUTOMATIC_RATE"});
     const item={
       id:id(),
       partnerId:partner.id,
       type,
       amount:numericAmount,
-      currency:String(currency).toUpperCase(),
+      currency:normalizedCurrency,
+      cadAmount:+(numericAmount*conversion.factor).toFixed(2),
+      automaticRate:conversion.factor,
+      automaticRateUpdatedAt:conversion.updatedAt||null,
       date:date||new Date().toISOString().slice(0,10),
       dueDate:dueDate||"",
       reference,
@@ -5022,6 +5058,43 @@ app.post("/api/partners/:id/transactions", auth, async (req,res)=>{
   });
 
   res.status(201).json(transaction);
+});
+
+app.patch("/api/partners/:id/transactions/:transactionId", auth, async (req,res)=>{
+  const {type,amount,currency,date,dueDate,reference,description}=req.body||{};
+  let updated=null;
+  await mutateDurable(store=>{
+    const partner=(store.partners||[]).find(item=>item.id===req.params.id);
+    if(!partner)return;
+    const item=(store.partnerTransactions||[]).find(row=>row.id===req.params.transactionId&&row.partnerId===partner.id);
+    if(!item)return;
+    const nextType=type===undefined?item.type:String(type).toUpperCase();
+    if(!["RECEIVABLE","PAYABLE"].includes(nextType))throw Object.assign(new Error("نوع العملية غير صحيح"),{status:400});
+    const nextAmount=amount===undefined?safeNumber(item.amount):Number(amount);
+    if(!Number.isFinite(nextAmount)||nextAmount<=0)throw Object.assign(new Error("المبلغ غير صحيح"),{status:400});
+    const nextCurrency=String(currency||item.currency||partner.accountCurrency||"CAD").toUpperCase();
+    const conversion=currencyConversion(store,nextCurrency,"CAD");
+    if(!conversion)throw Object.assign(new Error(`لا يوجد سعر صرف آلي لتحويل ${nextCurrency} إلى CAD`),{status:400,code:"MISSING_AUTOMATIC_RATE"});
+    const before={...item};
+    Object.assign(item,{type:nextType,amount:nextAmount,currency:nextCurrency,cadAmount:+(nextAmount*conversion.factor).toFixed(2),automaticRate:conversion.factor,automaticRateUpdatedAt:conversion.updatedAt||null,date:date??item.date,dueDate:dueDate??item.dueDate,reference:reference??item.reference,description:description??item.description,updatedAt:now(),updatedBy:req.user.id});
+    audit(store,req.user.id,"UPDATE","PARTNER_TRANSACTION",item.id,{before,after:item,partnerId:partner.id});
+    updated={...item};
+  });
+  if(!updated)return res.status(404).json({message:"العملية غير موجودة"});
+  res.json(updated);
+});
+
+app.delete("/api/partners/:id/transactions/:transactionId", auth, async (req,res)=>{
+  let deleted=null;
+  await mutateDurable(store=>{
+    const index=(store.partnerTransactions||[]).findIndex(row=>row.id===req.params.transactionId&&row.partnerId===req.params.id);
+    if(index<0)return;
+    deleted=store.partnerTransactions[index];
+    store.partnerTransactions.splice(index,1);
+    audit(store,req.user.id,"DELETE","PARTNER_TRANSACTION",deleted.id,{partnerId:req.params.id,amount:deleted.amount,currency:deleted.currency});
+  });
+  if(!deleted)return res.status(404).json({message:"العملية غير موجودة"});
+  res.json({ok:true,message:"تم حذف العملية"});
 });
 
 app.post("/api/partners/:id/payments", auth, async (req,res)=>{
@@ -5041,12 +5114,18 @@ app.post("/api/partners/:id/payments", auth, async (req,res)=>{
   if(!partner)return res.status(404).json({message:"المورد أو الشركة غير موجود"});
 
   const payment=await mutateDurable(currentStore=>{
+    const normalizedCurrency=String(currency||partner.accountCurrency||"CAD").toUpperCase();
+    const conversion=currencyConversion(currentStore,normalizedCurrency,"CAD");
+    if(!conversion)throw Object.assign(new Error(`لا يوجد سعر صرف آلي لتحويل ${normalizedCurrency} إلى CAD`),{status:400,code:"MISSING_AUTOMATIC_RATE"});
     const item={
       id:id(),
       partnerId:partner.id,
       direction,
       amount:numericAmount,
-      currency:String(currency).toUpperCase(),
+      currency:normalizedCurrency,
+      cadAmount:+(numericAmount*conversion.factor).toFixed(2),
+      automaticRate:conversion.factor,
+      automaticRateUpdatedAt:conversion.updatedAt||null,
       date:date||new Date().toISOString().slice(0,10),
       reference,
       notes,
@@ -5063,6 +5142,43 @@ app.post("/api/partners/:id/payments", auth, async (req,res)=>{
   res.status(201).json(payment);
 });
 
+app.patch("/api/partners/:id/payments/:paymentId", auth, async (req,res)=>{
+  const {direction,amount,currency,date,reference,notes}=req.body||{};
+  let updated=null;
+  await mutateDurable(store=>{
+    const partner=(store.partners||[]).find(item=>item.id===req.params.id);
+    if(!partner)return;
+    const item=(store.partnerPayments||[]).find(row=>row.id===req.params.paymentId&&row.partnerId===partner.id);
+    if(!item)return;
+    const nextDirection=direction===undefined?item.direction:String(direction).toUpperCase();
+    if(!["RECEIVED","PAID"].includes(nextDirection))throw Object.assign(new Error("اتجاه الدفعة غير صحيح"),{status:400});
+    const nextAmount=amount===undefined?safeNumber(item.amount):Number(amount);
+    if(!Number.isFinite(nextAmount)||nextAmount<=0)throw Object.assign(new Error("المبلغ غير صحيح"),{status:400});
+    const nextCurrency=String(currency||item.currency||partner.accountCurrency||"CAD").toUpperCase();
+    const conversion=currencyConversion(store,nextCurrency,"CAD");
+    if(!conversion)throw Object.assign(new Error(`لا يوجد سعر صرف آلي لتحويل ${nextCurrency} إلى CAD`),{status:400,code:"MISSING_AUTOMATIC_RATE"});
+    const before={...item};
+    Object.assign(item,{direction:nextDirection,amount:nextAmount,currency:nextCurrency,cadAmount:+(nextAmount*conversion.factor).toFixed(2),automaticRate:conversion.factor,automaticRateUpdatedAt:conversion.updatedAt||null,date:date??item.date,reference:reference??item.reference,notes:notes??item.notes,updatedAt:now(),updatedBy:req.user.id});
+    audit(store,req.user.id,"UPDATE","PARTNER_PAYMENT",item.id,{before,after:item,partnerId:partner.id});
+    updated={...item};
+  });
+  if(!updated)return res.status(404).json({message:"الدفعة غير موجودة"});
+  res.json(updated);
+});
+
+app.delete("/api/partners/:id/payments/:paymentId", auth, async (req,res)=>{
+  let deleted=null;
+  await mutateDurable(store=>{
+    const index=(store.partnerPayments||[]).findIndex(row=>row.id===req.params.paymentId&&row.partnerId===req.params.id);
+    if(index<0)return;
+    deleted=store.partnerPayments[index];
+    store.partnerPayments.splice(index,1);
+    audit(store,req.user.id,"DELETE","PARTNER_PAYMENT",deleted.id,{partnerId:req.params.id,amount:deleted.amount,currency:deleted.currency});
+  });
+  if(!deleted)return res.status(404).json({message:"الدفعة غير موجودة"});
+  res.json({ok:true,message:"تم حذف الدفعة"});
+});
+
 app.get("/api/partners/:id/statement", auth, (req,res)=>{
   const store=readStore();
   const partner=(Array.isArray(store.partners)?store.partners:[])
@@ -5077,6 +5193,7 @@ app.get("/api/partners/:id/statement", auth, (req,res)=>{
     return (!from||value>=from)&&(!to||value<=to);
   };
 
+  const statementCad=(amount,currency)=>{const conversion=currencyConversion(store,String(currency||"CAD").toUpperCase(),"CAD");return conversion?safeNumber(amount)*conversion.factor:0;};
   const transactions=(Array.isArray(store.partnerTransactions)?store.partnerTransactions:[])
     .filter(item=>item.partnerId===partner.id&&inRange(item.date||item.createdAt));
   const payments=(Array.isArray(store.partnerPayments)?store.partnerPayments:[])
@@ -5087,8 +5204,8 @@ app.get("/api/partners/:id/statement", auth, (req,res)=>{
       id:item.id,
       date:item.date||String(item.createdAt).slice(0,10),
       kind:item.type==="RECEIVABLE"?"دين لنا":"دين علينا",
-      debit:item.type==="RECEIVABLE"?safeNumber(item.amount):0,
-      credit:item.type==="PAYABLE"?safeNumber(item.amount):0,
+      debit:item.type==="RECEIVABLE"?statementCad(item.amount,item.currency):0,
+      credit:item.type==="PAYABLE"?statementCad(item.amount,item.currency):0,
       reference:item.reference||"",
       description:item.description||""
     })),
@@ -5096,8 +5213,8 @@ app.get("/api/partners/:id/statement", auth, (req,res)=>{
       id:item.id,
       date:item.date||String(item.createdAt).slice(0,10),
       kind:item.direction==="RECEIVED"?"استلام دفعة":"دفع مبلغ",
-      debit:item.direction==="PAID"?safeNumber(item.amount):0,
-      credit:item.direction==="RECEIVED"?safeNumber(item.amount):0,
+      debit:item.direction==="PAID"?statementCad(item.amount,item.currency):0,
+      credit:item.direction==="RECEIVED"?statementCad(item.amount,item.currency):0,
       reference:item.reference||"",
       description:item.notes||""
     }))

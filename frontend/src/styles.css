@@ -6133,3 +6133,6 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 .debt-numbers-only .debt-balance-row{min-height:76px}
 .debt-numbers-only .debt-balance-total{border-color:#d7a62b;background:linear-gradient(135deg,rgba(215,166,43,.16),rgba(8,24,43,.96))}
 @media(max-width:700px){.debt-currency-summary{padding:12px}.debt-currency-totals{display:grid;grid-template-columns:1fr}.debt-numbers-only .debt-balance-row{min-height:64px}}
+
+/* v25.6.0 manual company ledger */
+.company-mode-badge{display:inline-flex;align-items:center;padding:4px 9px;border-radius:999px;font-size:.75rem;font-weight:800;white-space:nowrap}.company-mode-badge.manual{background:rgba(245,158,11,.16);color:#fbbf24;border:1px solid rgba(245,158,11,.38)}.company-mode-badge.connected{background:rgba(59,130,246,.14);color:#60a5fa;border:1px solid rgba(59,130,246,.34)}.manual-company-note{grid-column:1/-1;padding:12px 14px;border-radius:12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.28);color:#fde68a;font-weight:700}@media(max-width:720px){.company-mode-badge{font-size:.68rem;padding:3px 7px}}

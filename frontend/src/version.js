@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.5.3 Debt Actions";
+export const APP_VERSION="v25.6.0 Manual Companies Ledger";

@@ -16,11 +16,18 @@ function PartnerProfile({id,back}){
     reference:"",notes:""
   });
   const [showStatement,setShowStatement]=useState(false);
+  const [editingTransactionId,setEditingTransactionId]=useState("");
+  const [editingPaymentId,setEditingPaymentId]=useState("");
+  const [notice,setNotice]=useState("");
+  const [saving,setSaving]=useState(false);
 
   async function load(){
     try{
       const response=await cachedGet(`/partners/${id}`);
       setData(response.data);
+      const baseCurrency=response.data?.partner?.accountCurrency||"CAD";
+      setTransaction(current=>current.amount?current:{...current,currency:baseCurrency});
+      setPayment(current=>current.amount?current:{...current,currency:baseCurrency});
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل المورد أو الشركة");
     }
@@ -29,17 +36,48 @@ function PartnerProfile({id,back}){
   useEffect(()=>{load();},[id]);
 
   async function addTransaction(event){
-    event.preventDefault();
-    await api.post(`/partners/${id}/transactions`,transaction);
-    setTransaction(current=>({...current,amount:"",reference:"",description:""}));
-    await load();
+    event.preventDefault();setError("");setNotice("");setSaving(true);
+    try{
+      if(editingTransactionId)await api.patch(`/partners/${id}/transactions/${editingTransactionId}`,transaction);
+      else await api.post(`/partners/${id}/transactions`,transaction);
+      setNotice(editingTransactionId?"تم تعديل حركة الشركة":"تمت إضافة الحركة إلى حساب الشركة");
+      setEditingTransactionId("");
+      setTransaction(current=>({...current,type:"RECEIVABLE",amount:"",reference:"",description:"",dueDate:""}));
+      await load();
+    }catch(requestError){setError(requestError.response?.data?.message||"تعذر حفظ حركة الشركة");}
+    finally{setSaving(false);}
   }
 
   async function addPayment(event){
-    event.preventDefault();
-    await api.post(`/partners/${id}/payments`,payment);
-    setPayment(current=>({...current,amount:"",reference:"",notes:""}));
-    await load();
+    event.preventDefault();setError("");setNotice("");setSaving(true);
+    try{
+      if(editingPaymentId)await api.patch(`/partners/${id}/payments/${editingPaymentId}`,payment);
+      else await api.post(`/partners/${id}/payments`,payment);
+      setNotice(editingPaymentId?"تم تعديل الدفعة":"تم تسجيل الدفعة");
+      setEditingPaymentId("");
+      setPayment(current=>({...current,direction:"RECEIVED",amount:"",reference:"",notes:""}));
+      await load();
+    }catch(requestError){setError(requestError.response?.data?.message||"تعذر حفظ دفعة الشركة");}
+    finally{setSaving(false);}
+  }
+
+  function editTransaction(item){
+    setEditingTransactionId(item.id);setEditingPaymentId("");setError("");setNotice("");
+    setTransaction({type:item.type||"RECEIVABLE",amount:String(item.amount||""),currency:item.currency||data.partner.accountCurrency||"CAD",date:String(item.date||new Date().toISOString()).slice(0,10),dueDate:item.dueDate||"",reference:item.reference||"",description:item.description||""});
+    window.scrollTo({top:0,behavior:"smooth"});
+  }
+  function editPayment(item){
+    setEditingPaymentId(item.id);setEditingTransactionId("");setError("");setNotice("");
+    setPayment({direction:item.direction||"RECEIVED",amount:String(item.amount||""),currency:item.currency||data.partner.accountCurrency||"CAD",date:String(item.date||new Date().toISOString()).slice(0,10),reference:item.reference||"",notes:item.notes||""});
+    window.scrollTo({top:0,behavior:"smooth"});
+  }
+  async function deleteTransaction(item){
+    if(!(await confirmAction({title:"حذف حركة الشركة",message:`حذف الحركة بقيمة ${money(item.amount)} ${item.currency||""}؟`,confirmText:"حذف"})))return;
+    try{await api.delete(`/partners/${id}/transactions/${item.id}`);setNotice("تم حذف الحركة");await load();}catch(requestError){setError(requestError.response?.data?.message||"تعذر حذف الحركة");}
+  }
+  async function deletePayment(item){
+    if(!(await confirmAction({title:"حذف دفعة الشركة",message:`حذف الدفعة بقيمة ${money(item.amount)} ${item.currency||""}؟`,confirmText:"حذف"})))return;
+    try{await api.delete(`/partners/${id}/payments/${item.id}`);setNotice("تم حذف الدفعة");await load();}catch(requestError){setError(requestError.response?.data?.message||"تعذر حذف الدفعة");}
   }
 
   if(showStatement)return <PartnerStatement partnerId={id} back={()=>setShowStatement(false)}/>;
@@ -52,11 +90,13 @@ function PartnerProfile({id,back}){
       <button onClick={()=>setShowStatement(true)}>كشف حساب</button>
     </div>
 
-    <h2>{data.partner.name}</h2>
+    {error&&<div className="card customer-error">{error}</div>}
+    {notice&&<div className="card rate-message">{notice}</div>}
+    <h2>{data.partner.name} <span className={`company-mode-badge ${data.partner.companyMode==="MANUAL"?"manual":"connected"}`}>{data.partner.companyMode==="MANUAL"?"شركة يدوية":"شركة مرتبطة"}</span></h2>
     <div className="stats">
       <div className="card receivable-card"><span>دين لنا</span><strong>{money(data.totals.receivable)}</strong></div>
       <div className="card payable-card"><span>دين علينا</span><strong>{money(data.totals.payable)}</strong></div>
-      <div className="card final"><span>صافي الحساب</span><strong>{money(data.totals.net)}</strong></div>
+      <div className="card final"><span>الرصيد النهائي — CAD</span><strong>{money(data.totals.net)}</strong></div>
     </div>
 
     <div className="card">
@@ -68,39 +108,59 @@ function PartnerProfile({id,back}){
     </div>
 
     <form className="card form" onSubmit={addTransaction}>
+      <h3>{editingTransactionId?"تعديل حركة الشركة":"إضافة حركة إلى حساب الشركة"}</h3>
       <select value={transaction.type} onChange={e=>setTransaction({...transaction,type:e.target.value})}>
         <option value="RECEIVABLE">دين لنا</option>
         <option value="PAYABLE">دين علينا</option>
       </select>
       <input type="number" min=".01" step=".01" value={transaction.amount} onChange={e=>setTransaction({...transaction,amount:e.target.value})} placeholder="المبلغ" required/>
       <select value={transaction.currency} onChange={e=>setTransaction({...transaction,currency:e.target.value})}>
-        <option value="CAD">CAD 🇨🇦 — الدولار الكندي</option>
-        <option value="USD">USD 🇺🇸 — الدولار الأمريكي</option>
-        <option value="SYP">SYP 🇸🇾 — الليرة السورية</option>
+        {debtCurrencies.map(item=><option key={item.code} value={item.code}>{item.flag} {item.code}</option>)}
       </select>
       <input type="date" value={transaction.date} onChange={e=>setTransaction({...transaction,date:e.target.value})}/>
       <input type="date" value={transaction.dueDate} onChange={e=>setTransaction({...transaction,dueDate:e.target.value})}/>
       <input value={transaction.reference} onChange={e=>setTransaction({...transaction,reference:e.target.value})} placeholder="المرجع"/>
       <input value={transaction.description} onChange={e=>setTransaction({...transaction,description:e.target.value})} placeholder="البيان"/>
-      <button>حفظ العملية</button>
+      <button disabled={saving}>{saving?"جارٍ الحفظ...":editingTransactionId?"حفظ التعديل":"حفظ العملية"}</button>
+      {editingTransactionId&&<button type="button" className="danger-button" onClick={()=>{setEditingTransactionId("");setTransaction(current=>({...current,amount:"",reference:"",description:"",dueDate:""}));}}>إلغاء التعديل</button>}
     </form>
 
     <form className="card form" onSubmit={addPayment}>
+      <h3>{editingPaymentId?"تعديل دفعة":"تسجيل دفعة"}</h3>
       <select value={payment.direction} onChange={e=>setPayment({...payment,direction:e.target.value})}>
         <option value="RECEIVED">استلمنا دفعة</option>
         <option value="PAID">دفعنا مبلغًا</option>
       </select>
       <input type="number" min=".01" step=".01" value={payment.amount} onChange={e=>setPayment({...payment,amount:e.target.value})} placeholder="مبلغ الدفعة" required/>
       <select value={payment.currency} onChange={e=>setPayment({...payment,currency:e.target.value})}>
-        <option value="CAD">CAD 🇨🇦 — الدولار الكندي</option>
-        <option value="USD">USD 🇺🇸 — الدولار الأمريكي</option>
-        <option value="SYP">SYP 🇸🇾 — الليرة السورية</option>
+        {debtCurrencies.map(item=><option key={item.code} value={item.code}>{item.flag} {item.code}</option>)}
       </select>
       <input type="date" value={payment.date} onChange={e=>setPayment({...payment,date:e.target.value})}/>
       <input value={payment.reference} onChange={e=>setPayment({...payment,reference:e.target.value})} placeholder="المرجع"/>
       <input value={payment.notes} onChange={e=>setPayment({...payment,notes:e.target.value})} placeholder="ملاحظات"/>
-      <button>حفظ الدفعة</button>
+      <button disabled={saving}>{saving?"جارٍ الحفظ...":editingPaymentId?"حفظ التعديل":"حفظ الدفعة"}</button>
+      {editingPaymentId&&<button type="button" className="danger-button" onClick={()=>{setEditingPaymentId("");setPayment(current=>({...current,amount:"",reference:"",notes:""}));}}>إلغاء التعديل</button>}
     </form>
+
+    <section className="card manual-company-ledger">
+      <h3>دفتر حساب الشركة</h3>
+      <AppTable>
+        <thead><tr><th>التاريخ</th><th>النوع</th><th>المبلغ الأصلي</th><th>القيمة CAD</th><th>البيان</th><th>الإجراءات</th></tr></thead>
+        <tbody>
+          {[...(data.transactions||[]).map(item=>({...item,_kind:"TRANSACTION"})),...(data.payments||[]).map(item=>({...item,_kind:"PAYMENT"}))]
+            .sort((a,b)=>String(b.date||b.createdAt).localeCompare(String(a.date||a.createdAt)))
+            .map(item=><tr key={`${item._kind}-${item.id}`}>
+              <td>{String(item.date||item.createdAt||"").slice(0,10)}</td>
+              <td>{item._kind==="TRANSACTION"?(item.type==="RECEIVABLE"?"دين لنا":"دين علينا"):(item.direction==="RECEIVED"?"دفعة مستلمة":"دفعة مدفوعة")}</td>
+              <td>{money(item.amount)} {item.currency||""}</td>
+              <td>{money(item.cadAmount??item.amount)} CAD</td>
+              <td>{item.description||item.notes||item.reference||(item.isOpeningBalance?"الرصيد الافتتاحي":"-")}</td>
+              <td className="actions"><button type="button" onClick={()=>item._kind==="TRANSACTION"?editTransaction(item):editPayment(item)}>تعديل</button><button type="button" className="danger-button" onClick={()=>item._kind==="TRANSACTION"?deleteTransaction(item):deletePayment(item)}>حذف</button></td>
+            </tr>)}
+          {!(data.transactions||[]).length&&!(data.payments||[]).length&&<tr><td colSpan="6">لا توجد حركات مسجلة.</td></tr>}
+        </tbody>
+      </AppTable>
+    </section>
   </>;
 }
 
@@ -187,11 +247,11 @@ function Partners({open,view="companies"}){
   const [feeReport,setFeeReport]=useState(null);
   const emptyPartnerForm={
     name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",
-    systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true,syncIntervalMinutes:5,syncMode:"BALANCE_ONLY"
+    companyMode:"CONNECTED",openingBalance:"",openingBalanceDirection:"RECEIVABLE",systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true,syncIntervalMinutes:5,syncMode:"BALANCE_ONLY"
   };
   const [form,setForm]=useState({
     name:"",contactName:"",phone:"",whatsapp:"",email:"",country:"",city:"",address:"",notes:"",
-    systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true,syncIntervalMinutes:5,syncMode:"BALANCE_ONLY"
+    companyMode:"CONNECTED",openingBalance:"",openingBalanceDirection:"RECEIVABLE",systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true,syncIntervalMinutes:5,syncMode:"BALANCE_ONLY"
   });
 
   const needsSyncCenter=view==="sync"||view==="logs"||view==="unified";
@@ -221,7 +281,7 @@ function Partners({open,view="companies"}){
     setEditingId(partner.id);
     setForm({
       name:partner.name||"",contactName:partner.contactName||"",phone:partner.phone||"",whatsapp:partner.whatsapp||"",email:partner.email||"",country:partner.country||"",city:partner.city||"",address:partner.address||"",notes:partner.notes||"",
-      systemUrl:partner.systemUrl||"",connectionType:partner.connectionType||"WEB",accountCurrency:partner.accountCurrency||"USD",integrationName:partner.integrationName||"",username:partner.username||"",password:"",externalAccountId:partner.externalAccountId||"",connectorType:partner.connectorType==="KONTORUN"?"TAWASUL":partner.connectorType||"GENERIC",pathPrefix:partner.pathPrefix||"/ssljd/merkez112/1/2",syncFromDate:partner.syncFromDate||"",syncEnabled:partner.syncEnabled!==false,syncIntervalMinutes:Number(partner.syncIntervalMinutes)||5,syncMode:partner.syncMode||"BALANCE_ONLY"
+      companyMode:partner.companyMode||((partner.systemUrl||partner.connectorType!=="GENERIC")?"CONNECTED":"MANUAL"),openingBalance:"",openingBalanceDirection:"RECEIVABLE",systemUrl:partner.systemUrl||"",connectionType:partner.connectionType||"WEB",accountCurrency:partner.accountCurrency||"USD",integrationName:partner.integrationName||"",username:partner.username||"",password:"",externalAccountId:partner.externalAccountId||"",connectorType:partner.connectorType==="KONTORUN"?"TAWASUL":partner.connectorType||"GENERIC",pathPrefix:partner.pathPrefix||"/ssljd/merkez112/1/2",syncFromDate:partner.syncFromDate||"",syncEnabled:partner.syncEnabled!==false,syncIntervalMinutes:Number(partner.syncIntervalMinutes)||5,syncMode:partner.syncMode||"BALANCE_ONLY"
     });
     window.scrollTo({top:0,behavior:"smooth"});
   }
@@ -514,8 +574,25 @@ function Partners({open,view="companies"}){
     </section>}
 
     {showConnections&&<form className="card form company-integration-form" onSubmit={add}>
-      <h3>{editingId?"✏️ تعديل معلومات الشركة":"➕ إضافة شركة وربطها"}</h3>
+      <h3>{editingId?"✏️ تعديل معلومات الشركة":form.companyMode==="MANUAL"?"➕ إضافة شركة يدوية":"➕ إضافة شركة وربطها"}</h3>
       <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="اسم الشركة" required/>
+      <select value={form.companyMode} onChange={e=>setForm({...form,companyMode:e.target.value,syncEnabled:e.target.value==="MANUAL"?false:form.syncEnabled})}>
+        <option value="CONNECTED">🔵 شركة مرتبطة بالنظام</option>
+        <option value="MANUAL">🟡 شركة يدوية — دفتر حساب مستقل</option>
+      </select>
+      {form.companyMode==="MANUAL"&&<>
+        <select value={form.accountCurrency} onChange={e=>setForm({...form,accountCurrency:e.target.value})}>
+          {debtCurrencies.map(item=><option key={item.code} value={item.code}>{item.flag} {item.code}</option>)}
+        </select>
+        <input type="number" min="0" step="0.01" value={form.openingBalance} onChange={e=>setForm({...form,openingBalance:e.target.value})} placeholder="الرصيد الافتتاحي — اختياري" disabled={Boolean(editingId)}/>
+        <select value={form.openingBalanceDirection} onChange={e=>setForm({...form,openingBalanceDirection:e.target.value})} disabled={Boolean(editingId)}>
+          <option value="RECEIVABLE">رصيد لنا على الشركة</option><option value="PAYABLE">رصيد علينا للشركة</option>
+        </select>
+        <input value={form.contactName} onChange={e=>setForm({...form,contactName:e.target.value})} placeholder="اسم المسؤول — اختياري"/>
+        <input value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="الهاتف — اختياري"/>
+        <input value={form.whatsapp} onChange={e=>setForm({...form,whatsapp:e.target.value})} placeholder="واتساب — اختياري"/>
+      </>}
+      {form.companyMode!=="MANUAL"&&<>
       <input value={form.integrationName} onChange={e=>setForm({...form,integrationName:e.target.value})} placeholder="اسم الربط (اختياري)"/>
       <input type="url" value={form.systemUrl} onChange={e=>setForm({...form,systemUrl:e.target.value})} placeholder="رابط نظام الشركة https://..."/>
       <select value={form.connectionType} onChange={e=>setForm({...form,connectionType:e.target.value})}>
@@ -541,8 +618,9 @@ function Partners({open,view="companies"}){
       <select value={form.syncMode} onChange={e=>setForm({...form,syncMode:e.target.value})}>
         <option value="BALANCE_ONLY">جلب الرصيد فقط</option><option value="BALANCE_AND_STATEMENT">الرصيد وكشف الحساب</option>
       </select>
-      <label className="integration-toggle"><input type="checkbox" checked={form.syncEnabled} onChange={e=>setForm({...form,syncEnabled:e.target.checked})}/><span>تفعيل المزامنة عند توفر موصل الشركة</span></label>
-      <div className="partner-form-actions"><button>{editingId?"حفظ التعديلات":"حفظ وربط الشركة"}</button>{editingId&&<button type="button" className="danger-button" onClick={resetPartnerForm}>إلغاء التعديل</button>}</div>
+      <label className="integration-toggle"><input type="checkbox" checked={form.syncEnabled} onChange={e=>setForm({...form,syncEnabled:e.target.checked})}/><span>تفعيل المزامنة عند توفر موصل الشركة</span></label></>}
+      {form.companyMode==="MANUAL"&&<div className="manual-company-note">بعد الحفظ افتح الشركة لإضافة دين أو تسجيل دفعة أو استخراج كشف حساب.</div>}
+      <div className="partner-form-actions"><button>{editingId?"حفظ التعديلات":form.companyMode==="MANUAL"?"حفظ الشركة اليدوية":"حفظ وربط الشركة"}</button>{editingId&&<button type="button" className="danger-button" onClick={resetPartnerForm}>إلغاء التعديل</button>}</div>
     </form>}
 
     {showCompaniesTable&&<div className="card tablewrap">
@@ -550,14 +628,14 @@ function Partners({open,view="companies"}){
         <thead><tr><th>الشركة</th><th>نوع الربط</th><th>الحالة</th><th>العملة الأساسية</th><th>أرصدة العملات</th><th>آخر مزامنة</th><th>الرابط</th><th>الإجراءات</th></tr></thead>
         <tbody>{data.rows.length?data.rows.map(partner=><tr key={partner.id}>
           <td><strong>{partner.name}</strong><small className="company-subline">{partner.contactName||partner.integrationName||"-"}</small></td>
-          <td>{partner.connectionType||"يدوي"}<small className="company-subline">{partner.connectorType==="TAWASUL"||partner.connectorType==="KONTORUN"?"موصل تواصل":partner.connectorType==="JAD"?"موصل جاد":partner.connectorType==="SURYANA"?"موصل سوريانا":partner.connectorType==="DAHAB"?"موصل دهب":"بدون موصل"}</small></td>
+          <td><span className={`company-mode-badge ${partner.companyMode==="MANUAL"?"manual":"connected"}`}>{partner.companyMode==="MANUAL"?"يدوية":"مرتبطة"}</span><small className="company-subline">{partner.connectorType==="TAWASUL"||partner.connectorType==="KONTORUN"?"موصل تواصل":partner.connectorType==="JAD"?"موصل جاد":partner.connectorType==="SURYANA"?"موصل سوريانا":partner.connectorType==="DAHAB"?"موصل دهب":"بدون موصل"}</small></td>
           <td>{(()=>{const effectiveStatus=partner.lastSyncAt&&Number.isFinite(Number(partner.externalBalance))?"READY":partner.connectionStatus;return <span className={`integration-status status-${String(effectiveStatus||"MANUAL").toLowerCase()}`}>{statusLabel(effectiveStatus)}</span>;})()}</td>
           <td><span className="partner-primary-currency">{flagOf(partner.accountCurrency||"USD")} {partner.accountCurrency||"USD"}</span><small className="company-subline">العملة الأساسية فقط</small></td>
           <td><PartnerCurrencyBalances partner={partner}/></td>
           <td><div className="relative-sync-time"><strong>{relativeSyncTime(partner.lastSyncAt)}</strong><small>{partner.lastSyncAt?new Date(partner.lastSyncAt).toLocaleString("ar-CA"):"—"}</small></div></td>
           <td>{partner.systemUrl?<a href={partner.systemUrl} target="_blank" rel="noreferrer">فتح الرابط</a>:"-"}</td>
           <td className="actions">
-            <button onClick={()=>open(partner.id)}>فتح</button>
+            <button onClick={()=>open(partner.id)}>{partner.companyMode==="MANUAL"?"فتح دفتر الحساب":"فتح"}</button>
             {(view==="connections"||unified)&&<><button type="button" onClick={()=>startEditPartner(partner)}>✏️ تعديل</button><button type="button" className="danger-button" onClick={()=>deletePartner(partner)}>🗑️ حذف</button>{partner.systemUrl&&<button type="button" onClick={()=>testConnection(partner)}>اختبار الاتصال</button>}</>}
             {(view==="sync"||unified)&&<>{["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</>}
           </td>

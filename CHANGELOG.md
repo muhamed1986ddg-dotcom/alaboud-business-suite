@@ -1,3 +1,9 @@
+# v25.6.0
+
+- Manual companies ledger and opening balances.
+- Automatic CAD normalization for partner ledger entries.
+- Manual/connected company modes.
+
 ## v25.5.2 — Compact Net Debt Summary
 
 - Removed the per-currency debt cards from the general debt page.

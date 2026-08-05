@@ -1,0 +1,17 @@
+const fs=require('fs');
+const path=require('path');
+const assert=require('assert');
+const server=fs.readFileSync(path.join(__dirname,'server.js'),'utf8');
+const ui=fs.readFileSync(path.join(__dirname,'../../frontend/src/screens/Partners.jsx'),'utf8');
+assert(server.includes('companyMode="CONNECTED"'));
+assert(server.includes('normalizedCompanyMode==="MANUAL"'));
+assert(server.includes('isOpeningBalance:true'));
+assert(server.includes('partnerLocalBalancesCad'));
+assert(server.includes('/api/partners/:id/transactions/:transactionId'));
+assert(server.includes('/api/partners/:id/payments/:paymentId'));
+assert(ui.includes('شركة يدوية — دفتر حساب مستقل'));
+assert(ui.includes('الرصيد الافتتاحي — اختياري'));
+assert(ui.includes('دفتر حساب الشركة'));
+assert(ui.includes('فتح دفتر الحساب'));
+assert(ui.includes('تعديل حركة الشركة'));
+console.log('manual companies ledger v25.6.0 test passed');
