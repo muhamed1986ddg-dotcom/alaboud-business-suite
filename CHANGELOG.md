@@ -1,3 +1,10 @@
+# v25.2.0 — UI Migration Completion
+
+- Migrated remaining screen tables to the shared AppTable component.
+- Migrated Transactions, CapitalOverview, and SettingsPanel modal shells to AppModal.
+- Added an automated UI quality gate blocking manual tables and modal backdrops in screens.
+- Preserved financial logic and database behavior.
+
 # v25.1.0
 
 - Expanded the shared UI component library with inputs, selects, badges, toolbars, loaders, empty states, pagination, and responsive tables.

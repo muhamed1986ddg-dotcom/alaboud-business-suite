@@ -2,7 +2,8 @@ import React from "react";
 import AppLoader from "./AppLoader";
 import AppEmptyState from "./AppEmptyState";
 
-export default function AppTable({columns=[],rows=[],rowKey="id",emptyText="لا توجد بيانات",loading=false,loadingText="جاري تحميل البيانات...",className="",compact=false,caption}){
+export default function AppTable({columns=[],rows=[],rowKey="id",emptyText="لا توجد بيانات",loading=false,loadingText="جاري تحميل البيانات...",className="",tableClassName="",compact=false,caption,children}){
+  if(children)return <div className={`app-table-wrap ${compact?"app-table-wrap--compact":""} ${className}`.trim()}><table className={`app-table ${tableClassName}`.trim()}>{caption&&<caption>{caption}</caption>}{children}</table></div>;
   if(loading)return <div className={`app-table-wrap ${className}`.trim()}><AppLoader label={loadingText}/></div>;
   if(!rows.length)return <div className={`app-table-wrap ${className}`.trim()}><AppEmptyState title={emptyText}/></div>;
   return <div className={`app-table-wrap ${compact?"app-table-wrap--compact":""} ${className}`.trim()}>

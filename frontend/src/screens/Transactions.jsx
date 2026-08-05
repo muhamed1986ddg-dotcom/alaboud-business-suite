@@ -2,6 +2,7 @@ import React,{useEffect,useMemo,useState} from "react";
 import api,{cachedGet} from "../api";
 import {APP_VERSION} from "../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
+import {AppTable,AppModal,AppButton} from "../components/ui";
 
 export function Transactions({openInvoice}){
   const [customers,setCustomers]=useState([]);
@@ -258,9 +259,7 @@ export function Transactions({openInvoice}){
       <button type="button" className={activeMode==="overdue"?"active":""} onClick={()=>selectMode("overdue")}>⏰ المتأخرة</button>
     </div>
 
-    {showAddModal&&<div className="transaction-modal-backdrop no-print" role="dialog" aria-modal="true">
-      <div className="transaction-modal-panel">
-        <div className="transaction-modal-header"><h3>إضافة حوالة جديدة</h3><button type="button" onClick={()=>setShowAddModal(false)}>✕</button></div>
+    <AppModal open={showAddModal} title="إضافة حوالة جديدة" size="lg" onClose={()=>setShowAddModal(false)}>
         <form className="card form transaction-add-form" onSubmit={add}>
       <select value={f.customerId} onChange={e=>setF({...f,customerId:e.target.value})} required>
         <option value="">العميل</option>
@@ -333,8 +332,7 @@ export function Transactions({openInvoice}){
         <button type="button" onClick={()=>setShowAddModal(false)}>إلغاء</button>
       </div>
         </form>
-      </div>
-    </div>}
+    </AppModal>
 
     {editingTransaction&&
       <form className="card form edit-panel transaction-edit-panel no-print" onSubmit={saveEditedTransaction}>
@@ -408,7 +406,7 @@ export function Transactions({openInvoice}){
     </section>
 
     <div className="card tablewrap transaction-ledger-tablewrap">
-      <table className="transaction-ledger-table">
+      <AppTable tableClassName="transaction-ledger-table">
         <thead>
           <tr>
             <th>#</th><th>تاريخ الحوالة</th><th>رقم الحوالة</th><th>العميل</th><th>الشركة</th>
@@ -437,7 +435,7 @@ export function Transactions({openInvoice}){
             </tr>;
           }):<tr><td colSpan="13">لا توجد حوالات مطابقة.</td></tr>}
         </tbody>
-      </table>
+      </AppTable>
     </div>
 
     <div className="transaction-ledger-pagination no-print">

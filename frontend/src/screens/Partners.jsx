@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from"../shared";
+import {AppTable} from "../components/ui";
 
 function PartnerProfile({id,back}){
   const [data,setData]=useState(null);
@@ -156,12 +157,12 @@ function PartnerStatement({partnerId,back}){
           <p><strong>الفترة:</strong> {data.from||"البداية"} إلى {data.to||"اليوم"}</p>
         </div>
       </div>
-      <table>
+      <AppTable>
         <thead><tr><th>التاريخ</th><th>النوع</th><th>مدين</th><th>دائن</th><th>الرصيد</th><th>المرجع</th></tr></thead>
         <tbody>{data.rows.length?data.rows.map(row=><tr key={row.id}>
           <td>{row.date}</td><td>{row.kind}</td><td>{money(row.debit)}</td><td>{money(row.credit)}</td><td>{money(row.balance)}</td><td>{row.reference||"-"}</td>
         </tr>):<tr><td colSpan="6">لا توجد عمليات.</td></tr>}</tbody>
-      </table>
+      </AppTable>
       <div className="card final"><span>الرصيد النهائي</span><strong>{money(data.finalBalance)}</strong></div>
     </section>}
   </>;
@@ -513,7 +514,7 @@ function Partners({open,view="companies"}){
     </form>}
 
     {showCompaniesTable&&<div className="card tablewrap">
-      <table>
+      <AppTable>
         <thead><tr><th>الشركة</th><th>نوع الربط</th><th>الحالة</th><th>العملة الأساسية</th><th>أرصدة العملات</th><th>آخر مزامنة</th><th>الرابط</th><th>الإجراءات</th></tr></thead>
         <tbody>{data.rows.length?data.rows.map(partner=><tr key={partner.id}>
           <td><strong>{partner.name}</strong><small className="company-subline">{partner.contactName||partner.integrationName||"-"}</small></td>
@@ -529,7 +530,7 @@ function Partners({open,view="companies"}){
             {(view==="sync"||unified)&&<>{["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<input className="jad-otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}{["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري جلب الرصيد...":"جلب الرصيد"}</button>}{partner.connectorType==="JAD"&&<button type="button" onClick={()=>showJadDiagnostic(partner)}>عرض سجل الربط</button>}</>}
           </td>
         </tr>):<tr><td colSpan="8">لا توجد شركات بعد.</td></tr>}</tbody>
-      </table>
+      </AppTable>
     </div>}
   </>;
 }

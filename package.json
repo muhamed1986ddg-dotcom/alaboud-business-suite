@@ -1,6 +1,6 @@
 {
   "name": "alaboud-business-suite-cloud",
-  "version": "25.1.0",
+  "version": "25.2.0",
   "private": true,
   "scripts": {
     "install:all": "npm ci --prefix backend --include=dev --ignore-scripts --no-audit --no-fund && npm ci --prefix frontend --include=dev --ignore-scripts --no-audit --no-fund",
@@ -11,7 +11,8 @@
     "install:chromium": "cd backend && PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium",
     "migrate": "node backend/src/migration/cli.js migrate",
     "migrate:verify": "node backend/src/migration/cli.js verify",
-    "migrate:rollback": "node backend/src/migration/cli.js rollback"
+    "migrate:rollback": "node backend/src/migration/cli.js rollback",
+    "check:ui": "node scripts/check-ui-foundation.js"
   },
   "engines": {
     "node": ">=22 <23"

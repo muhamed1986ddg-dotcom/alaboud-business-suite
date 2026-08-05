@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState} from "react";
 import api,{cachedGet} from "../api";
 import {APP_VERSION} from "../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
+import {AppTable} from "../components/ui";
 
 export function Customer({id,back,onStatement}){
   const [data,setData]=useState(null);
@@ -455,7 +456,7 @@ export function Customer({id,back,onStatement}){
       </div>
 
       <div className="card tablewrap customer-transfer-tablewrap">
-        <table className="customer-transfer-table">
+        <AppTable tableClassName="customer-transfer-table">
           <thead><tr><th>رقم الحوالة</th><th>تاريخ الحوالة</th><th>المبلغ بالدولار الأمريكي (USD)</th><th>سعر التحويل</th><th>القيمة بالدولار الكندي (CAD)</th><th>الإجراءات</th></tr></thead>
           <tbody>{transactionRows.length?transactionRows.map(({transaction,usdAmount,exchangeRate,cadValue})=><tr key={transaction.id}>
             <td className="customer-transfer-number">{transaction.number}</td>
@@ -468,13 +469,13 @@ export function Customer({id,back,onStatement}){
               <button className="danger-button" onClick={()=>deleteTransaction(transaction.id)}>حذف</button>
             </td>
           </tr>):<tr><td colSpan="6">لا توجد حوالات.</td></tr>}</tbody>
-        </table>
+        </AppTable>
       </div>
     </section>
 
     <div className="card tablewrap">
       <h3>سجل الدفعات</h3>
-      <table>
+      <AppTable>
         <thead><tr><th>التاريخ</th><th>البيان</th><th>المبلغ الكامل</th><th>طريقة الدفع</th><th>المرجع</th><th>تفاصيل التوزيع</th><th>الإجراءات</th></tr></thead>
         <tbody>{payments.length?payments.map(payment=>{
           const transaction=transactions.find(item=>item.id===payment.transactionId);
@@ -497,7 +498,7 @@ export function Customer({id,back,onStatement}){
             </td>
           </tr>
         }):<tr><td colSpan="7">لا توجد دفعات.</td></tr>}</tbody>
-      </table>
+      </AppTable>
     </div>
   </div>;
 }
@@ -564,7 +565,7 @@ export function Invoice({transactionId,back}){
         <p><strong>البريد:</strong> {data.customer.email||"-"}</p>
       </div>
 
-      <table>
+      <AppTable>
         <tbody>
           <tr><th>مبلغ الحوالة</th><td>{money(t.amount)}</td></tr>
           <tr><th>سعر الحوالة</th><td>{Number(t.finalRate||0).toFixed(4)}</td></tr>
@@ -573,7 +574,7 @@ export function Invoice({transactionId,back}){
           <tr><th>المدفوع</th><td>{money(t.paid)}</td></tr>
           <tr><th>المتبقي</th><td><strong>{money(t.remaining)}</strong></td></tr>
         </tbody>
-      </table>
+      </AppTable>
 
       <p className="invoice-note">شكراً لتعاملكم مع شركة العبود للتجارة.</p>
     </section>
@@ -617,7 +618,7 @@ export function Statement({customerId,back}){
       </div>
 
       <div className="tablewrap">
-        <table className="simple-statement-table">
+        <AppTable tableClassName="simple-statement-table">
           <thead>
             <tr>
               <th>#</th>
@@ -637,13 +638,13 @@ export function Statement({customerId,back}){
               :<tr><td colSpan="4">لا توجد حوالات في هذه الفترة.</td></tr>
             }
           </tbody>
-        </table>
+        </AppTable>
       </div>
 
 
       <div className="tablewrap statement-payments-ledger">
         <h3>الدفعات المسجلة</h3>
-        <table className="simple-statement-table">
+        <AppTable tableClassName="simple-statement-table">
           <thead><tr><th>#</th><th>تاريخ الدفعة</th><th>البيان</th><th>قيمة الدفعة</th></tr></thead>
           <tbody>{Array.isArray(data.payments)&&data.payments.length?
             data.payments.map((payment,index)=><tr key={payment.id||index}>
@@ -654,7 +655,7 @@ export function Statement({customerId,back}){
             </tr>)
             :<tr><td colSpan="4">لا توجد دفعات في هذه الفترة.</td></tr>}
           </tbody>
-        </table>
+        </AppTable>
       </div>
 
       <div className="simple-statement-old-balance">

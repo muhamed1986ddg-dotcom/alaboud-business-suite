@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from"../shared";
+import {AppModal,AppButton,AppTable} from "../components/ui";
 
 function CapitalOverview(){
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
@@ -344,12 +345,12 @@ function CapitalOverview(){
       </div>)}</div>
     </section>}
 
-    {budgetModal&&<div className="budget-modal-overlay" onClick={()=>setBudgetModal(null)}>
-      <section className="budget-modal card" role="dialog" aria-modal="true" onClick={event=>event.stopPropagation()}>
-        <div className="budget-modal-head">
-          <div><small>إدارة الميزانية</small><h3>{budgetModal==="movement"?"➕ إضافة رأس مال أو سحب":budgetModal==="history"?"📋 سجل رأس المال":budgetModal==="goals"?"🎯 الأهداف المالية":"📊 تقرير الميزانية"}</h3></div>
-          <button type="button" onClick={()=>setBudgetModal(null)} aria-label="إغلاق">×</button>
-        </div>
+    <AppModal
+      open={Boolean(budgetModal)}
+      title={budgetModal==="movement"?"➕ إضافة رأس مال أو سحب":budgetModal==="history"?"📋 سجل رأس المال":budgetModal==="goals"?"🎯 الأهداف المالية":"📊 تقرير الميزانية"}
+      size="xl"
+      onClose={()=>setBudgetModal(null)}
+    >
 
         {budgetModal==="movement"&&<form className="form capital-manage-form" onSubmit={async event=>{await addCapital(event);setBudgetModal(null);}}>
           <select value={form.type} onChange={e=>setForm({...form,type:e.target.value})}><option value="IN">إضافة رأس مال</option><option value="OUT">سحب من رأس المال</option></select>
@@ -363,7 +364,7 @@ function CapitalOverview(){
 
         {budgetModal==="history"&&<div className="tablewrap capital-movements-table">
           <div className="capital-table-toolbar"><div><h3>جميع الحركات</h3><small>{filteredMovements.length} حركة</small></div><div className="capital-table-filters"><input value={movementSearch} onChange={e=>setMovementSearch(e.target.value)} placeholder="ابحث في السجل..."/><select value={movementFilter} onChange={e=>setMovementFilter(e.target.value)}><option value="ALL">جميع الحركات</option><option value="IN">الإضافات فقط</option><option value="OUT">السحوبات فقط</option></select></div></div>
-          <table><thead><tr><th>التاريخ</th><th>النوع</th><th>المبلغ الأصلي</th><th>العملة</th><th>سعر التحويل</th><th>القيمة CAD</th><th>الوصف</th><th>الإجراءات</th></tr></thead><tbody>{filteredMovements.length?filteredMovements.map(item=><tr key={item.id}><td>{item.date||String(item.createdAt||"").slice(0,10)}</td><td><span className={`capital-type-badge ${item.type==="IN"?"capital-in":"capital-out"}`}>{item.type==="IN"?"إضافة":"سحب"}</span></td><td><strong>{money(item.amount)}</strong></td><td>{item.currency||"CAD"}</td><td>{Number(item.exchangeRate||1).toFixed(6)}</td><td><strong>{item.cadAmount!=null?money(item.cadAmount):"—"} CAD</strong></td><td>{item.description||"-"}</td><td className="actions"><button type="button" onClick={()=>{setBudgetModal(null);setEditing({...item});}}>تعديل</button><button type="button" className="danger-button" onClick={()=>deleteCapital(item)}>حذف</button></td></tr>):<tr><td colSpan="8">لا توجد حركات رأس مال مسجلة.</td></tr>}</tbody></table>
+          <AppTable><thead><tr><th>التاريخ</th><th>النوع</th><th>المبلغ الأصلي</th><th>العملة</th><th>سعر التحويل</th><th>القيمة CAD</th><th>الوصف</th><th>الإجراءات</th></tr></thead><tbody>{filteredMovements.length?filteredMovements.map(item=><tr key={item.id}><td>{item.date||String(item.createdAt||"").slice(0,10)}</td><td><span className={`capital-type-badge ${item.type==="IN"?"capital-in":"capital-out"}`}>{item.type==="IN"?"إضافة":"سحب"}</span></td><td><strong>{money(item.amount)}</strong></td><td>{item.currency||"CAD"}</td><td>{Number(item.exchangeRate||1).toFixed(6)}</td><td><strong>{item.cadAmount!=null?money(item.cadAmount):"—"} CAD</strong></td><td>{item.description||"-"}</td><td className="actions"><button type="button" onClick={()=>{setBudgetModal(null);setEditing({...item});}}>تعديل</button><button type="button" className="danger-button" onClick={()=>deleteCapital(item)}>حذف</button></td></tr>):<tr><td colSpan="8">لا توجد حركات رأس مال مسجلة.</td></tr>}</tbody></AppTable>
         </div>}
 
         {budgetModal==="goals"&&<div className="budget-goals-modal">
@@ -378,17 +379,17 @@ function CapitalOverview(){
           {currencySummary.length>0&&<div className="budget-currency-grid">{currencySummary.map(item=><div key={item.currency}><strong>{item.currency}</strong><span className="positive-value">+ {money(item.in)}</span><span className="negative-value">- {money(item.out)}</span></div>)}</div>}
           <button type="button" onClick={()=>window.print()}>🖨️ طباعة التقرير</button>
         </div>}
-      </section>
-    </div>}
+    </AppModal>
 
-    {editing&&<div className="budget-modal-overlay" onClick={()=>setEditing(null)}><form className="budget-modal card form capital-edit-form" onSubmit={saveEdit} onClick={event=>event.stopPropagation()}>
-      <div className="budget-modal-head"><div><small>حركة رأس المال</small><h3>✏️ تعديل الحركة</h3></div><button type="button" onClick={()=>setEditing(null)}>×</button></div>
+    <AppModal open={Boolean(editing)} title="✏️ تعديل حركة رأس المال" onClose={()=>setEditing(null)}>
+      {editing&&<form className="form capital-edit-form" onSubmit={saveEdit}>
       <select value={editing.type} onChange={e=>setEditing({...editing,type:e.target.value})}><option value="IN">إضافة رأس مال</option><option value="OUT">سحب من رأس المال</option></select>
       <input type="number" min=".01" step=".01" value={editing.amount} onChange={e=>setEditing({...editing,amount:e.target.value})} required/>
       <select value={editing.currency||"CAD"} onChange={e=>setEditing({...editing,currency:e.target.value})}>{debtCurrencies.map(item=>item.code).map(currency=><option key={currency}>{currency}</option>)}</select>
       <input type="date" value={editing.date||""} onChange={e=>setEditing({...editing,date:e.target.value})}/><input value={editing.description||""} onChange={e=>setEditing({...editing,description:e.target.value})} placeholder="الوصف"/>
       <div className="budget-modal-actions"><button>حفظ التعديل</button><button type="button" className="secondary-button" onClick={()=>setEditing(null)}>إلغاء</button></div>
-    </form></div>}
+      </form>}
+    </AppModal>
   </>;
 }
 

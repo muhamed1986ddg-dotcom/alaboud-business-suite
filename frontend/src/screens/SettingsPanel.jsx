@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from"../shared";
+import {AppModal} from "../components/ui";
 
 function NotificationSettings({embedded=false}){
   const [settings,setSettings]=useState({overdueDays:7,lowCashLimit:5000,whatsappTemplate:""});
@@ -308,9 +309,8 @@ function SettingsPanel(){
       <button type="button" onClick={()=>setActivePanel("updates")}><span>⬆️</span><strong>التحديثات</strong><small>التحقق من الإصدار</small></button>
     </div>
 
-    {activePanel&&<div className="settings-modal-backdrop" role="dialog" aria-modal="true" onMouseDown={event=>{if(event.target===event.currentTarget)setActivePanel("")}}>
+    <AppModal open={Boolean(activePanel)} title="الإعدادات" size="xl" onClose={()=>setActivePanel("")}>
       <div className="settings-modal-shell" data-active-panel={activePanel}>
-        <button type="button" className="settings-modal-close" onClick={()=>setActivePanel("")} aria-label="إغلاق">✕</button>
         <div className="settings-grid">
     {savedUser.role==="ADMIN"&&<BranchManagement/>}
     <article data-panel="security" className="settings-card security-access-card"><div className="settings-card-title"><span>🔐</span><h3>حماية تسجيل الدخول</h3></div><p className="settings-help">التحقق بخطوتين بواسطة Google Authenticator أو Microsoft Authenticator.</p>{twoFactorInfo.enabled?<button type="button" className="danger" onClick={disableTwoFactor}>تعطيل التحقق بخطوتين</button>:<>{!twoFactorInfo.secret?<button type="button" className="settings-primary-button" onClick={beginTwoFactor}>بدء التفعيل</button>:<div className="two-factor-setup"><label>المفتاح السري<input readOnly value={twoFactorInfo.secret}/></label><small>انسخ المفتاح إلى تطبيق Authenticator.</small><label>رمز التحقق<input inputMode="numeric" maxLength="6" value={twoFactorInfo.code} onChange={e=>setTwoFactorInfo({...twoFactorInfo,code:e.target.value.replace(/\D/g,"").slice(0,6)})}/></label><button type="button" disabled={twoFactorInfo.code.length!==6} onClick={enableTwoFactor}>تأكيد التفعيل</button></div>}</>}<div className="biometric-settings-block"><div><strong>👆 الدخول بالبصمة أو الوجه</strong><small>{biometricAvailable?(biometricEnabled?"مفعّل على هذا الهاتف":"غير مفعّل على هذا الهاتف"):"متاح داخل تطبيق الهاتف فقط"}</small></div>{biometricAvailable&&(biometricEnabled?<button type="button" className="danger" onClick={disableBiometric}>تعطيل البصمة أو الوجه</button>:<button type="button" className="settings-primary-button" onClick={enableBiometric}>تفعيل البصمة أو الوجه</button>)}</div><p className="security-note">بعد التفعيل، سيظهر زر الدخول بالبصمة أو الوجه في شاشة تسجيل الدخول.</p></article>
@@ -438,7 +438,7 @@ function SettingsPanel(){
       </article>
         </div>
       </div>
-    </div>}
+    </AppModal>
   </section>;
 }
 
