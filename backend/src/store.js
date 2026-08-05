@@ -46,7 +46,9 @@ const postgresAdapter = databaseUrl
   : null;
 const database = new DatabaseService({
   primaryAdapter: postgresAdapter || jsonAdapter,
-  fallbackAdapter: postgresAdapter ? jsonAdapter : null,
+  // Never silently fall back to an ephemeral JSON file in production. Doing so can
+  // boot an empty application while PostgreSQL is only temporarily unavailable.
+  fallbackAdapter: postgresAdapter && !isProduction ? jsonAdapter : null,
   normalize: normalizeStore,
   emptyStore
 });

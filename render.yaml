@@ -33,3 +33,5 @@ services:
         value: "2"
       - key: PG_WRITE_RETRIES
         value: "8"
+      - key: PG_STARTUP_RETRIES
+        value: "20"

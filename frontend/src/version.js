@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.3.8 Runtime Database Recovery";
+export const APP_VERSION="v25.3.9 Runtime Database Recovery";

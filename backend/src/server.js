@@ -81,6 +81,10 @@ async function sendEmail(to, subject, text) {
   return false;
 }
 const app = express();
+let serviceReady = false;
+let startupState = "starting";
+let startupError = null;
+let initializationPromise = null;
 // التقاط تلقائي لأي خطأ (متزامن أو غير متزامن) يحدث داخل أي مسار API لم يكن
 // يحتوي على try/catch صريح. بدون هذا، أي استثناء داخل مسار async كان يتحول
 // إلى "unhandled rejection" وبما أن السيرفر مهيأ لإيقاف نفسه عند أي رفض غير
@@ -123,6 +127,20 @@ app.use("/api",(_req,res,next)=>{
   res.setHeader("Expires","0");
   res.setHeader("Surrogate-Control","no-store");
   next();
+});
+
+// Keep the web process alive while Render PostgreSQL is restarting or its private
+// DNS record is temporarily unavailable. Health/docs stay reachable; business API
+// calls receive a clear retryable response until the durable store is ready.
+app.use("/api",(req,res,next)=>{
+  if(serviceReady || ["/health","/openapi.json","/docs"].includes(req.path))return next();
+  return res.status(503).json({
+    message:"قاعدة البيانات قيد إعادة الاتصال. حاول مرة أخرى بعد لحظات.",
+    code:"DATABASE_STARTING",
+    retryable:true,
+    startupState,
+    requestId:req.requestId
+  });
 });
 
 async function seedAdmin(){
@@ -545,8 +563,21 @@ function customerSummary(store, c) {
 app.get("/api/health", async (_req,res)=>{
   const database=await databaseHealth();
   const readiness=productionReadiness();
-  const ok=database.ok&&readiness.ok;
-  res.status(ok?200:503).json({ok,version:APP_VERSION,database,readiness,nativeRepositories:nativeRepositories.health(),time:now()});
+  const ok=serviceReady&&database.ok&&readiness.ok;
+  // Return HTTP 200 while starting so Render keeps the deployment alive long
+  // enough for PostgreSQL private DNS/recovery to come back. The JSON `ok` field
+  // remains false until the application is genuinely ready for business traffic.
+  const httpStatus=startupState==="failed"?503:200;
+  res.status(httpStatus).json({
+    ok,
+    status:serviceReady?"ready":startupState,
+    version:APP_VERSION,
+    database,
+    readiness,
+    startupError:startupError?String(startupError.message||startupError):null,
+    nativeRepositories:nativeRepositories.health(),
+    time:now()
+  });
 });
 app.get("/api/openapi.json", (_req,res)=>res.json(openApiDocument()));
 app.get("/api/docs", (_req,res)=>res.type("html").send(docsHtml()));
@@ -5196,15 +5227,54 @@ app.use((err,req,res,_next)=>{
   });
 });
 
+async function initializeRuntime(){
+  if(initializationPromise)return initializationPromise;
+  initializationPromise=(async()=>{
+    let cycle=0;
+    while(!serviceReady&&!shuttingDown){
+      cycle+=1;
+      startupState="starting";
+      startupError=null;
+      try{
+        await initStore();
+        nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
+        await seedAdmin();
+        serviceReady=true;
+        startupState="ready";
+        console.log(`Database runtime ready after ${cycle} startup cycle(s)`);
+        return;
+      }catch(error){
+        startupError=error;
+        if(!isRecoverableOperationalError(error)){
+          startupState="failed";
+          console.error("Permanent server initialization failure:",error);
+          return;
+        }
+        const delay=Math.min(30000,Math.max(2000,cycle*3000));
+        console.warn(`Recoverable startup database failure; retrying in ${delay}ms:`,error?.code||error?.message||error);
+        await new Promise(resolve=>setTimeout(resolve,delay));
+      }
+    }
+  })().finally(()=>{initializationPromise=null;});
+  return initializationPromise;
+}
+
 async function startServer(){
-  await initStore();
-  nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
-  await seedAdmin();
-  serverInstance=app.listen(PORT,"0.0.0.0",()=>{
-  console.log(`AlAboud Enterprise Cloud v${APP_VERSION} running on port ${PORT}`);
-  console.log(`Frontend directory: ${publicDir}`);
+  if(!serverInstance){
+    serverInstance=app.listen(PORT,"0.0.0.0",()=>{
+      console.log(`AlAboud Enterprise Cloud v${APP_VERSION} listening on port ${PORT}`);
+      console.log(`Frontend directory: ${publicDir}`);
+      console.log("Database initialization is running with automatic recovery");
+    });
+  }
+  initializeRuntime().catch(error=>{
+    startupError=error;
+    startupState="failed";
+    console.error("Runtime initialization loop failed:",error);
+  });
 
   const runHourlyRateRefresh=async()=>{
+    if(!serviceReady)return;
     try{
       const results=await refreshAutomaticRates("SYSTEM_HOURLY");
       const successCount=results.filter(item=>item.ok).length;
@@ -5213,10 +5283,8 @@ async function startServer(){
       console.error("Hourly exchange-rate refresh failed:",error.message);
     }
   };
-
   setTimeout(runHourlyRateRefresh,60*1000);
   setInterval(runHourlyRateRefresh,60*60*1000);
-  });
 }
 
 let serverInstance=null;
@@ -5257,6 +5325,8 @@ process.on("uncaughtException",error=>{
   shutdown("UNCAUGHT_EXCEPTION");
 });
 startServer().catch(error=>{
-  console.error("Server startup failed:",error);
+  startupError=error;
+  startupState="failed";
+  console.error("Server listener startup failed:",error);
   process.exit(1);
 });

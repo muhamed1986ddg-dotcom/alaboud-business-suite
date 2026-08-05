@@ -9,7 +9,8 @@ const TRANSIENT_CODES = new Set([
   "57P03", // cannot connect now / recovery mode
   "57P04", // database dropped
   "53300", // too many connections
-  "08000", "08001", "08003", "08004", "08006", "08007", "08P01"
+  "08000", "08001", "08003", "08004", "08006", "08007", "08P01",
+  "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH", "ETIMEDOUT"
 ]);
 
 function isTransientPostgresError(error) {
@@ -31,7 +32,12 @@ function isTransientPostgresError(error) {
     "etimedout",
     "socket hang up",
     "not queryable",
-    "timeout expired"
+    "timeout expired",
+    "getaddrinfo enotfound",
+    "getaddrinfo eai_again",
+    "temporary failure in name resolution",
+    "name or service not known",
+    "dns lookup failed"
   ].some((part) => message.includes(part));
 }
 
@@ -109,13 +115,42 @@ class PostgresStateAdapter {
   }
 
   async init() {
-    const runner = new MigrationRunner({ pool: this.pool, logger: this.logger });
-    await runner.run();
-    await this.queryWithRetry(`CREATE TABLE IF NOT EXISTS app_state (
-      state_key TEXT PRIMARY KEY,
-      payload JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )`, [], { operation: "initialization" });
+    // Render can temporarily withdraw the private PostgreSQL DNS record while the
+    // database restarts or enters recovery. MigrationRunner uses the pool directly,
+    // so the whole initialization sequence must be retried, not only normal queries.
+    const attempts = Math.max(1, Number(process.env.PG_STARTUP_RETRIES || 20));
+    const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 500));
+    const maxMs = Math.max(baseMs, Number(process.env.PG_RETRY_MAX_MS || 16000));
+    let lastError;
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const runner = new MigrationRunner({ pool: this.pool, logger: this.logger });
+        await runner.run();
+        await this.queryWithRetry(`CREATE TABLE IF NOT EXISTS app_state (
+          state_key TEXT PRIMARY KEY,
+          payload JSONB NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )`, [], { operation: "initialization" });
+        return;
+      } catch (error) {
+        lastError = error;
+        const transient = isTransientPostgresError(error);
+        if (!transient || attempt === attempts) {
+          if (transient) {
+            error.status = 503;
+            error.code = error.code || "DATABASE_TEMPORARILY_UNAVAILABLE";
+            error.publicMessage = "قاعدة البيانات غير متاحة مؤقتًا أثناء بدء الخدمة. سيعاد الاتصال تلقائيًا.";
+          }
+          throw error;
+        }
+        await this.resetPool(`startup:${error.code || error.message}`);
+        const delay = retryDelay(attempt, baseMs, maxMs);
+        this.logger.warn(`PostgreSQL startup unavailable; retrying (${attempt}/${attempts}) in ${delay}ms. ${error.code || error.message}`);
+        await wait(delay);
+      }
+    }
+    throw lastError;
   }
 
   async load() {
