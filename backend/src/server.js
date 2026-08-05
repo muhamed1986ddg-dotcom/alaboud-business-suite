@@ -5183,13 +5183,8 @@ let shuttingDown=false;
 // PostgresStateAdapter، فلا داعي لإسقاط السيرفر بالكامل بسببها — هذا كان
 // يسبب توقف الخدمة لثوانٍ لكل المستخدمين عند كل انقطاع عابر.
 function isTransientConnectionError(error){
-  const message=`${String(error?.code||"")} ${String(error?.message||"")}`.toLowerCase();
-  const code=String(error?.code||"").toUpperCase();
-  return code.startsWith("08")||["57P01","57P02","57P03"].includes(code)||[
-    "connection terminated","connection ended","connection closed","terminating connection",
-    "econnreset","econnrefused","socket hang up","server closed the connection",
-    "database system is in recovery mode","database system is starting up","cannot connect now"
-  ].some(x=>message.includes(x));
+  const message=String(error?.message||"").toLowerCase();
+  return ["connection terminated","econnreset","socket hang up","57p01","08006","08000","08003","08001"].some(x=>message.includes(x))||String(error?.code||"").startsWith("08");
 }
 async function shutdown(signal){
   if(shuttingDown)return;
@@ -5204,19 +5199,19 @@ async function shutdown(signal){
 process.on("SIGTERM",()=>shutdown("SIGTERM"));
 process.on("SIGINT",()=>shutdown("SIGINT"));
 process.on("unhandledRejection",error=>{
-  console.error("Unhandled promise rejection:",error);
   if(isTransientConnectionError(error)){
-    console.warn("تم تجاهل خطأ اتصال عابر بقاعدة البيانات دون إسقاط السيرفر.");
+    console.warn(`Transient PostgreSQL rejection ignored: ${error?.message||error}`);
     return;
   }
+  console.error("Unhandled promise rejection:",error);
   shutdown("UNHANDLED_REJECTION");
 });
 process.on("uncaughtException",error=>{
-  console.error("Uncaught exception:",error);
   if(isTransientConnectionError(error)){
-    console.warn("تم تجاهل خطأ اتصال عابر بقاعدة البيانات دون إسقاط السيرفر.");
+    console.warn(`Transient PostgreSQL connection error ignored: ${error?.message||error}`);
     return;
   }
+  console.error("Uncaught exception:",error);
   shutdown("UNCAUGHT_EXCEPTION");
 });
 startServer().catch(error=>{
