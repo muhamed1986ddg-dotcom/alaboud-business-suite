@@ -419,19 +419,19 @@ export function Transactions({openInvoice}){
             const exchangeRate=Number(transaction.finalRate||transaction.clientRate||0);
             const cadValue=Number(transaction.amount||0)*exchangeRate;
             return <tr key={transaction.id}>
-              <td>{(safePage-1)*pageSize+index+1}</td>
-              <td>{transaction.transferDate||String(transaction.createdAt||"").slice(0,10)||"-"}</td>
-              <td className="transaction-number-cell">{transaction.number}</td>
-              <td>{transaction.customerName||"-"}</td>
-              <td>{transaction.companyName||transaction.partnerName||"-"}</td>
-              <td><span className={`transaction-currency-badge currency-${String(transaction.currency||"USD").toLowerCase()}`}>{transaction.currency||"USD"}</span></td>
-              <td>{money(transaction.amount)} <small>{transaction.currency||"USD"}</small></td>
-              <td>{exchangeRate?exchangeRate.toFixed(4):"-"}</td>
-              <td className="transaction-cad-value">{money(cadValue)}</td>
-              <td>{money(transaction.transferFee||0)}</td>
-              <td className="transaction-final-total">{money(transaction.totalCustomerDue||cadValue)}</td>
-              <td><span className={`transfer-payment-badge ${transaction.paymentStatus==="PAID"?"paid":"unpaid"}`}>{transaction.paymentStatus==="PAID"?"مكتملة":"غير مدفوعة"}</span></td>
-              <td><div className="transaction-row-actions"><button title="فتح الفاتورة" onClick={()=>openInvoice(transaction.id)}>◉</button><button title="تعديل" className="transaction-edit-button" onClick={()=>startEditTransaction(transaction)}>✎</button>{transaction.paymentStatus!=="PAID"&&<button title="تسديد كامل" onClick={()=>markTransactionPaid(transaction)}>✓</button>}</div></td>
+              <td data-label="#" className="transaction-mobile-index">{(safePage-1)*pageSize+index+1}</td>
+              <td data-label="التاريخ" className="transaction-mobile-date">{transaction.transferDate||String(transaction.createdAt||"").slice(0,10)||"-"}</td>
+              <td data-label="رقم الحوالة" className="transaction-number-cell transaction-mobile-number">{transaction.number}</td>
+              <td data-label="العميل" className="transaction-mobile-customer">{transaction.customerName||"-"}</td>
+              <td data-label="الشركة" className="transaction-mobile-company">{transaction.companyName||transaction.partnerName||"-"}</td>
+              <td data-label="العملة"><span className={`transaction-currency-badge currency-${String(transaction.currency||"USD").toLowerCase()}`}>{transaction.currency||"USD"}</span></td>
+              <td data-label="المبلغ الأصلي">{money(transaction.amount)} <small>{transaction.currency||"USD"}</small></td>
+              <td data-label="سعر التحويل">{exchangeRate?exchangeRate.toFixed(4):"-"}</td>
+              <td data-label="القيمة CAD" className="transaction-cad-value">{money(cadValue)}</td>
+              <td data-label="العمولة CAD">{money(transaction.transferFee||0)}</td>
+              <td data-label="الإجمالي CAD" className="transaction-final-total">{money(transaction.totalCustomerDue||cadValue)}</td>
+              <td data-label="الحالة"><span className={`transfer-payment-badge ${transaction.paymentStatus==="PAID"?"paid":"unpaid"}`}>{transaction.paymentStatus==="PAID"?"مكتملة":"غير مدفوعة"}</span></td>
+              <td data-label="الإجراءات" className="transaction-mobile-actions"><div className="transaction-row-actions"><button title="فتح الفاتورة" onClick={()=>openInvoice(transaction.id)}>◉</button><button title="تعديل" className="transaction-edit-button" onClick={()=>startEditTransaction(transaction)}>✎</button>{transaction.paymentStatus!=="PAID"&&<button title="تسديد كامل" onClick={()=>markTransactionPaid(transaction)}>✓</button>}</div></td>
             </tr>;
           }):<tr><td colSpan="13">لا توجد حوالات مطابقة.</td></tr>}
         </tbody>

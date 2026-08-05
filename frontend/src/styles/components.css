@@ -16,3 +16,28 @@
 .app-table caption{padding:12px;color:var(--ui-gold);font-weight:800;text-align:right}.app-table-wrap--compact .app-table th,.app-table-wrap--compact .app-table td{padding:9px 10px}
 .ui-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}.ui-page-stack{display:grid;gap:16px}.ui-form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));align-items:end;gap:12px}
 @media(max-width:700px){.app-toolbar{align-items:stretch;flex-direction:column}.app-toolbar__content,.app-toolbar__actions{width:100%}.app-toolbar__actions>.app-button{flex:1}.app-table--cards{}.app-table-wrap{border:0;background:transparent;overflow:visible}.app-table{min-width:0}.app-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.app-table,.app-table tbody,.app-table tr,.app-table td{display:block;width:100%}.app-table tr{margin-bottom:12px;border:1px solid var(--ui-border);border-radius:14px;background:var(--ui-card);overflow:hidden}.app-table td{display:grid;grid-template-columns:minmax(110px,42%) 1fr;gap:12px;border-bottom:1px solid rgba(48,70,99,.5);text-align:start}.app-table td::before{content:attr(data-label);color:var(--ui-gold);font-weight:800}.app-table td:last-child{border-bottom:0}}
+
+/* v25.3.4 — compact transfer cards on phones */
+@media(max-width:700px){
+  .transaction-ledger-tablewrap{padding:0!important;border:0!important;background:transparent!important;overflow:visible!important}
+  .transaction-ledger-table{min-width:0!important}
+  .transaction-ledger-table tbody{display:grid!important;gap:12px}
+  .transaction-ledger-table tr{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;margin:0!important;border:1px solid rgba(214,170,56,.32)!important;border-radius:16px!important;background:linear-gradient(145deg,#07111f,#0b192a)!important;overflow:hidden!important;box-shadow:0 10px 24px rgba(0,0,0,.2)}
+  .transaction-ledger-table td{display:flex!important;min-height:58px;width:auto!important;padding:9px 11px!important;flex-direction:column;align-items:flex-start;justify-content:center;gap:4px!important;border-inline-start:0!important;border-bottom:1px solid rgba(148,163,184,.14)!important;white-space:normal!important;text-align:start!important;font-size:.95rem}
+  .transaction-ledger-table td:nth-child(odd){border-inline-end:1px solid rgba(148,163,184,.14)!important}
+  .transaction-ledger-table td::before{content:attr(data-label)!important;font-size:.72rem;line-height:1.2;color:#d6aa38!important;font-weight:800;opacity:.92}
+  .transaction-ledger-table .transaction-mobile-index{display:none!important}
+  .transaction-ledger-table .transaction-mobile-date,
+  .transaction-ledger-table .transaction-mobile-number,
+  .transaction-ledger-table .transaction-mobile-customer,
+  .transaction-ledger-table .transaction-mobile-actions{grid-column:1/-1}
+  .transaction-ledger-table .transaction-mobile-number{font-size:1rem;background:rgba(214,170,56,.07)!important}
+  .transaction-ledger-table .transaction-mobile-customer{font-weight:800;color:#f8fafc!important}
+  .transaction-ledger-table .transaction-mobile-company{display:none!important}
+  .transaction-ledger-table .transaction-final-total{font-size:1.08rem!important;background:rgba(214,170,56,.07)!important}
+  .transaction-ledger-table .transaction-mobile-actions{min-height:54px;align-items:stretch!important;padding:8px 10px!important;border-bottom:0!important}
+  .transaction-ledger-table .transaction-mobile-actions::before{display:none}
+  .transaction-ledger-table .transaction-row-actions{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .transaction-ledger-table .transaction-row-actions button{width:100%!important;height:40px!important;min-width:0!important}
+  .transaction-ledger-pagination{padding-inline:4px!important}
+}

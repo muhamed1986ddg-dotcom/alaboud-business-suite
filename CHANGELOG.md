@@ -1,3 +1,8 @@
+# v25.3.4
+- Compact two-column transfer cards on mobile.
+- Added visible labels and a single-row action area.
+- Desktop ledger remains unchanged.
+
 # v25.3.3
 
 - Prevent false save-failure messages during PostgreSQL recovery by allowing durable write requests to wait for backend retry completion.
