@@ -1,3 +1,10 @@
+## v25.5.2 — Compact Net Debt Summary
+
+- Removed the per-currency debt cards from the general debt page.
+- General debt now shows only headline balances and counts.
+- Company balance in the receivable summary is now the final net balance after subtracting company payable debt.
+- The lower total now equals customer debt plus final company balance.
+
 ## v25.5.1 — Simplified Debt Dashboard
 
 - Simplified the General Debt page into a numbers-only financial dashboard.

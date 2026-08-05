@@ -2708,13 +2708,18 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   // Company debt comes only from partner/company rows. It is kept separate from
   // customer debt and is converted using the same exchange-rate graph.
   let companyReceivable=0;
+  let companyPayable=0;
   for(const row of partnerRows){
-    if(row.type!=="RECEIVABLE")continue;
     const currency=String(row.currency||"CAD").toUpperCase();
     const conversion=findConversion(currency,summaryCurrency);
     if(!conversion)continue;
-    companyReceivable+=safeNumber(row.remaining)*conversion.factor;
+    const convertedRemaining=safeNumber(row.remaining)*conversion.factor;
+    if(row.type==="RECEIVABLE") companyReceivable+=convertedRemaining;
+    if(row.type==="PAYABLE") companyPayable+=convertedRemaining;
   }
+  // The debt-page company figure is the same final/net company balance shown on
+  // the companies page: receivable minus payable, after converting each row.
+  const companyFinalBalance=companyReceivable-companyPayable;
 
   const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable;
   const convertedTotals={
@@ -2725,8 +2730,10 @@ app.get("/api/general-debts", auth, async (req,res)=>{
 
   const receivableBreakdown={
     customers:+authoritativeCustomerReceivable.toFixed(2),
-    companies:+companyReceivable.toFixed(2),
-    total:+authoritativeReceivable.toFixed(2)
+    companies:+companyFinalBalance.toFixed(2),
+    companyReceivable:+companyReceivable.toFixed(2),
+    companyPayable:+companyPayable.toFixed(2),
+    total:+(authoritativeCustomerReceivable+companyFinalBalance).toFixed(2)
   };
 
   const manualDebtById=new Map(manualRows.map((item)=>[item.id,item]));

@@ -90,18 +90,6 @@ function GeneralDebts(){
 
     {data.missingRates?.length>0&&<div className="card debt-message">تعذر تحويل العملات التالية إلى {data.summaryCurrency||"CAD"}: {data.missingRates.join("، ")}.</div>}
 
-    <div className="card debt-currency-summary">
-      <div className="debt-currency-summary-head"><div><h3>مجموع الديون في باقي العملات</h3><p>يظهر دين لنا ودين علينا والصافي لكل عملة بشكل مستقل.</p></div></div>
-      <div className="debt-currency-totals">{debtCurrencies.map(currency=>{
-        const total=data.totalsByCurrency?.[currency.code]||{receivable:0,payable:0,net:0};
-        return <div className="debt-currency-total card" key={currency.code}>
-          <div className="debt-currency-title"><span className="debt-currency-flag">{currency.flag}</span><div><strong>{currency.code}</strong><small>{currency.name}</small></div></div>
-          <div className="debt-currency-row receivable"><span>دين لنا</span><b>{money(total.receivable)} {currency.symbol}</b></div>
-          <div className="debt-currency-row payable"><span>دين علينا</span><b>{money(total.payable)} {currency.symbol}</b></div>
-          <div className="debt-currency-row net"><span>الصافي</span><b>{money(total.net)} {currency.symbol}</b></div>
-        </div>})}</div>
-    </div>
-
     <div className="debt-summary-mini">
       <div className="card"><span>الديون المفتوحة</span><strong>{openCount}</strong></div>
       <div className="card"><span>الديون المتأخرة</span><strong>{overdueCount}</strong></div>

@@ -1,0 +1,11 @@
+const fs=require('fs');
+const assert=require('assert');
+const ui=fs.readFileSync(require('path').join(__dirname,'../../frontend/src/screens/GeneralDebts.jsx'),'utf8');
+const server=fs.readFileSync(require('path').join(__dirname,'server.js'),'utf8');
+assert(!ui.includes('مجموع الديون في باقي العملات'),'currency debt summary must be removed from general debt page');
+assert(!ui.includes('debt-currency-totals'),'currency card grid must not render on general debt page');
+assert(ui.includes('الرصيد النهائي للشركات'),'net company balance label must remain');
+assert(server.includes('const companyFinalBalance=companyReceivable-companyPayable'),'company final balance must subtract company payable');
+assert(server.includes('companies:+companyFinalBalance.toFixed(2)'),'debt breakdown must expose final company balance');
+assert(server.includes('total:+(authoritativeCustomerReceivable+companyFinalBalance).toFixed(2)'),'summary total must use customer debt plus final company balance');
+console.log('compact net debt v25.5.2 test passed');
