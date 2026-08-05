@@ -32,4 +32,4 @@ services:
       - key: PG_POOL_MAX
         value: "2"
       - key: PG_WRITE_RETRIES
-        value: "3"
+        value: "8"

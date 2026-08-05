@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.3.6 Compact Transfer Cards";
+export const APP_VERSION="v25.3.7 Compact Transfer Cards";

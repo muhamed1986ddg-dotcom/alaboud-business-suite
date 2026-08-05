@@ -6,6 +6,8 @@ const crypto = require("crypto");
 const { hashPassword, verifyPassword, isScryptHash, passwordPolicy, encryptJson, decryptJson, sha256 } = require("./security");
 const path = require("path");
 const fs = require("fs");
+const dns = require("dns").promises;
+const net = require("net");
 const { readStore, readRootStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
@@ -42,6 +44,28 @@ if (process.env.SMTP_HOST) {
     console.warn("SMTP_HOST مضبوط لكن حزمة nodemailer غير مثبتة. شغّل: npm install nodemailer --prefix backend");
   }
 }
+
+function isPrivateIp(address){
+  const value=String(address||"").toLowerCase();
+  if(!value)return true;
+  if(net.isIP(value)===4){
+    const p=value.split(".").map(Number);
+    return p[0]===10||p[0]===127||p[0]===0||(p[0]===169&&p[1]===254)||(p[0]===172&&p[1]>=16&&p[1]<=31)||(p[0]===192&&p[1]===168)||(p[0]===100&&p[1]>=64&&p[1]<=127)||(p[0]>=224);
+  }
+  if(net.isIP(value)===6)return value==="::1"||value==="::"||value.startsWith("fc")||value.startsWith("fd")||value.startsWith("fe8")||value.startsWith("fe9")||value.startsWith("fea")||value.startsWith("feb")||value.startsWith("::ffff:127.")||value.startsWith("::ffff:10.")||value.startsWith("::ffff:192.168.");
+  return true;
+}
+async function assertSafeWebhookUrl(rawUrl){
+  const parsed=new URL(String(rawUrl||"").trim());
+  if(!["https:",...(!IS_PROD?["http:"]:[])].includes(parsed.protocol))throw new Error("WEBHOOK_PROTOCOL");
+  if(parsed.username||parsed.password)throw new Error("WEBHOOK_CREDENTIALS");
+  const host=String(parsed.hostname||"").toLowerCase();
+  if(!host||host==="localhost"||host.endsWith(".localhost")||host.endsWith(".local")||host.endsWith(".internal"))throw new Error("WEBHOOK_PRIVATE_HOST");
+  const addresses=net.isIP(host)?[{address:host}]:await dns.lookup(host,{all:true,verbatim:true});
+  if(!addresses.length||addresses.some(item=>isPrivateIp(item.address)))throw new Error("WEBHOOK_PRIVATE_IP");
+  return parsed.toString();
+}
+
 async function sendEmail(to, subject, text) {
   if (mailTransport) {
     try {
@@ -100,8 +124,8 @@ app.use("/api",(_req,res,next)=>{
   next();
 });
 
-function seedAdmin(){
-  mutate((store)=>{
+async function seedAdmin(){
+  await mutateDurable((store)=>{
     let company=store.companies.find(item=>item.slug==="alaboud-primary");
     if(!company){
       company={id:id(),name:"شركة العبود التجارية",slug:"alaboud-primary",phone:"",active:true,createdAt:now()};
@@ -531,17 +555,17 @@ app.get("/api/developer/api-keys", auth, (req,res)=>{
   const rows=(readStore().apiKeys||[]).map(item=>({id:item.id,name:item.name,prefix:item.prefix,scopes:item.scopes,active:item.active!==false,expiresAt:item.expiresAt||null,lastUsedAt:item.lastUsedAt||null,usageCount:item.usageCount||0,createdAt:item.createdAt}));
   res.json(rows.sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))));
 });
-app.post("/api/developer/api-keys", auth, (req,res)=>{
+app.post("/api/developer/api-keys", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
   const name=String(req.body?.name||"").trim(); if(!name)return res.status(400).json({message:"اسم المفتاح مطلوب"});
   const rawKey=generateApiKey();
   const record={id:id(),name,prefix:keyPrefix(rawKey),keyHash:sha256(rawKey),scopes:normalizeScopes(req.body?.scopes),active:true,expiresAt:req.body?.expiresAt||null,createdBy:req.user.id,createdAt:now()};
-  mutate(store=>{store.apiKeys.push(record);audit(store,req.user.id,"CREATE","API_KEY",record.id,{name:record.name,scopes:record.scopes});});
+  await mutateDurable(store=>{store.apiKeys.push(record);audit(store,req.user.id,"CREATE","API_KEY",record.id,{name:record.name,scopes:record.scopes});});
   res.status(201).json({id:record.id,name:record.name,prefix:record.prefix,scopes:record.scopes,expiresAt:record.expiresAt,apiKey:rawKey,message:"احفظ المفتاح الآن؛ لن يظهر كاملًا مرة أخرى"});
 });
-app.post("/api/developer/api-keys/:id/revoke", auth, (req,res)=>{
+app.post("/api/developer/api-keys/:id/revoke", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
-  let found=false;mutate(store=>{const item=store.apiKeys.find(x=>x.id===req.params.id);if(item){item.active=false;item.revokedAt=now();item.revokedBy=req.user.id;found=true;audit(store,req.user.id,"REVOKE","API_KEY",item.id,{name:item.name});}});
+  let found=false;await mutateDurable(store=>{const item=store.apiKeys.find(x=>x.id===req.params.id);if(item){item.active=false;item.revokedAt=now();item.revokedBy=req.user.id;found=true;audit(store,req.user.id,"REVOKE","API_KEY",item.id,{name:item.name});}});
   if(!found)return res.status(404).json({message:"المفتاح غير موجود"});res.json({message:"تم إلغاء المفتاح"});
 });
 
@@ -549,66 +573,67 @@ app.get("/api/developer/webhooks", auth, (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
   res.json((readStore().webhooks||[]).map(({secretHash,...item})=>item));
 });
-app.post("/api/developer/webhooks", auth, (req,res)=>{
+app.post("/api/developer/webhooks", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
-  const url=String(req.body?.url||"").trim();const name=String(req.body?.name||"").trim();
-  try{const parsed=new URL(url);if(!["https:",...(!IS_PROD?["http:"]:[])].includes(parsed.protocol))throw new Error();}catch{return res.status(400).json({message:"رابط Webhook غير صالح"});}
+  let url=String(req.body?.url||"").trim();const name=String(req.body?.name||"").trim();
+  try{url=await assertSafeWebhookUrl(url);}catch{return res.status(400).json({message:"رابط Webhook غير صالح أو يشير إلى شبكة داخلية"});}
   const secret=crypto.randomBytes(24).toString("base64url");const item={id:id(),name:name||"Webhook",url,events:normalizeScopes(req.body?.events||["transaction.created"]),secretHash:sha256(secret),active:true,createdBy:req.user.id,createdAt:now()};
-  mutate(store=>{store.webhooks.push(item);audit(store,req.user.id,"CREATE","WEBHOOK",item.id,{url:item.url,events:item.events});});
+  await mutateDurable(store=>{store.webhooks.push(item);audit(store,req.user.id,"CREATE","WEBHOOK",item.id,{url:item.url,events:item.events});});
   res.status(201).json({...item,secretHash:undefined,secret,message:"احفظ السر الآن؛ لن يظهر مرة أخرى"});
 });
 app.post("/api/developer/webhooks/:id/test", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
   const item=(readStore().webhooks||[]).find(x=>x.id===req.params.id&&x.active!==false);if(!item)return res.status(404).json({message:"Webhook غير موجود"});
+  try{await assertSafeWebhookUrl(item.url);}catch{return res.status(400).json({ok:false,message:"تم رفض رابط Webhook لأنه يشير إلى شبكة داخلية أو عنوان غير آمن"});}
   const payload={event:"webhook.test",id:crypto.randomUUID(),createdAt:now(),data:{companyId:req.user.companyId}};
-  try{const response=await fetch(item.url,{method:"POST",headers:{"content-type":"application/json","x-alaboud-event":"webhook.test"},body:JSON.stringify(payload),signal:AbortSignal.timeout(10000)});mutate(store=>{const w=store.webhooks.find(x=>x.id===item.id);w.lastTestAt=now();w.lastStatus=response.status;});return res.status(response.ok?200:502).json({ok:response.ok,status:response.status});}catch(error){return res.status(502).json({ok:false,message:error.message});}
+  try{const response=await fetch(item.url,{method:"POST",headers:{"content-type":"application/json","x-alaboud-event":"webhook.test"},body:JSON.stringify(payload),signal:AbortSignal.timeout(10000)});await mutateDurable(store=>{const w=store.webhooks.find(x=>x.id===item.id);if(w){w.lastTestAt=now();w.lastStatus=response.status;}});return res.status(response.ok?200:502).json({ok:response.ok,status:response.status});}catch(error){return res.status(502).json({ok:false,message:error.message});}
 });
-app.delete("/api/developer/webhooks/:id", auth, (req,res)=>{
+app.delete("/api/developer/webhooks/:id", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
-  let found=false;mutate(store=>{const item=store.webhooks.find(x=>x.id===req.params.id);if(item){item.active=false;item.updatedAt=now();found=true;audit(store,req.user.id,"DISABLE","WEBHOOK",item.id,{url:item.url});}});if(!found)return res.status(404).json({message:"Webhook غير موجود"});res.json({message:"تم تعطيل Webhook"});
+  let found=false;await mutateDurable(store=>{const item=store.webhooks.find(x=>x.id===req.params.id);if(item){item.active=false;item.updatedAt=now();found=true;audit(store,req.user.id,"DISABLE","WEBHOOK",item.id,{url:item.url});}});if(!found)return res.status(404).json({message:"Webhook غير موجود"});res.json({message:"تم تعطيل Webhook"});
 });
 app.get("/api/developer/integration-logs", auth, (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
   const limit=Math.min(500,Math.max(1,Number(req.query.limit)||100));res.json((readStore().integrationLogs||[]).slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,limit));
 });
 
-app.post("/api/auth/login", rateLimit("login",10,15*60*1000),(req,res)=>{
+app.post("/api/auth/login", rateLimit("login",10,15*60*1000),async (req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase(); const password=String(req.body?.password||"");
   const store=readStore(); const user=store.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active); const current=Date.now();
   if(user?.lockedUntil&&new Date(user.lockedUntil).getTime()>current) return res.status(423).json({message:"الحساب مقفل مؤقتًا بسبب محاولات فاشلة متكررة"});
   const valid=user&&(isScryptHash(user.passwordHash)?verifyPassword(password,user.passwordHash):bcrypt.compareSync(password,user.passwordHash));
-  if(!valid){ mutate(root=>{const u=root.users.find(x=>String(x.email||"").toLowerCase()===email); if(u){u.failedLoginAttempts=(u.failedLoginAttempts||0)+1; if(u.failedLoginAttempts>=5){u.lockedUntil=new Date(Date.now()+15*60*1000).toISOString();u.failedLoginAttempts=0;} audit(root,u.id,"LOGIN_FAILED","AUTH",u.id,{ip:req.ip,requestId:req.requestId});}}); return res.status(401).json({message:"بيانات الدخول غير صحيحة"}); }
+  if(!valid){ await mutateDurable(root=>{const u=root.users.find(x=>String(x.email||"").toLowerCase()===email); if(u){u.failedLoginAttempts=(u.failedLoginAttempts||0)+1; if(u.failedLoginAttempts>=5){u.lockedUntil=new Date(Date.now()+15*60*1000).toISOString();u.failedLoginAttempts=0;} audit(root,u.id,"LOGIN_FAILED","AUTH",u.id,{ip:req.ip,requestId:req.requestId});}}); return res.status(401).json({message:"بيانات الدخول غير صحيحة"}); }
   const company=store.companies.find(item=>item.id===user.companyId&&item.active); if(!company)return res.status(403).json({message:"Company account is inactive"});
   if(user.twoFactorEnabled){
     const challenge=jwt.sign({id:user.id,companyId:user.companyId,purpose:"2fa"},JWT_SECRET,{expiresIn:"5m",issuer:"alaboud-business-suite",audience:"alaboud-2fa"});
     return res.json({twoFactorRequired:true,challenge});
   }
-  mutate(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;if(!isScryptHash(u.passwordHash))u.passwordHash=hashPassword(password);u.lastLoginAt=now();audit(root,u.id,"LOGIN_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
+  await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;if(!isScryptHash(u.passwordHash))u.passwordHash=hashPassword(password);u.lastLoginAt=now();audit(root,u.id,"LOGIN_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
   res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
 });
 
-app.post("/api/auth/2fa/verify",rateLimit("2fa",10,10*60*1000),(req,res)=>{
+app.post("/api/auth/2fa/verify",rateLimit("2fa",10,10*60*1000),async (req,res)=>{
   try{
     const payload=jwt.verify(String(req.body?.challenge||""),JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-2fa",algorithms:["HS256"]});
     if(payload.purpose!=="2fa")throw new Error("invalid");
     const store=readStore(); const user=store.users.find(u=>u.id===payload.id&&u.active); const company=store.companies.find(c=>c.id===payload.companyId&&c.active);
     if(!user||!company||!user.twoFactorSecret||!verifyTotp(user.twoFactorSecret,req.body?.code))return res.status(401).json({message:"رمز التحقق غير صحيح"});
-    mutate(root=>{const u=root.users.find(x=>x.id===user.id);u.lastLoginAt=now();audit(root,u.id,"LOGIN_2FA_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
+    await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.lastLoginAt=now();audit(root,u.id,"LOGIN_2FA_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
     res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
   }catch{return res.status(401).json({message:"انتهت صلاحية التحقق، أعد تسجيل الدخول"});}
 });
 
-app.post("/api/auth/2fa/setup",auth,(req,res)=>{
+app.post("/api/auth/2fa/setup",auth,async (req,res)=>{
   const secret=base32Encode(crypto.randomBytes(20));
-  mutate(store=>{const u=store.users.find(x=>x.id===req.user.id);u.twoFactorPendingSecret=secret;audit(store,u.id,"2FA_SETUP_STARTED","AUTH",u.id);});
+  await mutateDurable(store=>{const u=store.users.find(x=>x.id===req.user.id);u.twoFactorPendingSecret=secret;audit(store,u.id,"2FA_SETUP_STARTED","AUTH",u.id);});
   const label=encodeURIComponent(`ALABOUD:${req.user.name||req.user.id}`);
   res.json({secret,otpauth:`otpauth://totp/${label}?secret=${secret}&issuer=ALABOUD%20Business%20Suite&digits=6&period=30`});
 });
-app.post("/api/auth/2fa/enable",auth,(req,res)=>{
-  let ok=false; mutate(store=>{const u=store.users.find(x=>x.id===req.user.id);if(u?.twoFactorPendingSecret&&verifyTotp(u.twoFactorPendingSecret,req.body?.code)){u.twoFactorSecret=u.twoFactorPendingSecret;delete u.twoFactorPendingSecret;u.twoFactorEnabled=true;ok=true;audit(store,u.id,"2FA_ENABLED","AUTH",u.id);}});
+app.post("/api/auth/2fa/enable",auth,async (req,res)=>{
+  let ok=false; await mutateDurable(store=>{const u=store.users.find(x=>x.id===req.user.id);if(u?.twoFactorPendingSecret&&verifyTotp(u.twoFactorPendingSecret,req.body?.code)){u.twoFactorSecret=u.twoFactorPendingSecret;delete u.twoFactorPendingSecret;u.twoFactorEnabled=true;ok=true;audit(store,u.id,"2FA_ENABLED","AUTH",u.id);}});
   if(!ok)return res.status(400).json({message:"رمز التحقق غير صحيح"});res.json({message:"تم تفعيل التحقق بخطوتين"});
 });
-app.post("/api/auth/2fa/disable",auth,(req,res)=>{mutate(store=>{const u=store.users.find(x=>x.id===req.user.id);u.twoFactorEnabled=false;delete u.twoFactorSecret;delete u.twoFactorPendingSecret;audit(store,u.id,"2FA_DISABLED","AUTH",u.id);});res.json({message:"تم تعطيل التحقق بخطوتين"});});
+app.post("/api/auth/2fa/disable",auth,async (req,res)=>{await mutateDurable(store=>{const u=store.users.find(x=>x.id===req.user.id);u.twoFactorEnabled=false;delete u.twoFactorSecret;delete u.twoFactorPendingSecret;audit(store,u.id,"2FA_DISABLED","AUTH",u.id);});res.json({message:"تم تعطيل التحقق بخطوتين"});});
 
 app.post("/api/auth/biometric-token",auth,(req,res)=>{
   const token=jwt.sign({id:req.user.id,companyId:req.user.companyId,purpose:"biometric"},JWT_SECRET,{expiresIn:"30d",issuer:"alaboud-business-suite",audience:"alaboud-biometric"});res.json({token});
@@ -644,7 +669,7 @@ app.get("/api/auth/session",auth,(req,res)=>{
   });
 });
 
-app.post("/api/auth/register-company",(req,res)=>{
+app.post("/api/auth/register-company",async (req,res)=>{
   const ownerName=String(req.body?.ownerName||"").trim();
   const companyName=String(req.body?.companyName||"").trim();
   const email=String(req.body?.email||"").trim().toLowerCase();
@@ -656,7 +681,7 @@ app.post("/api/auth/register-company",(req,res)=>{
   { const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message}); }
 
   try{
-    const result=mutate(store=>{
+    const result=await mutateDurable(store=>{
       if(store.users.some(user=>String(user.email||"").toLowerCase()===email))throw new Error("البريد الإلكتروني مستخدم مسبقًا");
       const company={id:id(),name:companyName,phone,active:true,createdAt:now()};
       const user={id:id(),companyId:company.id,name:ownerName,email,passwordHash:hashPassword(password),role:"ADMIN",active:true,createdAt:now()};
@@ -672,14 +697,14 @@ app.post("/api/auth/register-company",(req,res)=>{
   }
 });
 
-app.post("/api/auth/change-password", auth, (req,res)=>{
+app.post("/api/auth/change-password", auth, async (req,res)=>{
   const currentPassword=String(req.body?.currentPassword||"");
   const newPassword=String(req.body?.newPassword||"");
   const policy=passwordPolicy(newPassword);
   if(!policy.ok){ return res.status(400).json({message:policy.message}); }
 
   try{
-    mutate((store)=>{
+    await mutateDurable((store)=>{
       const user=store.users.find(item=>item.id===req.user.id&&item.active);
       if(!user)throw new Error("الحساب غير موجود");
       if(!bcrypt.compareSync(currentPassword,user.passwordHash)){
@@ -715,7 +740,7 @@ app.post("/api/auth/forgot-password", rateLimit("forgot-password",5,15*60*1000),
   const tokenHash=sha256(rawToken);
   const expiresAt=new Date(Date.now()+30*60*1000).toISOString();
 
-  mutate(root=>{
+  await mutateDurable(root=>{
     const u=root.users.find(x=>x.id===user.id);
     if(u){ u.resetPasswordTokenHash=tokenHash; u.resetPasswordExpiresAt=expiresAt; audit(root,u.id,"PASSWORD_RESET_REQUESTED","AUTH",u.id,{ip:req.ip,requestId:req.requestId}); }
   });
@@ -729,7 +754,7 @@ app.post("/api/auth/forgot-password", rateLimit("forgot-password",5,15*60*1000),
   res.json(genericResponse);
 });
 
-app.post("/api/auth/reset-password", rateLimit("reset-password",10,15*60*1000), (req,res)=>{
+app.post("/api/auth/reset-password", rateLimit("reset-password",10,15*60*1000), async (req,res)=>{
   const email=String(req.body?.email||"").trim().toLowerCase();
   const token=String(req.body?.token||"");
   const newPassword=String(req.body?.newPassword||"");
@@ -738,7 +763,7 @@ app.post("/api/auth/reset-password", rateLimit("reset-password",10,15*60*1000), 
   if(!email||!token) return res.status(400).json({message:"البيانات غير مكتملة"});
 
   try{
-    mutate(root=>{
+    await mutateDurable(root=>{
       const user=root.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active);
       if(!user||!user.resetPasswordTokenHash) throw new Error("رابط إعادة التعيين غير صالح");
       if(new Date(user.resetPasswordExpiresAt||0).getTime()<Date.now()) throw new Error("انتهت صلاحية رابط إعادة التعيين، اطلب رابطًا جديدًا");
@@ -762,14 +787,14 @@ app.get("/api/auth/sessions", auth, (req,res)=>{
   res.json(sessions);
 });
 
-app.post("/api/auth/logout", auth, (req,res)=>{
-  mutate(store=>{revokeSession(store,req.user.jti,req.user.id);audit(store,req.user.id,"LOGOUT","AUTH_SESSION",req.user.jti,{ip:req.ip,requestId:req.requestId});});
+app.post("/api/auth/logout", auth, async (req,res)=>{
+  await mutateDurable(store=>{revokeSession(store,req.user.jti,req.user.id);audit(store,req.user.id,"LOGOUT","AUTH_SESSION",req.user.jti,{ip:req.ip,requestId:req.requestId});});
   res.json({message:"تم تسجيل الخروج بنجاح"});
 });
 
-app.post("/api/auth/logout-all", auth, (req,res)=>{
+app.post("/api/auth/logout-all", auth, async (req,res)=>{
   const includeCurrent=Boolean(req.body?.includeCurrent);
-  const count=mutate(store=>{const total=revokeUserSessions(store,req.user.id,req.user.id,includeCurrent?null:req.user.jti);audit(store,req.user.id,"REVOKE_ALL","AUTH_SESSION",req.user.id,{count:total,includeCurrent});return total;});
+  const count=await mutateDurable(store=>{const total=revokeUserSessions(store,req.user.id,req.user.id,includeCurrent?null:req.user.jti);audit(store,req.user.id,"REVOKE_ALL","AUTH_SESSION",req.user.id,{count:total,includeCurrent});return total;});
   res.json({message:"تم إنهاء الجلسات",revoked:count});
 });
 
@@ -793,12 +818,12 @@ app.get("/api/branches",auth,(req,res)=>{
   const allowed=(root.branches||[]).filter(x=>x.companyId===req.user.companyId&&x.active!==false&&(!Array.isArray(user.branchIds)||!user.branchIds.length||user.branchIds.includes(x.id)));
   res.json(allowed.map(branch=>branchSummary(root,branch)));
 });
-app.post("/api/branches",auth,(req,res)=>{
+app.post("/api/branches",auth,async (req,res)=>{
   if(!["ADMIN","MANAGER"].includes(req.user.role))return res.status(403).json({message:"إنشاء الفروع متاح للمدير فقط"});
-  try{let branch;mutate(root=>{branch=createBranch(root,{companyId:req.user.companyId,name:req.body?.name,code:req.body?.code,address:req.body?.address,phone:req.body?.phone,currency:req.body?.currency,isMain:req.body?.isMain,createdBy:req.user.id,now});audit(root,req.user.id,"CREATE","BRANCH",branch.id,{name:branch.name,code:branch.code});});res.status(201).json(branch);}catch(error){const messages={BRANCH_NAME_REQUIRED:"اسم الفرع مطلوب",BRANCH_CODE_REQUIRED:"رمز الفرع مطلوب",BRANCH_CODE_EXISTS:"رمز الفرع مستخدم مسبقًا"};res.status(400).json({message:messages[error.message]||error.message});}
+  try{let branch;await mutateDurable(root=>{branch=createBranch(root,{companyId:req.user.companyId,name:req.body?.name,code:req.body?.code,address:req.body?.address,phone:req.body?.phone,currency:req.body?.currency,isMain:req.body?.isMain,createdBy:req.user.id,now});audit(root,req.user.id,"CREATE","BRANCH",branch.id,{name:branch.name,code:branch.code});});res.status(201).json(branch);}catch(error){const messages={BRANCH_NAME_REQUIRED:"اسم الفرع مطلوب",BRANCH_CODE_REQUIRED:"رمز الفرع مطلوب",BRANCH_CODE_EXISTS:"رمز الفرع مستخدم مسبقًا"};res.status(400).json({message:messages[error.message]||error.message});}
 });
-app.patch("/api/branches/:id",auth,(req,res)=>{
-  if(!["ADMIN","MANAGER"].includes(req.user.role))return res.status(403).json({message:"تعديل الفروع متاح للمدير فقط"});let branch;mutate(root=>{branch=(root.branches||[]).find(x=>x.id===req.params.id&&x.companyId===req.user.companyId);if(!branch)return;if(req.body?.isMain){for(const x of root.branches)if(x.companyId===req.user.companyId)x.isMain=false;}for(const key of ["name","address","phone","currency","active","isMain"])if(req.body?.[key]!==undefined)branch[key]=req.body[key];branch.updatedAt=now();audit(root,req.user.id,"UPDATE","BRANCH",branch.id,{name:branch.name});});if(!branch)return res.status(404).json({message:"الفرع غير موجود"});res.json(branch);
+app.patch("/api/branches/:id",auth,async (req,res)=>{
+  if(!["ADMIN","MANAGER"].includes(req.user.role))return res.status(403).json({message:"تعديل الفروع متاح للمدير فقط"});let branch;await mutateDurable(root=>{branch=(root.branches||[]).find(x=>x.id===req.params.id&&x.companyId===req.user.companyId);if(!branch)return;if(req.body?.isMain){for(const x of root.branches)if(x.companyId===req.user.companyId)x.isMain=false;}for(const key of ["name","address","phone","currency","active","isMain"])if(req.body?.[key]!==undefined)branch[key]=req.body[key];branch.updatedAt=now();audit(root,req.user.id,"UPDATE","BRANCH",branch.id,{name:branch.name});});if(!branch)return res.status(404).json({message:"الفرع غير موجود"});res.json(branch);
 });
 app.get("/api/branches/current",auth,(req,res)=>res.json(req.branch));
 app.get("/api/branches/network-summary",auth,(req,res)=>{const root=readRootStore();const rows=(root.branches||[]).filter(x=>x.companyId===req.user.companyId&&x.active!==false).map(x=>branchSummary(root,x));res.json({branches:rows,totals:rows.reduce((a,x)=>({customers:a.customers+x.metrics.customers,transactions:a.transactions+x.metrics.transactions,transactionValueCad:+(a.transactionValueCad+x.metrics.transactionValueCad).toFixed(2),expensesCad:+(a.expensesCad+x.metrics.expensesCad).toFixed(2)}),{customers:0,transactions:0,transactionValueCad:0,expensesCad:0})});});
@@ -810,7 +835,7 @@ app.get("/api/company-profile", auth, (req,res)=>{
   res.json({id:company.id,name:company.name,phone:company.phone||"",logoDataUrl:company.logoDataUrl||""});
 });
 
-app.patch("/api/company-profile", auth, (req,res)=>{
+app.patch("/api/company-profile", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"تعديل هوية الشركة متاح للمسؤول الكامل فقط"});
   const name=String(req.body?.name||"").trim();
   const phone=String(req.body?.phone||"").trim();
@@ -820,7 +845,7 @@ app.patch("/api/company-profile", auth, (req,res)=>{
     return res.status(400).json({message:"صيغة الشعار غير مدعومة"});
   }
   if(logoDataUrl.length>1500000)return res.status(400).json({message:"حجم الشعار كبير جدًا"});
-  const company=mutate(store=>{
+  const company=await mutateDurable(store=>{
     const item=store.companies.find(company=>company.id===req.user.companyId);
     if(!item)throw new Error("الشركة غير موجودة");
     item.name=name; item.phone=phone; item.logoDataUrl=logoDataUrl; item.updatedAt=now();
@@ -829,7 +854,7 @@ app.patch("/api/company-profile", auth, (req,res)=>{
   res.json(company);
 });
 
-app.post("/api/users", auth, (req,res)=>{
+app.post("/api/users", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN"){
     return res.status(403).json({message:"إنشاء الحسابات متاح للمدير فقط"});
   }
@@ -847,7 +872,7 @@ app.post("/api/users", auth, (req,res)=>{
   { const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message}); }
 
   try{
-    const created=mutate((store)=>{
+    const created=await mutateDurable((store)=>{
       if(store.users.some(item=>String(item.email||"").toLowerCase()===email)){
         throw new Error("البريد الإلكتروني مستخدم مسبقًا");
       }
@@ -877,10 +902,10 @@ app.get("/api/users", auth, (req,res)=>{
   res.json(users);
 });
 
-app.patch("/api/users/:id", auth, (req,res)=>{
+app.patch("/api/users/:id", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"إدارة المستخدمين متاحة للمدير فقط"});
   try{
-    const updated=mutate(store=>{
+    const updated=await mutateDurable(store=>{
       const user=store.users.find(item=>item.id===req.params.id);
       if(!user)throw new Error("المستخدم غير موجود");
       if(user.id===req.user.id&&req.body?.active===false)throw new Error("لا يمكنك تعطيل حسابك الحالي");
@@ -901,10 +926,10 @@ app.get("/api/devices", auth, (req,res)=>{
   res.json((readStore().devices||[]).slice().sort((a,b)=>String(b.lastSeenAt||"").localeCompare(String(a.lastSeenAt||""))));
 });
 
-app.patch("/api/devices/:id", auth, (req,res)=>{
+app.patch("/api/devices/:id", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"إدارة الأجهزة متاحة للمدير فقط"});
   try{
-    const device=mutate(store=>{
+    const device=await mutateDurable(store=>{
       const item=(store.devices||[]).find(row=>row.id===req.params.id);
       if(!item)throw new Error("الجهاز غير موجود");
       if(req.body?.active!==undefined)item.active=Boolean(req.body.active);
@@ -951,8 +976,8 @@ app.get("/api/notification-settings", auth, (_req,res)=>{
   });
 });
 
-app.patch("/api/notification-settings", auth, requirePermission("admin.only"), (req,res)=>{
-  const updated=mutate((store)=>{
+app.patch("/api/notification-settings", auth, requirePermission("admin.only"), async (req,res)=>{
+  const updated=await mutateDurable((store)=>{
     store.notificationSettings ||= {};
     if(req.body?.overdueDays!==undefined){
       const value=Number(req.body.overdueDays);
@@ -1031,9 +1056,9 @@ app.get("/api/notifications", auth, (_req,res)=>{
   });
 });
 
-app.post("/api/notification-actions", auth, (req,res)=>{
+app.post("/api/notification-actions", auth, async (req,res)=>{
   const {customerId,action="CONTACTED",notes="",promiseDate=null,expectedAmount=null}=req.body||{};
-  const saved=mutate((store)=>{
+  const saved=await mutateDurable((store)=>{
     store.notificationActions ||= [];
     const item={
       id:id(),
@@ -2240,13 +2265,13 @@ app.get("/api/exchange-rates/history", auth, async (req,res)=>{
   res.json(list);
 });
 
-app.post("/api/exchange-rates", auth, (req,res)=>{
+app.post("/api/exchange-rates", auth, async (req,res)=>{
   const {baseCurrency,quoteCurrency,buyRate,sellRate,notes=""}=req.body||{};
   const buy=Number(buyRate), sell=Number(sellRate);
   if(!baseCurrency||!quoteCurrency||baseCurrency===quoteCurrency||!Number.isFinite(buy)||!Number.isFinite(sell)||buy<=0||sell<=0){
     return res.status(400).json({message:"Invalid exchange rate"});
   }
-  const rate=mutate((s)=>{
+  const rate=await mutateDurable((s)=>{
     const x={
       id:id(),
       baseCurrency:String(baseCurrency).toUpperCase(),
@@ -4437,7 +4462,7 @@ async function syncDahabPartner(partner,{fromDate,toDate,otp}={}){
   return {...normalized,currencies:{[currency]:normalized},movements:[],balanceRows:[{currency,amount:normalized.balance}]};
 }
 
-app.post("/api/partners", auth, (req,res)=>{
+app.post("/api/partners", auth, async (req,res)=>{
   const {
     name,
     contactName="",
@@ -4465,7 +4490,7 @@ app.post("/api/partners", auth, (req,res)=>{
 
   if(!name)return res.status(400).json({message:"اسم المورد أو الشركة مطلوب"});
 
-  const partner=mutate(store=>{
+  const partner=await mutateDurable(store=>{
     const item={
       id:id(),
       name:String(name),
@@ -4504,10 +4529,10 @@ app.post("/api/partners", auth, (req,res)=>{
   res.status(201).json(partner);
 });
 
-app.patch("/api/partners/:id", auth, (req,res)=>{
+app.patch("/api/partners/:id", auth, async (req,res)=>{
   const allowed=["name","contactName","phone","whatsapp","email","country","city","address","notes","systemUrl","connectionType","accountCurrency","integrationName","username","externalAccountId","connectorType","pathPrefix","syncFromDate","syncEnabled","syncIntervalMinutes","syncMode"];
   let updated=null;
-  mutate(store=>{
+  await mutateDurable(store=>{
     const partner=store.partners.find(item=>item.id===req.params.id);
     if(!partner)return;
     const before={...partner,passwordEncrypted:undefined};
@@ -4528,9 +4553,9 @@ app.patch("/api/partners/:id", auth, (req,res)=>{
   res.json(updated);
 });
 
-app.delete("/api/partners/:id", auth, (req,res)=>{
+app.delete("/api/partners/:id", auth, async (req,res)=>{
   let deleted=null;
-  mutate(store=>{
+  await mutateDurable(store=>{
     const partner=(store.partners||[]).find(item=>item.id===req.params.id);
     if(!partner)return;
     deleted={id:partner.id,name:partner.name};
@@ -4571,7 +4596,7 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
     const connector=resolvePartnerConnector(partner);
     if(["JAD","SURYANA"].includes(connector)){
       const result=await syncJadPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp,testOnly:true});
-      mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.updatedAt=now();}});
+      await mutateDurable(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.updatedAt=now();}});
       return res.json({ok:true,status:"READY",connector,message:result.testOnly
         ?`تم تسجيل الدخول إلى شركة ${connector==="SURYANA"?"سوريانا":"جاد"} والتحقق من الجلسة بنجاح`
         :`تم الاتصال بشركة ${connector==="SURYANA"?"سوريانا":"جاد"}، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
@@ -4580,14 +4605,14 @@ app.post("/api/partners/:id/test-connection", auth, async (req,res)=>{
       const result=connector==="DAHAB"
         ? await syncDahabPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp})
         : await syncKontorunPartner(partner,{fromDate:new Date(Date.now()-7*86400000).toISOString().slice(0,10),otp:req.body?.otp});
-      mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectorType=connector;item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.updatedAt=now();}});
+      await mutateDurable(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectorType=connector;item.connectionStatus="READY";item.lastConnectionTestAt=now();item.lastSyncError="";item.updatedAt=now();}});
       return res.json({ok:true,status:"READY",connector,message:`تم الاتصال بشركة ${connector==="DAHAB"?"دهب":"تواصل"} بنجاح، الرصيد المكتشف ${result.balance} ${partner.accountCurrency||"USD"}`});
     }
     normalizeBaseUrl(partner.systemUrl);
-    mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.updatedAt=now();}});
+    await mutateDurable(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){item.connectionStatus="READY";item.lastConnectionTestAt=now();item.updatedAt=now();}});
     res.json({ok:true,status:"READY",message:"الرابط صالح. اختر موصل الشركة لإجراء مزامنة فعلية."});
   }catch(error){
-    mutate(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){
+    await mutateDurable(current=>{const item=current.partners.find(x=>x.id===partner.id);if(item){
       // لا نحول الشركة إلى "خطأ" إذا سبق أن نجحت مزامنة فعلية وجُلب الرصيد.
       // نحفظ خطأ المحاولة الأخيرة كسجل تحذيري فقط، وتبقى الحالة "متصل" حتى تنجح/تفشل مزامنة فعلية جديدة دون أي نجاح سابق.
       const hasSuccessfulSync=Boolean(item.lastSyncAt) && Number.isFinite(Number(item.externalBalance));
@@ -4619,7 +4644,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
     const storageState=result?._storageState||null;
     if(result&&Object.prototype.hasOwnProperty.call(result,"_storageState"))delete result._storageState;
     let publicPartner=null;
-    mutate(store=>{
+    await mutateDurable(store=>{
       const item=store.partners.find(x=>x.id===partner.id);if(!item)return;
       item.connectorType=connector;
       const mainDebt=normalizeJadCurrencyDebt(result.receivable,result.payable,{prefer:safeNumber(result.balance)<0?"PAYABLE":"RECEIVABLE"});
@@ -4644,7 +4669,7 @@ app.post("/api/partners/:id/sync", auth, async (req,res)=>{
   }catch(error){
     let stalePartner=null;
     let hasSuccessfulSync=false;
-    mutate(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){
+    await mutateDurable(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){
       // لا نمسح آخر رصيد ناجح عند انتهاء OTP أو انقطاع جاد مؤقتًا.
       hasSuccessfulSync=Boolean(item.lastSyncAt) && (
         Number.isFinite(Number(item.externalBalance)) ||
@@ -4738,7 +4763,7 @@ app.get("/api/partners/:id", auth, (req,res)=>{
   });
 });
 
-app.post("/api/partners/:id/transactions", auth, (req,res)=>{
+app.post("/api/partners/:id/transactions", auth, async (req,res)=>{
   const {type,amount,currency="CAD",date="",dueDate="",reference="",description=""}=req.body||{};
   const numericAmount=Number(amount);
 
@@ -4754,7 +4779,7 @@ app.post("/api/partners/:id/transactions", auth, (req,res)=>{
     .find(item=>item?.id===req.params.id);
   if(!partner)return res.status(404).json({message:"المورد أو الشركة غير موجود"});
 
-  const transaction=mutate(currentStore=>{
+  const transaction=await mutateDurable(currentStore=>{
     const item={
       id:id(),
       partnerId:partner.id,
@@ -4778,7 +4803,7 @@ app.post("/api/partners/:id/transactions", auth, (req,res)=>{
   res.status(201).json(transaction);
 });
 
-app.post("/api/partners/:id/payments", auth, (req,res)=>{
+app.post("/api/partners/:id/payments", auth, async (req,res)=>{
   const {direction,amount,currency="CAD",date="",reference="",notes=""}=req.body||{};
   const numericAmount=Number(amount);
 
@@ -4794,7 +4819,7 @@ app.post("/api/partners/:id/payments", auth, (req,res)=>{
     .find(item=>item?.id===req.params.id);
   if(!partner)return res.status(404).json({message:"المورد أو الشركة غير موجود"});
 
-  const payment=mutate(currentStore=>{
+  const payment=await mutateDurable(currentStore=>{
     const item={
       id:id(),
       partnerId:partner.id,
@@ -4951,11 +4976,11 @@ app.post("/api/ai/assistant",auth,(req,res)=>{
 
 app.get("/api/expenses", auth, async (req,res)=>{const store=readStore();const rows=await branchSafeRead(req,"expenses",()=>nativeRepositories.expenses.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.expenses).reverse());res.json(paginate(req,rows));});
 app.post("/api/expenses", auth, async (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=await mutateDurable(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
-app.put("/api/expenses/:id", auth, (req,res)=>{
+app.put("/api/expenses/:id", auth, async (req,res)=>{
   const {title,amount,currency="CAD",exchangeRate=1,category="Other",date}=req.body||{};
   const n=Number(amount),rate=Number(exchangeRate),normalizedCurrency=String(currency||"CAD").toUpperCase();
   if(!title||!date||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"بيانات المصروف غير صحيحة"});
-  const updated=mutate(s=>{
+  const updated=await mutateDurable(s=>{
     const rows=Array.from(s.expenses||[]);
     const index=rows.findIndex(x=>String(x.id)===String(req.params.id));
     if(index<0)return null;
@@ -5043,9 +5068,10 @@ app.patch("/api/capital/:id", auth, async (req,res)=>{
 
 app.delete("/api/capital/:id", auth, async (req,res)=>{
   const removed=await mutateDurable(store=>{
-    const index=store.capitalMovements.findIndex(entry=>entry.id===req.params.id);
-    if(index<0)return null;
-    const [item]=store.capitalMovements.splice(index,1);
+    const rows=Array.from(store.capitalMovements||[]);
+    const item=rows.find(entry=>entry.id===req.params.id);
+    if(!item)return null;
+    store.capitalMovements=rows.filter(entry=>entry.id!==req.params.id);
     audit(store,req.user.id,"DELETE","CAPITAL",item.id,{type:item.type,amount:item.amount});
     return item;
   });
@@ -5092,14 +5118,14 @@ app.post("/api/backup/encrypted", auth, requirePermission("admin.only"), rateLim
   mutate(root=>audit(root,req.user.id,"EXPORT_ENCRYPTED","BACKUP",id(),{ip:req.ip})); res.setHeader("Content-Disposition",`attachment; filename="alaboud-secure-backup-${Date.now()}.abs"`);res.json(encrypted);
 });
 
-app.post("/api/backup/restore", auth, requirePermission("admin.only"), (req,res)=>{
+app.post("/api/backup/restore", auth, requirePermission("admin.only"), async (req,res)=>{
   try{
     const payload=req.body||{};
     const verification=verifyBackupEnvelope(payload);
     if(!verification.ok){
       return res.status(400).json({message:verification.message});
     }
-    mutate(store=>{
+    await mutateDurable(store=>{
       for(const key of BACKUP_ARRAYS){
         const existing=Array.from(store[key]||[]);
         for(const item of existing)item.companyId=`RESTORED_OLD_${req.user.companyId}`;
@@ -5172,7 +5198,7 @@ app.use((err,req,res,_next)=>{
 async function startServer(){
   await initStore();
   nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
-  seedAdmin();
+  await seedAdmin();
   serverInstance=app.listen(PORT,"0.0.0.0",()=>{
   console.log(`AlAboud Enterprise Cloud v${APP_VERSION} running on port ${PORT}`);
   console.log(`Frontend directory: ${publicDir}`);

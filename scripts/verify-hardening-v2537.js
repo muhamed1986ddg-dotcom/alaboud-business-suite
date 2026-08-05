@@ -1,0 +1,17 @@
+const fs=require('fs');
+const assert=require('assert');
+const server=fs.readFileSync('backend/src/server.js','utf8');
+const store=fs.readFileSync('backend/src/store.js','utf8');
+const render=fs.readFileSync('render.yaml','utf8');
+const env=fs.readFileSync('.env.example','utf8');
+const android=fs.readFileSync('app/src/main/java/com/alaboud/businesssuite/MainActivity.kt','utf8');
+assert(/PG_WRITE_RETRIES\s*\n\s*value:\s*"8"/.test(render),'Render retries must be 8');
+assert(env.includes('PG_WRITE_RETRIES=8'),'Example retries must be 8');
+assert(store.includes('if(prop==="splice")'),'tenantArray must implement source-aware splice');
+assert(server.includes('store.capitalMovements=rows.filter'),'capital deletion must replace the tenant array');
+assert(server.includes('assertSafeWebhookUrl'),'Webhook SSRF guard is missing');
+assert(server.includes('await mutateDurable(store=>{\n      for(const key of BACKUP_ARRAYS)'),'Backup restore must be durable');
+assert(server.includes('const updated=await mutateDurable(s=>{\n    const rows=Array.from(s.expenses'),'Expense updates must be durable');
+assert(android.includes('allowFileAccess = false')&&android.includes('allowContentAccess = false'),'WebView local access must be disabled');
+assert(!fs.readdirSync('.').some(name=>name.endsWith('_AR.md')),'Release notes must not remain in project root');
+console.log('v25.3.7 hardening verification passed');

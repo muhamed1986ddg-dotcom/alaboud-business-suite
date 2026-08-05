@@ -73,6 +73,25 @@ function tenantArray(root,key,companyId,branchId){
   return new Proxy([],{
     get(_target,prop){
       if(prop==="push")return (...items)=>source().push(...items.map(item=>({...item,companyId,...(branchId?{branchId}:{})})));
+      if(prop==="unshift")return (...items)=>source().unshift(...items.map(item=>({...item,companyId,...(branchId?{branchId}:{})})));
+      if(prop==="splice")return (start,deleteCount,...items)=>{
+        const rows=visible();
+        const normalizedStart=start<0?Math.max(rows.length+Number(start||0),0):Math.min(Number(start||0),rows.length);
+        const count=deleteCount===undefined?rows.length-normalizedStart:Math.max(0,Number(deleteCount||0));
+        const removed=rows.slice(normalizedStart,normalizedStart+count);
+        const removedSet=new Set(removed);
+        const src=source();
+        for(let index=src.length-1;index>=0;index--)if(removedSet.has(src[index]))src.splice(index,1);
+        if(items.length){
+          const decorated=items.map(item=>({...item,companyId,...(branchId?{branchId}:{})}));
+          const anchor=rows[normalizedStart];
+          const sourceIndex=anchor?src.indexOf(anchor):src.length;
+          src.splice(sourceIndex<0?src.length:sourceIndex,0,...decorated);
+        }
+        return removed;
+      };
+      if(prop==="pop")return ()=>{const rows=visible();return rows.length?tenantArray(root,key,companyId,branchId).splice(rows.length-1,1)[0]:undefined};
+      if(prop==="shift")return ()=>tenantArray(root,key,companyId,branchId).splice(0,1)[0];
       if(prop==="length")return visible().length;
       if(prop===Symbol.iterator){const rows=visible();return rows[Symbol.iterator].bind(rows);}
       if(prop==="toJSON")return ()=>visible();
