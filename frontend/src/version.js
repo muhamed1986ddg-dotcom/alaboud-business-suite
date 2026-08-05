@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.6.0 Manual Companies Ledger";
+export const APP_VERSION="v25.7.0 Smart Sync Modal";

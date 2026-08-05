@@ -6136,3 +6136,10 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 
 /* v25.6.0 manual company ledger */
 .company-mode-badge{display:inline-flex;align-items:center;padding:4px 9px;border-radius:999px;font-size:.75rem;font-weight:800;white-space:nowrap}.company-mode-badge.manual{background:rgba(245,158,11,.16);color:#fbbf24;border:1px solid rgba(245,158,11,.38)}.company-mode-badge.connected{background:rgba(59,130,246,.14);color:#60a5fa;border:1px solid rgba(59,130,246,.34)}.manual-company-note{grid-column:1/-1;padding:12px 14px;border-radius:12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.28);color:#fde68a;font-weight:700}@media(max-width:720px){.company-mode-badge{font-size:.68rem;padding:3px 7px}}
+
+/* v25.7.0 smart sync modal */
+.smart-sync-button{background:linear-gradient(135deg,#d4af37,#f3d36b);color:#07111f;border:1px solid rgba(255,220,110,.8);font-weight:800}
+.smart-sync-modal-content{margin:0;box-shadow:none;border-radius:16px;padding:18px}
+.smart-sync-log-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.smart-sync-log-title h4{margin:0}
+@media(max-width:700px){.partner-page-toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}.partner-page-toolbar button{width:100%;min-height:42px}.smart-sync-modal-content{padding:12px}.sync-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.smart-sync-log-title{align-items:stretch;flex-direction:column}}

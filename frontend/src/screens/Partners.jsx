@@ -2,7 +2,7 @@ import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from"../shared";
-import {AppTable} from "../components/ui";
+import {AppModal,AppTable} from "../components/ui";
 
 function PartnerProfile({id,back}){
   const [data,setData]=useState(null);
@@ -241,6 +241,8 @@ function Partners({open,view="companies"}){
   const [editingId,setEditingId]=useState("");
   const [showConnectionForm,setShowConnectionForm]=useState(false);
   const [showFullSyncLog,setShowFullSyncLog]=useState(false);
+  const [showSyncCenterModal,setShowSyncCenterModal]=useState(false);
+  const [syncCenterLoading,setSyncCenterLoading]=useState(false);
   const todayIso=new Date().toISOString().slice(0,10);
   const monthStartIso=`${todayIso.slice(0,7)}-01`;
   const [feeFilter,setFeeFilter]=useState({partnerId:"",fromDate:monthStartIso,toDate:todayIso});
@@ -254,16 +256,28 @@ function Partners({open,view="companies"}){
     companyMode:"CONNECTED",openingBalance:"",openingBalanceDirection:"RECEIVABLE",systemUrl:"",connectionType:"WEB",accountCurrency:"USD",integrationName:"",username:"",password:"",externalAccountId:"",connectorType:"GENERIC",pathPrefix:"/ssljd/merkez112/1/2",syncFromDate:"",syncEnabled:true,syncIntervalMinutes:5,syncMode:"BALANCE_ONLY"
   });
 
-  const needsSyncCenter=view==="sync"||view==="logs"||view==="unified";
+  async function loadSyncCenter(){
+    setSyncCenterLoading(true);
+    try{
+      const centerResponse=await cachedGet("/partners/sync-center");
+      setSyncCenter(centerResponse.data);
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر تحميل مركز المزامنة");
+    }finally{
+      setSyncCenterLoading(false);
+    }
+  }
+
+  async function openSyncCenter(){
+    setShowSyncCenterModal(true);
+    setShowFullSyncLog(false);
+    await loadSyncCenter();
+  }
 
   async function load(){
     try{
       const response=await cachedGet("/partners");
       setData(response.data);
-      if(needsSyncCenter){
-        const centerResponse=await cachedGet("/partners/sync-center");
-        setSyncCenter(centerResponse.data);
-      }
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل الشركات");
     }
@@ -473,6 +487,7 @@ function Partners({open,view="companies"}){
         }
       }
       await load();
+      if(showSyncCenterModal)await loadSyncCenter();
       setNowTick(Date.now());
       if(successCount){setMessage(successCount===1?"تمت المزامنة الآن":"تمت مزامنة جميع الشركات الآن");}
       else if(!message){setMessage("تعذر التحديث الآن؛ راجع السبب الظاهر أعلاه، ويتم عرض آخر أرصدة ناجحة");}
@@ -534,8 +549,8 @@ function Partners({open,view="companies"}){
       <h2>{pageTitles[view]||pageTitles.unified}</h2>
       <div className="partner-page-toolbar">
         {(unified||view==="sync")&&<button type="button" className="sync-now-button" disabled={syncingAll||Boolean(syncingId)} onClick={syncAllPartners}>{syncingAll?<><span className="sync-spinner"/> جاري المزامنة...</>:"🔄 تحديث جميع الشركات"}</button>}
+        {(unified||view==="sync"||view==="logs")&&<button type="button" className="smart-sync-button" onClick={openSyncCenter}>⚙️ المزامنة الذكية</button>}
         {unified&&<button type="button" onClick={()=>setShowConnectionForm(value=>!value)}>{showConnectionForm?"إخفاء إعدادات الربط":"➕ إضافة أو تعديل شركة"}</button>}
-        {unified&&<button type="button" onClick={()=>setShowFullSyncLog(value=>!value)}>{showFullSyncLog?"إخفاء السجل الكامل":"📋 عرض سجل العمليات"}</button>}
       </div>
     </div>
     {error&&<div className="card customer-error">{error}</div>}
@@ -548,23 +563,27 @@ function Partners({open,view="companies"}){
     </div>
     {data.missingRates?.length>0&&<div className="card debt-message">لم تدخل العملات التالية في الإجمالي لعدم توفر سعر تحويل إلى {data.summaryCurrency||"CAD"}: {data.missingRates.join("، ")}</div>}</>}
 
-    {showSync&&<section className="smart-sync-center">
-      <div className="smart-sync-heading"><div><h3>🔄 مركز المزامنة الذكية</h3><p>يتحقق تلقائيًا من الشركات المستحقة للمزامنة ويحافظ على آخر رصيد ناجح عند فشل الاتصال.</p></div><span className="live-sync-badge">● مباشر</span></div>
-      <div className="sync-metric-grid">
-        <div className="sync-metric"><span>الشركات المفعلة</span><strong>{syncCenter.stats.enabled||0}</strong></div>
-        <div className="sync-metric warning"><span>مستحقة الآن</span><strong>{syncCenter.stats.due||0}</strong></div>
-        <div className="sync-metric success"><span>نجحت اليوم</span><strong>{syncCenter.stats.successes||0}</strong></div>
-        <div className="sync-metric danger"><span>فشلت اليوم</span><strong>{syncCenter.stats.failures||0}</strong></div>
-        <div className="sync-metric"><span>متوسط الاستجابة</span><strong>{syncCenter.stats.averageDurationMs?`${(syncCenter.stats.averageDurationMs/1000).toFixed(1)}ث`:"—"}</strong></div>
-      </div>
-      <div className="sync-log-list">
-        <h4>آخر عمليات المزامنة</h4>
-        {(syncCenter.logs||[]).slice(0,(view==="logs"||showFullSyncLog)?100:6).map(log=><div className={`sync-log-row ${log.status==="SUCCESS"?"ok":"failed"}`} key={log.id}>
-          <span className="sync-log-state">{log.status==="SUCCESS"?"✓":"!"}</span><div><strong>{log.partnerName}</strong><small>{log.trigger==="AUTO"?"تلقائية":"يدوية"} · {new Date(log.createdAt).toLocaleString("ar-CA")}</small></div><div className="sync-log-change"><b>{log.changed?`${money(log.beforeBalance)} ← ${money(log.afterBalance)}`:"بدون تغيير"}</b><small>{(log.durationMs/1000).toFixed(1)} ثانية</small></div>
-        </div>)}
-        {!syncCenter.logs?.length&&<p className="empty-sync-log">لا يوجد سجل مزامنة بعد.</p>}
-      </div>
-    </section>}
+    <AppModal open={showSyncCenterModal} title="⚙️ مركز المزامنة الذكية" onClose={()=>setShowSyncCenterModal(false)} size="lg" busy={syncCenterLoading} actions={<><button type="button" onClick={loadSyncCenter} disabled={syncCenterLoading}>تحديث البيانات</button><button type="button" className="sync-now-button" disabled={syncingAll||Boolean(syncingId)} onClick={syncAllPartners}>{syncingAll?"جاري المزامنة...":"🔄 بدء المزامنة الآن"}</button><button type="button" onClick={()=>setShowSyncCenterModal(false)}>إغلاق</button></>}>
+      <section className="smart-sync-center smart-sync-modal-content">
+        <div className="smart-sync-heading"><div><h3>حالة المزامنة</h3><p>تظهر هذه البيانات عند الطلب فقط، ولا تشغل مساحة من صفحة الشركات.</p></div><span className="live-sync-badge">● مباشر</span></div>
+        {syncCenterLoading?<p className="empty-sync-log">جارٍ تحميل بيانات المزامنة...</p>:<>
+          <div className="sync-metric-grid">
+            <div className="sync-metric"><span>الشركات المفعلة</span><strong>{syncCenter.stats.enabled||0}</strong></div>
+            <div className="sync-metric warning"><span>مستحقة الآن</span><strong>{syncCenter.stats.due||0}</strong></div>
+            <div className="sync-metric success"><span>نجحت اليوم</span><strong>{syncCenter.stats.successes||0}</strong></div>
+            <div className="sync-metric danger"><span>فشلت اليوم</span><strong>{syncCenter.stats.failures||0}</strong></div>
+            <div className="sync-metric"><span>متوسط الاستجابة</span><strong>{syncCenter.stats.averageDurationMs?`${(syncCenter.stats.averageDurationMs/1000).toFixed(1)}ث`:"—"}</strong></div>
+          </div>
+          <div className="sync-log-list">
+            <div className="smart-sync-log-title"><h4>آخر عمليات المزامنة</h4>{(syncCenter.logs||[]).length>6&&<button type="button" onClick={()=>setShowFullSyncLog(value=>!value)}>{showFullSyncLog?"عرض مختصر":"عرض السجل الكامل"}</button>}</div>
+            {(syncCenter.logs||[]).slice(0,showFullSyncLog?100:6).map(log=><div className={`sync-log-row ${log.status==="SUCCESS"?"ok":"failed"}`} key={log.id}>
+              <span className="sync-log-state">{log.status==="SUCCESS"?"✓":"!"}</span><div><strong>{log.partnerName}</strong><small>{log.trigger==="AUTO"?"تلقائية":"يدوية"} · {new Date(log.createdAt).toLocaleString("ar-CA")}</small></div><div className="sync-log-change"><b>{log.changed?`${money(log.beforeBalance)} ← ${money(log.afterBalance)}`:"بدون تغيير"}</b><small>{(log.durationMs/1000).toFixed(1)} ثانية</small></div>
+            </div>)}
+            {!syncCenter.logs?.length&&<p className="empty-sync-log">لا يوجد سجل مزامنة بعد.</p>}
+          </div>
+        </>}
+      </section>
+    </AppModal>
 
     {(view==="sync"||unified)&&feeReport&&<section className="card jad-fee-report jad-fee-total-only">
       <div className="jad-fee-report-head">
