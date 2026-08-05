@@ -1916,27 +1916,37 @@ app.patch("/api/transactions/:id", auth, async (req,res)=>{
 });
 
 app.delete("/api/transactions/:id", auth, async (req,res)=>{
-  const deleted=await mutateDurable((s)=>{
-    const transaction=s.transactions.find(item=>item.id===req.params.id&&!item.isDeleted);
-    if(!transaction)return null;
-    transaction.isDeleted=true;
-    transaction.deletedAt=now();
-    transaction.deletedBy=req.user.id;
+  try{
+    const deleted=await mutateDurable((s)=>{
+      const transaction=s.transactions.find(item=>item.id===req.params.id&&!item.isDeleted);
+      if(!transaction)return null;
+      const deletedAt=now();
+      transaction.isDeleted=true;
+      transaction.deletedAt=deletedAt;
+      transaction.deletedBy=req.user.id;
 
-    for(const payment of s.payments){
-      if(payment.transactionId===transaction.id&&!payment.isDeleted){
-        payment.isDeleted=true;
-        payment.deletedAt=now();
-        payment.deletedBy=req.user.id;
+      for(const payment of s.payments){
+        if(payment.transactionId===transaction.id&&!payment.isDeleted){
+          payment.isDeleted=true;
+          payment.deletedAt=deletedAt;
+          payment.deletedBy=req.user.id;
+        }
       }
+
+      audit(s,req.user.id,"DELETE","TRANSACTION",transaction.id,{softDelete:true});
+      return {id:transaction.id,number:transaction.number};
+    });
+
+    if(!deleted)return res.status(404).json({message:"الحوالة غير موجودة أو محذوفة مسبقًا"});
+    const persisted=readStore().transactions.find(item=>item.id===deleted.id);
+    if(!persisted?.isDeleted){
+      return res.status(500).json({message:"تعذر تأكيد حذف الحوالة، يرجى المحاولة مرة أخرى"});
     }
-
-    audit(s,req.user.id,"DELETE","TRANSACTION",transaction.id,{softDelete:true});
-    return transaction;
-  });
-
-  if(!deleted)return res.status(404).json({message:"الحوالة غير موجودة"});
-  res.json({message:"تم حذف الحوالة ونقلها إلى المحذوفات"});
+    res.json({success:true,id:deleted.id,message:"تم حذف الحوالة بنجاح"});
+  }catch(error){
+    console.error("Delete transaction failed:",error);
+    res.status(error?.statusCode||500).json({message:error?.message||"تعذر حذف الحوالة"});
+  }
 });
 
 app.patch("/api/payments/:id", auth, async (req,res)=>{

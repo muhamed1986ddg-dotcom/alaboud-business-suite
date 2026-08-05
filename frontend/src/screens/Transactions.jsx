@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useState} from "react";
-import api,{cachedGet} from "../api";
+import api,{cachedGet,clearApiGetCache} from "../api";
 import {APP_VERSION} from "../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
 import {AppTable,AppModal,AppButton} from "../components/ui";
@@ -159,6 +159,25 @@ export function Transactions({openInvoice}){
     }
   }
 
+
+  async function deleteTransaction(transaction){
+    if(!transaction?.id)return;
+    const confirmed=await confirmAction({
+      title:"تأكيد حذف الحوالة",
+      message:`هل أنت متأكد من حذف الحوالة ${transaction.number||""}؟ سيتم إخفاؤها وحذف دفعاتها المرتبطة.`,
+      confirmText:"حذف الحوالة"
+    });
+    if(!confirmed)return;
+    setError("");
+    try{
+      await api.delete(`/transactions/${transaction.id}`);
+      clearApiGetCache();
+      setList(current=>current.filter(item=>item.id!==transaction.id));
+      await load();
+    }catch(requestError){
+      setError(requestError.response?.data?.message||"تعذر حذف الحوالة");
+    }
+  }
 
   async function markTransactionPaid(transaction){
     const remaining=Number(transaction.remaining||0);
@@ -426,33 +445,7 @@ export function Transactions({openInvoice}){
           <footer className="transaction-mobile-card__actions">
             <button title="فتح الفاتورة" onClick={()=>openInvoice(transaction.id)}>فاتورة</button>
             <button title="تعديل" onClick={()=>startEditTransaction(transaction)}>تعديل</button>
-            {transaction.paymentStatus!=="PAID"&&<button title="تسديد كامل" onClick={()=>markTransactionPaid(transaction)}>تسديد</button>}
-          </footer>
-        </article>;
-      }):<div className="transaction-mobile-empty">لا توجد حوالات مطابقة.</div>}
-    </div>
-
-    <div className="transaction-mobile-cards">
-      {visibleTransactions.length?visibleTransactions.map((transaction)=>{
-        const exchangeRate=Number(transaction.finalRate||transaction.clientRate||0);
-        const cadValue=Number(transaction.amount||0)*exchangeRate;
-        const finalTotal=Number(transaction.totalCustomerDue||cadValue);
-        return <article className="transaction-mobile-card" key={`mobile-${transaction.id}`}>
-          <header className="transaction-mobile-card__head">
-            <div><strong>{transaction.number}</strong><small>{transaction.transferDate||String(transaction.createdAt||"").slice(0,10)||"-"}</small></div>
-            <span className={`transfer-payment-badge ${transaction.paymentStatus==="PAID"?"paid":"unpaid"}`}>{transaction.paymentStatus==="PAID"?"مدفوعة":"غير مدفوعة"}</span>
-          </header>
-          <div className="transaction-mobile-card__customer">{transaction.customerName||"-"}</div>
-          <div className="transaction-mobile-card__grid">
-            <div><span>المبلغ</span><strong>{money(transaction.amount)} {transaction.currency||"USD"}</strong></div>
-            <div><span>سعر التحويل</span><strong>{exchangeRate?exchangeRate.toFixed(4):"-"}</strong></div>
-            <div><span>القيمة CAD</span><strong>{money(cadValue)}</strong></div>
-            <div className="transaction-mobile-card__total"><span>الإجمالي CAD</span><strong>{money(finalTotal)}</strong></div>
-          </div>
-          {Number(transaction.transferFee||0)>0&&<div className="transaction-mobile-card__fee">العمولة: <strong>{money(transaction.transferFee)} CAD</strong></div>}
-          <footer className="transaction-mobile-card__actions">
-            <button title="فتح الفاتورة" onClick={()=>openInvoice(transaction.id)}>فاتورة</button>
-            <button title="تعديل" onClick={()=>startEditTransaction(transaction)}>تعديل</button>
+            <button title="حذف" className="danger-button" onClick={()=>deleteTransaction(transaction)}>حذف</button>
             {transaction.paymentStatus!=="PAID"&&<button title="تسديد كامل" onClick={()=>markTransactionPaid(transaction)}>تسديد</button>}
           </footer>
         </article>;
@@ -485,7 +478,7 @@ export function Transactions({openInvoice}){
               <td data-label="العمولة CAD">{money(transaction.transferFee||0)}</td>
               <td data-label="الإجمالي CAD" className="transaction-final-total">{money(transaction.totalCustomerDue||cadValue)}</td>
               <td data-label="الحالة"><span className={`transfer-payment-badge ${transaction.paymentStatus==="PAID"?"paid":"unpaid"}`}>{transaction.paymentStatus==="PAID"?"مكتملة":"غير مدفوعة"}</span></td>
-              <td data-label="الإجراءات" className="transaction-mobile-actions"><div className="transaction-row-actions"><button title="فتح الفاتورة" onClick={()=>openInvoice(transaction.id)}>◉</button><button title="تعديل" className="transaction-edit-button" onClick={()=>startEditTransaction(transaction)}>✎</button>{transaction.paymentStatus!=="PAID"&&<button title="تسديد كامل" onClick={()=>markTransactionPaid(transaction)}>✓</button>}</div></td>
+              <td data-label="الإجراءات" className="transaction-mobile-actions"><div className="transaction-row-actions"><button title="فتح الفاتورة" onClick={()=>openInvoice(transaction.id)}>◉</button><button title="تعديل" className="transaction-edit-button" onClick={()=>startEditTransaction(transaction)}>✎</button><button title="حذف" className="danger-button" onClick={()=>deleteTransaction(transaction)}>🗑</button>{transaction.paymentStatus!=="PAID"&&<button title="تسديد كامل" onClick={()=>markTransactionPaid(transaction)}>✓</button>}</div></td>
             </tr>;
           }):<tr><td colSpan="13">لا توجد حوالات مطابقة.</td></tr>}
         </tbody>

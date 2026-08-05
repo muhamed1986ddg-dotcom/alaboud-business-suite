@@ -1,5 +1,5 @@
 import React,{useEffect,useRef,useState} from "react";
-import api,{cachedGet} from "../api";
+import api,{cachedGet,clearApiGetCache} from "../api";
 import {APP_VERSION} from "../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
 import {AppTable} from "../components/ui";
@@ -302,6 +302,8 @@ export function Customer({id,back,onStatement}){
     if(!await confirmAction({title:"تأكيد حذف الحوالة",message:"هل أنت متأكد من حذف الحوالة؟ سيتم حذف دفعاتها منطقيًا.",confirmText:"حذف الحوالة"}))return;
     try{
       await api.delete(`/transactions/${transactionId}`);
+      clearApiGetCache();
+      setData(current=>current?{...current,transactions:current.transactions.filter(item=>item.id!==transactionId)}:current);
       await load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر حذف الحوالة");
