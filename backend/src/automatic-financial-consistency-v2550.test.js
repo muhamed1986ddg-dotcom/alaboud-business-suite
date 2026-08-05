@@ -1,0 +1,12 @@
+const fs=require('fs');
+const assert=require('assert');
+const server=fs.readFileSync(__dirname+'/server.js','utf8');
+const partners=fs.readFileSync(__dirname+'/../../frontend/src/screens/Partners.jsx','utf8');
+assert(server.includes('function isAutomaticExchangeRate'), 'automatic rate classifier missing');
+assert(server.includes('automaticOnly = true'), 'currency conversion must default to automatic rates');
+assert(server.includes('summaryCurrency||"CAD"'), 'partner summary must default to CAD');
+assert(server.includes('Never add CAD local balances to a foreign-currency external balance directly'), 'mixed-currency guard missing');
+assert(server.includes('cadNet:'), 'partner CAD final balance missing');
+assert(partners.includes('الرصيد النهائي'), 'partner final CAD balance UI missing');
+assert(partners.includes('حسب آخر سعر صرف آلي'), 'automatic rate label missing');
+console.log('automatic financial consistency v25.5.0 test passed');

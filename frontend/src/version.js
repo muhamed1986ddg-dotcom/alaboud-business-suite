@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.4.9 Unified Debt Balance";
+export const APP_VERSION="v25.5.0 Automatic Financial Consistency";

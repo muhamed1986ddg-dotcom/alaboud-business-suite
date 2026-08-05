@@ -399,10 +399,20 @@ function windowResponse(window,items){
   return {items,total:window.total,page:window.page,pageSize:window.pageSize,totalPages:Math.max(1,Math.ceil(window.total/window.pageSize))};
 }
 
-function latestExchangeGraph(store) {
+function rateTimestamp(rate = {}) {
+  return String(rate.effectiveAt || rate.sourceDate || rate.updatedAt || rate.createdAt || "");
+}
+
+function isAutomaticExchangeRate(rate = {}) {
+  const source = String(rate.source || rate.rateSource || "").trim().toUpperCase();
+  return Boolean(source) && !["MANUAL", "USER", "CUSTOM", "LOCAL"].includes(source);
+}
+
+function latestExchangeGraph(store, { automaticOnly = true } = {}) {
+  const allRates = Array.isArray(store.exchangeRates) ? store.exchangeRates : [];
+  const candidates = automaticOnly ? allRates.filter(isAutomaticExchangeRate) : allRates;
   const latest = new Map();
-  for (const rate of (Array.isArray(store.exchangeRates) ? store.exchangeRates : [])
-    .slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")))) {
+  for (const rate of candidates.slice().sort((a,b)=>rateTimestamp(b).localeCompare(rateTimestamp(a)))) {
     const base=String(rate.baseCurrency||"").toUpperCase();
     const quote=String(rate.quoteCurrency||"").toUpperCase();
     if(!base||!quote||base===quote)continue;
@@ -410,33 +420,38 @@ function latestExchangeGraph(store) {
     if(!latest.has(key))latest.set(key,rate);
   }
   const graph=new Map();
-  const add=(from,to,factor,updatedAt)=>{
+  const add=(from,to,factor,updatedAt,source)=>{
     if(!Number.isFinite(factor)||factor<=0)return;
     if(!graph.has(from))graph.set(from,[]);
-    graph.get(from).push({to,factor,updatedAt});
+    graph.get(from).push({to,factor,updatedAt,source});
   };
   for(const rate of latest.values()){
     const base=String(rate.baseCurrency||"").toUpperCase();
     const quote=String(rate.quoteCurrency||"").toUpperCase();
-    const factor=safeNumber(rate.sellRate,rate.buyRate);
-    if(factor>0){add(base,quote,factor,rate.createdAt||null);add(quote,base,1/factor,rate.createdAt||null);}
+    const sell=Number(rate.sellRate);
+    const buy=Number(rate.buyRate);
+    const factor=Number.isFinite(sell)&&sell>0?sell:(Number.isFinite(buy)&&buy>0?buy:0);
+    const updatedAt=rateTimestamp(rate)||null;
+    const source=rate.source||rate.rateSource||null;
+    if(factor>0){add(base,quote,factor,updatedAt,source);add(quote,base,1/factor,updatedAt,source);}
   }
   return graph;
 }
 
-function currencyConversion(store, fromCurrency, toCurrency="CAD") {
+function currencyConversion(store, fromCurrency, toCurrency="CAD", options = {}) {
   const from=String(fromCurrency||"CAD").toUpperCase();
   const to=String(toCurrency||"CAD").toUpperCase();
-  if(from===to)return {factor:1,path:[from],updatedAt:null};
-  const graph=latestExchangeGraph(store);
-  const queue=[{currency:from,factor:1,path:[from],updatedAt:null}];
+  if(from===to)return {factor:1,path:[from],updatedAt:null,source:"IDENTITY",automatic:true};
+  const automaticOnly=options.automaticOnly!==false;
+  const graph=latestExchangeGraph(store,{automaticOnly});
+  const queue=[{currency:from,factor:1,path:[from],updatedAt:null,sources:[]}];
   const seen=new Set([from]);
   while(queue.length){
     const current=queue.shift();
     for(const edge of (graph.get(current.currency)||[])){
       if(seen.has(edge.to))continue;
-      const next={currency:edge.to,factor:current.factor*edge.factor,path:[...current.path,edge.to],updatedAt:edge.updatedAt||current.updatedAt};
-      if(edge.to===to)return next;
+      const next={currency:edge.to,factor:current.factor*edge.factor,path:[...current.path,edge.to],updatedAt:edge.updatedAt||current.updatedAt,sources:[...current.sources,edge.source].filter(Boolean)};
+      if(edge.to===to)return {...next,source:next.sources.join(" → ")||null,automatic:automaticOnly};
       seen.add(edge.to);queue.push(next);
     }
   }
@@ -4130,7 +4145,7 @@ async function syncJadPartner(partner,options={}){
 
 app.get("/api/partners", auth, async (req,res)=>{
   const store=readStore();
-  const summaryCurrency=String(req.query.summaryCurrency||"USD").toUpperCase();
+  const summaryCurrency=String(req.query.summaryCurrency||"CAD").toUpperCase();
   const missingRates=new Set();
   let ratesUpdatedAt=null;
   const convertedTotals={receivable:0,payable:0};
@@ -4197,16 +4212,46 @@ app.get("/api/partners", auth, async (req,res)=>{
     addConverted(localReceivable,"CAD","receivable");
     addConverted(localPayable,"CAD","payable");
 
-    const receivableBalance=localReceivable+externalReceivable;
-    const payableBalance=localPayable+externalPayable;
+    // Never add CAD local balances to a foreign-currency external balance directly.
+    // Every displayed company total is normalized independently using the latest automatic rate.
+    let partnerCadReceivable=localReceivable;
+    let partnerCadPayable=localPayable;
+    let partnerRateUpdatedAt=null;
+    const partnerRateSources=new Set();
+    const addPartnerCad=(amount,currency,type)=>{
+      const value=Math.max(safeNumber(amount),0);
+      if(value<=0.001)return;
+      const conversion=currencyConversion(store,String(currency||"CAD").toUpperCase(),"CAD");
+      if(!conversion)return;
+      if(type==="receivable")partnerCadReceivable+=value*conversion.factor;
+      else partnerCadPayable+=value*conversion.factor;
+      if(conversion.updatedAt&&(!partnerRateUpdatedAt||conversion.updatedAt>partnerRateUpdatedAt))partnerRateUpdatedAt=conversion.updatedAt;
+      for(const source of conversion.sources||[])partnerRateSources.add(source);
+    };
+    if(entries.length){
+      for(const [currency,value] of entries){
+        addPartnerCad(Math.max(safeNumber(value.receivable),0),currency,"receivable");
+        addPartnerCad(Math.max(safeNumber(value.payable),0),currency,"payable");
+      }
+    }else{
+      addPartnerCad(externalReceivable,partner.accountCurrency||"USD","receivable");
+      addPartnerCad(externalPayable,partner.accountCurrency||"USD","payable");
+    }
 
     const {passwordEncrypted,...publicPartner}=partner;
     return {
       ...publicPartner,
       hasPassword:Boolean(passwordEncrypted),
-      receivable:+receivableBalance.toFixed(2),
-      payable:+payableBalance.toFixed(2),
-      net:+(receivableBalance-payableBalance).toFixed(2)
+      // Legacy fields now have an explicit currency and no longer mix currencies.
+      receivable:+partnerCadReceivable.toFixed(2),
+      payable:+partnerCadPayable.toFixed(2),
+      net:+(partnerCadReceivable-partnerCadPayable).toFixed(2),
+      balanceCurrency:"CAD",
+      cadReceivable:+partnerCadReceivable.toFixed(2),
+      cadPayable:+partnerCadPayable.toFixed(2),
+      cadNet:+(partnerCadReceivable-partnerCadPayable).toFixed(2),
+      automaticRateUpdatedAt:partnerRateUpdatedAt,
+      automaticRateSource:[...partnerRateSources].join("، ")||null
     };
   }).sort((a,b)=>String(a.name).localeCompare(String(b.name),"ar"));
 

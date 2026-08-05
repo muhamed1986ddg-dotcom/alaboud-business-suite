@@ -1,0 +1,12 @@
+
+.partner-cad-final {
+  border-color: rgba(239, 196, 92, .65) !important;
+  background: linear-gradient(135deg, rgba(239,196,92,.12), rgba(33,45,70,.72));
+}
+.partner-cad-final small {
+  display: block;
+  grid-column: 1 / -1;
+  color: var(--text-muted, #aeb9ca);
+  font-size: .72rem;
+  margin-top: .25rem;
+}

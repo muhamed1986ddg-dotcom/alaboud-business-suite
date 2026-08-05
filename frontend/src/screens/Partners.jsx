@@ -448,6 +448,11 @@ function Partners({open,view="companies"}){
       <div><span>دين علينا</span><b className="partner-payable">{money(item.payable)}</b></div>
       <div><span>الصافي</span><b className={item.balance<0?"partner-payable":"partner-receivable"}>{money(item.balance)}</b></div>
     </div>)}
+    <div className="partner-currency-balance partner-cad-final">
+      <div className="partner-currency-code"><span>🇨🇦</span><strong>CAD</strong></div>
+      <div><span>الرصيد النهائي</span><b className={Number(partner.cadNet)<0?"partner-payable":"partner-receivable"}>{money(partner.cadNet)}</b></div>
+      <small>حسب آخر سعر صرف آلي{partner.automaticRateUpdatedAt?` · ${new Date(partner.automaticRateUpdatedAt).toLocaleString("ar-CA")}`:""}</small>
+    </div>
   </div>;
 
   const pageTitles={
@@ -476,12 +481,12 @@ function Partners({open,view="companies"}){
     {error&&<div className="card customer-error">{error}</div>}
     {message&&<div className="card rate-message">{message}</div>}
     {showSummary&&<><div className="stats">
-      <div className="card receivable-card"><span>إجمالي دين لنا — {data.summaryCurrency||"USD"}</span><strong>{money(data.totals.receivable)}</strong><small>بعد تحويل جميع العملات</small></div>
-      <div className="card payable-card"><span>إجمالي دين علينا — {data.summaryCurrency||"USD"}</span><strong>{money(data.totals.payable)}</strong><small>بعد تحويل جميع العملات</small></div>
-      <div className="card final"><span>الصافي — {data.summaryCurrency||"USD"}</span><strong>{money(data.totals.net)}</strong><small>حسب آخر سعر صرف</small></div>
+      <div className="card receivable-card"><span>إجمالي دين لنا — {data.summaryCurrency||"CAD"}</span><strong>{money(data.totals.receivable)}</strong><small>بعد تحويل جميع العملات</small></div>
+      <div className="card payable-card"><span>إجمالي دين علينا — {data.summaryCurrency||"CAD"}</span><strong>{money(data.totals.payable)}</strong><small>بعد تحويل جميع العملات</small></div>
+      <div className="card final"><span>الصافي — {data.summaryCurrency||"CAD"}</span><strong>{money(data.totals.net)}</strong><small>حسب آخر سعر صرف</small></div>
       <div className="card"><span>عدد الشركات</span><strong>{data.rows.length}</strong></div>
     </div>
-    {data.missingRates?.length>0&&<div className="card debt-message">لم تدخل العملات التالية في الإجمالي لعدم توفر سعر تحويل إلى {data.summaryCurrency||"USD"}: {data.missingRates.join("، ")}</div>}</>}
+    {data.missingRates?.length>0&&<div className="card debt-message">لم تدخل العملات التالية في الإجمالي لعدم توفر سعر تحويل إلى {data.summaryCurrency||"CAD"}: {data.missingRates.join("، ")}</div>}</>}
 
     {showSync&&<section className="smart-sync-center">
       <div className="smart-sync-heading"><div><h3>🔄 مركز المزامنة الذكية</h3><p>يتحقق تلقائيًا من الشركات المستحقة للمزامنة ويحافظ على آخر رصيد ناجح عند فشل الاتصال.</p></div><span className="live-sync-badge">● مباشر</span></div>
