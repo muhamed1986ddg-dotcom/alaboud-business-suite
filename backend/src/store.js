@@ -62,8 +62,8 @@ function writeStore(store){
   return database.queueSave();
 }
 async function writeStoreDurable(store){
-  writeStore(store);
-  await database.flush();
+  rootStore=database.replaceStore(normalizeStore(unwrapStore(store)));
+  await database.saveDurable(rootStore);
   return rootStore;
 }
 function tenantArray(root,key,companyId,branchId){

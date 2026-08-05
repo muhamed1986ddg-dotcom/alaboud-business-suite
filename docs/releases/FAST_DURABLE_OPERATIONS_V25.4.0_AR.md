@@ -1,4 +1,4 @@
-# v25.4.0 — Fast Durable Operations
+# v25.4.1 — Fast Durable Operations
 
 - تأكيد الإضافة والتعديل والحذف فور اكتمال حفظ `app_state` الأساسي في PostgreSQL.
 - نقل تحديث الجداول العلائقية الثانوية إلى طابور خلفي غير معيق للطلب.

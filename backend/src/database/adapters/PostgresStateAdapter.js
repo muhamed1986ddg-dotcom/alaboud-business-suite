@@ -196,53 +196,41 @@ class PostgresStateAdapter {
     })().finally(() => { this.mirrorRunning = false; });
   }
 
-  async save(snapshot) {
-    const attempts = Math.max(1, Number(process.env.PG_WRITE_RETRIES || 8));
-    const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 400));
-    const maxMs = Math.max(baseMs, Number(process.env.PG_RETRY_MAX_MS || 4000));
-    const retryBudgetMs = Math.max(1000, Number(process.env.PG_WRITE_RETRY_BUDGET_MS || 12000));
+  async save(snapshot, options = {}) {
+    // A single UPSERT statement is already atomic in PostgreSQL. Using a
+    // checked-out client plus BEGIN/COMMIT added two network round trips and
+    // made every button wait longer, especially on Render free instances.
+    const interactive = options.interactive !== false;
+    const attempts = Math.max(1, Number(process.env.PG_WRITE_RETRIES || (interactive ? 4 : 8)));
+    const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 250));
+    const maxMs = Math.max(baseMs, Number(process.env.PG_WRITE_RETRY_MAX_MS || (interactive ? 1200 : 4000)));
+    const retryBudgetMs = Math.max(1000, Number(process.env.PG_WRITE_RETRY_BUDGET_MS || (interactive ? 6000 : 12000)));
     const startedAt = Date.now();
+    const payload = JSON.stringify(snapshot);
     let lastError;
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      let client;
-      let detachClientErrorGuard = () => {};
       try {
-        client = await this.pool.connect();
-        detachClientErrorGuard = this.attachClientErrorGuard(client, "write-client");
-        await client.query("BEGIN");
-        await client.query(
+        await this.pool.query(
           `INSERT INTO app_state (state_key,payload,updated_at)
            VALUES ('main',$1::jsonb,NOW())
            ON CONFLICT (state_key)
            DO UPDATE SET payload=EXCLUDED.payload,updated_at=NOW()`,
-          [JSON.stringify(snapshot)]
+          [payload]
         );
-        await client.query("COMMIT");
-        detachClientErrorGuard();
-        client.release();
-        // Return success as soon as the canonical app_state snapshot is durable.
-        // The relational reporting mirror is updated in the background.
         this.queueRelationalMirror(snapshot);
         return;
       } catch (error) {
         lastError = error;
-        if (client) {
-          try { await client.query("ROLLBACK"); } catch {}
-          try { detachClientErrorGuard(); } catch {}
-          try { client.release(isTransientPostgresError(error)); } catch {}
-        }
-
         const budgetExhausted = Date.now() - startedAt >= retryBudgetMs;
         if (!isTransientPostgresError(error) || attempt === attempts || budgetExhausted) {
           if (isTransientPostgresError(error)) {
             error.status = 503;
             error.code = error.code || "DATABASE_TEMPORARILY_UNAVAILABLE";
-            error.publicMessage = "قاعدة البيانات تعيد الاتصال حاليًا. لم يتم حفظ أي تغيير، يرجى المحاولة بعد لحظات.";
+            error.publicMessage = "تعذر تأكيد الحفظ الآن بسبب اتصال قاعدة البيانات. لم يتم اعتماد التغيير، يرجى المحاولة بعد لحظات.";
           }
           throw error;
         }
-
         await this.resetPool(`write:${error.code || error.message}`);
         const delay = retryDelay(attempt, baseMs, maxMs);
         this.logger.warn(`PostgreSQL write unavailable; retrying (${attempt}/${attempts}) in ${delay}ms. ${error.code || error.message}`);

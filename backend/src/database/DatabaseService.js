@@ -12,6 +12,7 @@ class DatabaseService {
     this.pendingSnapshot = null;
     this.persisting = false;
     this.lastPersistError = null;
+    this.durableSaveChain = Promise.resolve();
   }
 
   async init() {
@@ -59,6 +60,23 @@ class DatabaseService {
   replaceStore(nextStore) {
     this.store = this.normalize(nextStore);
     return this.store;
+  }
+
+  saveDurable(nextStore) {
+    // Interactive writes must not wait behind the coalesced background queue.
+    // Serialize only durable writes, persist the exact latest snapshot, and let
+    // a successful durable write supersede any older pending background save.
+    const snapshot = structuredClone(this.normalize(nextStore));
+    const execute = async () => {
+      await this.adapter.save(snapshot, { interactive: true });
+      this.store = this.normalize(snapshot);
+      this.pendingSnapshot = null;
+      this.lastPersistError = null;
+      return this.store;
+    };
+    const task = this.durableSaveChain.then(execute, execute);
+    this.durableSaveChain = task.catch(() => undefined);
+    return task;
   }
 
   queueSave() {
