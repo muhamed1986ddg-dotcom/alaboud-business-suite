@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.3.0 Durable Writes & Customer Pagination";
+export const APP_VERSION="v25.3.1 PostgreSQL Recovery Resilience";

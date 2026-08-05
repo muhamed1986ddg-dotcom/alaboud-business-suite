@@ -1,3 +1,11 @@
+# v25.3.1
+
+- Added PostgreSQL recovery-mode resilience with exponential backoff and jitter.
+- Increased durable write retries to eight by default.
+- Recreates the PostgreSQL pool after transient connection failures.
+- Treats 57P03/recovery errors as retryable and returns a clear Arabic 503 message without false save success.
+- Added resilience classification and backoff tests.
+
 # v25.3.0
 - Complete test coverage for all 12 shared UI components.
 - Remove the final unused `.rate-modal` and `.budget-modal` CSS wrappers.

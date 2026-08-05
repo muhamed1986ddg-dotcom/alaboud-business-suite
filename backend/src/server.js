@@ -5147,8 +5147,14 @@ app.use((err,req,res,_next)=>{
   const requestId=req.requestId||req.headers["x-request-id"]||null;
   console.error("Unhandled request error",{requestId,path:req.path,method:req.method,error:err?.stack||err});
   const status=Number(err?.status||err?.statusCode)||500;
+  const isDatabaseTemporary = status===503 || ["57P03","57P01","57P02","08006"].includes(String(err?.code||"").toUpperCase());
+  const message = err?.publicMessage || (isDatabaseTemporary
+    ? "قاعدة البيانات تعيد الاتصال حاليًا. لم يتم حفظ أي تغيير، يرجى المحاولة بعد لحظات."
+    : status>=500 ? "حدث خطأ داخلي في الخادم" : (err.message||"Request failed"));
   res.status(status>=400&&status<600?status:500).json({
-    message:status>=500?"حدث خطأ داخلي في الخادم":(err.message||"Request failed"),
+    message,
+    code:isDatabaseTemporary?"DATABASE_TEMPORARILY_UNAVAILABLE":(err?.code||undefined),
+    retryable:Boolean(isDatabaseTemporary),
     requestId
   });
 });
@@ -5184,7 +5190,7 @@ let shuttingDown=false;
 // يسبب توقف الخدمة لثوانٍ لكل المستخدمين عند كل انقطاع عابر.
 function isTransientConnectionError(error){
   const message=String(error?.message||"").toLowerCase();
-  return ["connection terminated","econnreset","socket hang up","57p01","08006","08000","08003","08001"].some(x=>message.includes(x))||String(error?.code||"").startsWith("08");
+  return ["connection terminated","econnreset","econnrefused","socket hang up","57p01","57p02","57p03","database system is in recovery mode","database system is not yet accepting connections","08006","08000","08003","08001"].some(x=>message.includes(x))||String(error?.code||"").startsWith("08");
 }
 async function shutdown(signal){
   if(shuttingDown)return;
@@ -5199,19 +5205,19 @@ async function shutdown(signal){
 process.on("SIGTERM",()=>shutdown("SIGTERM"));
 process.on("SIGINT",()=>shutdown("SIGINT"));
 process.on("unhandledRejection",error=>{
+  console.error("Unhandled promise rejection:",error);
   if(isTransientConnectionError(error)){
-    console.warn(`Transient PostgreSQL rejection ignored: ${error?.message||error}`);
+    console.warn("تم تجاهل خطأ اتصال عابر بقاعدة البيانات دون إسقاط السيرفر.");
     return;
   }
-  console.error("Unhandled promise rejection:",error);
   shutdown("UNHANDLED_REJECTION");
 });
 process.on("uncaughtException",error=>{
+  console.error("Uncaught exception:",error);
   if(isTransientConnectionError(error)){
-    console.warn(`Transient PostgreSQL connection error ignored: ${error?.message||error}`);
+    console.warn("تم تجاهل خطأ اتصال عابر بقاعدة البيانات دون إسقاط السيرفر.");
     return;
   }
-  console.error("Uncaught exception:",error);
   shutdown("UNCAUGHT_EXCEPTION");
 });
 startServer().catch(error=>{

@@ -28,6 +28,7 @@ jobs:
           node backend/src/access-control.test.js
           node backend/src/durability.test.js
           node backend/src/customer-pagination.test.js
+          npm run test:resilience --prefix backend
           npm run test:migration --prefix backend
           npm run test:projector --prefix backend
           npm run test:api-platform --prefix backend
