@@ -1,4 +1,5 @@
 const express = require("express");
+const { isRecoverableOperationalError } = require("./database/operational-error");
 const helmet = require("helmet");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
@@ -5225,8 +5226,7 @@ let shuttingDown=false;
 // PostgresStateAdapter، فلا داعي لإسقاط السيرفر بالكامل بسببها — هذا كان
 // يسبب توقف الخدمة لثوانٍ لكل المستخدمين عند كل انقطاع عابر.
 function isTransientConnectionError(error){
-  const message=String(error?.message||"").toLowerCase();
-  return ["connection terminated","econnreset","econnrefused","socket hang up","57p01","57p02","57p03","database system is in recovery mode","database system is not yet accepting connections","08006","08000","08003","08001"].some(x=>message.includes(x))||String(error?.code||"").startsWith("08");
+  return isRecoverableOperationalError(error);
 }
 async function shutdown(signal){
   if(shuttingDown)return;
@@ -5242,7 +5242,7 @@ process.on("SIGTERM",()=>shutdown("SIGTERM"));
 process.on("SIGINT",()=>shutdown("SIGINT"));
 process.on("unhandledRejection",error=>{
   if(isTransientConnectionError(error)){
-    console.warn("PostgreSQL transient promise rejection handled without stopping the server:",error?.code||error?.message||error);
+    console.warn("Recoverable database rejection handled; server remains available:",error?.code||error?.message||error);
     return;
   }
   console.error("Unhandled promise rejection:",error);
@@ -5250,7 +5250,7 @@ process.on("unhandledRejection",error=>{
 });
 process.on("uncaughtException",error=>{
   if(isTransientConnectionError(error)){
-    console.warn("PostgreSQL transient connection exception handled without stopping the server:",error?.code||error?.message||error);
+    console.warn("Recoverable database exception handled; server remains available:",error?.code||error?.message||error);
     return;
   }
   console.error("Uncaught exception:",error);
