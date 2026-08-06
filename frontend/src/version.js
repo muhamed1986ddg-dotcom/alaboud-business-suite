@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.7.0 Smart Sync Modal";
+export const APP_VERSION="v25.8.0 Customer Primary Toolbar";

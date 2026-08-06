@@ -6103,17 +6103,6 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 }
 
 
-/* v25.4.7 — إجمالي دين العملاء */
-.customer-total-debt-wrap{display:flex;justify-content:center;margin:14px 0 18px}
-.customer-total-debt-card{width:min(680px,100%);display:flex;align-items:center;justify-content:center;gap:18px;padding:22px 28px;border:1px solid rgba(212,175,55,.7);background:linear-gradient(135deg,rgba(14,35,55,.98),rgba(8,22,37,.98));box-shadow:0 12px 28px rgba(0,0,0,.22)}
-.customer-total-debt-icon{font-size:42px;line-height:1}
-.customer-total-debt-copy{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center}
-.customer-total-debt-copy span{font-size:17px;font-weight:800;color:#e8cf7a}
-.customer-total-debt-copy strong{font-size:34px;line-height:1.15;color:#fff;font-variant-numeric:tabular-nums}
-.customer-total-debt-copy small{color:#b7c4d2;font-size:13px}
-@media(max-width:600px){.customer-total-debt-wrap{margin:10px 0 12px}.customer-total-debt-card{gap:12px;padding:16px 14px}.customer-total-debt-icon{font-size:31px}.customer-total-debt-copy span{font-size:15px}.customer-total-debt-copy strong{font-size:27px}.customer-total-debt-copy small{font-size:11px}}
-
-
 /* v25.4.8 — compact receivable balance summary */
 .debt-receivable-balance-summary{display:grid;gap:12px;margin:14px 0}
 .debt-balance-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 20px}
@@ -6143,3 +6132,13 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 .smart-sync-log-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .smart-sync-log-title h4{margin:0}
 @media(max-width:700px){.partner-page-toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}.partner-page-toolbar button{width:100%;min-height:42px}.smart-sync-modal-content{padding:12px}.sync-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.smart-sync-log-title{align-items:stretch;flex-direction:column}}
+
+/* v25.8.0 — primary customer actions and debt total in one toolbar */
+.customer-primary-toolbar{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr)) minmax(250px,1.45fr);align-items:stretch;gap:10px;margin:14px 0 18px;padding:12px}
+.customer-primary-toolbar>button{min-height:54px;margin:0;white-space:nowrap}
+.customer-toolbar-debt{min-height:54px;display:flex;align-items:center;justify-content:center;gap:12px;padding:8px 16px;border:1px solid rgba(212,175,55,.68);border-radius:12px;background:linear-gradient(135deg,rgba(19,48,76,.98),rgba(8,24,42,.98));box-shadow:inset 0 0 0 1px rgba(255,255,255,.025)}
+.customer-toolbar-debt span{color:#e8cf7a;font-size:.9rem;font-weight:800;white-space:nowrap}
+.customer-toolbar-debt strong{color:#fff;font-size:1.24rem;font-weight:900;direction:ltr;white-space:nowrap;font-variant-numeric:tabular-nums lining-nums}
+@media(max-width:1050px){.customer-primary-toolbar{grid-template-columns:repeat(4,minmax(120px,1fr))}.customer-toolbar-debt{grid-column:1/-1}}
+@media(max-width:700px){.customer-primary-toolbar{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:9px}.customer-primary-toolbar>button{min-height:44px;padding:8px 7px;font-size:.82rem}.customer-toolbar-debt{grid-column:1/-1;min-height:48px;justify-content:space-between;padding:8px 11px}.customer-toolbar-debt span{font-size:.8rem}.customer-toolbar-debt strong{font-size:1.05rem}}
+@media(max-width:380px){.customer-primary-toolbar>button{font-size:.75rem}.customer-toolbar-debt{gap:7px}.customer-toolbar-debt span{font-size:.74rem}.customer-toolbar-debt strong{font-size:.96rem}}

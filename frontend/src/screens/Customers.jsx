@@ -499,18 +499,7 @@ export function Customers({open}){
     </div>}
 
     {!customerActionFocus&&<>
-    <div className="customer-total-debt-wrap">
-      <div className="card customer-total-debt-card" aria-label="إجمالي دين العملاء">
-        <div className="customer-total-debt-icon">💰</div>
-        <div className="customer-total-debt-copy">
-          <span>إجمالي دين العملاء</span>
-          <strong>{cad(totalCustomerDebt)}</strong>
-          <small>المبلغ الكامل المستحق على جميع العملاء</small>
-        </div>
-      </div>
-    </div>
-
-    <div className="customer-toolbar card">
+    <div className="customer-toolbar customer-primary-toolbar card">
       <button onClick={()=>{setActivePanel("newCustomer");setEditingCustomer(null)}}>➕ إضافة عميل</button>
       <button onClick={()=>setActivePanel(activePanel==="transfer"?"":"transfer")}>💸 إضافة حوالة</button>
       <button onClick={()=>setActivePanel(activePanel==="payment"?"":"payment")}>💳 إضافة دفعة</button>
@@ -520,6 +509,10 @@ export function Customers({open}){
       >
         📋 قائمة العملاء
       </button>
+      <div className="customer-toolbar-debt" aria-label="إجمالي دين العملاء">
+        <span>💰 إجمالي دين العملاء</span>
+        <strong>{cad(totalCustomerDebt)}</strong>
+      </div>
     </div>
     </>}
 
