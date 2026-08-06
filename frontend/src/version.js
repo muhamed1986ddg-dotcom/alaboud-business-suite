@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.8.2 Global Button Cleanup";
+export const APP_VERSION="v25.10.0 Architecture and Financial Integrity";

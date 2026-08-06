@@ -1,0 +1,13 @@
+const fs=require('fs');const assert=require('assert');
+const store=fs.readFileSync('backend/src/store.js','utf8');
+const repo=fs.readFileSync('backend/src/repositories/PostgresEntityRepository.js','utf8');
+const customers=fs.readFileSync('frontend/src/screens/Customers.jsx','utf8');
+assert(store.includes('await database.saveDurable(rootStore)'),'mutateDurable must await confirmed persistence');
+assert(store.includes('rootStore=database.replaceStore(before)'),'durable write must roll back memory on failure');
+for(const mode of ['balance-desc','last-transfer','overdue-desc','oldest'])assert(repo.includes(`"${mode}"`),`missing PostgreSQL sort ${mode}`);
+assert(customers.includes('const response=await api.post("/customers",customerForm)'),'customer create response must be consumed');
+assert(customers.includes('setList(current=>'),'customer must be inserted locally after create');
+assert(fs.existsSync('backend/src/finance/FinancialEngine.js'),'central financial engine missing');
+assert(fs.existsSync('backend/src/routes/health.js'),'server route extraction missing');
+assert(fs.existsSync('backend/src/e2e/financial-workflows.e2e.test.js'),'E2E workflow missing');
+console.log('v25.10.0 architecture checks passed');

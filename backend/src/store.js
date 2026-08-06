@@ -145,15 +145,21 @@ function mutateDurable(fn){
   const context=tenantContext.getStore();
   const companyId=context?.companyId||null;
   const branchId=context?.branchId||null;
-  // Apply mutations serially in memory, then enqueue the newest full snapshot.
-  // API routes awaiting this function receive the result immediately instead
-  // of waiting for Render/PostgreSQL network recovery.
-  const execute=()=>{
-    const view=companyId?tenantView(rootStore,companyId,branchId):rootStore;
-    const result=fn(view);
-    rootStore=database.replaceStore(normalizeStore(rootStore));
-    database.queueSave();
-    return result;
+  // Financial and administrative writes are serialized and acknowledged only
+  // after PostgreSQL confirms the exact snapshot. On failure the in-memory
+  // state is rolled back, preventing a false success/read-after-write gap.
+  const execute=async()=>{
+    const before=structuredClone(normalizeStore(rootStore));
+    try{
+      const view=companyId?tenantView(rootStore,companyId,branchId):rootStore;
+      const result=await fn(view);
+      rootStore=database.replaceStore(normalizeStore(rootStore));
+      await database.saveDurable(rootStore);
+      return result;
+    }catch(error){
+      rootStore=database.replaceStore(before);
+      throw error;
+    }
   };
   const task=durableMutationChain.then(execute,execute);
   durableMutationChain=task.catch(()=>undefined);

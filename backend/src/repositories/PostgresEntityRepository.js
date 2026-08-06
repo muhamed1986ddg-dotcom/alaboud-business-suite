@@ -51,30 +51,55 @@ class PostgresEntityRepository {
     if (!this.query || this.table !== "customers") return null;
     const safeLimit = Math.min(500, Math.max(1, Number(limit) || 50));
     const safeOffset = Math.max(0, Number(offset) || 0);
-    const normalizedName = `regexp_replace(translate(lower(name), 'أإآىة', 'ااايه'), '^[[:space:]]*ال', '')`;
+    const normalizedName = `regexp_replace(translate(lower(c.name), 'أإآىة', 'ااايه'), '^[[:space:]]*ال', '')`;
     const orders = {
-      "name-asc": `${normalizedName} ASC, name ASC, created_at ASC`,
-      "name-desc": `${normalizedName} DESC, name DESC, created_at DESC`,
-      "newest": "created_at DESC, name ASC",
-      "oldest": "created_at ASC, name ASC",
+      "name-asc": `${normalizedName} ASC, c.name ASC, c.created_at ASC`,
+      "name-desc": `${normalizedName} DESC, c.name DESC, c.created_at DESC`,
+      "newest": "c.created_at DESC, c.name ASC",
+      "oldest": "c.created_at ASC, c.name ASC",
+      "balance-desc": "customer_balance_cad DESC, c.name ASC",
+      "last-transfer": "last_transaction_at DESC NULLS LAST, c.name ASC",
+      "overdue-desc": "overdue_days DESC, customer_balance_cad DESC, c.name ASC",
     };
     const orderBy = orders[sort] || orders["name-asc"];
     const term = String(search || "").trim();
     const values = [companyId];
-    let filter = `company_id=$1 AND COALESCE((raw_payload->>'isDeleted')::boolean,false)=false`;
+    let filter = `c.company_id=$1 AND COALESCE((c.raw_payload->>'isDeleted')::boolean,false)=false`;
     if (term) {
       values.push(`%${term}%`);
-      filter += ` AND (name ILIKE $2 OR COALESCE(phone,'') ILIKE $2 OR COALESCE(raw_payload->>'customerNumber','') ILIKE $2 OR COALESCE(raw_payload->>'identityNumber','') ILIKE $2)`;
+      filter += ` AND (c.name ILIKE $2 OR COALESCE(c.phone,'') ILIKE $2 OR COALESCE(c.raw_payload->>'customerNumber','') ILIKE $2 OR COALESCE(c.raw_payload->>'identityNumber','') ILIKE $2)`;
     }
-    const countResult = await this.query(`SELECT COUNT(*)::int AS count FROM ${quote(this.table)} WHERE ${filter}`, values);
+    const countResult = await this.query(`SELECT COUNT(*)::int AS count FROM ${quote(this.table)} c WHERE ${filter}`, values);
     values.push(safeLimit, safeOffset);
     const limitIndex = values.length - 1;
     const offsetIndex = values.length;
+    const metrics = `
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(SUM(GREATEST(COALESCE(t.cad_amount,t.amount,0)-COALESCE(p.paid,0),0)),0) AS transaction_balance,
+          MAX(t.transaction_date) AS last_transaction_at,
+          MIN(t.transaction_date) FILTER (WHERE GREATEST(COALESCE(t.cad_amount,t.amount,0)-COALESCE(p.paid,0),0)>0) AS oldest_unpaid_at
+        FROM transactions t
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(SUM(COALESCE(py.cad_amount,py.amount,0)),0) AS paid
+          FROM payments py
+          WHERE py.company_id=c.company_id AND py.transaction_id=t.id
+            AND COALESCE((py.raw_payload->>'isDeleted')::boolean,false)=false
+        ) p ON TRUE
+        WHERE t.company_id=c.company_id AND t.customer_id=c.id
+          AND COALESCE((t.raw_payload->>'isDeleted')::boolean,false)=false
+          AND UPPER(COALESCE(t.status,''))<>'CANCELLED'
+      ) fm ON TRUE`;
     const result = await this.query(
-      `SELECT * FROM ${quote(this.table)} WHERE ${filter} ORDER BY ${orderBy} LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+      `SELECT c.*,
+        (GREATEST(COALESCE(c.opening_balance_cad,0)-COALESCE((c.raw_payload->>'oldBalancePaid')::numeric,0),0)+COALESCE(fm.transaction_balance,0)) AS customer_balance_cad,
+        fm.last_transaction_at,
+        CASE WHEN fm.oldest_unpaid_at IS NULL THEN 0 ELSE GREATEST(0,(CURRENT_DATE-fm.oldest_unpaid_at::date)) END AS overdue_days
+       FROM ${quote(this.table)} c ${metrics}
+       WHERE ${filter} ORDER BY ${orderBy} LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
       values
     );
-    return { rows: result.rows.map(mergeRaw), total: Number(countResult.rows[0]?.count || 0) };
+    return { rows: result.rows.map(row => ({...mergeRaw(row), finalBalance:Number(row.customer_balance_cad||0), lastTransactionDate:row.last_transaction_at||null, overdueDays:Number(row.overdue_days||0)})), total: Number(countResult.rows[0]?.count || 0) };
   }
 
   async findById(companyId, id) {

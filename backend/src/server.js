@@ -11,6 +11,8 @@ const dns = require("dns").promises;
 const net = require("net");
 const { readStore, readRootStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
+const FinancialEngine = require("./finance/FinancialEngine");
+const { registerHealthRoutes } = require("./routes/health");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
 const { generateApiKey, keyPrefix, normalizeScopes, apiKeyMiddleware, versionAliasMiddleware, integrationLogger, openApiDocument, docsHtml } = require("./api-platform");
@@ -484,115 +486,17 @@ function isAfterCustomerReset(record, customer, preferredDateKey = "") {
   return activityTime >= resetTime;
 }
 
-function customerSummary(store, c) {
-  const overdueThreshold = Math.max(1, safeNumber(store.notificationSettings?.overdueDays, 7));
-  const transactions = (Array.isArray(store.transactions) ? store.transactions : [])
-    .filter((item) => item && !item.isDeleted);
-  const payments = (Array.isArray(store.payments) ? store.payments : [])
-    .filter((item) => item && !item.isDeleted);
-
-  const txs = transactions.filter(
-    (transaction) =>
-      transaction.customerId === c.id &&
-      transaction.status !== "CANCELLED" &&
-      isAfterCustomerReset(transaction, c, "transferDate")
-  );
-
-  const paymentByTransaction = new Map();
-  for (const payment of payments) {
-    paymentByTransaction.set(
-      payment.transactionId,
-      safeNumber(paymentByTransaction.get(payment.transactionId)) + safeNumber(payment.amount)
-    );
-  }
-
-  const accountWasReset = Boolean(c.accountResetAt);
-  const storedOldBalance = accountWasReset ? 0 : Math.max(safeNumber(c.oldBalance), 0);
-  const legacyOldBalancePaid = accountWasReset ? 0 : Math.min(Math.max(safeNumber(c.oldBalancePaid), 0), storedOldBalance);
-  // v24.0.7: الحساب القديم هو رصيد افتتاحي متبقٍ، وليس دفعة.
-  // ندعم البيانات القديمة التي كانت تحفظ الجزء المسدد في oldBalancePaid.
-  const oldBalance = Math.max(storedOldBalance - legacyOldBalancePaid, 0);
-  const openingBalanceInitial = accountWasReset
-    ? 0
-    : Math.max(safeNumber(c.openingBalanceInitial, storedOldBalance), oldBalance);
-  const actualPayments = groupCustomerPaymentRecords(
-    payments.filter(payment=>isAfterCustomerReset(payment,c,"paymentDate")),
-    c.id
-  ).reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
-
-  let total = openingBalanceInitial;
-  let paid = 0;
-  let oldestUnpaidDate = "";
-  let overdueTransactions = 0;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  for (const transaction of txs) {
-    const due = safeNumber(transaction.totalCustomerDue, safeNumber(transaction.amount));
-    const transactionPaid = safeNumber(paymentByTransaction.get(transaction.id));
-    const remaining = Math.max(due - transactionPaid, 0);
-    total += due;
-    paid += transactionPaid;
-
-    if (remaining > 0) {
-      const dateText = String(transaction.transferDate || transaction.createdAt || "").slice(0, 10);
-      const transactionDate = new Date(`${dateText}T00:00:00`);
-      if (!Number.isNaN(transactionDate.getTime())) {
-        const ageDays = Math.floor((today - transactionDate) / 86400000);
-        if (ageDays > overdueThreshold) overdueTransactions += 1;
-        if (!oldestUnpaidDate || dateText < oldestUnpaidDate) oldestUnpaidDate = dateText;
-      }
-    }
-  }
-
-  const transactionOutstanding = txs.reduce((sum,transaction)=>{
-    const due=safeNumber(transaction.totalCustomerDue,safeNumber(transaction.amount));
-    const transactionPaid=safeNumber(paymentByTransaction.get(transaction.id));
-    return sum+Math.max(due-transactionPaid,0);
-  },0);
-  const outstanding = Math.max(transactionOutstanding + oldBalance, 0);
-  let overdueDays = 0;
-  if (oldestUnpaidDate) {
-    const oldestDate = new Date(`${oldestUnpaidDate}T00:00:00`);
-    overdueDays = Math.max(0, Math.floor((today - oldestDate) / 86400000));
-  }
-
-  return {
-    ...c,
-    name: String(c?.name || "عميل بدون اسم"),
-    oldBalance:+oldBalance.toFixed(2),
-    openingBalanceInitial:+openingBalanceInitial.toFixed(2),
-    oldBalancePaid:0,
-    oldBalanceRemaining:+oldBalance.toFixed(2),
-    totalTransactions: +total.toFixed(2),
-    totalPaid: +actualPayments.toFixed(2),
-    finalBalance: +outstanding.toFixed(2),
-    overdue: outstanding > 0 && overdueDays > overdueThreshold,
-    overdueThreshold,
-    overdueDays,
-    overdueTransactions,
-    oldestUnpaidDate: oldestUnpaidDate || null,
-  };
+function customerSummary(store, customer) {
+  return FinancialEngine.customerSummary(store, customer, {
+    overdueDays: Math.max(1, safeNumber(store.notificationSettings?.overdueDays, 7))
+  });
 }
 
-app.get("/api/health", async (_req,res)=>{
-  const database=await databaseHealth();
-  const readiness=productionReadiness();
-  const ok=serviceReady&&database.ok&&readiness.ok;
-  res.status(ok?200:503).json({
-    ok,
-    version:APP_VERSION,
-    serviceReady,
-    startupAttempt,
-    startupError:serviceStartupError?.message||null,
-    database,
-    readiness,
-    nativeRepositories:nativeRepositories.health(),
-    time:now()
-  });
+registerHealthRoutes(app,{
+  databaseHealth,productionReadiness,nativeRepositories,now,
+  version:APP_VERSION,openApiDocument,docsHtml,
+  getServiceState:()=>({serviceReady,startupAttempt,startupError:serviceStartupError?.message||null})
 });
-app.get("/api/openapi.json", (_req,res)=>res.json(openApiDocument()));
-app.get("/api/docs", (_req,res)=>res.type("html").send(docsHtml()));
 
 app.get("/api/developer/api-keys", auth, (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
@@ -1491,18 +1395,9 @@ app.get("/api/customers", auth, async (req,res)=>{
 app.get("/api/customers/debt-summary",auth,(req,res)=>{
   try{
     const store=readStore();
-    const customers=Array.from(store.customers||[]).filter(customer=>!customer?.isDeleted);
-    const balances=customers.map(customer=>customerSummary(store,customer));
-    const debtors=balances.filter(customer=>safeNumber(customer.finalBalance)>0);
-    const totalDebtCad=debtors.reduce((sum,customer)=>sum+safeNumber(customer.finalBalance),0);
+    const summary=FinancialEngine.customerDebtSummary(store,{overdueDays:store.notificationSettings?.overdueDays});
     res.set("Cache-Control","no-store");
-    res.json({
-      currency:"CAD",
-      totalDebtCad:+totalDebtCad.toFixed(2),
-      debtorsCount:debtors.length,
-      customersCount:customers.length,
-      calculatedAt:now()
-    });
+    res.json({...summary,calculatedAt:now()});
   }catch(error){
     console.error("Customer debt summary failed",{requestId:req.requestId,error:error?.stack||error});
     res.status(500).json({code:"CUSTOMER_DEBT_SUMMARY_FAILED",message:"تعذر حساب إجمالي دين العملاء.",requestId:req.requestId||null});

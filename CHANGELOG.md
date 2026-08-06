@@ -1,3 +1,13 @@
+# v25.10.0 — Architecture and Financial Integrity
+
+- Confirmed durable writes with rollback on persistence failure.
+- Centralized customer financial calculations.
+- PostgreSQL sorting for every customer sort mode.
+- Immediate local customer insertion with silent server reconciliation.
+- Extracted health routes and customer UI components.
+- Added end-to-end financial workflow coverage.
+- Archived release notes and removed redundant project files.
+
 # v25.8.2 — Global Button Cleanup
 
 - Removed the duplicated global quick-action strip from Dashboard.

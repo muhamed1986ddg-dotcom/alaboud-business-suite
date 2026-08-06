@@ -2,6 +2,7 @@ import React,{useEffect,useMemo,useRef,useState} from "react";
 import api,{cachedGet} from "../api";
 import {APP_VERSION} from "../version";
 import {AppPagination} from "../components/ui";
+import {CustomerToolbar,CustomerListControls} from "../components/customers/CustomerToolbar";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
 
 export function Customers({open}){
@@ -48,7 +49,7 @@ export function Customers({open}){
 
   const [activePanel,setActivePanel]=useState("");
 
-  const serverSortMode=["name-asc","name-desc","newest"].includes(sortMode);
+  const serverSortMode=true;
 
   async function loadDebtSummary(){
     try{
@@ -62,10 +63,7 @@ export function Customers({open}){
   async function load(requestedSort=sortMode,requestedSearch=search,requestedPage=page){
     setError("");
     try{
-      const serverPaging=["name-asc","name-desc","newest"].includes(requestedSort);
-      const params=serverPaging
-        ? {page:requestedPage,pageSize,sort:requestedSort,search:requestedSearch.trim()}
-        : {limit:500,sort:"name-asc",search:requestedSearch.trim()};
+      const params={page:requestedPage,pageSize,sort:requestedSort,search:requestedSearch.trim()};
       const customersResponse=await cachedGet("/customers",{params,cacheTtl:30*1000});
       const payload=customersResponse.data;
       if(payload&&Array.isArray(payload.items)){
@@ -156,12 +154,21 @@ export function Customers({open}){
     event.preventDefault();
     setDuplicateCustomer(null);
     try{
-      await api.post("/customers",customerForm);
+      const response=await api.post("/customers",customerForm);
+      const created=response.data;
       setCustomerForm({customerNumber:"",name:"",phone:"",email:"",oldBalance:""});
       setError("✅ تم حفظ العميل بنجاح");
       setActivePanel("");
-      await load();
-      await loadDebtSummary();
+      setServerTotal(total=>total+1);
+      setList(current=>{
+        const rows=[created,...current.filter(item=>item.id!==created.id)];
+        return rows.slice(0,pageSize);
+      });
+      if(Number(created?.finalBalance||created?.oldBalance||0)>0){
+        setTotalCustomerDebt(total=>+(total+Number(created.finalBalance||created.oldBalance||0)).toFixed(2));
+      }
+      void load(sortMode,search,page);
+      void loadDebtSummary();
     }catch(requestError){
       const existing=requestError.response?.data?.existingCustomer||null;
       setDuplicateCustomer(existing);
@@ -448,45 +455,14 @@ export function Customers({open}){
     }
   }
 
-  const sortedCustomers=useMemo(()=>{
-    const arabicCollator=new Intl.Collator("ar",{sensitivity:"base",numeric:true,ignorePunctuation:true});
-    const normalizeName=value=>String(value||"")
-      .trim()
-      .replace(/[\u064B-\u065F\u0670]/g,"")
-      .replace(/^[اأإآ]ل(?=\S)/,"")
-      .replace(/^[أإآ]/,"ا")
-      .replace(/ى/g,"ي")
-      .replace(/ة/g,"ه")
-      .replace(/\s+/g," ");
-    const dateValue=customer=>new Date(customer.lastTransactionDate||customer.lastTransferDate||customer.updatedAt||customer.createdAt||0).getTime()||0;
-    const rows=[...list];
-    rows.sort((a,b)=>{
-      if(sortMode==="name-desc")return arabicCollator.compare(normalizeName(b.name),normalizeName(a.name));
-      if(sortMode==="balance-desc")return Number(b.finalBalance||0)-Number(a.finalBalance||0)||arabicCollator.compare(normalizeName(a.name),normalizeName(b.name));
-      if(sortMode==="last-transfer")return dateValue(b)-dateValue(a)||arabicCollator.compare(normalizeName(a.name),normalizeName(b.name));
-      if(sortMode==="newest")return new Date(b.createdAt||0)-new Date(a.createdAt||0)||arabicCollator.compare(normalizeName(a.name),normalizeName(b.name));
-      if(sortMode==="overdue-desc")return Number(b.overdueDays||0)-Number(a.overdueDays||0)||arabicCollator.compare(normalizeName(a.name),normalizeName(b.name));
-      return arabicCollator.compare(normalizeName(a.name),normalizeName(b.name));
-    });
-    return rows;
-  },[list,sortMode]);
+  const visibleCustomers=useMemo(()=>list,[list]);
+  const effectiveTotalPages=serverTotalPages;
 
   useEffect(()=>{
     try{localStorage.setItem("alaboud_customer_sort",sortMode)}catch{}
   },[sortMode]);
 
-  const filtered=useMemo(()=>sortedCustomers.filter(customer=>
-    `${customer.name} ${customer.phone||""}`.toLowerCase().includes(search.trim().toLowerCase())
-  ),[sortedCustomers,search]);
-  const clientTotalPages=Math.max(1,Math.ceil(filtered.length/pageSize));
-  const effectiveTotalPages=serverSortMode?serverTotalPages:clientTotalPages;
-  const visibleCustomers=useMemo(()=>serverSortMode
-    ? filtered
-    : filtered.slice((page-1)*pageSize,page*pageSize),[filtered,page,serverSortMode]);
-
-  useEffect(()=>{
-    if(page>effectiveTotalPages)setPage(effectiveTotalPages);
-  },[page,effectiveTotalPages]);
+  useEffect(()=>{if(page>effectiveTotalPages)setPage(effectiveTotalPages)},[page,effectiveTotalPages]);
 
   const customerActionFocus=activePanel==="transfer"||activePanel==="payment";
 
@@ -498,23 +474,11 @@ export function Customers({open}){
       <button type="button" className="primary" onClick={()=>{setActivePanel("");setEditingCustomer(null);setDuplicateCustomer(null);open(duplicateCustomer.id)}}>فتح ملف العميل</button>
     </div>}
 
-    {!customerActionFocus&&<>
-    <div className="customer-toolbar customer-primary-toolbar card">
-      <button onClick={()=>{setActivePanel("newCustomer");setEditingCustomer(null)}}>➕ إضافة عميل</button>
-      <button onClick={()=>setActivePanel(activePanel==="transfer"?"":"transfer")}>💸 إضافة حوالة</button>
-      <button onClick={()=>setActivePanel(activePanel==="payment"?"":"payment")}>💳 إضافة دفعة</button>
-      <button
-        className={activePanel==="list"?"active":""}
-        onClick={()=>setActivePanel(activePanel==="list"?"":"list")}
-      >
-        📋 قائمة العملاء
-      </button>
-      <div className="customer-toolbar-debt" aria-label="إجمالي دين العملاء">
-        <span>💰 إجمالي دين العملاء</span>
-        <strong>{cad(totalCustomerDebt)}</strong>
-      </div>
-    </div>
-    </>}
+    {!customerActionFocus&&<CustomerToolbar
+      activePanel={activePanel}
+      totalDebt={totalCustomerDebt}
+      onSelect={panel=>{setActivePanel(panel);if(panel==="newCustomer")setEditingCustomer(null)}}
+    />}
 
 
     {activePanel==="newCustomer"&&
@@ -661,24 +625,11 @@ export function Customers({open}){
       <div className="customer-list-panel-header">
         <div>
           <h3>📋 قائمة العملاء</h3>
-          <small>{serverSortMode?serverTotal:filtered.length} عميل</small>
+          <small>{serverTotal} عميل</small>
         </div>
         <button type="button" onClick={()=>{setActivePanel("");setSearch("")}}>✕ إغلاق القائمة</button>
       </div>
-      <div className="customer-list-controls">
-        <input autoFocus className="customer-search" value={search} onChange={e=>setSearch(e.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
-        <label className="customer-sort-control">
-          <span>ترتيب العملاء</span>
-          <select value={sortMode} onChange={e=>setSortMode(e.target.value)} aria-label="ترتيب قائمة العملاء">
-            <option value="name-asc">الاسم: أ ← ي</option>
-            <option value="name-desc">الاسم: ي ← أ</option>
-            <option value="balance-desc">أعلى رصيد</option>
-            <option value="last-transfer">آخر حوالة</option>
-            <option value="newest">أحدث عميل</option>
-            <option value="overdue-desc">الأكثر تأخرًا</option>
-          </select>
-        </label>
-      </div>
+      <CustomerListControls search={search} onSearch={setSearch} sortMode={sortMode} onSort={setSortMode}/>
     </div>
 
     <div className="customer-cards customer-list-simple">
