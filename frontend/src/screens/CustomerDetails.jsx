@@ -6,7 +6,7 @@ import {AppTable} from "../components/ui";
 import {authoritativeCustomerRate} from "../customerRate";
 
 
-export function Customer({id,back,onStatement}){
+export function Customer({id,back,onStatement,onAddTransfer}){
   const [data,setData]=useState(null);
   const [error,setError]=useState("");
   const [loading,setLoading]=useState(true);
@@ -353,6 +353,7 @@ export function Customer({id,back,onStatement}){
     <div className="card no-print form">
       <button onClick={back}>رجوع</button>
       <button onClick={()=>onStatement(id)}>كشف حساب العميل</button>
+      <button className="customer-add-transfer-button" onClick={()=>onAddTransfer?.(customer)}>➕ إضافة حوالة للعميل</button>
       <button className="whatsapp-text-button" onClick={shareCustomerStatementText}>💬 إرسال رسالة نصية عبر واتساب</button>
       <button className="whatsapp-image-button" onClick={()=>shareCustomerStatement("share")}>📤 مشاركة صورة كشف الحساب</button>
       <button className="statement-save-image-button" onClick={()=>shareCustomerStatement("save")}>💾 حفظ الصورة</button>

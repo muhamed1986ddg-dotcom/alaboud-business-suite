@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## v25.14.1 — Customer Quick Transfer
+- إضافة زر «إضافة حوالة للعميل» داخل ملف العميل.
+- تعبئة العميل تلقائيًا وقفل الاختيار مع إمكانية تغييره يدويًا.
+- العودة إلى ملف العميل وتحديث رصيده وسجل حوالاته بعد الحفظ.
+- تحسين ترتيب أزرار ملف العميل على الهاتف.
+
+
 ## v25.14.0 — Financial Transaction Integrity
 - Synchronous PostgreSQL transaction commit for durable financial snapshots.
 - Cross-instance advisory lock and row-level `FOR UPDATE` lock.

@@ -229,6 +229,7 @@ export default function App(){
   },[]);
   const [page,setPage]=useState("dashboard");
   const [customerId,setCustomerId]=useState(null);
+  const [customerTransferRequest,setCustomerTransferRequest]=useState(null);
   const [invoiceId,setInvoiceId]=useState(null);
   const [statementCustomerId,setStatementCustomerId]=useState(null);
   const [partnerId,setPartnerId]=useState(null);
@@ -314,13 +315,30 @@ export default function App(){
   }else if(statementCustomerId){
     content=<Statement customerId={statementCustomerId} back={()=>setStatementCustomerId(null)}/>;
   }else if(customerId){
-    content=<Customer id={customerId} back={()=>setCustomerId(null)} onStatement={setStatementCustomerId}/>;
+    content=<Customer
+      id={customerId}
+      back={()=>setCustomerId(null)}
+      onStatement={setStatementCustomerId}
+      onAddTransfer={selectedCustomer=>{
+        setCustomerTransferRequest({customerId:selectedCustomer.id,customerName:selectedCustomer.name,nonce:Date.now()});
+        setCustomerId(null);
+        setPage("customers");
+      }}
+    />;
   }else if(partnerId){
     content=<PartnerProfile id={partnerId} back={()=>setPartnerId(null)}/>;
   }else if(page==="dashboard"){
     content=<Dashboard navigate={navigate}/>;
   }else if(page==="customers"){
-    content=<Customers open={setCustomerId}/>;
+    content=<Customers
+      open={setCustomerId}
+      initialTransferRequest={customerTransferRequest}
+      onTransferRequestHandled={()=>setCustomerTransferRequest(null)}
+      onTransferSaved={savedCustomerId=>{
+        setCustomerTransferRequest(null);
+        setCustomerId(savedCustomerId);
+      }}
+    />;
   }else if(page==="overdue-customers"){
     content=<OverdueCustomers
       openCustomer={setCustomerId}

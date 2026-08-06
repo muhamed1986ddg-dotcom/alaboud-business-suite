@@ -7,7 +7,7 @@ import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,
 import {authoritativeCustomerRate} from "../customerRate";
 
 
-export function Customers({open}){
+export function Customers({open,initialTransferRequest,onTransferRequestHandled,onTransferSaved}){
   const [list,setList]=useState([]);
   const [customerOptions,setCustomerOptions]=useState([]);
   const [search,setSearch]=useState("");
@@ -50,6 +50,8 @@ export function Customers({open}){
   });
 
   const [activePanel,setActivePanel]=useState("");
+  const [transferCustomerLocked,setTransferCustomerLocked]=useState(false);
+  const [transferCustomerName,setTransferCustomerName]=useState("");
 
   const serverSortMode=true;
 
@@ -88,6 +90,29 @@ export function Customers({open}){
       .then(response=>setCustomerOptions(Array.isArray(response.data)?response.data:[]))
       .catch(()=>setCustomerOptions([]));
   },[]);
+
+  useEffect(()=>{
+    const requestedCustomerId=initialTransferRequest?.customerId;
+    if(!requestedCustomerId)return;
+    setTransferForm(current=>({
+      ...current,
+      customerId:requestedCustomerId,
+      amount:"",
+      costRate:"",
+      finalRate:"",
+      transferFee:"0",
+      paymentStatus:"UNPAID",
+      transferDate:new Date().toISOString().slice(0,10),
+      rateMode:"auto",
+      rateSource:"exchange-rates",
+      rateUpdatedAt:null
+    }));
+    setTransferCustomerLocked(true);
+    setTransferCustomerName(initialTransferRequest?.customerName||"");
+    setActivePanel("transfer");
+    onTransferRequestHandled?.();
+    requestAnimationFrame(()=>window.scrollTo({top:0,behavior:"smooth"}));
+  },[initialTransferRequest?.nonce]);
 
   useEffect(()=>{
     const timer=setTimeout(()=>load(sortMode,search,page),300);
@@ -225,6 +250,8 @@ export function Customers({open}){
   }
 
   function prepareTransfer(customer){
+    setTransferCustomerLocked(Boolean(customer?.id));
+    setTransferCustomerName(customer?.name||"");
     setTransferForm({
       customerId:customer.id,
       currency:"USD",
@@ -245,6 +272,7 @@ export function Customers({open}){
 
   async function addTransfer(event){
     event.preventDefault();
+    const savedCustomerId=transferForm.customerId;
     try{
       const transactionResponse=await api.post("/transactions",{
         ...transferForm,
@@ -282,8 +310,11 @@ export function Customers({open}){
       });
       setSelectedRateMeta(null);
       setActivePanel("");
+      setTransferCustomerLocked(false);
+      setTransferCustomerName("");
       await load();
       await loadDebtSummary();
+      if(savedCustomerId)onTransferSaved?.(savedCustomerId);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر إضافة الحوالة");
     }
@@ -479,7 +510,15 @@ export function Customers({open}){
     {!customerActionFocus&&<CustomerToolbar
       activePanel={activePanel}
       totalDebt={totalCustomerDebt}
-      onSelect={panel=>{setActivePanel(panel);if(panel==="newCustomer")setEditingCustomer(null)}}
+      onSelect={panel=>{
+        setActivePanel(panel);
+        if(panel==="newCustomer")setEditingCustomer(null);
+        if(panel==="transfer"){
+          setTransferCustomerLocked(false);
+          setTransferCustomerName("");
+          setTransferForm(current=>({...current,customerId:""}));
+        }
+      }}
     />}
 
 
@@ -516,10 +555,19 @@ export function Customers({open}){
         </div>
       <form className="card form edit-panel customer-action-focus-form" onSubmit={addTransfer}>
         <h3>إضافة حوالة</h3>
-        <select value={transferForm.customerId} onChange={e=>setTransferForm({...transferForm,customerId:e.target.value})} required>
-          <option value="">اختر العميل</option>
-          {customerOptions.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
-        </select>
+        {transferCustomerLocked?
+          <div className="locked-transfer-customer">
+            <div>
+              <span>العميل المحدد</span>
+              <strong>{transferCustomerName||customerOptions.find(item=>item.id===transferForm.customerId)?.name||"العميل"}</strong>
+            </div>
+            <button type="button" onClick={()=>{setTransferCustomerLocked(false);setTransferCustomerName("")}}>تغيير العميل</button>
+          </div>
+          :<select value={transferForm.customerId} onChange={e=>setTransferForm({...transferForm,customerId:e.target.value})} required>
+            <option value="">اختر العميل</option>
+            {customerOptions.map(customer=><option key={customer.id} value={customer.id}>{customer.name}</option>)}
+          </select>
+        }
         <input type="date" value={transferForm.transferDate} onChange={e=>setTransferForm({...transferForm,transferDate:e.target.value})}/>
         <label className="currency-field">
           <span className="currency-field-title">عملة الحوالة</span>
