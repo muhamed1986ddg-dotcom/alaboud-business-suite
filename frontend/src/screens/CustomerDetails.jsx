@@ -487,33 +487,71 @@ export function Customer({id,back,onStatement}){
       </div>
     </section>
 
-    <div className="card tablewrap">
-      <h3>سجل الدفعات</h3>
-      <AppTable>
-        <thead><tr><th>التاريخ</th><th>البيان</th><th>المبلغ الكامل</th><th>طريقة الدفع</th><th>المرجع</th><th>تفاصيل التوزيع</th><th>الإجراءات</th></tr></thead>
-        <tbody>{payments.length?payments.map(payment=>{
+    <section className="customer-payment-ledger">
+      <div className="customer-payment-heading">
+        <div>
+          <h3>سجل الدفعات</h3>
+          <p>عرض دفعات العميل وتفاصيل توزيع كل دفعة بشكل واضح.</p>
+        </div>
+      </div>
+
+      <div className="customer-payment-mobile-cards">
+        {payments.length?payments.map(payment=>{
           const transaction=transactions.find(item=>item.id===payment.transactionId);
           const allocations=Array.isArray(payment.allocations)?payment.allocations:[];
-          return <tr key={payment.id}>
-            <td>{payment.paymentDate||String(payment.date||"").slice(0,10)}</td>
-            <td>{payment.isGroupedPayment?"دفعة من العميل":transaction?.number||"دفعة حوالة"}</td>
-            <td><strong>{money(payment.amount)} CAD</strong></td>
-            <td>{payment.method||"-"}</td>
-            <td>{payment.reference||"-"}</td>
-            <td>{(allocations.length||Number(payment.oldBalanceAllocation||0)>0)?
-              <details className="payment-allocation-details"><summary>عرض التوزيع</summary>{allocations.map((allocation,index)=>{
-                const allocatedTransaction=transactions.find(item=>item.id===allocation.transactionId);
-                return <div key={`${payment.id}-${allocation.transactionId||index}`}>{allocatedTransaction?.number||allocation.transactionId||"حوالة"} — {money(allocation.amount)} CAD</div>
-              })}{Number(payment.oldBalanceAllocation||0)>0&&<div>الحساب القديم — {money(payment.oldBalanceAllocation)} CAD</div>}</details>
-              :transaction?.number||"—"}</td>
-            <td className="actions">
+          const paymentDate=payment.paymentDate||String(payment.date||"").slice(0,10)||"—";
+          const description=payment.isGroupedPayment?"دفعة من العميل":transaction?.number||"دفعة حوالة";
+          return <article className="customer-payment-mobile-card" key={`payment-mobile-${payment.id}`}>
+            <header>
+              <strong>{money(payment.amount)} CAD</strong>
+              <span>{paymentDate}</span>
+            </header>
+            <dl>
+              <div><dt>البيان</dt><dd>{description}</dd></div>
+              <div><dt>طريقة الدفع</dt><dd>{payment.method||"—"}</dd></div>
+              <div><dt>المرجع</dt><dd>{payment.reference||"—"}</dd></div>
+              <div className="customer-payment-allocation-row"><dt>التوزيع</dt><dd>{(allocations.length||Number(payment.oldBalanceAllocation||0)>0)?
+                <details className="payment-allocation-details"><summary>عرض التوزيع</summary>{allocations.map((allocation,index)=>{
+                  const allocatedTransaction=transactions.find(item=>item.id===allocation.transactionId);
+                  return <div key={`${payment.id}-${allocation.transactionId||index}`}>{allocatedTransaction?.number||allocation.transactionId||"حوالة"} — {money(allocation.amount)} CAD</div>
+                })}{Number(payment.oldBalanceAllocation||0)>0&&<div>الحساب القديم — {money(payment.oldBalanceAllocation)} CAD</div>}</details>
+                :transaction?.number||"—"}</dd></div>
+            </dl>
+            <footer>
               <button onClick={()=>setEditingPayment({...payment})}>تعديل</button>
               <button className="danger-button" onClick={()=>deletePayment(payment.id)}>حذف</button>
-            </td>
-          </tr>
-        }):<tr><td colSpan="7">لا توجد دفعات.</td></tr>}</tbody>
-      </AppTable>
-    </div>
+            </footer>
+          </article>
+        }):<div className="customer-payment-mobile-empty">لا توجد دفعات.</div>}
+      </div>
+
+      <div className="card tablewrap customer-payment-tablewrap">
+        <AppTable tableClassName="customer-payment-table">
+          <thead><tr><th>التاريخ</th><th>البيان</th><th>المبلغ الكامل</th><th>طريقة الدفع</th><th>المرجع</th><th>تفاصيل التوزيع</th><th>الإجراءات</th></tr></thead>
+          <tbody>{payments.length?payments.map(payment=>{
+            const transaction=transactions.find(item=>item.id===payment.transactionId);
+            const allocations=Array.isArray(payment.allocations)?payment.allocations:[];
+            return <tr key={payment.id}>
+              <td>{payment.paymentDate||String(payment.date||"").slice(0,10)}</td>
+              <td>{payment.isGroupedPayment?"دفعة من العميل":transaction?.number||"دفعة حوالة"}</td>
+              <td><strong>{money(payment.amount)} CAD</strong></td>
+              <td>{payment.method||"-"}</td>
+              <td>{payment.reference||"-"}</td>
+              <td>{(allocations.length||Number(payment.oldBalanceAllocation||0)>0)?
+                <details className="payment-allocation-details"><summary>عرض التوزيع</summary>{allocations.map((allocation,index)=>{
+                  const allocatedTransaction=transactions.find(item=>item.id===allocation.transactionId);
+                  return <div key={`${payment.id}-${allocation.transactionId||index}`}>{allocatedTransaction?.number||allocation.transactionId||"حوالة"} — {money(allocation.amount)} CAD</div>
+                })}{Number(payment.oldBalanceAllocation||0)>0&&<div>الحساب القديم — {money(payment.oldBalanceAllocation)} CAD</div>}</details>
+                :transaction?.number||"—"}</td>
+              <td className="actions">
+                <button onClick={()=>setEditingPayment({...payment})}>تعديل</button>
+                <button className="danger-button" onClick={()=>deletePayment(payment.id)}>حذف</button>
+              </td>
+            </tr>
+          }):<tr><td colSpan="7">لا توجد دفعات.</td></tr>}</tbody>
+        </AppTable>
+      </div>
+    </section>
   </div>;
 }
 

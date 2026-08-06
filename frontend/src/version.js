@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.12.6 Financial Rate Integrity";
+export const APP_VERSION="v25.12.7 Mobile Payment Cards";

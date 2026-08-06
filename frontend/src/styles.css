@@ -6525,3 +6525,53 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
   .transaction-mobile-card__grid>div,.customer-transfer-mobile-card dl>div{grid-template-columns:minmax(86px,39%) minmax(0,1fr)!important;gap:8px!important}
   .transaction-mobile-card__actions{grid-template-columns:1fr!important}
 }
+
+/* v25.12.7 - payment history uses the same mobile card language as transfers */
+.customer-payment-mobile-cards{display:none}
+.customer-payment-heading{display:flex;align-items:center;justify-content:space-between;margin:18px 0 10px}
+.customer-payment-heading h3{margin:0;color:#e7c653}
+.customer-payment-heading p{margin:4px 0 0;color:#94a3b8}
+
+@media (max-width: 760px){
+  .customer-payment-tablewrap{display:none!important}
+  .customer-payment-mobile-cards{display:grid!important;gap:10px;width:100%;min-width:0}
+  .customer-payment-ledger{width:100%;min-width:0;margin:14px 0 120px}
+  .customer-payment-heading{align-items:flex-start;margin:12px 0 8px}
+  .customer-payment-heading h3{font-size:1.18rem}
+  .customer-payment-heading p{font-size:.75rem;line-height:1.55}
+  .customer-payment-mobile-card{
+    width:100%;min-width:0;overflow:hidden;
+    border:1px solid rgba(214,170,56,.34);border-radius:16px;
+    background:linear-gradient(145deg,#081421,#0c1c2e);
+    box-shadow:0 10px 24px rgba(0,0,0,.2)
+  }
+  .customer-payment-mobile-card header{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    padding:12px 13px;border-bottom:1px solid rgba(148,163,184,.15)
+  }
+  .customer-payment-mobile-card header strong{font-size:1rem;color:#fff;overflow-wrap:anywhere}
+  .customer-payment-mobile-card header span{font-size:.78rem;color:#cbd5e1;white-space:nowrap}
+  .customer-payment-mobile-card dl{margin:0;padding:4px 13px}
+  .customer-payment-mobile-card dl>div{
+    display:grid;grid-template-columns:minmax(94px,36%) minmax(0,1fr);
+    align-items:start;gap:9px;padding:10px 0;
+    border-bottom:1px solid rgba(148,163,184,.12)
+  }
+  .customer-payment-mobile-card dl>div:last-child{border-bottom:0}
+  .customer-payment-mobile-card dt{color:#e8cf7a;font-size:.76rem;font-weight:800}
+  .customer-payment-mobile-card dd{margin:0;min-width:0;color:#f8fafc;text-align:start;overflow-wrap:anywhere;word-break:break-word}
+  .customer-payment-mobile-card footer{
+    display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:11px 13px 13px;
+    border-top:1px solid rgba(148,163,184,.12)
+  }
+  .customer-payment-mobile-card footer button{width:100%;min-width:0;min-height:42px;margin:0}
+  .customer-payment-mobile-card .payment-allocation-details{width:100%;min-width:0}
+  .customer-payment-mobile-card .payment-allocation-details summary{cursor:pointer;color:#f4d35e;font-weight:800}
+  .customer-payment-mobile-card .payment-allocation-details div{margin-top:6px;line-height:1.5;overflow-wrap:anywhere}
+  .customer-payment-mobile-empty{padding:16px;text-align:center;color:#94a3b8;border:1px dashed rgba(214,170,56,.3);border-radius:14px}
+}
+
+@media (max-width: 380px){
+  .customer-payment-mobile-card header{align-items:flex-start;flex-direction:column}
+  .customer-payment-mobile-card dl>div{grid-template-columns:1fr;gap:4px}
+}
