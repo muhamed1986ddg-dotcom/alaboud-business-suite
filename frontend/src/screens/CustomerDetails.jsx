@@ -457,6 +457,24 @@ export function Customer({id,back,onStatement}){
         <div className="customer-transfer-summary-card count"><span>عدد الحوالات</span><strong>{transactionRows.length}</strong></div>
       </div>
 
+      <div className="customer-transfer-mobile-cards">
+        {transactionRows.length?transactionRows.map(({transaction,usdAmount,exchangeRate,cadValue})=><article className="customer-transfer-mobile-card" key={`mobile-${transaction.id}`}>
+          <header>
+            <strong>{transaction.number}</strong>
+            <span>{transaction.transferDate||String(transaction.createdAt||"").slice(0,10)||"—"}</span>
+          </header>
+          <dl>
+            <div><dt>المبلغ</dt><dd>{money(usdAmount)} USD</dd></div>
+            <div><dt>سعر التحويل</dt><dd>{exchangeRate.toFixed(4)}</dd></div>
+            <div><dt>القيمة</dt><dd>{money(cadValue)} CAD</dd></div>
+          </dl>
+          <footer>
+            <button onClick={()=>setEditingTransaction({...transaction})}>تعديل</button>
+            <button className="danger-button" onClick={()=>deleteTransaction(transaction.id)}>حذف</button>
+          </footer>
+        </article>):<div className="customer-transfer-mobile-empty">لا توجد حوالات.</div>}
+      </div>
+
       <div className="card tablewrap customer-transfer-tablewrap">
         <AppTable tableClassName="customer-transfer-table">
           <thead><tr><th>رقم الحوالة</th><th>تاريخ الحوالة</th><th>المبلغ بالدولار الأمريكي (USD)</th><th>سعر التحويل</th><th>القيمة بالدولار الكندي (CAD)</th><th>الإجراءات</th></tr></thead>

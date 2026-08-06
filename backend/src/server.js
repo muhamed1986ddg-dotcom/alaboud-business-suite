@@ -285,7 +285,13 @@ function totp(secret,time=Date.now(),step=30){
   const digest=crypto.createHmac("sha1",base32Decode(secret)).update(msg).digest(); const off=digest[digest.length-1]&15;
   const code=((digest.readUInt32BE(off)&0x7fffffff)%1000000).toString().padStart(6,"0"); return code;
 }
-function verifyTotp(secret,code){const clean=String(code||"").replace(/\D/g,""); if(clean.length!==6)return false; for(let w=-1;w<=1;w++)if(totp(secret,Date.now()+w*30000)===clean)return true; return false;}
+function verifyTotp(secret,code){
+  const clean=String(code||"").replace(/\D/g,"");
+  if(clean.length!==6)return false;
+  // Accept a small clock drift (±60 seconds) between the phone and the server.
+  for(let w=-2;w<=2;w++)if(totp(secret,Date.now()+w*30000)===clean)return true;
+  return false;
+}
 function issueSession(user,company,context={}){
   const jti=crypto.randomUUID();
   const expiresAt=new Date(Date.now()+12*60*60*1000).toISOString();
@@ -559,22 +565,33 @@ app.post("/api/auth/login", rateLimit("login",10,15*60*1000),async (req,res)=>{
   if(!valid){ await mutateDurable(root=>{const u=root.users.find(x=>String(x.email||"").toLowerCase()===email); if(u){u.failedLoginAttempts=(u.failedLoginAttempts||0)+1; if(u.failedLoginAttempts>=5){u.lockedUntil=new Date(Date.now()+15*60*1000).toISOString();u.failedLoginAttempts=0;} audit(root,u.id,"LOGIN_FAILED","AUTH",u.id,{ip:req.ip,requestId:req.requestId});}}); return res.status(401).json({message:"بيانات الدخول غير صحيحة"}); }
   const company=store.companies.find(item=>item.id===user.companyId&&item.active); if(!company)return res.status(403).json({message:"Company account is inactive"});
   if(user.twoFactorEnabled){
-    const challenge=jwt.sign({id:user.id,companyId:user.companyId,purpose:"2fa"},JWT_SECRET,{expiresIn:"5m",issuer:"alaboud-business-suite",audience:"alaboud-2fa"});
-    return res.json({twoFactorRequired:true,challenge});
+    const challengeTtlSeconds=10*60;
+    const challenge=jwt.sign({id:user.id,companyId:user.companyId,purpose:"2fa"},JWT_SECRET,{expiresIn:challengeTtlSeconds,issuer:"alaboud-business-suite",audience:"alaboud-2fa"});
+    return res.json({twoFactorRequired:true,challenge,challengeExpiresIn:challengeTtlSeconds});
   }
   await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;if(!isScryptHash(u.passwordHash))u.passwordHash=hashPassword(password);u.lastLoginAt=now();audit(root,u.id,"LOGIN_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
   res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
 });
 
-app.post("/api/auth/2fa/verify",rateLimit("2fa",10,10*60*1000),async (req,res)=>{
+app.post("/api/auth/2fa/verify",rateLimit("2fa",20,10*60*1000),async (req,res)=>{
+  let payload;
   try{
-    const payload=jwt.verify(String(req.body?.challenge||""),JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-2fa",algorithms:["HS256"]});
-    if(payload.purpose!=="2fa")throw new Error("invalid");
-    const store=readStore(); const user=store.users.find(u=>u.id===payload.id&&u.active); const company=store.companies.find(c=>c.id===payload.companyId&&c.active);
-    if(!user||!company||!user.twoFactorSecret||!verifyTotp(user.twoFactorSecret,req.body?.code))return res.status(401).json({message:"رمز التحقق غير صحيح"});
-    await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.lastLoginAt=now();audit(root,u.id,"LOGIN_2FA_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
-    res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
-  }catch{return res.status(401).json({message:"انتهت صلاحية التحقق، أعد تسجيل الدخول"});}
+    payload=jwt.verify(String(req.body?.challenge||""),JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-2fa",algorithms:["HS256"]});
+  }catch(error){
+    const expired=error?.name==="TokenExpiredError";
+    return res.status(401).json({code:expired?"TWO_FACTOR_CHALLENGE_EXPIRED":"TWO_FACTOR_CHALLENGE_INVALID",message:expired?"انتهت مهلة التحقق. اطلب جلسة تحقق جديدة ثم أدخل الرمز الحالي.":"جلسة التحقق غير صالحة. أعد تسجيل الدخول."});
+  }
+  if(payload.purpose!=="2fa")return res.status(401).json({code:"TWO_FACTOR_CHALLENGE_INVALID",message:"جلسة التحقق غير صالحة. أعد تسجيل الدخول."});
+  const store=readStore();
+  const user=store.users.find(u=>u.id===payload.id&&u.active);
+  const company=store.companies.find(c=>c.id===payload.companyId&&c.active);
+  if(!user||!company||!user.twoFactorSecret)return res.status(401).json({code:"TWO_FACTOR_ACCOUNT_UNAVAILABLE",message:"تعذر إكمال التحقق لهذا الحساب."});
+  if(!verifyTotp(user.twoFactorSecret,req.body?.code)){
+    await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);if(u)audit(root,u.id,"LOGIN_2FA_FAILED","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
+    return res.status(401).json({code:"TWO_FACTOR_CODE_INVALID",message:"رمز التحقق غير صحيح أو انتهت مدته. انتظر الرمز الجديد في Authenticator ثم حاول مرة أخرى."});
+  }
+  await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;u.lastLoginAt=now();audit(root,u.id,"LOGIN_2FA_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
+  return res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
 });
 
 app.post("/api/auth/2fa/setup",auth,async (req,res)=>{
