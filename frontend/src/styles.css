@@ -6104,3 +6104,8 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 @media(max-width:1050px){.customer-primary-toolbar{grid-template-columns:repeat(4,minmax(120px,1fr))}.customer-toolbar-debt{grid-column:1/-1}}
 @media(max-width:700px){.customer-primary-toolbar{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:9px}.customer-primary-toolbar>button{min-height:44px;padding:8px 7px;font-size:.82rem}.customer-toolbar-debt{grid-column:1/-1;min-height:48px;justify-content:space-between;padding:8px 11px}.customer-toolbar-debt span{font-size:.8rem}.customer-toolbar-debt strong{font-size:1.05rem}}
 @media(max-width:380px){.customer-primary-toolbar>button{font-size:.75rem}.customer-toolbar-debt{gap:7px}.customer-toolbar-debt span{font-size:.74rem}.customer-toolbar-debt strong{font-size:.96rem}}
+
+/* v25.11.0 — database recovery status */
+.database-status-banner{position:fixed;z-index:10050;top:10px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:min(720px,calc(100vw - 24px));padding:9px 14px;border-radius:12px;border:1px solid rgba(255,211,92,.65);background:rgba(62,48,10,.96);color:#fff7d1;box-shadow:0 8px 28px rgba(0,0,0,.35);font-size:13px}
+.database-status-banner small{opacity:.88;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.database-status-offline{border-color:#ff7185;background:rgba(83,17,28,.97);color:#ffe5e9}
+@media(max-width:700px){.database-status-banner{top:68px;width:calc(100vw - 24px);font-size:11px;padding:8px 10px}.database-status-banner small{display:none}}

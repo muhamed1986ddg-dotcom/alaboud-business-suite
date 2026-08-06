@@ -63,6 +63,11 @@ class PostgresStateAdapter {
     this.lastMirrorError = null;
     this.poolGeneration = 0;
     this.poolResetPromise = null;
+    this.connectionState = "connecting";
+    this.lastConnectedAt = null;
+    this.lastDisconnectedAt = null;
+    this.lastConnectionError = null;
+    this.consecutiveConnectionFailures = 0;
     this.pool = this.createPool();
   }
 
@@ -78,6 +83,10 @@ class PostgresStateAdapter {
     });
     const generation = ++this.poolGeneration;
     pool.on("error", (error) => {
+      this.connectionState = "reconnecting";
+      this.lastDisconnectedAt = new Date().toISOString();
+      this.lastConnectionError = error;
+      this.consecutiveConnectionFailures += 1;
       this.logger.error(`PostgreSQL idle client error (pool ${generation}):`, error.message);
       if (isTransientPostgresError(error)) this.resetPool(`idle-client:${error.code || error.message}`).catch(() => {});
     });
@@ -109,6 +118,7 @@ class PostgresStateAdapter {
       const oldPool = this.pool;
       const newPool = this.createPool();
       this.pool = newPool;
+      this.connectionState = "reconnecting";
       this.logger.warn(`PostgreSQL pool recreated after ${reason}`);
       if (oldPool && oldPool !== newPool) {
         Promise.race([
@@ -142,7 +152,12 @@ class PostgresStateAdapter {
     let lastError;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        return await this.pool.query(text, params);
+        const result = await this.pool.query(text, params);
+        this.connectionState = "connected";
+        this.lastConnectedAt = new Date().toISOString();
+        this.lastConnectionError = null;
+        this.consecutiveConnectionFailures = 0;
+        return result;
       } catch (error) {
         lastError = error;
         if (!isTransientPostgresError(error) || attempt === maxAttempts) {
@@ -218,10 +233,20 @@ class PostgresStateAdapter {
            DO UPDATE SET payload=EXCLUDED.payload,updated_at=NOW()`,
           [payload]
         );
+        this.connectionState = "connected";
+        this.lastConnectedAt = new Date().toISOString();
+        this.lastConnectionError = null;
+        this.consecutiveConnectionFailures = 0;
         this.queueRelationalMirror(snapshot);
         return;
       } catch (error) {
         lastError = error;
+        if (isTransientPostgresError(error)) {
+          this.connectionState = "reconnecting";
+          this.lastDisconnectedAt = new Date().toISOString();
+          this.lastConnectionError = error;
+          this.consecutiveConnectionFailures += 1;
+        }
         const budgetExhausted = Date.now() - startedAt >= retryBudgetMs;
         if (!isTransientPostgresError(error) || attempt === attempts || budgetExhausted) {
           if (isTransientPostgresError(error)) {
@@ -254,7 +279,12 @@ class PostgresStateAdapter {
       latencyMs: Date.now() - startedAt,
       poolGeneration: this.poolGeneration,
       mirrorPending: this.mirrorRunning || Boolean(this.mirrorPendingSnapshot),
-      lastMirrorError: this.lastMirrorError?.message || null
+      lastMirrorError: this.lastMirrorError?.message || null,
+      connectionState: this.connectionState,
+      lastConnectedAt: this.lastConnectedAt,
+      lastDisconnectedAt: this.lastDisconnectedAt,
+      consecutiveConnectionFailures: this.consecutiveConnectionFailures,
+      lastConnectionError: this.lastConnectionError?.message || null
     };
   }
 

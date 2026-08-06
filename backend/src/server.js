@@ -13,6 +13,7 @@ const { readStore, readRootStore, mutate, mutateDurable, id, now, runWithTenant,
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const FinancialEngine = require("./finance/FinancialEngine");
 const { registerHealthRoutes } = require("./routes/health");
+const { createIdempotencyMiddleware } = require("./reliability/idempotency");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
 const { generateApiKey, keyPrefix, normalizeScopes, apiKeyMiddleware, versionAliasMiddleware, integrationLogger, openApiDocument, docsHtml } = require("./api-platform");
@@ -113,6 +114,10 @@ app.use((req,res,next)=>{ req.requestId=crypto.randomUUID(); res.setHeader("X-Re
 app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:","blob:"], connectSrc:["'self'","https:"], objectSrc:["'none'"], baseUri:["'self'"], frameAncestors:["'none'"] } }, crossOriginEmbedderPolicy:false, hsts: IS_PROD ? {maxAge:31536000,includeSubDomains:true,preload:true}:false }));
 app.use(express.json({ limit: "2mb", strict:true }));
 app.use(express.urlencoded({extended:false,limit:"256kb"}));
+app.use("/api", createIdempotencyMiddleware({
+  ttlMs: Number(process.env.IDEMPOTENCY_TTL_MS || 5 * 60 * 1000),
+  maxEntries: Number(process.env.IDEMPOTENCY_MAX_ENTRIES || 5000)
+}));
 // Start the HTTP listener even when PostgreSQL private DNS is temporarily
 // unavailable. API writes/reads stay gated with 503 until initialization
 // succeeds, allowing Render to keep the deployment alive and the service to
