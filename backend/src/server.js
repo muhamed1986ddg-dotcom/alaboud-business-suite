@@ -2621,19 +2621,35 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   // the companies page: receivable minus payable, after converting each row.
   const companyFinalBalance=companyReceivable-companyPayable;
 
-  const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable;
+  // Manual general debts are not represented by customerSummary or partnerRows.
+  // Include them explicitly so the general-debts total matches the budget endpoint.
+  let manualReceivable=0;
+  let manualPayable=0;
+  for(const row of manualRows){
+    const currency=String(row.currency||"CAD").toUpperCase();
+    const conversion=findConversion(currency,summaryCurrency);
+    if(!conversion)continue;
+    const convertedRemaining=safeNumber(row.remaining)*conversion.factor;
+    if(row.type==="RECEIVABLE")manualReceivable+=convertedRemaining;
+    if(row.type==="PAYABLE")manualPayable+=convertedRemaining;
+  }
+
+  const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable+manualReceivable;
+  const authoritativePayable=companyPayable+manualPayable;
   const convertedTotals={
     receivable:+authoritativeReceivable.toFixed(2),
-    payable:+convertedPayable.toFixed(2),
-    net:+(authoritativeReceivable-convertedPayable).toFixed(2)
+    payable:+authoritativePayable.toFixed(2),
+    net:+(authoritativeReceivable-authoritativePayable).toFixed(2)
   };
 
   const receivableBreakdown={
     customers:+authoritativeCustomerReceivable.toFixed(2),
     companies:+companyFinalBalance.toFixed(2),
+    manual:+manualReceivable.toFixed(2),
     companyReceivable:+companyReceivable.toFixed(2),
     companyPayable:+companyPayable.toFixed(2),
-    total:+(authoritativeCustomerReceivable+companyFinalBalance).toFixed(2)
+    manualPayable:+manualPayable.toFixed(2),
+    total:+authoritativeReceivable.toFixed(2)
   };
 
   const manualDebtById=new Map(manualRows.map((item)=>[item.id,item]));
