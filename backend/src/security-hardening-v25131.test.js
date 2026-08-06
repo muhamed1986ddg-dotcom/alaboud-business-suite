@@ -9,4 +9,4 @@ assert(server.includes('/api/auth/biometric/revoke'),'biometric revoke endpoint 
 assert(server.includes('currentPassword')&&server.includes('REAUTH_REQUIRED'),'2FA disable reauthentication missing');
 assert(server.includes('LOCAL_INTEGRATION_SECRET_CHANGE_ME')&&!server.includes('process.env.INTEGRATION_SECRET||JWT_SECRET'),'integration key still falls back to JWT secret');
 assert(access.includes('/api/customers/:id/reset-account')&&access.includes('admin.only'),'reset account must be admin only');
-console.log('security hardening v25.13.1 checks passed');
+console.log('security hardening v25.14.0 checks passed');

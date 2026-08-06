@@ -136,8 +136,10 @@ class PostgresStateAdapter {
     await this.queryWithRetry(`CREATE TABLE IF NOT EXISTS app_state (
       state_key TEXT PRIMARY KEY,
       payload JSONB NOT NULL,
+      revision BIGINT NOT NULL DEFAULT 0,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`, [], { operation: "initialization" });
+    await this.queryWithRetry("ALTER TABLE app_state ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0", [], { operation: "initialization-revision" });
   }
 
   async load() {
@@ -159,6 +161,7 @@ class PostgresStateAdapter {
         this.consecutiveConnectionFailures = 0;
         return result;
       } catch (error) {
+        attemptError = error;
         lastError = error;
         if (!isTransientPostgresError(error) || attempt === maxAttempts) {
           if (isTransientPostgresError(error)) {
@@ -212,9 +215,9 @@ class PostgresStateAdapter {
   }
 
   async save(snapshot, options = {}) {
-    // A single UPSERT statement is already atomic in PostgreSQL. Using a
-    // checked-out client plus BEGIN/COMMIT added two network round trips and
-    // made every button wait longer, especially on Render free instances.
+    // Financial state is committed synchronously in one PostgreSQL transaction.
+    // The advisory transaction lock serializes writers across multiple Node
+    // instances, while SELECT ... FOR UPDATE protects the state row itself.
     const interactive = options.interactive !== false;
     const attempts = Math.max(1, Number(interactive ? (process.env.PG_INTERACTIVE_WRITE_RETRIES || 4) : (process.env.PG_WRITE_RETRIES || 6)));
     const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 250));
@@ -225,22 +228,37 @@ class PostgresStateAdapter {
     let lastError;
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      let client;
+      let attemptError = null;
+      let detach = () => {};
       try {
-        await this.pool.query(
-          `INSERT INTO app_state (state_key,payload,updated_at)
-           VALUES ('main',$1::jsonb,NOW())
+        client = await this.pool.connect();
+        detach = this.attachClientErrorGuard(client, "durable-write-client");
+        await client.query("BEGIN");
+        await client.query("SELECT pg_advisory_xact_lock(hashtext('alaboud:app_state:main'))");
+        await client.query("SELECT revision FROM app_state WHERE state_key='main' FOR UPDATE");
+        const result = await client.query(
+          `INSERT INTO app_state (state_key,payload,revision,updated_at)
+           VALUES ('main',$1::jsonb,1,NOW())
            ON CONFLICT (state_key)
-           DO UPDATE SET payload=EXCLUDED.payload,updated_at=NOW()`,
+           DO UPDATE SET payload=EXCLUDED.payload,
+                         revision=app_state.revision+1,
+                         updated_at=NOW()
+           RETURNING revision`,
           [payload]
         );
+        await client.query("COMMIT");
+        this.lastCommittedRevision = Number(result.rows?.[0]?.revision || 0);
         this.connectionState = "connected";
         this.lastConnectedAt = new Date().toISOString();
         this.lastConnectionError = null;
         this.consecutiveConnectionFailures = 0;
         this.queueRelationalMirror(snapshot);
-        return;
+        return { revision: this.lastCommittedRevision };
       } catch (error) {
+        attemptError = error;
         lastError = error;
+        if (client) { try { await client.query("ROLLBACK"); } catch {} }
         if (isTransientPostgresError(error)) {
           this.connectionState = "reconnecting";
           this.lastDisconnectedAt = new Date().toISOString();
@@ -260,6 +278,9 @@ class PostgresStateAdapter {
         const delay = retryDelay(attempt, baseMs, maxMs);
         this.logger.warn(`PostgreSQL write unavailable; retrying (${attempt}/${attempts}) in ${delay}ms. ${error.code || error.message}`);
         await wait(delay);
+      } finally {
+        try { detach(); } catch {}
+        if (client) { try { client.release(Boolean(attemptError)); } catch {} }
       }
     }
     throw lastError;
@@ -284,7 +305,8 @@ class PostgresStateAdapter {
       lastConnectedAt: this.lastConnectedAt,
       lastDisconnectedAt: this.lastDisconnectedAt,
       consecutiveConnectionFailures: this.consecutiveConnectionFailures,
-      lastConnectionError: this.lastConnectionError?.message || null
+      lastConnectionError: this.lastConnectionError?.message || null,
+      lastCommittedRevision: this.lastCommittedRevision || 0
     };
   }
 

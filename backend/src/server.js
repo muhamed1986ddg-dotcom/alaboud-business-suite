@@ -16,6 +16,7 @@ const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistr
 const FinancialEngine = require("./finance/FinancialEngine");
 const { transactionFinancials } = require("./finance/TransactionFinancials");
 const { calculateReceivableSummary } = require("./finance/ReceivableSummary");
+const { markSoftDeleted } = require("./finance/FinancialIntegrity");
 const { registerHealthRoutes } = require("./routes/health");
 const { createIdempotencyMiddleware } = require("./reliability/idempotency");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
@@ -1682,9 +1683,7 @@ app.delete("/api/customers/:id", auth, async (req,res)=>{
       const customer=(Array.isArray(store.customers)?store.customers:[])
         .find(item=>item?.id===req.params.id && !item?.isDeleted);
       if(!customer)return null;
-      customer.isDeleted=true;
-      customer.deletedAt=now();
-      customer.deletedBy=req.user.id;
+      markSoftDeleted(customer,{userId:req.user.id,reason:req.body?.reason||"حذف العميل",at:now()});
       audit(store,req.user.id,"DELETE","CUSTOMER",customer.id,{before:{...customer},softDelete:true,name:customer.name,ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
       return {id:customer.id,name:customer.name};
     });
@@ -2068,15 +2067,11 @@ app.delete("/api/transactions/:id", auth, async (req,res)=>{
       const transaction=s.transactions.find(item=>item.id===req.params.id&&!item.isDeleted);
       if(!transaction)return null;
       const deletedAt=now();
-      transaction.isDeleted=true;
-      transaction.deletedAt=deletedAt;
-      transaction.deletedBy=req.user.id;
+      markSoftDeleted(transaction,{userId:req.user.id,reason:req.body?.reason||"حذف الحوالة",at:deletedAt});
 
       for(const payment of s.payments){
         if(payment.transactionId===transaction.id&&!payment.isDeleted){
-          payment.isDeleted=true;
-          payment.deletedAt=deletedAt;
-          payment.deletedBy=req.user.id;
+          markSoftDeleted(payment,{userId:req.user.id,reason:req.body?.reason||"حذف تابع لحوالة محذوفة",at:deletedAt});
         }
       }
 
@@ -2157,9 +2152,7 @@ app.delete("/api/payments/:id", auth, async (req,res)=>{
       ? s.payments.filter(item=>!item.isDeleted&&item.paymentBatchId===batchId)
       : [payment]);
     for(const item of targets){
-      item.isDeleted=true;
-      item.deletedAt=now();
-      item.deletedBy=req.user.id;
+      markSoftDeleted(item,{userId:req.user.id,reason:req.body?.reason||"حذف الدفعة",at:now()});
     }
     if(payment.recordType==="CUSTOMER_PAYMENT_RECEIPT"&&safeNumber(payment.oldBalanceAllocation)>0){
       const customer=s.customers.find(item=>item.id===payment.customerId);

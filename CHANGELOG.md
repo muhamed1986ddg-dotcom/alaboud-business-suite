@@ -1,3 +1,13 @@
+# CHANGELOG
+
+## v25.14.0 — Financial Transaction Integrity
+- Synchronous PostgreSQL transaction commit for durable financial snapshots.
+- Cross-instance advisory lock and row-level `FOR UPDATE` lock.
+- Atomic state revision counter.
+- Standardized soft-delete audit metadata and delete reasons.
+- Deterministic decimal arithmetic and balanced-entry validation utilities.
+- Added financial integrity and transaction policy tests.
+
 # v25.10.0 — Architecture and Financial Integrity
 
 - Confirmed durable writes with rollback on persistence failure.
