@@ -2617,8 +2617,8 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     if(row.type==="RECEIVABLE") companyReceivable+=convertedRemaining;
     if(row.type==="PAYABLE") companyPayable+=convertedRemaining;
   }
-  // The debt-page company figure is the same final/net company balance shown on
-  // the companies page: receivable minus payable, after converting each row.
+  // Keep the gross company receivable separate from company payables. "Debt for us"
+  // must never subtract company payables; those belong only in "Debt on us" and net debt.
   const companyFinalBalance=companyReceivable-companyPayable;
 
   // Manual general debts are not represented by customerSummary or partnerRows.
@@ -2644,7 +2644,8 @@ app.get("/api/general-debts", auth, async (req,res)=>{
 
   const receivableBreakdown={
     customers:+authoritativeCustomerReceivable.toFixed(2),
-    companies:+companyFinalBalance.toFixed(2),
+    companies:+companyReceivable.toFixed(2),
+    companyNet:+companyFinalBalance.toFixed(2),
     manual:+manualReceivable.toFixed(2),
     companyReceivable:+companyReceivable.toFixed(2),
     companyPayable:+companyPayable.toFixed(2),

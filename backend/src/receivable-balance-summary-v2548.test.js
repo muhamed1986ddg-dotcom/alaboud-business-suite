@@ -5,6 +5,6 @@ const ui=fs.readFileSync(require('path').join(__dirname,'../../frontend/src/scre
 assert(server.includes('receivableBreakdown'), 'server must return receivable breakdown');
 assert(server.includes('for(const row of partnerRows)'), 'company rows must be separated');
 assert(ui.includes('رصيد دين العملاء'), 'customer balance must be shown');
-assert(ui.includes('الرصيد النهائي للشركات'), 'final company balance must be shown');
+assert(ui.includes('دين الشركات لنا'), 'gross company receivable must be shown');
 assert(ui.includes('mode==="RECEIVABLE"'), 'receivable mode must use compact summary');
 console.log('receivable balance summary v25.4.8 test passed');

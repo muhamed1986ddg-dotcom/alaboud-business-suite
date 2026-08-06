@@ -1,0 +1,12 @@
+const fs=require("fs");
+const path=require("path");
+const assert=require("assert");
+const server=fs.readFileSync(path.join(__dirname,"server.js"),"utf8");
+const ui=fs.readFileSync(path.join(__dirname,"../../frontend/src/screens/GeneralDebts.jsx"),"utf8");
+assert(server.includes("const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable+manualReceivable"));
+assert(server.includes("companies:+companyReceivable.toFixed(2)"));
+assert(server.includes("companyNet:+companyFinalBalance.toFixed(2)"));
+assert(server.includes("total:+authoritativeReceivable.toFixed(2)"));
+assert(ui.includes("دين الشركات لنا"));
+assert(ui.includes("الديون اليدوية لنا"));
+console.log("unified gross receivable v25.11.2 test passed");

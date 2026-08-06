@@ -143,7 +143,8 @@ function GeneralDebts(){
       </>}
       {mode==="RECEIVABLE"&&<>
         <div className="card debt-balance-row"><span>👤 رصيد دين العملاء</span><strong>{money(data.receivableBreakdown?.customers)} {data.summaryCurrency||"CAD"}</strong></div>
-        <div className="card debt-balance-row"><span>🏢 الرصيد النهائي للشركات</span><strong>{money(data.receivableBreakdown?.companies)} {data.summaryCurrency||"CAD"}</strong></div>
+        <div className="card debt-balance-row"><span>🏢 دين الشركات لنا</span><strong>{money(data.receivableBreakdown?.companies)} {data.summaryCurrency||"CAD"}</strong></div>
+        {Number(data.receivableBreakdown?.manual||0)!==0&&<div className="card debt-balance-row"><span>📝 الديون اليدوية لنا</span><strong>{money(data.receivableBreakdown?.manual)} {data.summaryCurrency||"CAD"}</strong></div>}
         <div className="card debt-balance-row debt-balance-total"><span>💰 المجموع الكلي</span><strong>{money(data.receivableBreakdown?.total??data.totals.receivable)} {data.summaryCurrency||"CAD"}</strong></div>
       </>}
       {mode==="PAYABLE"&&<>
