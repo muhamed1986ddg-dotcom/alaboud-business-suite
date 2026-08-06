@@ -1,3 +1,11 @@
+# v25.8.1 — UI Responsibility Cleanup
+
+- Removed duplicated create-transfer and payment actions from the transfers page.
+- Removed duplicate overdue, profit, and unpaid-total controls from the transfers page.
+- Transfers page now focuses on viewing, filtering, editing, deleting, exporting, and paid/unpaid status.
+- Removed the full-payment shortcut from transfer rows; payments remain centralized in Customers.
+- Removed the unused add-transfer form and related exchange-rate request from the transfers bundle.
+
 # v25.6.0
 
 - Manual companies ledger and opening balances.
