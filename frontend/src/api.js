@@ -44,7 +44,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.12.7";
+  config.headers["X-Alaboud-Client-Version"]="25.13.0";
   // PostgreSQL recovery retries can legitimately take longer than the normal
   // navigation timeout. Keep write requests open until the backend confirms
   // whether the durable save succeeded, otherwise Axios can report a false
@@ -82,11 +82,22 @@ function successToastMessage(method,url,response){
   return backendMessage||"تمت الإضافة بنجاح";
 }
 
+const TRANSIENT_DATABASE_TEXT=/connection terminated|connection reset|connection refused|connection closed|terminating connection|57p0[1234]|0800[1367]|database system is (?:in recovery|not yet accepting)|not queryable|socket hang up|econnreset|econnrefused|timeout expired/i;
+
+export function sanitizeOperationalMessage(message, fallback="تعذر الاتصال بقاعدة البيانات مؤقتًا") {
+  const text=String(message||"").trim();
+  if(!text)return fallback;
+  return TRANSIENT_DATABASE_TEXT.test(text)
+    ? "انقطع الاتصال بقاعدة البيانات. تتم إعادة الاتصال تلقائيًا، ولم يتم اعتماد أي تغيير غير مؤكد."
+    : text;
+}
+
 function errorToastMessage(method,error){
   if(error?.code==="ECONNABORTED"||/timeout/i.test(String(error?.message||""))){
     return "لم يصل تأكيد العملية خلال المهلة. لا تضغط مرة أخرى؛ تحقق من حالة السجل أولًا.";
   }
-  const backendMessage=String(error.response?.data?.message||"").trim();
+  const rawBackendMessage=String(error.response?.data?.message||"").trim();
+  const backendMessage=sanitizeOperationalMessage(rawBackendMessage,"");
   if(error.response?.data?.code==="DATABASE_TEMPORARILY_UNAVAILABLE"){
     window.dispatchEvent(new CustomEvent("alaboud-database-status",{detail:{status:"reconnecting",message:backendMessage}}));
   }
@@ -112,6 +123,13 @@ api.interceptors.response.use(
     return response;
   },
   error=>{
+    const rawMessage=error?.response?.data?.message||error?.message||"";
+    if(TRANSIENT_DATABASE_TEXT.test(String(rawMessage))){
+      const safeMessage=sanitizeOperationalMessage(rawMessage);
+      if(error.response?.data)error.response.data={...error.response.data,message:safeMessage,code:"DATABASE_TEMPORARILY_UNAVAILABLE",retryable:true};
+      error.message=safeMessage;
+      window.dispatchEvent(new CustomEvent("alaboud-database-status",{detail:{status:"reconnecting",message:"تتم إعادة الاتصال تلقائيًا"}}));
+    }
     const method=String(error.config?.method||"get").toLowerCase();
     const url=String(error.config?.url||"").split("?")[0];
     if(method!=="get"&&shouldShowWriteToast(url,error.config)&&error.response?.status!==401){

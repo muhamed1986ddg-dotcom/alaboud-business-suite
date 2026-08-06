@@ -2236,7 +2236,14 @@ git push origin main
 - إضافة اختبارات رقمية حقيقية للأرباح.
 
 
-## v25.12.9 — PostgreSQL Recovery Stability
+## v25.13.0 — PostgreSQL Recovery Stability
 - منع إعادة إنشاء عدة Pools بشكل متكرر عند 57P03 أو انقطاع الاتصال.
 - إضافة استعادة Single-flight وفحص SELECT 1 قبل تفعيل الاتصال الجديد.
 - تجاهل أخطاء Pools القديمة وتقييد معدل إعادة الإنشاء.
+
+## v25.13.0
+- Added a single-flight PostgreSQL recovery gate for reads, writes, and relational mirror work.
+- Prevented concurrent requests from repeatedly hitting a known-broken pool during recovery.
+- Preserved pending relational mirror snapshots across transient disconnects.
+- Sanitized PostgreSQL technical errors before they reach screens or global toasts.
+- Updated web, backend, and Android versions to 25.13.0.

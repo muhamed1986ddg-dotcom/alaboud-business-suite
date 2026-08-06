@@ -189,6 +189,27 @@ class PostgresStateAdapter {
     return this.poolResetPromise;
   }
 
+  async waitForRecovery(operation = "query") {
+    // When one request is already rebuilding/probing the pool, all other
+    // requests must wait for that same recovery attempt. Otherwise they keep
+    // hitting the known-broken pool and create an error storm in Render logs.
+    if (this.poolResetPromise) {
+      try {
+        return await this.poolResetPromise;
+      } catch {
+        // The caller's retry loop will apply backoff and try recovery again.
+      }
+    }
+    if (this.connectionState === "reconnecting") {
+      try {
+        return await this.resetPool(`${operation}:recovery-gate`);
+      } catch {
+        // PostgreSQL may still be starting (57P03). Do not fan out resets.
+      }
+    }
+    return this.pool;
+  }
+
   async init() {
     const runner = new MigrationRunner({ pool: this.pool, logger: this.logger });
     await runner.run();
@@ -211,7 +232,8 @@ class PostgresStateAdapter {
     let lastError;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        const result = await this.pool.query(text, params);
+        const activePool = await this.waitForRecovery(operation);
+        const result = await activePool.query(text, params);
         this.markConnected();
         return result;
       } catch (error) {
@@ -253,7 +275,8 @@ class PostgresStateAdapter {
         let client;
         let detach = () => {};
         try {
-          client = await this.pool.connect();
+          const activePool = await this.waitForRecovery("mirror");
+          client = await activePool.connect();
           detach = this.attachClientErrorGuard(client, "mirror-client");
           await client.query("BEGIN");
           await this.projector.project(client, next);
@@ -263,8 +286,12 @@ class PostgresStateAdapter {
           this.lastMirrorError = error;
           if (client) { try { await client.query("ROLLBACK"); } catch {} }
           this.logger.warn(`Relational mirror deferred: ${error?.code || error?.message || error}`);
-          // Do not retry in a tight loop. The next successful app mutation will
-          // enqueue the newest complete snapshot and repair the mirror.
+          // Preserve the newest snapshot while PostgreSQL is recovering. It is
+          // retried after a bounded delay rather than being silently discarded.
+          if (isTransientPostgresError(error) && !this.mirrorPendingSnapshot) {
+            this.mirrorPendingSnapshot = next;
+            await wait(Math.max(1000, Number(process.env.PG_MIRROR_RETRY_DELAY_MS || 5000)));
+          }
         } finally {
           try { detach(); } catch {}
           if (client) { try { client.release(Boolean(this.lastMirrorError)); } catch {} }
@@ -288,7 +315,8 @@ class PostgresStateAdapter {
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
-        await this.pool.query(
+        const activePool = await this.waitForRecovery("write");
+        await activePool.query(
           `INSERT INTO app_state (state_key,payload,updated_at)
            VALUES ('main',$1::jsonb,NOW())
            ON CONFLICT (state_key)
