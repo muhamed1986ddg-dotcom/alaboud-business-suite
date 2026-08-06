@@ -3,6 +3,8 @@ import api,{cachedGet,clearApiGetCache} from "../api";
 import {APP_VERSION} from "../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
 import {AppTable} from "../components/ui";
+import {authoritativeCustomerRate,latestCustomerRate} from "../customerRate";
+
 
 export function Customer({id,back,onStatement}){
   const [data,setData]=useState(null);
@@ -100,7 +102,7 @@ export function Customer({id,back,onStatement}){
 
       const lines=rows.map((item,index)=>{
         const amount=Number(item.usdAmount||0).toFixed(2).replace(/\.00$/,"");
-        const rate=Number(item.customerRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
+        const rate=authoritativeCustomerRate(item).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
         return `${index+1}_ ${amount} 🇺🇸 × ${rate} = ${money(item.formulaResultCad)} 🇨🇦`;
       });
 
@@ -191,7 +193,7 @@ export function Customer({id,back,onStatement}){
       let y=219;
       rows.forEach((item,index)=>{
         const amount=Number(item.usdAmount||item.amount||0).toFixed(2).replace(/\.00$/,"");
-        const rate=Number(item.customerRate||item.finalRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
+        const rate=authoritativeCustomerRate(item).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
         const result=money(item.formulaResultCad ?? item.totalCad ?? 0);
 
         drawText(
@@ -340,7 +342,7 @@ export function Customer({id,back,onStatement}){
   const unpaidTransactions=transactions.filter(transaction=>Number(transaction?.remaining||0)>0);
   const transactionRows=transactions.map(transaction=>{
     const usdAmount=Number(transaction.usdAmount ?? transaction.amount ?? 0);
-    const exchangeRate=Number(transaction.customerRate ?? transaction.finalRate ?? 0);
+    const exchangeRate=authoritativeCustomerRate(transaction);
     const cadValue=Number(
       transaction.formulaResultCad ??
       transaction.totalCad ??
@@ -350,9 +352,7 @@ export function Customer({id,back,onStatement}){
   });
   const totalTransactionUsd=transactionRows.reduce((sum,row)=>sum+row.usdAmount,0);
   const totalTransactionCad=transactionRows.reduce((sum,row)=>sum+row.cadValue,0);
-  const averageExchangeRate=transactionRows.length
-    ? transactionRows.reduce((sum,row)=>sum+row.exchangeRate,0)/transactionRows.length
-    : 0;
+  const latestExchangeRate=latestCustomerRate(transactions);
 
   return <div className="customer-details-page">
     <div className="card no-print form">
@@ -452,7 +452,7 @@ export function Customer({id,back,onStatement}){
 
       <div className="customer-transfer-summary">
         <div className="customer-transfer-summary-card usd"><span>إجمالي الحوالات (USD)</span><strong>{money(totalTransactionUsd)} USD</strong></div>
-        <div className="customer-transfer-summary-card rate"><span>متوسط سعر التحويل</span><strong>{averageExchangeRate.toFixed(4)}</strong></div>
+        <div className="customer-transfer-summary-card rate"><span>آخر سعر تحويل للعميل</span><strong>{latestExchangeRate?latestExchangeRate.toFixed(4):"—"}</strong></div>
         <div className="customer-transfer-summary-card cad"><span>إجمالي القيمة (CAD)</span><strong>{money(totalTransactionCad)} CAD</strong></div>
         <div className="customer-transfer-summary-card count"><span>عدد الحوالات</span><strong>{transactionRows.length}</strong></div>
       </div>
@@ -634,7 +634,7 @@ export function Statement({customerId,back}){
               data.transactions.map((item,index)=><tr key={item.id}>
                 <td>{index+1}</td>
                 <td>{Number(item.usdAmount).toFixed(2)} 🇺🇸</td>
-                <td>× {Number(item.customerRate).toFixed(4).replace(/0+$/,"").replace(/\.$/,"")} =</td>
+                <td>× {authoritativeCustomerRate(item).toFixed(4).replace(/0+$/,"").replace(/\.$/,"")} =</td>
                 <td>{money(item.formulaResultCad)} 🇨🇦</td>
               </tr>)
               :<tr><td colSpan="4">لا توجد حوالات في هذه الفترة.</td></tr>

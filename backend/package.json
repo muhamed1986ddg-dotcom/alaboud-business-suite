@@ -1,6 +1,6 @@
 {
   "name": "alaboud-stable-backend",
-  "version": "25.12.1",
+  "version": "25.12.3",
   "private": true,
   "type": "commonjs",
   "scripts": {

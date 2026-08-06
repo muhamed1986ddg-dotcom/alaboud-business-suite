@@ -4,6 +4,8 @@ import {APP_VERSION} from "../version";
 import {AppPagination} from "../components/ui";
 import {CustomerToolbar,CustomerListControls} from "../components/customers/CustomerToolbar";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
+import {authoritativeCustomerRate} from "../customerRate";
+
 
 export function Customers({open}){
   const [list,setList]=useState([]);
@@ -351,7 +353,7 @@ export function Customers({open}){
     let y=345;
     rows.forEach((item,index)=>{
       const amount=Number(item.usdAmount||item.amount||0).toFixed(2).replace(/\.00$/,"");
-      const rate=Number(item.customerRate||item.finalRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
+      const rate=authoritativeCustomerRate(item).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
       ctx.direction="ltr";ctx.textAlign="left";ctx.fillStyle="#f4f4f5";
       ctx.font='700 39px Arial, sans-serif';
       ctx.fillText(`${index+1}_  ${amount}  🇺🇸  ×  ${rate}  =  ${money(item.formulaResultCad)}  🇨🇦`,65,y);
@@ -427,7 +429,7 @@ export function Customers({open}){
       const {data}=await cachedGet(`/customers/${customer.id}/statement`);
       const lines=(Array.isArray(data.transactions)?data.transactions:[]).map((item,index)=>{
         const amount=Number(item.usdAmount||0).toFixed(2).replace(/\.00$/,"");
-        const rate=Number(item.customerRate||0).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
+        const rate=authoritativeCustomerRate(item).toFixed(4).replace(/0+$/,"").replace(/\.$/,"");
         return `${index+1}_ ${amount} 🇺🇸 × ${rate} = ${money(item.formulaResultCad)} 🇨🇦`;
       });
 
