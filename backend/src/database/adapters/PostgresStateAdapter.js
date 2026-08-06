@@ -63,6 +63,8 @@ class PostgresStateAdapter {
     this.lastMirrorError = null;
     this.poolGeneration = 0;
     this.poolResetPromise = null;
+    this.lastPoolResetAt = 0;
+    this.minimumPoolResetIntervalMs = Math.max(1000, Number(process.env.PG_POOL_RESET_MIN_INTERVAL_MS || 5000));
     this.connectionState = "connecting";
     this.lastConnectedAt = null;
     this.lastDisconnectedAt = null;
@@ -83,14 +85,45 @@ class PostgresStateAdapter {
     });
     const generation = ++this.poolGeneration;
     pool.on("error", (error) => {
-      this.connectionState = "reconnecting";
-      this.lastDisconnectedAt = new Date().toISOString();
-      this.lastConnectionError = error;
-      this.consecutiveConnectionFailures += 1;
+      // Ignore errors emitted by a pool that has already been replaced.
+      if (pool !== this.pool) return;
+      this.markDisconnected(error);
       this.logger.error(`PostgreSQL idle client error (pool ${generation}):`, error.message);
-      if (isTransientPostgresError(error)) this.resetPool(`idle-client:${error.code || error.message}`).catch(() => {});
+      if (isTransientPostgresError(error)) {
+        this.resetPool(`idle-client:${error.code || error.message}`, { force: false }).catch(() => {});
+      }
     });
     return pool;
+  }
+
+
+  markConnected() {
+    this.connectionState = "connected";
+    this.lastConnectedAt = new Date().toISOString();
+    this.lastConnectionError = null;
+    this.consecutiveConnectionFailures = 0;
+  }
+
+  markDisconnected(error) {
+    this.connectionState = "reconnecting";
+    this.lastDisconnectedAt = new Date().toISOString();
+    this.lastConnectionError = error || null;
+    this.consecutiveConnectionFailures += 1;
+  }
+
+  async probePool(pool, { attempts = 3, baseMs = 750, maxMs = 5000 } = {}) {
+    let lastError;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        await pool.query("SELECT 1");
+        return true;
+      } catch (error) {
+        lastError = error;
+        if (!isTransientPostgresError(error) || attempt === attempts) break;
+        await wait(retryDelay(attempt, baseMs, maxMs));
+      }
+    }
+    throw lastError || new Error("PostgreSQL readiness probe failed");
   }
 
   attachClientErrorGuard(client, context = "checked-out-client") {
@@ -112,19 +145,45 @@ class PostgresStateAdapter {
     };
   }
 
-  async resetPool(reason = "transient-error") {
+  async resetPool(reason = "transient-error", { force = false } = {}) {
     if (this.poolResetPromise) return this.poolResetPromise;
+
+    const now = Date.now();
+    const recentlyReset = now - this.lastPoolResetAt < this.minimumPoolResetIntervalMs;
+    if (!force && recentlyReset && this.pool) {
+      try {
+        await this.probePool(this.pool, { attempts: 1 });
+        this.markConnected();
+        return this.pool;
+      } catch {
+        // The current pool is still unhealthy; continue with one controlled reset.
+      }
+    }
+
     this.poolResetPromise = (async () => {
       const oldPool = this.pool;
-      const newPool = this.createPool();
-      this.pool = newPool;
       this.connectionState = "reconnecting";
-      this.logger.warn(`PostgreSQL pool recreated after ${reason}`);
-      if (oldPool && oldPool !== newPool) {
-        Promise.race([
-          oldPool.end().catch(() => undefined),
-          wait(2000)
-        ]).catch(() => undefined);
+      const candidate = this.createPool();
+      try {
+        // Never publish a new pool until PostgreSQL confirms it is accepting queries.
+        await this.probePool(candidate, {
+          attempts: Math.max(2, Number(process.env.PG_POOL_RECOVERY_PROBES || 5)),
+          baseMs: Math.max(250, Number(process.env.PG_POOL_RECOVERY_BASE_MS || 1000)),
+          maxMs: Math.max(1000, Number(process.env.PG_POOL_RECOVERY_MAX_MS || 15000))
+        });
+        this.pool = candidate;
+        this.lastPoolResetAt = Date.now();
+        this.markConnected();
+        this.logger.warn(`PostgreSQL pool recovered after ${reason}`);
+        if (oldPool && oldPool !== candidate) {
+          Promise.race([oldPool.end().catch(() => undefined), wait(2000)]).catch(() => undefined);
+        }
+        return candidate;
+      } catch (error) {
+        try { await candidate.end(); } catch {}
+        this.markDisconnected(error);
+        this.logger.warn(`PostgreSQL pool recovery deferred after ${reason}: ${error.code || error.message}`);
+        throw error;
       }
     })().finally(() => { this.poolResetPromise = null; });
     return this.poolResetPromise;
@@ -153,10 +212,7 @@ class PostgresStateAdapter {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         const result = await this.pool.query(text, params);
-        this.connectionState = "connected";
-        this.lastConnectedAt = new Date().toISOString();
-        this.lastConnectionError = null;
-        this.consecutiveConnectionFailures = 0;
+        this.markConnected();
         return result;
       } catch (error) {
         lastError = error;
@@ -168,7 +224,13 @@ class PostgresStateAdapter {
           }
           throw error;
         }
-        await this.resetPool(`${operation}:${error.code || error.message}`);
+        this.markDisconnected(error);
+        try {
+          await this.resetPool(`${operation}:${error.code || error.message}`);
+        } catch {
+          // Recovery may legitimately fail while PostgreSQL is in 57P03 startup mode.
+          // The outer retry loop applies backoff and probes again.
+        }
         const delay = retryDelay(attempt, baseMs, maxMs);
         this.logger.warn(`PostgreSQL ${operation} unavailable; retrying (${attempt}/${maxAttempts}) in ${delay}ms. ${error.code || error.message}`);
         await wait(delay);
@@ -233,19 +295,13 @@ class PostgresStateAdapter {
            DO UPDATE SET payload=EXCLUDED.payload,updated_at=NOW()`,
           [payload]
         );
-        this.connectionState = "connected";
-        this.lastConnectedAt = new Date().toISOString();
-        this.lastConnectionError = null;
-        this.consecutiveConnectionFailures = 0;
+        this.markConnected();
         this.queueRelationalMirror(snapshot);
         return;
       } catch (error) {
         lastError = error;
         if (isTransientPostgresError(error)) {
-          this.connectionState = "reconnecting";
-          this.lastDisconnectedAt = new Date().toISOString();
-          this.lastConnectionError = error;
-          this.consecutiveConnectionFailures += 1;
+          this.markDisconnected(error);
         }
         const budgetExhausted = Date.now() - startedAt >= retryBudgetMs;
         if (!isTransientPostgresError(error) || attempt === attempts || budgetExhausted) {
@@ -256,7 +312,11 @@ class PostgresStateAdapter {
           }
           throw error;
         }
-        await this.resetPool(`write:${error.code || error.message}`);
+        try {
+          await this.resetPool(`write:${error.code || error.message}`);
+        } catch {
+          // Keep the write pending in this request until the retry budget expires.
+        }
         const delay = retryDelay(attempt, baseMs, maxMs);
         this.logger.warn(`PostgreSQL write unavailable; retrying (${attempt}/${attempts}) in ${delay}ms. ${error.code || error.message}`);
         await wait(delay);
