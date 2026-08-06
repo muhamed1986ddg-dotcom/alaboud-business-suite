@@ -15,6 +15,7 @@ function GeneralDebts(){
   const [payment,setPayment]=useState({debtId:"",amount:"",paymentDate:"",method:"CASH",notes:""});
   const [settlementDebt,setSettlementDebt]=useState(null);
   const [settlementMode,setSettlementMode]=useState("PARTIAL");
+  const [savingPayment,setSavingPayment]=useState(false);
   const [form,setForm]=useState({type:"RECEIVABLE",partyName:"",amount:"",currency:"CAD",dueDate:"",description:"",reference:""});
 
   async function load(){
@@ -52,11 +53,19 @@ function GeneralDebts(){
   }
 
   async function addPayment(event){
-    event.preventDefault();if(!payment.debtId||!payment.amount)return;setMessage("");
+    event.preventDefault();
+    if(!payment.debtId||!payment.amount||savingPayment)return false;
+    setMessage("");setSavingPayment(true);
     try{
       await api.post(`/general-debts/${payment.debtId}/payments`,payment);
-      setPayment({debtId:"",amount:"",paymentDate:"",method:"CASH",notes:""});setMessage("تم تسجيل الدفعة");await load();
-    }catch(error){setMessage(error.response?.data?.message||"تعذر تسجيل الدفعة");}
+      setPayment({debtId:"",amount:"",paymentDate:"",method:"CASH",notes:""});
+      await load();
+      setMessage("تم تسجيل الدفعة بنجاح");
+      return true;
+    }catch(error){
+      setMessage(error.response?.data?.message||"تعذر تسجيل الدفعة. لم يتغير الرصيد.");
+      return false;
+    }finally{setSavingPayment(false);}
   }
 
   function openSettlement(item){
@@ -144,7 +153,7 @@ function GeneralDebts(){
       {mode==="RECEIVABLE"&&<>
         <div className="card debt-balance-row"><span>👤 رصيد دين العملاء</span><strong>{money(data.receivableBreakdown?.customers)} {data.summaryCurrency||"CAD"}</strong></div>
         <div className="card debt-balance-row"><span>🏢 دين الشركات لنا</span><strong>{money(data.receivableBreakdown?.companies)} {data.summaryCurrency||"CAD"}</strong></div>
-        {Number(data.receivableBreakdown?.manual||0)!==0&&<div className="card debt-balance-row"><span>📝 الديون اليدوية لنا</span><strong>{money(data.receivableBreakdown?.manual)} {data.summaryCurrency||"CAD"}</strong></div>}
+        {Number(data.receivableBreakdown?.manual||0)!==0&&<div className="card debt-balance-row"><span>📝 ديون يدوية (للعرض فقط)</span><strong>{money(data.receivableBreakdown?.manual)} {data.summaryCurrency||"CAD"}</strong></div>}
         <div className="card debt-balance-row debt-balance-total"><span>💰 المجموع الكلي</span><strong>{money(data.receivableBreakdown?.total??data.totals.receivable)} {data.summaryCurrency||"CAD"}</strong></div>
       </>}
       {mode==="PAYABLE"&&<>
@@ -182,14 +191,14 @@ function GeneralDebts(){
     </AppModal>
 
     <AppModal open={Boolean(settlementDebt)} title={settlementDebt?.type==="PAYABLE"?"تسديد الدين علينا":"تسجيل دفعة من العميل"} onClose={()=>setSettlementDebt(null)}>
-      {settlementDebt&&<form className="form debt-add-form" onSubmit={async event=>{await addPayment(event);setSettlementDebt(null)}}>
+      {settlementDebt&&<form className="form debt-add-form" onSubmit={async event=>{const saved=await addPayment(event);if(saved)setSettlementDebt(null)}}>
         <div className="debt-settlement-summary"><strong>{settlementDebt.partyName}</strong><span>المتبقي: {money(settlementDebt.remaining)} {settlementDebt.currency}</span></div>
         <div className="debt-settlement-modes"><AppButton type="button" variant={settlementMode==="FULL"?"primary":"secondary"} onClick={()=>changeSettlementMode("FULL")}>تسديد كامل</AppButton><AppButton type="button" variant={settlementMode==="PARTIAL"?"primary":"secondary"} onClick={()=>changeSettlementMode("PARTIAL")}>تسديد جزئي</AppButton></div>
         <input type="number" min="0.01" max={settlementDebt.remaining} step="0.01" value={payment.amount} onChange={e=>{setSettlementMode("PARTIAL");setPayment({...payment,amount:e.target.value})}} placeholder="مبلغ الدفعة" required/>
         <input type="date" value={payment.paymentDate} onChange={e=>setPayment({...payment,paymentDate:e.target.value})}/>
         <select value={payment.method||"CASH"} onChange={e=>setPayment({...payment,method:e.target.value})}><option value="CASH">نقدي</option><option value="BANK">بنك</option><option value="TRANSFER">تحويل</option><option value="CARD">بطاقة</option></select>
         <input value={payment.notes} onChange={e=>setPayment({...payment,notes:e.target.value})} placeholder="ملاحظات السداد"/>
-        <div className="transaction-modal-actions"><AppButton type="button" onClick={()=>setSettlementDebt(null)}>إلغاء</AppButton><AppButton variant="primary">{settlementDebt.type==="PAYABLE"?"تأكيد الدفع":"تأكيد الاستلام"}</AppButton></div>
+        <div className="transaction-modal-actions"><AppButton type="button" onClick={()=>setSettlementDebt(null)}>إلغاء</AppButton><AppButton variant="primary" disabled={savingPayment}>{savingPayment?"جارٍ الحفظ...":settlementDebt.type==="PAYABLE"?"تأكيد الدفع":"تأكيد الاستلام"}</AppButton></div>
       </form>}
     </AppModal>
 

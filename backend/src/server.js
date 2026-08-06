@@ -1206,7 +1206,9 @@ app.get("/api/capital-overview", auth, (req,res)=>{
   const accumulatedExpenses=expenses.reduce(
     (sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0
   );
-  const totalReceivables=receivables+generalReceivable+partnerReceivable;
+  // Business rule: "debt for us" is exactly customer balances + company balances.
+  // Manual general-debt records remain visible in the debt register but do not alter this KPI.
+  const totalReceivables=receivables+partnerReceivable;
   const totalPayables=generalPayable+partnerPayable;
   const totalMoney=capitalBalance+accumulatedProfit+totalReceivables;
   const totalLiabilities=accumulatedExpenses+totalPayables;
@@ -2634,7 +2636,9 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     if(row.type==="PAYABLE")manualPayable+=convertedRemaining;
   }
 
-  const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable+manualReceivable;
+  // Business rule: the headline "debt for us" must equal customer debt + company debt only.
+  // Manual records are reported separately to avoid silently inflating the authoritative KPI.
+  const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable;
   const authoritativePayable=companyPayable+manualPayable;
   const convertedTotals={
     receivable:+authoritativeReceivable.toFixed(2),

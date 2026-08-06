@@ -1,0 +1,10 @@
+const fs=require('fs');
+const assert=require('assert');
+const server=fs.readFileSync('backend/src/server.js','utf8');
+const ui=fs.readFileSync('frontend/src/screens/GeneralDebts.jsx','utf8');
+assert(server.includes('const totalReceivables=receivables+partnerReceivable;'),'capital debt-for-us must be customers + companies only');
+assert(server.includes('const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable;'),'general debts total must be customers + companies only');
+assert(!server.includes('const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable+manualReceivable;'),'manual receivable must not inflate headline');
+assert(ui.includes('const saved=await addPayment(event);if(saved)setSettlementDebt(null)'),'settlement modal must close only after confirmed save');
+assert(ui.includes('disabled={savingPayment}'),'payment submit must prevent duplicate writes');
+console.log('v25.11.3 financial consistency checks passed');
