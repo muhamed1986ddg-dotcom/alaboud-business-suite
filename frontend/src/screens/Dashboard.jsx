@@ -314,13 +314,6 @@ export function Dashboard({navigate}){
       </article>
     </section>
 
-    <section className="premium-quick">
-      <button onClick={()=>navigate("transactions")}><span>💱</span><strong>إضافة حوالة</strong></button>
-      <button onClick={()=>navigate("expenses")}><span>👛</span><strong>إضافة مصروف</strong></button>
-      <button onClick={()=>navigate("customers")}><span>👤＋</span><strong>عميل جديد</strong></button>
-      <button onClick={()=>navigate("reports-profits")}><span>📄</span><strong>تقرير سريع</strong></button>
-      <button onClick={()=>navigate("rates")}><span>☁</span><strong>أسعار الصرف</strong></button>
-    </section>
 
     <button className="premium-alert-strip" onClick={()=>setOpen(!open)}>
       <span>🔔</span>

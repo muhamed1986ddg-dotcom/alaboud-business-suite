@@ -1,3 +1,10 @@
+# v25.8.2 — Global Button Cleanup
+
+- Removed the duplicated global quick-action strip from Dashboard.
+- Kept creation actions in their owning pages.
+- Removed dead CSS tied to the deleted shortcut strip.
+- Added an automated responsibility check for the primary customer and transfer pages.
+
 # v25.8.1 — UI Responsibility Cleanup
 
 - Removed duplicated create-transfer and payment actions from the transfers page.
