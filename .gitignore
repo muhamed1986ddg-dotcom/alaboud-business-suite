@@ -1,49 +1,12 @@
-# Dependencies
 node_modules/
-frontend/node_modules/
-backend/node_modules/
-
-# Build outputs
-frontend/dist/
-backend/public/
-app/build/
-build/
-.gradle/
-
-# Environment and secrets
 .env
 .env.*
 !.env.example
-*.pem
-*.key
-*.p12
-*.jks
-keystore.properties
-
-# Runtime data and backups
-data/
-backups/
-*.backup
-*.bak
-*.dump
-store.json
-store-*.json
-
-# Logs and caches
-*.log
-.cache/
-.vite/
+dist/
+build/
 coverage/
-playwright-report/
-test-results/
-
-# IDE / OS
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-
-# Archives and generated packages
+*.log
+backups/
+data/*.json
 *.zip
-*.apk
-*.aab
+.DS_Store

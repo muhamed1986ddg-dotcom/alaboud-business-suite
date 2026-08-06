@@ -9,6 +9,8 @@ const path = require("path");
 const fs = require("fs");
 const dns = require("dns").promises;
 const net = require("net");
+const http = require("http");
+const https = require("https");
 const { readStore, readRootStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const FinancialEngine = require("./finance/FinancialEngine");
@@ -18,7 +20,7 @@ const { registerHealthRoutes } = require("./routes/health");
 const { createIdempotencyMiddleware } = require("./reliability/idempotency");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
-const { generateApiKey, keyPrefix, normalizeScopes, apiKeyMiddleware, versionAliasMiddleware, integrationLogger, openApiDocument, docsHtml } = require("./api-platform");
+const { generateApiKey, keyPrefix, normalizeScopes, apiKeyMiddleware, versionAliasMiddleware, integrationLogger, openApiDocument, docsHtml, safeEqualHex } = require("./api-platform");
 const { createBranch, resolveBranch, branchSummary } = require("./branch-manager");
 const {
   APP_VERSION,
@@ -69,7 +71,37 @@ async function assertSafeWebhookUrl(rawUrl){
   if(!host||host==="localhost"||host.endsWith(".localhost")||host.endsWith(".local")||host.endsWith(".internal"))throw new Error("WEBHOOK_PRIVATE_HOST");
   const addresses=net.isIP(host)?[{address:host}]:await dns.lookup(host,{all:true,verbatim:true});
   if(!addresses.length||addresses.some(item=>isPrivateIp(item.address)))throw new Error("WEBHOOK_PRIVATE_IP");
-  return parsed.toString();
+  return {url:parsed.toString(),protocol:parsed.protocol,hostname:host,address:addresses[0].address,path:`${parsed.pathname}${parsed.search}`};
+}
+
+// Sends a webhook request while pinning the TCP connection to the IP address
+// that was already validated by assertSafeWebhookUrl, instead of letting a
+// generic HTTP client re-resolve DNS for the same hostname. Without this, an
+// attacker who controls the webhook's DNS record could pass validation while
+// it resolves to a public IP, then flip the record (low TTL) to an internal
+// address — e.g. a cloud metadata endpoint — before the request actually goes
+// out. Redirects are never followed, since a redirect target is not re-validated.
+function safeFetchWebhook(rawUrl,{method="POST",headers={},body,timeoutMs=10000}={}){
+  return assertSafeWebhookUrl(rawUrl).then(safe=>new Promise((resolve,reject)=>{
+    const transport=safe.protocol==="https:"?https:http;
+    const req=transport.request({
+      host:safe.address,
+      servername:safe.protocol==="https:"?safe.hostname:undefined,
+      port:safe.protocol==="https:"?443:80,
+      path:safe.path||"/",
+      method,
+      headers:{...headers,Host:safe.hostname},
+      timeout:timeoutMs,
+    },res=>{
+      // Drain and discard the body; callers here only need status/ok.
+      res.resume();
+      resolve({ok:res.statusCode>=200&&res.statusCode<300,status:res.statusCode});
+    });
+    req.on("timeout",()=>req.destroy(new Error("WEBHOOK_TIMEOUT")));
+    req.on("error",reject);
+    if(body!==undefined)req.write(body);
+    req.end();
+  }));
 }
 
 async function sendEmail(to, subject, text) {
@@ -286,12 +318,23 @@ function totp(secret,time=Date.now(),step=30){
   const digest=crypto.createHmac("sha1",base32Decode(secret)).update(msg).digest(); const off=digest[digest.length-1]&15;
   const code=((digest.readUInt32BE(off)&0x7fffffff)%1000000).toString().padStart(6,"0"); return code;
 }
-function verifyTotp(secret,code){
+function totpStep(time=Date.now(),step=30){return Math.floor(time/1000/step);}
+// Returns the matching 30s step counter on success, or null on failure. Passing
+// lastUsedStep (the previously-accepted step for this secret) rejects a code
+// that has already been consumed once, closing the short TOTP replay window.
+function verifyTotp(secret,code,lastUsedStep=null){
   const clean=String(code||"").replace(/\D/g,"");
-  if(clean.length!==6)return false;
+  if(clean.length!==6)return null;
   // Accept a small clock drift (±60 seconds) between the phone and the server.
-  for(let w=-2;w<=2;w++)if(totp(secret,Date.now()+w*30000)===clean)return true;
-  return false;
+  for(let w=-2;w<=2;w++){
+    const time=Date.now()+w*30000;
+    if(totp(secret,time)===clean){
+      const step=totpStep(time);
+      if(lastUsedStep!==null&&lastUsedStep!==undefined&&step<=lastUsedStep)return null;
+      return step;
+    }
+  }
+  return null;
 }
 function issueSession(user,company,context={}){
   const jti=crypto.randomUUID();
@@ -537,7 +580,7 @@ app.get("/api/developer/webhooks", auth, (req,res)=>{
 app.post("/api/developer/webhooks", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
   let url=String(req.body?.url||"").trim();const name=String(req.body?.name||"").trim();
-  try{url=await assertSafeWebhookUrl(url);}catch{return res.status(400).json({message:"رابط Webhook غير صالح أو يشير إلى شبكة داخلية"});}
+  try{({url}=await assertSafeWebhookUrl(url));}catch{return res.status(400).json({message:"رابط Webhook غير صالح أو يشير إلى شبكة داخلية"});}
   const secret=crypto.randomBytes(24).toString("base64url");const item={id:id(),name:name||"Webhook",url,events:normalizeScopes(req.body?.events||["transaction.created"]),secretHash:sha256(secret),active:true,createdBy:req.user.id,createdAt:now()};
   await mutateDurable(store=>{store.webhooks.push(item);audit(store,req.user.id,"CREATE","WEBHOOK",item.id,{url:item.url,events:item.events});});
   res.status(201).json({...item,secretHash:undefined,secret,message:"احفظ السر الآن؛ لن يظهر مرة أخرى"});
@@ -545,9 +588,15 @@ app.post("/api/developer/webhooks", auth, async (req,res)=>{
 app.post("/api/developer/webhooks/:id/test", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
   const item=(readStore().webhooks||[]).find(x=>x.id===req.params.id&&x.active!==false);if(!item)return res.status(404).json({message:"Webhook غير موجود"});
-  try{await assertSafeWebhookUrl(item.url);}catch{return res.status(400).json({ok:false,message:"تم رفض رابط Webhook لأنه يشير إلى شبكة داخلية أو عنوان غير آمن"});}
   const payload={event:"webhook.test",id:crypto.randomUUID(),createdAt:now(),data:{companyId:req.user.companyId}};
-  try{const response=await fetch(item.url,{method:"POST",headers:{"content-type":"application/json","x-alaboud-event":"webhook.test"},body:JSON.stringify(payload),signal:AbortSignal.timeout(10000)});await mutateDurable(store=>{const w=store.webhooks.find(x=>x.id===item.id);if(w){w.lastTestAt=now();w.lastStatus=response.status;}});return res.status(response.ok?200:502).json({ok:response.ok,status:response.status});}catch(error){return res.status(502).json({ok:false,message:error.message});}
+  try{
+    const response=await safeFetchWebhook(item.url,{method:"POST",headers:{"content-type":"application/json","x-alaboud-event":"webhook.test"},body:JSON.stringify(payload),timeoutMs:10000});
+    await mutateDurable(store=>{const w=store.webhooks.find(x=>x.id===item.id);if(w){w.lastTestAt=now();w.lastStatus=response.status;}});
+    return res.status(response.ok?200:502).json({ok:response.ok,status:response.status});
+  }catch(error){
+    const rejected=["WEBHOOK_PROTOCOL","WEBHOOK_CREDENTIALS","WEBHOOK_PRIVATE_HOST","WEBHOOK_PRIVATE_IP"].includes(error.message);
+    return res.status(rejected?400:502).json({ok:false,message:rejected?"تم رفض رابط Webhook لأنه يشير إلى شبكة داخلية أو عنوان غير آمن":error.message});
+  }
 });
 app.delete("/api/developer/webhooks/:id", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
@@ -587,11 +636,12 @@ app.post("/api/auth/2fa/verify",rateLimit("2fa",20,10*60*1000),async (req,res)=>
   const user=store.users.find(u=>u.id===payload.id&&u.active);
   const company=store.companies.find(c=>c.id===payload.companyId&&c.active);
   if(!user||!company||!user.twoFactorSecret)return res.status(401).json({code:"TWO_FACTOR_ACCOUNT_UNAVAILABLE",message:"تعذر إكمال التحقق لهذا الحساب."});
-  if(!verifyTotp(user.twoFactorSecret,req.body?.code)){
+  const acceptedStep=verifyTotp(user.twoFactorSecret,req.body?.code,user.twoFactorLastStep);
+  if(acceptedStep===null){
     await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);if(u)audit(root,u.id,"LOGIN_2FA_FAILED","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
-    return res.status(401).json({code:"TWO_FACTOR_CODE_INVALID",message:"رمز التحقق غير صحيح أو انتهت مدته. انتظر الرمز الجديد في Authenticator ثم حاول مرة أخرى."});
+    return res.status(401).json({code:"TWO_FACTOR_CODE_INVALID",message:"رمز التحقق غير صحيح أو مستخدم من قبل أو انتهت مدته. انتظر الرمز الجديد في Authenticator ثم حاول مرة أخرى."});
   }
-  await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;u.lastLoginAt=now();audit(root,u.id,"LOGIN_2FA_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
+  await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;u.lastLoginAt=now();u.twoFactorLastStep=acceptedStep;audit(root,u.id,"LOGIN_2FA_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
   return res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
 });
 
@@ -602,16 +652,74 @@ app.post("/api/auth/2fa/setup",auth,async (req,res)=>{
   res.json({secret,otpauth:`otpauth://totp/${label}?secret=${secret}&issuer=ALABOUD%20Business%20Suite&digits=6&period=30`});
 });
 app.post("/api/auth/2fa/enable",auth,async (req,res)=>{
-  let ok=false; await mutateDurable(store=>{const u=store.users.find(x=>x.id===req.user.id);if(u?.twoFactorPendingSecret&&verifyTotp(u.twoFactorPendingSecret,req.body?.code)){u.twoFactorSecret=u.twoFactorPendingSecret;delete u.twoFactorPendingSecret;u.twoFactorEnabled=true;ok=true;audit(store,u.id,"2FA_ENABLED","AUTH",u.id);}});
+  let ok=false; await mutateDurable(store=>{const u=store.users.find(x=>x.id===req.user.id);if(!u?.twoFactorPendingSecret)return;const step=verifyTotp(u.twoFactorPendingSecret,req.body?.code);if(step===null)return;u.twoFactorSecret=u.twoFactorPendingSecret;delete u.twoFactorPendingSecret;u.twoFactorEnabled=true;u.twoFactorLastStep=step;ok=true;audit(store,u.id,"2FA_ENABLED","AUTH",u.id);});
   if(!ok)return res.status(400).json({message:"رمز التحقق غير صحيح"});res.json({message:"تم تفعيل التحقق بخطوتين"});
 });
-app.post("/api/auth/2fa/disable",auth,async (req,res)=>{await mutateDurable(store=>{const u=store.users.find(x=>x.id===req.user.id);u.twoFactorEnabled=false;delete u.twoFactorSecret;delete u.twoFactorPendingSecret;audit(store,u.id,"2FA_DISABLED","AUTH",u.id);});res.json({message:"تم تعطيل التحقق بخطوتين"});});
+app.post("/api/auth/2fa/disable",auth,async (req,res)=>{
+  const currentPassword=String(req.body?.currentPassword||"");
+  const code=String(req.body?.code||"");
+  try{
+    await mutateDurable(store=>{
+      const u=store.users.find(x=>x.id===req.user.id);
+      if(!u)throw new Error("الحساب غير موجود");
+      const passwordOk=currentPassword&&(isScryptHash(u.passwordHash)?verifyPassword(currentPassword,u.passwordHash):bcrypt.compareSync(currentPassword,u.passwordHash));
+      const codeStep=code&&u.twoFactorSecret?verifyTotp(u.twoFactorSecret,code,u.twoFactorLastStep):null;
+      if(!passwordOk&&codeStep===null){
+        audit(store,u.id,"2FA_DISABLE_REJECTED","AUTH",u.id,{ip:req.ip,requestId:req.requestId});
+        throw new Error("REAUTH_REQUIRED");
+      }
+      if(codeStep!==null)u.twoFactorLastStep=codeStep;
+      u.twoFactorEnabled=false;delete u.twoFactorSecret;delete u.twoFactorPendingSecret;
+      audit(store,u.id,"2FA_DISABLED","AUTH",u.id,{ip:req.ip,requestId:req.requestId});
+    });
+    res.json({message:"تم تعطيل التحقق بخطوتين"});
+  }catch(error){
+    if(error.message==="REAUTH_REQUIRED")return res.status(401).json({code:"REAUTH_REQUIRED",message:"يلزم إدخال كلمة المرور الحالية أو رمز التحقق الحالي لتعطيل التحقق بخطوتين"});
+    res.status(400).json({message:error.message||"تعذر تعطيل التحقق بخطوتين"});
+  }
+});
 
-app.post("/api/auth/biometric-token",auth,(req,res)=>{
-  const token=jwt.sign({id:req.user.id,companyId:req.user.companyId,purpose:"biometric"},JWT_SECRET,{expiresIn:"30d",issuer:"alaboud-business-suite",audience:"alaboud-biometric"});res.json({token});
+function biometricDeviceId(req){
+  return String(req.get("X-Installation-ID")||req.body?.deviceId||"").trim().slice(0,160);
+}
+app.post("/api/auth/biometric-token",auth,async (req,res)=>{
+  const deviceId=biometricDeviceId(req);
+  if(!deviceId)return res.status(400).json({message:"تعذر تحديد هذا الجهاز لتفعيل البصمة"});
+  const jti=crypto.randomUUID();
+  await mutateDurable(store=>{
+    if(!Array.isArray(store.devices))store.devices=[];
+    let device=store.devices.find(d=>d.id===deviceId&&d.userId===req.user.id&&d.companyId===req.user.companyId);
+    if(!device){device={id:deviceId,userId:req.user.id,companyId:req.user.companyId,createdAt:now()};store.devices.push(device);}
+    device.active=true;device.biometricActive=true;device.biometricJti=jti;device.lastSeenAt=now();device.revokedAt=null;
+    audit(store,req.user.id,"BIOMETRIC_ENABLED","DEVICE",deviceId,{ip:req.ip,requestId:req.requestId});
+  });
+  const token=jwt.sign({id:req.user.id,companyId:req.user.companyId,purpose:"biometric",deviceId,jti},JWT_SECRET,{expiresIn:"30d",issuer:"alaboud-business-suite",audience:"alaboud-biometric"});
+  res.json({token,deviceId});
+});
+app.post("/api/auth/biometric/revoke",auth,async (req,res)=>{
+  const deviceId=biometricDeviceId(req);
+  if(!deviceId)return res.status(400).json({message:"تعذر تحديد الجهاز"});
+  await mutateDurable(store=>{
+    const device=(store.devices||[]).find(d=>d.id===deviceId&&d.userId===req.user.id&&d.companyId===req.user.companyId);
+    if(device){device.biometricActive=false;device.biometricJti=null;device.revokedAt=now();device.updatedAt=now();}
+    audit(store,req.user.id,"BIOMETRIC_REVOKED","DEVICE",deviceId,{ip:req.ip,requestId:req.requestId});
+  });
+  res.json({message:"تم إبطال الدخول بالبصمة أو الوجه على هذا الجهاز"});
 });
 app.post("/api/auth/biometric-login",rateLimit("biometric",20,15*60*1000),(req,res)=>{
-  try{const p=jwt.verify(String(req.body?.token||""),JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-biometric",algorithms:["HS256"]});if(p.purpose!=="biometric")throw new Error();const store=readStore();const user=store.users.find(u=>u.id===p.id&&u.active);const company=store.companies.find(c=>c.id===p.companyId&&c.active);if(!user||!company)throw new Error();res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));}catch{return res.status(401).json({message:"انتهت صلاحية الدخول بالبصمة"});}
+  try{
+    const p=jwt.verify(String(req.body?.token||""),JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-biometric",algorithms:["HS256"]});
+    if(p.purpose!=="biometric"||!p.deviceId||!p.jti)throw new Error();
+    const presentedDevice=biometricDeviceId(req);
+    if(presentedDevice&&presentedDevice!==p.deviceId)throw new Error();
+    const store=readStore();
+    const user=store.users.find(u=>u.id===p.id&&u.active);
+    const company=store.companies.find(c=>c.id===p.companyId&&c.active);
+    const device=(store.devices||[]).find(d=>d.id===p.deviceId&&d.userId===p.id&&d.companyId===p.companyId&&d.active!==false&&d.biometricActive===true&&d.biometricJti===p.jti);
+    if(!user||!company||!device)throw new Error();
+    device.lastSeenAt=now();
+    res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
+  }catch{return res.status(401).json({message:"تم إبطال أو انتهاء صلاحية الدخول بالبصمة أو الوجه"});}
 });
 
 app.get("/api/auth/session",auth,(req,res)=>{
@@ -662,8 +770,7 @@ app.post("/api/auth/register-company",async (req,res)=>{
       store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
       return {company,user};
     });
-    const token=jwt.sign({id:result.user.id,name:result.user.name,role:result.user.role,companyId:result.company.id},JWT_SECRET,{expiresIn:"30d"});
-    res.status(201).json({token,user:{id:result.user.id,name:result.user.name,email:result.user.email,role:result.user.role,companyId:result.company.id,companyName:result.company.name}});
+    res.status(201).json(issueSession(result.user,result.company,{ip:req.ip,userAgent:req.get("user-agent")}));
   }catch(error){
     res.status(400).json({message:error.message||"تعذر إنشاء حساب الشركة"});
   }
@@ -739,7 +846,7 @@ app.post("/api/auth/reset-password", rateLimit("reset-password",10,15*60*1000), 
       const user=root.users.find(u=>String(u.email||"").toLowerCase()===email&&u.active);
       if(!user||!user.resetPasswordTokenHash) throw new Error("رابط إعادة التعيين غير صالح");
       if(new Date(user.resetPasswordExpiresAt||0).getTime()<Date.now()) throw new Error("انتهت صلاحية رابط إعادة التعيين، اطلب رابطًا جديدًا");
-      if(sha256(token)!==user.resetPasswordTokenHash) throw new Error("رابط إعادة التعيين غير صالح");
+      if(!safeEqualHex(sha256(token),user.resetPasswordTokenHash)) throw new Error("رابط إعادة التعيين غير صالح");
 
       user.passwordHash=hashPassword(newPassword);
       user.mustChangePassword=false;
@@ -3075,9 +3182,17 @@ app.get("/api/transactions/:id/invoice", auth, (req,res)=>{
 
 
 // Integration credentials remain decryptable across deployments. New values use
-// INTEGRATION_SECRET when configured, while old values can still be opened with
-// JWT_SECRET or an explicitly supplied LEGACY_INTEGRATION_SECRET.
-const INTEGRATION_SECRET=process.env.INTEGRATION_SECRET||JWT_SECRET;
+// INTEGRATION_SECRET when configured. In production this must be a dedicated
+// secret, distinct from JWT_SECRET: JWT_SECRET signs session tokens, and reusing
+// it to derive the encryption key for stored partner credentials means a single
+// leaked value would compromise both sessions and encrypted-at-rest data. Old
+// values encrypted before this separation can still be opened via
+// integrationSecretCandidates() below (JWT_SECRET / LEGACY_INTEGRATION_SECRET),
+// but new writes always use a distinct key.
+if (IS_PROD && !process.env.INTEGRATION_SECRET) {
+  throw new Error("INTEGRATION_SECRET قوي ومستقل عن JWT_SECRET مطلوب في الإنتاج");
+}
+const INTEGRATION_SECRET=process.env.INTEGRATION_SECRET||(IS_PROD?null:"LOCAL_INTEGRATION_SECRET_CHANGE_ME");
 function integrationKey(secret=INTEGRATION_SECRET){return crypto.createHash("sha256").update(String(secret)).digest();}
 function integrationSecretCandidates(){
   return [...new Set([

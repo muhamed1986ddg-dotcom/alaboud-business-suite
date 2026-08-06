@@ -27,6 +27,7 @@ const PUBLIC_API_PREFIXES = Object.freeze([
 ]);
 
 const EXACT_PERMISSION = Object.freeze([
+  ["POST", "/api/customers/:id/reset-account", "admin.only"],
   ["GET", "/api/backup", "admin.only"],
   ["POST", "/api/backup/encrypted", "admin.only"],
   ["POST", "/api/backup/restore", "admin.only"],
@@ -90,7 +91,11 @@ function requiredPermissionForRequest(method, requestPath){
   if (PUBLIC_API_PREFIXES.some((prefix) => pathname === prefix.replace(/\/$/, "") || pathname.startsWith(prefix))) {
     return null;
   }
-  const exact=EXACT_PERMISSION.find(([exactMethod, exactPath]) => exactMethod === verb && exactPath === pathname);
+  const exact=EXACT_PERMISSION.find(([exactMethod, exactPath]) => {
+    if(exactMethod!==verb)return false;
+    const pattern="^"+exactPath.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/:id/g,"[^/]+")+"$";
+    return new RegExp(pattern).test(pathname);
+  });
   if (exact) return exact[2];
   if (ADMIN_API_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
     return "admin.only";
@@ -103,10 +108,19 @@ function requiredPermissionForRequest(method, requestPath){
   }
 
   const resource=RESOURCE_PERMISSION.find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-  if (!resource) return null;
-  const [, permissionPrefix]=resource;
-  const action=(verb === "GET" || verb === "HEAD" || verb === "OPTIONS") ? "read" : "write";
-  return `${permissionPrefix}.${action}`;
+  if (resource) {
+    const [, permissionPrefix]=resource;
+    const action=(verb === "GET" || verb === "HEAD" || verb === "OPTIONS") ? "read" : "write";
+    return `${permissionPrefix}.${action}`;
+  }
+
+  // Fail-closed default: any /api route not explicitly classified above is
+  // treated as admin.only rather than left unrestricted. This means a route
+  // added later without being registered here stays locked down (reachable
+  // only by ADMIN or a full-scope "*" API key) instead of silently becoming
+  // reachable by any authenticated user or narrow-scope API key.
+  if (pathname.startsWith("/api/")) return "admin.only";
+  return null;
 }
 
 function requirePermission(permission){

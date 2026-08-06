@@ -163,7 +163,7 @@ function SettingsPanel(){
 
   async function beginTwoFactor(){setMessage("");try{const {data}=await api.post("/auth/2fa/setup");setTwoFactorInfo(current=>({...current,...data,code:""}));setMessage("أضف المفتاح إلى تطبيق Authenticator ثم أدخل الرمز")}catch(error){setMessage(error.response?.data?.message||"تعذر بدء إعداد التحقق بخطوتين")}}
   async function enableTwoFactor(){try{const {data}=await api.post("/auth/2fa/enable",{code:twoFactorInfo.code});const user={...savedUser,twoFactorEnabled:true};localStorage.setItem("afs_user",JSON.stringify(user));setTwoFactorInfo({secret:"",code:"",enabled:true});setMessage(data.message)}catch(error){setMessage(error.response?.data?.message||"تعذر تفعيل التحقق بخطوتين")}}
-  async function disableTwoFactor(){try{const {data}=await api.post("/auth/2fa/disable");const user={...savedUser,twoFactorEnabled:false};localStorage.setItem("afs_user",JSON.stringify(user));setTwoFactorInfo({secret:"",code:"",enabled:false});setMessage(data.message)}catch(error){setMessage(error.response?.data?.message||"تعذر تعطيل التحقق بخطوتين")}}
+  async function disableTwoFactor(){const credential=window.prompt("أدخل كلمة المرور الحالية أو رمز Authenticator المكون من 6 أرقام لتعطيل التحقق بخطوتين");if(!credential)return;const payload=/^\d{6}$/.test(credential.trim())?{code:credential.trim()}:{currentPassword:credential};try{const {data}=await api.post("/auth/2fa/disable",payload);const user={...savedUser,twoFactorEnabled:false};localStorage.setItem("afs_user",JSON.stringify(user));setTwoFactorInfo({secret:"",code:"",enabled:false});setMessage(data.message)}catch(error){setMessage(error.response?.data?.message||"تعذر تعطيل التحقق بخطوتين")}}
 
   async function enableBiometric(){
     setMessage("");
@@ -182,8 +182,9 @@ function SettingsPanel(){
       }
     }catch(error){setMessage(error.response?.data?.message||error.message||"تعذر تفعيل الدخول بالبصمة أو الوجه")}
   }
-  function disableBiometric(){
+  async function disableBiometric(){
     const native=window.AlAboudNative;
+    try{await api.post("/auth/biometric/revoke")}catch(error){setMessage(error.response?.data?.message||"تعذر إبطال توكن البصمة على الخادم");return}
     if(typeof native?.disableBiometricLogin==="function")native.disableBiometricLogin();
     else native?.disableBiometric?.();
     setBiometricEnabled(false);

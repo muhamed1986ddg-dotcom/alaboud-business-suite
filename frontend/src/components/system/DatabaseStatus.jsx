@@ -1,5 +1,5 @@
 import React,{useEffect,useRef,useState}from"react";
-import api,{sanitizeOperationalMessage}from"../../api";
+import api from"../../api";
 
 function normalizeHealth(payload={},fallbackMessage=""){
   const database=payload.database||{};
@@ -9,7 +9,7 @@ function normalizeHealth(payload={},fallbackMessage=""){
   const reconnecting=database.connectionState==="reconnecting"||database.connectionState==="connecting";
   return {
     status:reconnecting?"reconnecting":"offline",
-    message:sanitizeOperationalMessage(database.lastConnectionError||payload.startupError||fallbackMessage,"تتم إعادة الاتصال تلقائيًا"),
+    message:database.lastConnectionError||payload.startupError||fallbackMessage||"تعذر الاتصال بقاعدة البيانات",
     lastConnectedAt:database.lastConnectedAt||null
   };
 }

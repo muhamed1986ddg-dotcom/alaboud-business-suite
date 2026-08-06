@@ -1,0 +1,12 @@
+const fs=require('fs');
+const path=require('path');
+const assert=require('assert');
+const server=fs.readFileSync(path.join(__dirname,'server.js'),'utf8');
+const access=fs.readFileSync(path.join(__dirname,'access-control.js'),'utf8');
+assert(server.includes('device.biometricJti=jti'),'biometric token must be bound to jti');
+assert(server.includes('d.biometricJti===p.jti'),'biometric login must validate jti');
+assert(server.includes('/api/auth/biometric/revoke'),'biometric revoke endpoint missing');
+assert(server.includes('currentPassword')&&server.includes('REAUTH_REQUIRED'),'2FA disable reauthentication missing');
+assert(server.includes('LOCAL_INTEGRATION_SECRET_CHANGE_ME')&&!server.includes('process.env.INTEGRATION_SECRET||JWT_SECRET'),'integration key still falls back to JWT secret');
+assert(access.includes('/api/customers/:id/reset-account')&&access.includes('admin.only'),'reset account must be admin only');
+console.log('security hardening v25.13.1 checks passed');

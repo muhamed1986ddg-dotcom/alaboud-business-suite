@@ -21,5 +21,11 @@ assert.strictEqual(requiredPermissionForRequest("POST","/api/ai/assistant"),"rep
 assert.strictEqual(requiredPermissionForRequest("GET","/api/developer/api-keys"),"admin.only");
 assert.strictEqual(requiredPermissionForRequest("GET","/api/devices"),"admin.only");
 assert.strictEqual(requiredPermissionForRequest("POST","/api/auth/logout"),null);
+// Fail-closed default: any /api route not explicitly classified must require
+// admin.only rather than falling through unrestricted (see server.js weakness
+// #4 fix). Non-/api routes are unaffected.
+assert.strictEqual(requiredPermissionForRequest("GET","/api/some-future-unregistered-route"),"admin.only");
+assert.strictEqual(requiredPermissionForRequest("POST","/api/another-unknown-thing/123"),"admin.only");
+assert.strictEqual(requiredPermissionForRequest("GET","/"),null);
 assert(permissionsFor("ACCOUNTANT").includes("reports.read"));
 console.log("Access control selftest passed");
