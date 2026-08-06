@@ -2193,7 +2193,7 @@ app.get("/api/profits", auth, (req,res)=>{
     return (!from || d >= from) && (!to || d <= to);
   };
 
-  const transactions = s.transactions.filter((t)=>t.status!=="CANCELLED" && inRange(t.createdAt));
+  const transactions = s.transactions.filter((t)=>t&&!t.isDeleted&&t.status!=="CANCELLED" && inRange(t.transferDate||t.createdAt));
   const expenses = s.expenses.filter((e)=>inRange(e.date || e.createdAt));
 
   const exchangeProfit = transactions.reduce((a,t)=>a+transactionFinancials(t).exchangeProfit,0);
@@ -2204,7 +2204,7 @@ app.get("/api/profits", auth, (req,res)=>{
 
   const byMonthMap = {};
   for (const t of transactions) {
-    const month = String(t.createdAt).slice(0,7);
+    const month = String(t.transferDate||t.createdAt||"").slice(0,7);
     byMonthMap[month] ||= {month,exchangeProfit:0,transferFees:0,grossProfit:0,expenses:0,netProfit:0};
     const financials=transactionFinancials(t);
     byMonthMap[month].exchangeProfit += financials.exchangeProfit;
