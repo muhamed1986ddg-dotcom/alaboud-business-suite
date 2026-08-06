@@ -3,7 +3,7 @@ import api,{cachedGet,clearApiGetCache} from "../api";
 import {APP_VERSION} from "../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
 import {AppTable} from "../components/ui";
-import {authoritativeCustomerRate,latestCustomerRate} from "../customerRate";
+import {authoritativeCustomerRate} from "../customerRate";
 
 
 export function Customer({id,back,onStatement}){
@@ -343,16 +343,11 @@ export function Customer({id,back,onStatement}){
   const transactionRows=transactions.map(transaction=>{
     const usdAmount=Number(transaction.usdAmount ?? transaction.amount ?? 0);
     const exchangeRate=authoritativeCustomerRate(transaction);
-    const cadValue=Number(
-      transaction.formulaResultCad ??
-      transaction.totalCad ??
-      (usdAmount*exchangeRate)
-    );
+    const cadValue=usdAmount*exchangeRate;
     return {transaction,usdAmount,exchangeRate,cadValue};
   });
   const totalTransactionUsd=transactionRows.reduce((sum,row)=>sum+row.usdAmount,0);
   const totalTransactionCad=transactionRows.reduce((sum,row)=>sum+row.cadValue,0);
-  const latestExchangeRate=latestCustomerRate(transactions);
 
   return <div className="customer-details-page">
     <div className="card no-print form">
@@ -452,7 +447,6 @@ export function Customer({id,back,onStatement}){
 
       <div className="customer-transfer-summary">
         <div className="customer-transfer-summary-card usd"><span>إجمالي الحوالات (USD)</span><strong>{money(totalTransactionUsd)} USD</strong></div>
-        <div className="customer-transfer-summary-card rate"><span>آخر سعر تحويل للعميل</span><strong>{latestExchangeRate?latestExchangeRate.toFixed(4):"—"}</strong></div>
         <div className="customer-transfer-summary-card cad"><span>إجمالي القيمة (CAD)</span><strong>{money(totalTransactionCad)} CAD</strong></div>
         <div className="customer-transfer-summary-card count"><span>عدد الحوالات</span><strong>{transactionRows.length}</strong></div>
       </div>

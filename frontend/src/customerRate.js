@@ -6,10 +6,3 @@ export function authoritativeCustomerRate(transaction){
   const clientRate=Number(transaction?.clientRate);
   return Number.isFinite(clientRate)&&clientRate>0?clientRate:0;
 }
-
-export function latestCustomerRate(transactions=[]){
-  return [...transactions]
-    .map(transaction=>({transaction,rate:authoritativeCustomerRate(transaction)}))
-    .filter(row=>row.rate>0)
-    .sort((a,b)=>String(b.transaction?.transferDate||b.transaction?.createdAt||"").localeCompare(String(a.transaction?.transferDate||a.transaction?.createdAt||"")))[0]?.rate||0;
-}

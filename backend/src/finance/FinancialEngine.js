@@ -1,5 +1,7 @@
 "use strict";
 
+const { transactionFinancials } = require("./TransactionFinancials");
+
 function number(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : Number(fallback) || 0;
@@ -59,7 +61,7 @@ function customerSummary(store, customer, { overdueDays = 7 } = {}) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
   for (const transaction of txs) {
-    const due = number(transaction.totalCustomerDue, number(transaction.amount) + number(transaction.transferFee));
+    const due = transactionFinancials(transaction).totalCustomerDue;
     const paid = number(paymentByTransaction.get(transaction.id));
     const remaining = Math.max(due - paid, 0);
     transactionTotal += due;
@@ -77,7 +79,7 @@ function customerSummary(store, customer, { overdueDays = 7 } = {}) {
   }
 
   const transactionOutstanding = txs.reduce((sum, transaction) => {
-    const due = number(transaction.totalCustomerDue, number(transaction.amount) + number(transaction.transferFee));
+    const due = transactionFinancials(transaction).totalCustomerDue;
     return sum + Math.max(due - number(paymentByTransaction.get(transaction.id)), 0);
   }, 0);
   const outstanding = Math.max(transactionOutstanding + openingOutstanding, 0);

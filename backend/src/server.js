@@ -12,6 +12,7 @@ const net = require("net");
 const { readStore, readRootStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const FinancialEngine = require("./finance/FinancialEngine");
+const { transactionFinancials } = require("./finance/TransactionFinancials");
 const { calculateReceivableSummary } = require("./finance/ReceivableSummary");
 const { registerHealthRoutes } = require("./routes/health");
 const { createIdempotencyMiddleware } = require("./reliability/idempotency");
@@ -927,7 +928,7 @@ app.get("/api/dashboard", auth, (req,res)=>{
   const activeTransactions=(s.transactions||[]).filter(t=>!t.isDeleted&&t.status!=="CANCELLED");
   const todayTx = activeTransactions.filter((t)=>String(t.createdAt||t.transferDate||"").slice(0,10)===today);
   const todayExpenses = (s.expenses||[]).filter((e)=>e.date===today&&!e.isDeleted).reduce((a,e)=>a+Number(e.cadAmount??e.amount),0);
-  const totalProfit = todayTx.reduce((a,t)=>a+Number(t.totalProfit||0),0)-todayExpenses;
+  const totalProfit = todayTx.reduce((a,t)=>a+transactionFinancials(t).totalProfit,0)-todayExpenses;
   const receivables = (s.customers||[]).filter(c=>!c.isDeleted).reduce((a,c)=>a+customerSummary(s,c).finalBalance,0);
   const capital = (s.capitalMovements||[]).filter(m=>!m.isDeleted).reduce((a,m)=>a+(m.type==="IN"?capitalCadAmount(s,m):-capitalCadAmount(s,m)),0);
   const value={customers:(s.customers||[]).filter(c=>!c.isDeleted).length,todayTransactions:todayTx.length,todayProfit:+totalProfit.toFixed(2),receivables:+receivables.toFixed(2),capital:+capital.toFixed(2),recent:todayTx.slice(-8).reverse()};
@@ -1137,10 +1138,10 @@ app.get("/api/capital-overview", auth, (req,res)=>{
   );
 
   const monthlyTransferValue=monthTransactions.reduce(
-    (sum,item)=>sum+safeNumber(item.amount),0
+    (sum,item)=>sum+transactionFinancials(item).convertedCad,0
   );
   const monthlyProfit=monthTransactions.reduce(
-    (sum,item)=>sum+safeNumber(item.totalProfit),0
+    (sum,item)=>sum+transactionFinancials(item).totalProfit,0
   );
   const monthlyExpenses=expenses
     .filter(item=>String(item.date||item.createdAt||"").slice(0,7)===requestedMonth)
@@ -1219,7 +1220,7 @@ app.get("/api/capital-overview", auth, (req,res)=>{
   // Total money includes capital, accumulated profit and all receivables.
   // Net capital after everything deducts accumulated expenses and every payable.
   const accumulatedProfit=transactions.reduce(
-    (sum,item)=>sum+safeNumber(item.totalProfit),0
+    (sum,item)=>sum+transactionFinancials(item).totalProfit,0
   );
   const accumulatedExpenses=expenses.reduce(
     (sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0
@@ -1284,10 +1285,10 @@ app.get("/api/monthly-report", auth, (req,res)=>{
     .filter(item=>item&&!item.isDeleted)
     .filter(item=>String(item.paymentDate||item.date||item.createdAt||"").slice(0,7)===month);
 
-  const transferTotal=transactions.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-  const feesTotal=transactions.reduce((sum,item)=>sum+safeNumber(item.transferFee),0);
-  const exchangeProfit=transactions.reduce((sum,item)=>sum+safeNumber(item.exchangeProfit),0);
-  const grossProfit=transactions.reduce((sum,item)=>sum+safeNumber(item.totalProfit),0);
+  const transferTotal=transactions.reduce((sum,item)=>sum+transactionFinancials(item).convertedCad,0);
+  const feesTotal=transactions.reduce((sum,item)=>sum+transactionFinancials(item).transferFee,0);
+  const exchangeProfit=transactions.reduce((sum,item)=>sum+transactionFinancials(item).exchangeProfit,0);
+  const grossProfit=transactions.reduce((sum,item)=>sum+transactionFinancials(item).totalProfit,0);
   const expenseTotal=expenses.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
   const netProfit=grossProfit-expenseTotal;
   const paidTotal=payments.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
@@ -1321,8 +1322,9 @@ app.get("/api/monthly-report", auth, (req,res)=>{
     const date=String(transaction.transferDate||transaction.createdAt||"").slice(0,10);
     dailyMap[date] ||= {date,count:0,total:0,profit:0};
     dailyMap[date].count+=1;
-    dailyMap[date].total+=safeNumber(transaction.amount);
-    dailyMap[date].profit+=safeNumber(transaction.totalProfit);
+    const financials=transactionFinancials(transaction);
+    dailyMap[date].total+=financials.convertedCad;
+    dailyMap[date].profit+=financials.totalProfit;
   }
 
   const daily=Object.values(dailyMap)
@@ -1603,10 +1605,8 @@ app.get("/api/customers/:id", auth, (req,res)=>{
           .filter((payment) => payment && payment.transactionId === transaction.id)
           .reduce((sum, payment) => sum + safeNumber(payment.amount), 0);
 
-        const due = safeNumber(
-          transaction.totalCustomerDue,
-          safeNumber(transaction.amount) + safeNumber(transaction.transferFee)
-        );
+        const financials = transactionFinancials(transaction);
+        const due = financials.totalCustomerDue;
 
         return {
           ...transaction,
@@ -1668,7 +1668,7 @@ app.get("/api/transactions/unpaid-summary", auth, async (req,res)=>{
     let count=0;
     for(const transaction of transactions){
       if(transaction.isDeleted)continue;
-      const due=safeNumber(transaction.totalCustomerDue,safeNumber(transaction.amount)*safeNumber(transaction.finalRate||transaction.clientRate));
+      const due=transactionFinancials(transaction).totalCustomerDue;
       const remaining=Math.max(due-(paidByTransaction.get(transaction.id)||0),0);
       if(remaining>0.001){totalCad+=remaining;count+=1;}
     }
@@ -2196,9 +2196,9 @@ app.get("/api/profits", auth, (req,res)=>{
   const transactions = s.transactions.filter((t)=>t.status!=="CANCELLED" && inRange(t.createdAt));
   const expenses = s.expenses.filter((e)=>inRange(e.date || e.createdAt));
 
-  const exchangeProfit = transactions.reduce((a,t)=>a+Number(t.exchangeProfit||0),0);
-  const transferFees = transactions.reduce((a,t)=>a+Number(t.transferFee||0),0);
-  const grossProfit = transactions.reduce((a,t)=>a+Number(t.totalProfit||0),0);
+  const exchangeProfit = transactions.reduce((a,t)=>a+transactionFinancials(t).exchangeProfit,0);
+  const transferFees = transactions.reduce((a,t)=>a+transactionFinancials(t).transferFee,0);
+  const grossProfit = transactions.reduce((a,t)=>a+transactionFinancials(t).totalProfit,0);
   const totalExpenses = expenses.reduce((a,e)=>a+Number(e.cadAmount??e.amount??0),0);
   const netProfit = grossProfit-totalExpenses;
 
@@ -2206,9 +2206,10 @@ app.get("/api/profits", auth, (req,res)=>{
   for (const t of transactions) {
     const month = String(t.createdAt).slice(0,7);
     byMonthMap[month] ||= {month,exchangeProfit:0,transferFees:0,grossProfit:0,expenses:0,netProfit:0};
-    byMonthMap[month].exchangeProfit += Number(t.exchangeProfit||0);
-    byMonthMap[month].transferFees += Number(t.transferFee||0);
-    byMonthMap[month].grossProfit += Number(t.totalProfit||0);
+    const financials=transactionFinancials(t);
+    byMonthMap[month].exchangeProfit += financials.exchangeProfit;
+    byMonthMap[month].transferFees += financials.transferFee;
+    byMonthMap[month].grossProfit += financials.totalProfit;
   }
   for (const e of expenses) {
     const month = String(e.date || e.createdAt).slice(0,7);
@@ -2373,7 +2374,7 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   }
 
   const transferRows = transactions.map((transaction)=>{
-    const amount = safeNumber(transaction.totalCustomerDue, transaction.amount);
+    const amount = transactionFinancials(transaction).totalCustomerDue;
     const paid = safeNumber(paidByTransaction.get(transaction.id));
     const remaining = Math.max(amount-paid,0);
     if (remaining <= 0.001) return null;
@@ -2915,18 +2916,12 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
           .filter(payment=>payment.transactionId===transaction.id)
           .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
 
-        const usdAmount=safeNumber(transaction.amount);
-        const costRate=safeNumber(transaction.costRate);
-        const finalRate=safeNumber(transaction.finalRate);
-
-        const costCad=transaction.direction==="USD_TO_CAD"
-          ? usdAmount*costRate
-          : usdAmount*costRate;
-
-        const totalCad=safeNumber(
-          transaction.totalCustomerDue,
-          usdAmount*finalRate + safeNumber(transaction.transferFee)
-        );
+        const financials=transactionFinancials(transaction);
+        const usdAmount=financials.amount;
+        const costRate=financials.costRate;
+        const finalRate=financials.finalRate;
+        const costCad=usdAmount*costRate;
+        const totalCad=financials.totalCustomerDue;
 
         const remaining=Math.max(totalCad-paid,0);
         const date=transaction.transferDate||String(transaction.createdAt||"").slice(0,10);
@@ -3043,10 +3038,8 @@ app.get("/api/transactions/:id/invoice", auth, (req,res)=>{
       .filter(payment=>payment?.transactionId===transaction.id&&!payment?.isDeleted)
       .reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
 
-    const due=safeNumber(
-      transaction.totalCustomerDue,
-      safeNumber(transaction.amount)+safeNumber(transaction.transferFee)
-    );
+    const financials=transactionFinancials(transaction);
+    const due=financials.totalCustomerDue;
 
     res.json({
       company:{
@@ -3064,9 +3057,9 @@ app.get("/api/transactions/:id/invoice", auth, (req,res)=>{
       transaction:{
         ...transaction,
         amount:safeNumber(transaction.amount),
-        costRate:safeNumber(transaction.costRate),
-        finalRate:safeNumber(transaction.finalRate),
-        transferFee:safeNumber(transaction.transferFee),
+        costRate:financials.costRate,
+        finalRate:financials.finalRate,
+        transferFee:financials.transferFee,
         totalCustomerDue:+due.toFixed(2),
         paid:+paid.toFixed(2),
         remaining:+Math.max(due-paid,0).toFixed(2)
@@ -5203,7 +5196,7 @@ function aiAnalytics(store){
   const validTx=(store.transactions||[]).filter(t=>t&&!t.isDeleted&&t.status!=="CANCELLED");
   const expenses=(store.expenses||[]).filter(e=>e&&!e.isDeleted);
   const customers=(store.customers||[]).filter(c=>c&&!c.isDeleted).map(c=>customerSummary(store,c));
-  const txProfit=rows=>rows.reduce((a,t)=>a+safeNumber(t.totalProfit),0);
+  const txProfit=rows=>rows.reduce((a,t)=>a+transactionFinancials(t).totalProfit,0);
   const expenseCad=rows=>rows.reduce((a,e)=>a+safeNumber(e.cadAmount,e.amount),0);
   const monthTx=validTx.filter(t=>aiMonthKey(t.transferDate||t.createdAt)===monthKey);
   const previousTx=validTx.filter(t=>aiMonthKey(t.transferDate||t.createdAt)===previousMonth);

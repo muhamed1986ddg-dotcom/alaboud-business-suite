@@ -44,7 +44,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.12.5";
+  config.headers["X-Alaboud-Client-Version"]="25.12.6";
   // PostgreSQL recovery retries can legitimately take longer than the normal
   // navigation timeout. Keep write requests open until the backend confirms
   // whether the durable save succeeded, otherwise Axios can report a false

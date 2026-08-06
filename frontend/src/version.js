@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.12.5 Login Reliability";
+export const APP_VERSION="v25.12.6 Financial Rate Integrity";
