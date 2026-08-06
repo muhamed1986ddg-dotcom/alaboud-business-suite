@@ -2184,3 +2184,10 @@ git push origin main
 - Verified that all declared production dependencies remain actively used.
 - Preserved Playwright because the Jad integration depends on Chromium automation.
 - Preserved security, persistence, migration, and UI tests.
+
+## v25.12.1
+- إصلاح إنذار قاعدة البيانات الكاذب الناتج عن الاعتماد على جاهزية النظام العامة بدل حالة PostgreSQL نفسها.
+- تحسين إعادة الاتصال وفترات فحص الصحة على الهاتف.
+- زيادة تحمل عمليات الكتابة لانقطاعات Render/PostgreSQL القصيرة.
+- إضافة آخر وقت اتصال ناجح في شريط الحالة.
+- توحيد إصدار الويب والخادم وAndroid.

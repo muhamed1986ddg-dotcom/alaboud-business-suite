@@ -44,13 +44,13 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.11.3";
+  config.headers["X-Alaboud-Client-Version"]="25.12.1";
   // PostgreSQL recovery retries can legitimately take longer than the normal
   // navigation timeout. Keep write requests open until the backend confirms
   // whether the durable save succeeded, otherwise Axios can report a false
   // failure while the server continues retrying and eventually commits it.
   const method=String(config.method||"get").toLowerCase();
-  config.timeout=method==="get"?30000:20000;
+  config.timeout=method==="get"?30000:35000;
   if(method!=="get"&&!config.headers["Idempotency-Key"]){
     config.headers["Idempotency-Key"]=(crypto?.randomUUID?.()||`op-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   }

@@ -1,8 +1,7 @@
-const fs=require("fs");
 const assert=require("assert");
-const server=fs.readFileSync(__dirname+"/server.js","utf8");
-assert(server.includes("authoritativeCustomerDebtCad"),"must use authoritative customer debt");
-assert(server.includes("customerSummary(store,customer)"),"must use customerSummary source");
-assert(server.includes("for(const row of partnerRows)"),"company debt must use partner rows only");
-assert(server.includes("authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable"),"total must equal customer plus company");
-console.log("unified debt balance v25.4.9 test passed");
+const {calculateReceivableSummary}=require("./finance/ReceivableSummary");
+const result=calculateReceivableSummary({customerReceivable:100,companyReceivable:60,manualReceivable:25,companyPayable:20});
+assert.equal(result.receivable,160,"total must equal customer plus company");
+assert.equal(result.breakdown.manual,25,"manual debt is reconciliation-only");
+assert.equal(result.net,140,"net must subtract payables");
+console.log("unified debt balance numeric test passed");

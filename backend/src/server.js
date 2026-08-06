@@ -12,6 +12,7 @@ const net = require("net");
 const { readStore, readRootStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const FinancialEngine = require("./finance/FinancialEngine");
+const { calculateReceivableSummary } = require("./finance/ReceivableSummary");
 const { registerHealthRoutes } = require("./routes/health");
 const { createIdempotencyMiddleware } = require("./reliability/idempotency");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
@@ -1415,11 +1416,13 @@ app.get("/api/customers/options",auth,async(req,res)=>{
   try{
     const store=readStore();
     const search=String(req.query.search||"").trim();
-    const limit=Math.min(500,Math.max(1,parseInt(req.query.limit,10)||200));
+    const limit=Math.min(5000,Math.max(1,parseInt(req.query.limit,10)||200));
+    const page=Math.max(1,parseInt(req.query.page,10)||1);
+    const offset=(page-1)*limit;
     const nativePage=await branchSafeRead(
       req,
       "customer-options",
-      ()=>nativeRepositories.customers.listCustomersPage(req.user.companyId,{search,sort:"name-asc",limit,offset:0}),
+      ()=>nativeRepositories.customers.listCustomersPage(req.user.companyId,{search,sort:"name-asc",limit,offset}),
       ()=>null
     );
     const customers=nativePage&&Array.isArray(nativePage.rows)?nativePage.rows:Array.from(store.customers||[]);
@@ -1428,9 +1431,10 @@ app.get("/api/customers/options",auth,async(req,res)=>{
       .filter(customer=>!customer?.isDeleted)
       .filter(customer=>!lowered||[customer.name,customer.phone,customer.customerNumber].some(value=>String(value||"").toLowerCase().includes(lowered)))
       .sort(compareCustomers("name-asc"))
-      .slice(0,limit)
+      .slice(nativePage&&Array.isArray(nativePage.rows)?0:offset,nativePage&&Array.isArray(nativePage.rows)?undefined:offset+limit)
       .map(customer=>({id:customer.id,name:customer.name,phone:customer.phone||"",customerNumber:customer.customerNumber||customer.identityNumber||""}));
     res.set("Cache-Control","private, max-age=60");
+    if(String(req.query.paged||"")==="1")return res.json({items:rows,page,pageSize:limit,total:nativePage?.total??rows.length,hasMore:nativePage?offset+rows.length<nativePage.total:rows.length===limit});
     res.json(rows);
   }catch(error){
     console.error("Customer options failed",{requestId:req.requestId,error:error?.stack||error});
@@ -2638,23 +2642,21 @@ app.get("/api/general-debts", auth, async (req,res)=>{
 
   // Business rule: the headline "debt for us" must equal customer debt + company debt only.
   // Manual records are reported separately to avoid silently inflating the authoritative KPI.
-  const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable;
-  const authoritativePayable=companyPayable+manualPayable;
-  const convertedTotals={
-    receivable:+authoritativeReceivable.toFixed(2),
-    payable:+authoritativePayable.toFixed(2),
-    net:+(authoritativeReceivable-authoritativePayable).toFixed(2)
-  };
+  const authoritativeSummary=calculateReceivableSummary({
+    customerReceivable:authoritativeCustomerReceivable,
+    companyReceivable,
+    companyPayable,
+    manualReceivable,
+    manualPayable
+  });
+  const authoritativeReceivable=authoritativeSummary.receivable;
+  const authoritativePayable=authoritativeSummary.payable;
+  const convertedTotals={receivable:authoritativeSummary.receivable,payable:authoritativeSummary.payable,net:authoritativeSummary.net};
 
   const receivableBreakdown={
-    customers:+authoritativeCustomerReceivable.toFixed(2),
-    companies:+companyReceivable.toFixed(2),
+    ...authoritativeSummary.breakdown,
     companyNet:+companyFinalBalance.toFixed(2),
-    manual:+manualReceivable.toFixed(2),
-    companyReceivable:+companyReceivable.toFixed(2),
-    companyPayable:+companyPayable.toFixed(2),
-    manualPayable:+manualPayable.toFixed(2),
-    total:+authoritativeReceivable.toFixed(2)
+    companyReceivable:+companyReceivable.toFixed(2)
   };
 
   const manualDebtById=new Map(manualRows.map((item)=>[item.id,item]));
@@ -2670,6 +2672,13 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     })
     .sort((a,b)=>String(b.paymentDate||b.createdAt||"").localeCompare(String(a.paymentDate||a.createdAt||"")));
 
+  const normalizePartyKey=(value)=>String(value||"").trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu,"");
+  const customerPartyKeys=new Map(customers.filter(c=>c&&!c.isDeleted).map(c=>[normalizePartyKey(c.name),c]).filter(([key])=>key.length>=3));
+  const possibleDuplicateParties=manualRows.map(row=>{
+    const customer=customerPartyKeys.get(normalizePartyKey(row.partyName));
+    return customer?{manualDebtId:row.id,partyName:row.partyName,customerId:customer.id,customerName:customer.name,warning:"قد تكون الجهة مسجلة كعميل وكدين يدوي"}:null;
+  }).filter(Boolean);
+
   res.json({
     rows,
     payments:paymentRows,
@@ -2682,7 +2691,8 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     ratesUpdatedAt,
     automaticTransferDebts:transferRows.length,
     automaticCustomerOldBalanceDebts:customerOldBalanceRows.length,
-    automaticCompanyDebts:partnerRows.length
+    automaticCompanyDebts:partnerRows.length,
+    possibleDuplicateParties
   });
 });
 
@@ -2709,6 +2719,13 @@ app.post("/api/general-debts", auth, async (req,res)=>{
   }
   if (!supportedDebtCurrencies.includes(normalizedCurrency)) {
     return res.status(400).json({message:"عملة الدين غير مدعومة"});
+  }
+
+  const currentStore=readStore();
+  const normalizedParty=String(partyName||"").trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu,"");
+  const duplicateCustomer=(currentStore.customers||[]).find(customer=>!customer?.isDeleted&&normalizedParty.length>=3&&String(customer.name||"").trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu,"")===normalizedParty);
+  if(duplicateCustomer&&req.body?.confirmPossibleDuplicate!==true){
+    return res.status(409).json({code:"POSSIBLE_DUPLICATE_PARTY",message:`الجهة موجودة أيضًا كعميل باسم ${duplicateCustomer.name}. أكد الإضافة فقط إذا كان القيد اليدوي منفصلًا فعلًا.`,customer:{id:duplicateCustomer.id,name:duplicateCustomer.name}});
   }
 
   const debt = await mutateDurable((store)=>{

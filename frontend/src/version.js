@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.11.1 Reliability and Recovery";
+export const APP_VERSION="v25.12.1 Database Reliability";

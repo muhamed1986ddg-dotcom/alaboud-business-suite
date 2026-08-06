@@ -1,12 +1,16 @@
-const fs=require("fs");
-const path=require("path");
 const assert=require("assert");
-const server=fs.readFileSync(path.join(__dirname,"server.js"),"utf8");
-const ui=fs.readFileSync(path.join(__dirname,"../../frontend/src/screens/GeneralDebts.jsx"),"utf8");
-assert(server.includes("const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable+manualReceivable"));
-assert(server.includes("companies:+companyReceivable.toFixed(2)"));
-assert(server.includes("companyNet:+companyFinalBalance.toFixed(2)"));
-assert(server.includes("total:+authoritativeReceivable.toFixed(2)"));
-assert(ui.includes("دين الشركات لنا"));
-assert(ui.includes("الديون اليدوية لنا"));
-console.log("unified gross receivable v25.11.2 test passed");
+const {calculateReceivableSummary}=require("./finance/ReceivableSummary");
+
+const summary=calculateReceivableSummary({
+  customerReceivable:68245.69,
+  companyReceivable:72589.22,
+  companyPayable:59550.19,
+  manualReceivable:301,
+  manualPayable:155.82
+});
+assert.equal(summary.receivable,140834.91,"debt for us must equal customers + companies only");
+assert.equal(summary.breakdown.manual,301,"manual debt remains visible for reconciliation");
+assert.equal(summary.breakdown.total,140834.91,"manual receivable must not inflate headline debt");
+assert.equal(summary.payable,59706.01,"payable must include company and manual payables");
+assert.equal(summary.net,81128.90,"net must be calculated from authoritative totals");
+console.log("numeric unified receivable test passed");

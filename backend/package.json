@@ -1,6 +1,6 @@
 {
   "name": "alaboud-stable-backend",
-  "version": "25.11.3",
+  "version": "25.12.1",
   "private": true,
   "type": "commonjs",
   "scripts": {
@@ -19,7 +19,8 @@
     "test:production": "node src/production-readiness.test.js",
     "test:resilience": "node src/database/adapters/PostgresStateAdapter.resilience.test.js",
     "test:operational-errors": "node src/database/operational-error.test.js",
-    "test:e2e": "node src/e2e/financial-workflows.e2e.test.js"
+    "test:e2e": "node src/e2e/financial-workflows.e2e.test.js",
+    "test:receivables": "node src/finance/ReceivableSummary.test.js && node src/unified-receivable-gross-v25112.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

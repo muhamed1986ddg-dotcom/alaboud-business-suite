@@ -1,10 +1,12 @@
 const fs=require('fs');
 const assert=require('assert');
+const {calculateReceivableSummary}=require('../backend/src/finance/ReceivableSummary');
 const server=fs.readFileSync('backend/src/server.js','utf8');
 const ui=fs.readFileSync('frontend/src/screens/GeneralDebts.jsx','utf8');
-assert(server.includes('const totalReceivables=receivables+partnerReceivable;'),'capital debt-for-us must be customers + companies only');
-assert(server.includes('const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable;'),'general debts total must be customers + companies only');
-assert(!server.includes('const authoritativeReceivable=authoritativeCustomerReceivable+companyReceivable+manualReceivable;'),'manual receivable must not inflate headline');
+const summary=calculateReceivableSummary({customerReceivable:68245.69,companyReceivable:72589.22,manualReceivable:301,companyPayable:59550.19,manualPayable:155.82});
+assert.equal(summary.receivable,140834.91,'headline debt must be customers + companies only');
+assert.equal(summary.breakdown.manual,301,'manual debt must remain visible but excluded');
+assert(server.includes('calculateReceivableSummary'),'general debts must use the centralized calculator');
 assert(ui.includes('const saved=await addPayment(event);if(saved)setSettlementDebt(null)'),'settlement modal must close only after confirmed save');
 assert(ui.includes('disabled={savingPayment}'),'payment submit must prevent duplicate writes');
-console.log('v25.11.3 financial consistency checks passed');
+console.log('v25.12.0 financial consistency checks passed');

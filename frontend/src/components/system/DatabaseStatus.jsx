@@ -1,30 +1,57 @@
-import React,{useEffect,useState}from"react";
+import React,{useEffect,useRef,useState}from"react";
 import api from"../../api";
 
+function normalizeHealth(payload={},fallbackMessage=""){
+  const database=payload.database||{};
+  if(database.ok===true){
+    return {status:"connected",message:"",lastConnectedAt:database.lastConnectedAt||null};
+  }
+  const reconnecting=database.connectionState==="reconnecting"||database.connectionState==="connecting";
+  return {
+    status:reconnecting?"reconnecting":"offline",
+    message:database.lastConnectionError||payload.startupError||fallbackMessage||"تعذر الاتصال بقاعدة البيانات",
+    lastConnectedAt:database.lastConnectedAt||null
+  };
+}
+
 export default function DatabaseStatus(){
-  const[state,setState]=useState({status:"connected",message:""});
+  const[state,setState]=useState({status:"connected",message:"",lastConnectedAt:null});
+  const failureCount=useRef(0);
   useEffect(()=>{
     let active=true;
-    const update=detail=>{if(active)setState(detail)};
-    const onEvent=event=>update(event.detail||{status:"reconnecting",message:"جارٍ إعادة الاتصال بقاعدة البيانات"});
-    window.addEventListener("alaboud-database-status",onEvent);
+    let timer=null;
+    const update=detail=>{if(active)setState(previous=>({...previous,...detail}))};
+    const schedule=delay=>{if(active){clearTimeout(timer);timer=setTimeout(check,delay)}};
+    const onEvent=event=>{
+      failureCount.current+=1;
+      update(event.detail||{status:"reconnecting",message:"جارٍ إعادة الاتصال بقاعدة البيانات"});
+      schedule(3000);
+    };
     const check=async()=>{
       try{
-        const response=await api.get("/health",{timeout:8000,suppressToast:true});
-        const db=response.data?.database||{};
-        update({status:response.data?.ok?"connected":(db.connectionState||"reconnecting"),message:response.data?.ok?"":(db.lastConnectionError||response.data?.startupError||"جارٍ إعادة الاتصال بقاعدة البيانات")});
+        const response=await api.get("/health",{timeout:10000,suppressToast:true,validateStatus:status=>status===200||status===503});
+        const next=normalizeHealth(response.data||{});
+        if(next.status==="connected")failureCount.current=0;else failureCount.current+=1;
+        update(next);
+        schedule(next.status==="connected"?45000:Math.min(15000,3000+(failureCount.current*2000)));
       }catch(error){
-        update({status:"offline",message:error.response?.data?.message||"تعذر الاتصال بقاعدة البيانات"});
+        failureCount.current+=1;
+        const payload=error.response?.data||{};
+        update(normalizeHealth(payload,error.message));
+        schedule(Math.min(15000,3000+(failureCount.current*2000)));
       }
     };
+    window.addEventListener("alaboud-database-status",onEvent);
     check();
-    const timer=setInterval(check,45000);
-    return()=>{active=false;clearInterval(timer);window.removeEventListener("alaboud-database-status",onEvent)};
+    return()=>{active=false;clearTimeout(timer);window.removeEventListener("alaboud-database-status",onEvent)};
   },[]);
   if(state.status==="connected")return null;
-  return <div className={`database-status-banner database-status-${state.status}`} role="status">
+  const lastConnected=state.lastConnectedAt?new Date(state.lastConnectedAt).toLocaleTimeString("ar",{hour:"2-digit",minute:"2-digit"}):"";
+  return <div className={`database-status-banner database-status-${state.status}`} role="status" aria-live="polite">
     <span>{state.status==="offline"?"🔴":"🟡"}</span>
     <strong>{state.status==="offline"?"قاعدة البيانات غير متصلة":"جارٍ إعادة الاتصال"}</strong>
-    <small>{state.message}</small>
+    <small>{state.message}{lastConnected?` — آخر اتصال ناجح ${lastConnected}`:""}</small>
   </div>;
 }
+
+export {normalizeHealth};
