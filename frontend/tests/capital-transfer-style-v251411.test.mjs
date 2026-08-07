@@ -1,0 +1,13 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const jsx=fs.readFileSync(new URL('../src/screens/CapitalOverview.jsx', import.meta.url),'utf8');
+const css=fs.readFileSync(new URL('../src/styles.css', import.meta.url),'utf8');
+assert.match(jsx,/capital-mobile-cards/);
+assert.match(jsx,/transaction-mobile-card capital-mobile-card/);
+assert.match(jsx,/capital-desktop-history/);
+assert.match(jsx,/مجموع الإضافات/);
+assert.match(css,/\.capital-mobile-cards\{display:none\}/);
+assert.match(css,/\.capital-desktop-history\{display:none!important\}/);
+assert.match(css,/overflow:hidden!important/);
+assert.match(css,/grid-template-columns:1fr 1fr!important/);
+console.log('capital transfer-style mobile v25.14.11 checks passed');

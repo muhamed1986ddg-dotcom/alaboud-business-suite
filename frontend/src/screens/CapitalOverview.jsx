@@ -373,7 +373,28 @@ function CapitalOverview(){
             </div>
           </div>
           {showCapitalInTotal&&<div className="capital-grand-total-card"><span>إجمالي رأس المال المضاف</span><strong>{money(totalAddedCapital)} CAD</strong><small>مجموع جميع حركات الإضافة المسجلة بعد تحويلها إلى الدولار الكندي</small></div>}
-          <AppTable className="capital-history-table"><thead><tr><th>التاريخ</th><th>النوع</th><th>المبلغ الأصلي</th><th>العملة</th><th>سعر التحويل</th><th>القيمة CAD</th><th>الوصف</th><th>الإجراءات</th></tr></thead><tbody>{filteredMovements.length?filteredMovements.map(item=><tr key={item.id}><td data-label="التاريخ">{item.date||String(item.createdAt||"").slice(0,10)}</td><td data-label="النوع"><span className={`capital-type-badge ${item.type==="IN"?"capital-in":"capital-out"}`}>{item.type==="IN"?"إضافة":"سحب"}</span></td><td data-label="المبلغ الأصلي"><strong>{money(item.amount)}</strong></td><td data-label="العملة">{item.currency||"CAD"}</td><td data-label="سعر التحويل">{Number(item.exchangeRate||1).toFixed(6)}</td><td data-label="القيمة CAD"><strong>{item.cadAmount!=null?money(item.cadAmount):"—"} CAD</strong></td><td data-label="الوصف">{item.description||"-"}</td><td data-label="الإجراءات" className="actions"><button type="button" onClick={()=>{setBudgetModal(null);setEditing({...item});}}>تعديل</button><button type="button" className="danger-button" onClick={()=>deleteCapital(item)}>حذف</button></td></tr>):<tr><td colSpan="8" className="capital-history-empty">لا توجد حركات رأس مال مسجلة.</td></tr>}</tbody></AppTable>
+          <div className="capital-mobile-cards">
+            {filteredMovements.length?filteredMovements.map(item=><article className="transaction-mobile-card capital-mobile-card" key={`capital-mobile-${item.id}`}>
+              <header className="transaction-mobile-card__head capital-mobile-card__head">
+                <div><strong>{item.type==="IN"?"إضافة رأس مال":"سحب من رأس المال"}</strong><small>{item.date||String(item.createdAt||"").slice(0,10)||"-"}</small></div>
+                <span className={`capital-type-badge ${item.type==="IN"?"capital-in":"capital-out"}`}>{item.type==="IN"?"إضافة":"سحب"}</span>
+              </header>
+              <div className="transaction-mobile-card__grid capital-mobile-card__grid">
+                <div><span>التاريخ</span><strong>{item.date||String(item.createdAt||"").slice(0,10)||"-"}</strong></div>
+                <div><span>النوع</span><strong>{item.type==="IN"?"إضافة رأس مال":"سحب من رأس المال"}</strong></div>
+                <div><span>المبلغ الأصلي</span><strong>{money(item.amount)} {item.currency||"CAD"}</strong></div>
+                <div><span>العملة</span><strong>{item.currency||"CAD"}</strong></div>
+                <div><span>سعر التحويل</span><strong>{Number(item.exchangeRate||1).toFixed(6)}</strong></div>
+                <div className="transaction-mobile-card__total"><span>القيمة CAD</span><strong>{item.cadAmount!=null?money(item.cadAmount):"—"} CAD</strong></div>
+                <div><span>الوصف</span><strong>{item.description||"-"}</strong></div>
+              </div>
+              <footer className="transaction-mobile-card__actions capital-mobile-card__actions">
+                <button type="button" onClick={()=>{setBudgetModal(null);setEditing({...item});}}>✏️ تعديل</button>
+                <button type="button" className="danger-button" onClick={()=>deleteCapital(item)}>🗑️ حذف</button>
+              </footer>
+            </article>):<div className="transaction-mobile-empty capital-mobile-empty">لا توجد حركات رأس مال مسجلة.</div>}
+          </div>
+          <AppTable className="capital-history-table capital-desktop-history"><thead><tr><th>التاريخ</th><th>النوع</th><th>المبلغ الأصلي</th><th>العملة</th><th>سعر التحويل</th><th>القيمة CAD</th><th>الوصف</th><th>الإجراءات</th></tr></thead><tbody>{filteredMovements.length?filteredMovements.map(item=><tr key={item.id}><td data-label="التاريخ">{item.date||String(item.createdAt||"").slice(0,10)}</td><td data-label="النوع"><span className={`capital-type-badge ${item.type==="IN"?"capital-in":"capital-out"}`}>{item.type==="IN"?"إضافة":"سحب"}</span></td><td data-label="المبلغ الأصلي"><strong>{money(item.amount)}</strong></td><td data-label="العملة">{item.currency||"CAD"}</td><td data-label="سعر التحويل">{Number(item.exchangeRate||1).toFixed(6)}</td><td data-label="القيمة CAD"><strong>{item.cadAmount!=null?money(item.cadAmount):"—"} CAD</strong></td><td data-label="الوصف">{item.description||"-"}</td><td data-label="الإجراءات" className="actions"><button type="button" onClick={()=>{setBudgetModal(null);setEditing({...item});}}>تعديل</button><button type="button" className="danger-button" onClick={()=>deleteCapital(item)}>حذف</button></td></tr>):<tr><td colSpan="8" className="capital-history-empty">لا توجد حركات رأس مال مسجلة.</td></tr>}</tbody></AppTable>
         </div>}
 
         {budgetModal==="goals"&&<div className="budget-goals-modal">

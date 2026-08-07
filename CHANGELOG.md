@@ -1,3 +1,11 @@
+# v25.14.11 — Capital Transfer-Style Mobile Cards
+
+- Rebuilt mobile capital history using the same card pattern as the transfers page.
+- Prevented horizontal overflow and cropped values inside the capital modal.
+- Added clear two-column field rows for date, type, original amount, currency, exchange rate, CAD value, and description.
+- Kept edit/delete actions inside each mobile card.
+- Preserved the additions total card and desktop table.
+
 # v25.14.10 — Mobile Capital History & Additions Total
 
 - إصلاح سجل رأس المال على الهاتف وتحويل كل حركة إلى بطاقة عمودية متجاوبة.

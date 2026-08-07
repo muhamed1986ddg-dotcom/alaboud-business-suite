@@ -6648,3 +6648,29 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
   .capital-grand-total-card{width:100%!important;box-sizing:border-box!important;margin:0 0 14px!important;align-items:stretch!important}
   .capital-grand-total-card strong{font-size:1.35rem!important;direction:ltr!important;text-align:right!important}
 }
+
+/* v25.14.11 — transfer-style capital cards on mobile */
+.capital-mobile-cards{display:none}
+@media(max-width:700px){
+  .capital-desktop-history{display:none!important}
+  .capital-mobile-cards{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:14px!important;width:100%!important;min-width:0!important;max-width:100%!important;margin:0!important;padding:0 0 96px!important;overflow:hidden!important}
+  .capital-movements-table,.capital-movements-table>*{min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
+  .capital-movements-table{display:block!important;width:100%!important;overflow:hidden!important;padding-inline:0!important}
+  .capital-mobile-card{display:block!important;width:100%!important;min-width:0!important;max-width:100%!important;margin:0!important;padding:12px!important;overflow:hidden!important;border:1px solid rgba(205,164,75,.38)!important;border-radius:18px!important;background:#101010!important;box-sizing:border-box!important}
+  .capital-mobile-card__head{width:100%!important;min-width:0!important;max-width:100%!important;display:flex!important;align-items:flex-start!important;justify-content:space-between!important;gap:10px!important}
+  .capital-mobile-card__head>div{min-width:0!important;max-width:72%!important}
+  .capital-mobile-card__head strong{white-space:normal!important;overflow-wrap:anywhere!important;text-align:right!important;direction:rtl!important}
+  .capital-mobile-card__head small{display:block!important;margin-top:4px!important;direction:ltr!important;text-align:right!important}
+  .capital-mobile-card__head .capital-type-badge{flex:0 0 auto!important;max-width:28%!important;white-space:nowrap!important}
+  .capital-mobile-card__grid{width:100%!important;min-width:0!important;max-width:100%!important}
+  .capital-mobile-card__grid>div{grid-template-columns:minmax(92px,40%) minmax(0,1fr)!important;width:100%!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
+  .capital-mobile-card__grid span{min-width:0!important;text-align:right!important;direction:rtl!important}
+  .capital-mobile-card__grid strong{min-width:0!important;max-width:100%!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important;text-align:left!important;direction:ltr!important}
+  .capital-mobile-card__actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:10px!important;width:100%!important;min-width:0!important;max-width:100%!important;margin-top:12px!important}
+  .capital-mobile-card__actions button{width:100%!important;min-width:0!important;max-width:100%!important;margin:0!important;white-space:normal!important}
+  .capital-mobile-empty{width:100%!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
+  .capital-grand-total-card{display:grid!important;grid-template-columns:1fr!important;width:100%!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;box-sizing:border-box!important;padding:14px!important}
+  .capital-grand-total-card span,.capital-grand-total-card strong,.capital-grand-total-card small{width:100%!important;min-width:0!important;max-width:100%!important;overflow-wrap:anywhere!important}
+  .capital-grand-total-card strong{text-align:right!important;direction:ltr!important}
+  .capital-history-tools,.capital-table-filters,.capital-table-toolbar{overflow:hidden!important}
+}
