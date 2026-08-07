@@ -44,7 +44,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.14.3";
+  config.headers["X-Alaboud-Client-Version"]="25.14.4";
   // PostgreSQL recovery retries can legitimately take longer than the normal
   // navigation timeout. Keep write requests open until the backend confirms
   // whether the durable save succeeded, otherwise Axios can report a false
@@ -125,6 +125,59 @@ function dispatchOperationToast(message,type="success"){
   window.dispatchEvent(new CustomEvent("alaboud-operation-toast",{detail:{message,type}}));
 }
 
+function headerValue(headers,name){
+  if(!headers)return "";
+  if(typeof headers.get==="function")return String(headers.get(name)||headers.get(name.toLowerCase())||"").trim();
+  return String(headers[name]||headers[name.toLowerCase()]||"").trim();
+}
+
+function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
+
+function isAmbiguousWriteFailure(error){
+  const method=String(error?.config?.method||"get").toLowerCase();
+  if(method==="get")return false;
+  if(error?.code==="ECONNABORTED"||/timeout/i.test(String(error?.message||"")))return true;
+  if(!error?.response)return true;
+  if(error.response?.status===503)return true;
+  const raw=String(error?.response?.data?.message||error?.message||"");
+  return isTechnicalDatabaseMessage(raw);
+}
+
+async function verifyCommittedOperation(error){
+  const operationKey=headerValue(error?.config?.headers,"Idempotency-Key");
+  if(!operationKey||!isAmbiguousWriteFailure(error))return null;
+  const token=localStorage.getItem("afs_token");
+  const branchId=localStorage.getItem("alaboud_branch_id");
+  const headers={};
+  if(token)headers.Authorization=`Bearer ${token}`;
+  if(branchId)headers["X-Branch-ID"]=branchId;
+  dispatchOperationToast("لم يصل تأكيد الحفظ. جارٍ التحقق من نتيجة العملية…","info");
+  const delays=[0,1200,1800,2500,3500,5000,7000,9000,12000,15000];
+  for(const delay of delays){
+    if(delay)await sleep(delay);
+    try{
+      const response=await axios.get(`/api/operations/${encodeURIComponent(operationKey)}/status`,{headers,timeout:12000});
+      if(response?.data?.committed===true){
+        clearApiGetCache();
+        dispatchOperationToast("تم تأكيد حفظ العملية بنجاح","success");
+        return {
+          data:response.data.response??{committed:true,operationKey},
+          status:200,
+          statusText:"OK",
+          headers:{"x-operation-committed":"true"},
+          config:error.config,
+          request:error.request,
+          recoveredFromAmbiguousCommit:true
+        };
+      }
+    }catch(checkError){
+      if(checkError?.response?.status===401)break;
+      // A 503 here only means PostgreSQL is still recovering; keep polling.
+    }
+  }
+  return null;
+}
+
 api.interceptors.response.use(
   response=>{
     const method=String(response.config?.method||"get").toLowerCase();
@@ -135,17 +188,22 @@ api.interceptors.response.use(
     }
     return response;
   },
-  error=>{
+  async error=>{
     const method=String(error.config?.method||"get").toLowerCase();
     const url=String(error.config?.url||"").split("?")[0];
-    if(method!=="get"&&shouldShowWriteToast(url,error.config)&&error.response?.status!==401){
-      dispatchOperationToast(errorToastMessage(method,error),"error");
-    }
     if(error.response?.status===401){
       clearApiGetCache();
       localStorage.removeItem("afs_token");
       localStorage.removeItem("afs_user");
       window.dispatchEvent(new Event("alaboud-auth-expired"));
+      return Promise.reject(error);
+    }
+    if(method!=="get"){
+      const recovered=await verifyCommittedOperation(error);
+      if(recovered)return recovered;
+    }
+    if(method!=="get"&&shouldShowWriteToast(url,error.config)){
+      dispatchOperationToast(errorToastMessage(method,error),"error");
     }
     return Promise.reject(error);
   }

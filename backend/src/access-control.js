@@ -40,7 +40,8 @@ const EXACT_PERMISSION = Object.freeze([
   ["GET", "/api/ai/overview", "reports.read"],
   ["POST", "/api/ai/assistant", "reports.read"],
   ["PATCH", "/api/company-profile", "admin.only"],
-  ["GET", "/api/security/permissions", "dashboard.read"]
+  ["GET", "/api/security/permissions", "dashboard.read"],
+  ["GET", "/api/operations/:id/status", "dashboard.read"]
 ]);
 
 const ADMIN_API_PREFIXES = Object.freeze([

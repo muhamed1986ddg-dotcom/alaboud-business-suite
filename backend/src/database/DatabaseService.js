@@ -67,13 +67,13 @@ class DatabaseService {
     return this.store;
   }
 
-  saveDurable(nextStore) {
+  saveDurable(nextStore, options = {}) {
     // Interactive writes must not wait behind the coalesced background queue.
     // Serialize only durable writes, persist the exact latest snapshot, and let
     // a successful durable write supersede any older pending background save.
     const snapshot = structuredClone(this.normalize(nextStore));
     const execute = async () => {
-      await this.adapter.save(snapshot, { interactive: true });
+      await this.adapter.save(snapshot, { interactive: true, ...options });
       this.store = this.normalize(snapshot);
       this.pendingSnapshot = null;
       this.lastPersistError = null;

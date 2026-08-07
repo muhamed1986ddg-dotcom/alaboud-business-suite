@@ -4,6 +4,7 @@ const { AsyncLocalStorage } = require("async_hooks");
 const DatabaseService = require("./database/DatabaseService");
 const JsonFileAdapter = require("./database/adapters/JsonFileAdapter");
 const PostgresStateAdapter = require("./database/adapters/PostgresStateAdapter");
+const { getOperationContext } = require("./reliability/operation-context");
 
 const tenantContext = new AsyncLocalStorage();
 const RAW_STORE = Symbol("ALABOUD_RAW_STORE");
@@ -154,7 +155,14 @@ function mutateDurable(fn){
       const view=companyId?tenantView(rootStore,companyId,branchId):rootStore;
       const result=await fn(view);
       rootStore=database.replaceStore(normalizeStore(rootStore));
-      await database.saveDurable(rootStore);
+      const requestOperation=getOperationContext();
+      const operationReceipt=requestOperation?.key ? {
+        ...requestOperation,
+        companyId,
+        branchId,
+        result
+      } : null;
+      await database.saveDurable(rootStore,{operationReceipt});
       return result;
     }catch(error){
       rootStore=database.replaceStore(before);

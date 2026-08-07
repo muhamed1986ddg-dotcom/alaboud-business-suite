@@ -184,6 +184,18 @@ class PostgresStateAdapter {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`, [], { operation: "initialization" });
     await this.queryWithRetry("ALTER TABLE app_state ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0", [], { operation: "initialization-revision" });
+    await this.queryWithRetry(`CREATE TABLE IF NOT EXISTS operation_receipts (
+      operation_key TEXT PRIMARY KEY,
+      method TEXT NOT NULL,
+      path TEXT NOT NULL,
+      company_id TEXT,
+      branch_id TEXT,
+      status TEXT NOT NULL DEFAULT 'COMMITTED',
+      response_body JSONB,
+      app_revision BIGINT,
+      committed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`, [], { operation: "initialization-operation-receipts" });
+    await this.queryWithRetry("CREATE INDEX IF NOT EXISTS idx_operation_receipts_committed_at ON operation_receipts(committed_at)", [], { operation: "initialization-operation-receipts-index" });
   }
 
   async load() {
@@ -290,6 +302,30 @@ class PostgresStateAdapter {
            RETURNING revision`,
           [payload]
         );
+        const operationReceipt = options.operationReceipt;
+        if (operationReceipt?.key) {
+          let responseJson = "null";
+          try { responseJson = JSON.stringify(operationReceipt.result ?? null); } catch {}
+          await client.query(
+            `INSERT INTO operation_receipts
+               (operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at)
+             VALUES ($1,$2,$3,$4,$5,'COMMITTED',$6::jsonb,$7,NOW())
+             ON CONFLICT (operation_key)
+             DO UPDATE SET status='COMMITTED',
+                           response_body=EXCLUDED.response_body,
+                           app_revision=EXCLUDED.app_revision,
+                           committed_at=NOW()`,
+            [
+              String(operationReceipt.key),
+              String(operationReceipt.method || "POST"),
+              String(operationReceipt.path || "/"),
+              operationReceipt.companyId ? String(operationReceipt.companyId) : null,
+              operationReceipt.branchId ? String(operationReceipt.branchId) : null,
+              responseJson,
+              Number(result.rows?.[0]?.revision || 0)
+            ]
+          );
+        }
         await client.query("COMMIT");
         this.lastCommittedRevision = Number(result.rows?.[0]?.revision || 0);
         this.connectionState = "connected";

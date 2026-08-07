@@ -1,5 +1,13 @@
 # Changelog
 
+## v25.14.4 — Commit Confirmation & Idempotency
+
+- Added durable PostgreSQL `operation_receipts` committed atomically with `app_state`.
+- Added operation-status verification endpoint for ambiguous client outcomes.
+- Frontend now verifies timeout/database-disconnect writes before showing failure.
+- Reusing a committed `Idempotency-Key` replays the committed result instead of duplicating the mutation.
+- Pending operations are no longer forgotten merely because the client socket closes.
+
 ## v25.14.3 — Database Recovery Guard
 
 - Added one shared PostgreSQL recovery gate with readiness probes (`SELECT 1`).

@@ -151,7 +151,8 @@ app.use(express.json({ limit: "2mb", strict:true }));
 app.use(express.urlencoded({extended:false,limit:"256kb"}));
 app.use("/api", createIdempotencyMiddleware({
   ttlMs: Number(process.env.IDEMPOTENCY_TTL_MS || 5 * 60 * 1000),
-  maxEntries: Number(process.env.IDEMPOTENCY_MAX_ENTRIES || 5000)
+  maxEntries: Number(process.env.IDEMPOTENCY_MAX_ENTRIES || 5000),
+  getQuery: getDatabaseQuery
 }));
 // Start the HTTP listener even when PostgreSQL private DNS is temporarily
 // unavailable. API writes/reads stay gated with 503 until initialization
@@ -253,6 +254,40 @@ function auth(req,res,next){
     res.status(401).json({message:"Authentication required"});
   }
 }
+
+app.get("/api/operations/:key/status", auth, async (req,res)=>{
+  const operationKey=String(req.params.key||"").trim();
+  if(!operationKey||operationKey.length>200)return res.status(400).json({message:"معرّف العملية غير صالح"});
+  const query=getDatabaseQuery();
+  if(!query)return res.status(503).json({code:"DATABASE_TEMPORARILY_UNAVAILABLE",retryable:true,message:"قاعدة البيانات قيد الاستعادة. تتم إعادة التحقق تلقائيًا."});
+  try{
+    const result=await query(
+      `SELECT operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at
+         FROM operation_receipts
+        WHERE operation_key=$1
+        LIMIT 1`,
+      [operationKey]
+    );
+    const receipt=result.rows?.[0];
+    if(!receipt)return res.json({operationKey,status:"UNKNOWN",committed:false});
+    if(receipt.company_id&&String(receipt.company_id)!==String(req.user.companyId))return res.status(404).json({operationKey,status:"UNKNOWN",committed:false});
+    return res.json({
+      operationKey,
+      status:receipt.status,
+      committed:receipt.status==="COMMITTED",
+      method:receipt.method,
+      path:receipt.path,
+      appRevision:Number(receipt.app_revision||0),
+      committedAt:receipt.committed_at,
+      response:receipt.response_body??null
+    });
+  }catch(error){
+    if(isTransientDatabaseError(error)||String(error?.code||"").startsWith("08")||String(error?.code||"")==="57P03"){
+      return res.status(503).json({code:"DATABASE_TEMPORARILY_UNAVAILABLE",retryable:true,message:"قاعدة البيانات قيد الاستعادة. تتم إعادة التحقق تلقائيًا."});
+    }
+    throw error;
+  }
+});
 
 function normalizePhone(value="") {
   let digits=String(value||"").replace(/\D/g,"");
