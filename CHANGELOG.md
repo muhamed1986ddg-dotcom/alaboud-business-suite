@@ -1,3 +1,13 @@
+# v25.14.18 — Transaction Write Timeout Recovery
+
+- Bound PostgreSQL pool acquisition for interactive operations so PATCH/DELETE cannot remain pending indefinitely.
+- Added server-side `lock_timeout`, `statement_timeout`, and idle transaction timeout for durable financial writes.
+- Added client-side query timeout for BEGIN/write/COMMIT while preserving durable COMMIT semantics.
+- Classified PostgreSQL lock/statement timeouts as retryable transient failures.
+- Made idempotency receipt preflight fail open quickly instead of entering the general long database recovery loop before every write.
+- Bounded `/api/operations/:key/status` receipt checks used after ambiguous write failures.
+- Kept the same Idempotency-Key replay and durable receipt verification to prevent duplicate edits/deletes.
+
 # v25.14.17 — PostgreSQL Edit/Delete Recovery
 
 - أصلح إعادة اتصال PostgreSQL بعد فشل التعديل أو الحذف: أي client يفشل أثناء المعاملة يُزال من الـ pool بدل إعادته كاتصال سليم.

@@ -25,7 +25,13 @@ function createIdempotencyMiddleware({ ttlMs = 5 * 60 * 1000, maxEntries = 5000,
            FROM operation_receipts
           WHERE operation_key=$1 AND method=$2 AND path=$3 AND status='COMMITTED'
           LIMIT 1`,
-        [supplied, method, path]
+        [supplied, method, path],
+        {
+          operation: "idempotency-receipt-preflight",
+          attempts: 1,
+          queryTimeoutMs: Number(process.env.PG_IDEMPOTENCY_LOOKUP_TIMEOUT_MS || 2000),
+          recoveryBudgetMs: Number(process.env.PG_IDEMPOTENCY_LOOKUP_TIMEOUT_MS || 2000)
+        }
       );
       return result.rows?.[0] || null;
     } catch {

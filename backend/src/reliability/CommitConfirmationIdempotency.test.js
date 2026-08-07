@@ -60,7 +60,9 @@ function makeRes(){
   assert(adapterSource.includes("INSERT INTO operation_receipts"));
   const appStatePos=adapterSource.indexOf("INSERT INTO app_state");
   const receiptPos=adapterSource.indexOf("INSERT INTO operation_receipts");
-  const commitPos=adapterSource.indexOf('client.query("COMMIT")',appStatePos);
+  const directCommitPos=adapterSource.indexOf('client.query("COMMIT")',appStatePos);
+  const boundedCommitPos=adapterSource.indexOf('client.query({ text: "COMMIT"',appStatePos);
+  const commitPos=[directCommitPos,boundedCommitPos].filter(pos=>pos>=0).sort((a,b)=>a-b)[0]??-1;
   assert(appStatePos>=0&&receiptPos>appStatePos&&commitPos>receiptPos,"receipt must be stored before the same COMMIT as app_state");
 
   const apiSource=fs.readFileSync(path.join(__dirname,"../../../frontend/src/api.js"),"utf8");

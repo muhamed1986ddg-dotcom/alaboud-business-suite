@@ -7,7 +7,7 @@ assert(source.includes("receipt AS ("), 'idempotency receipt should be part of t
 assert(!source.includes("SELECT revision FROM app_state WHERE state_key='main' FOR UPDATE"), 'redundant pre-write row-lock round trip should be removed');
 assert(source.includes('PG_INTERACTIVE_WRITE_RETRIES || 2'), 'interactive retry count should be bounded');
 assert(source.includes('PG_INTERACTIVE_WRITE_BUDGET_MS || 7000'), 'interactive retry budget should be bounded');
-assert(source.includes('PG_WRITE_RECOVERY_BUDGET_MS || 4500'), 'interactive recovery probe should be bounded');
+assert(/PG_WRITE_RECOVERY_BUDGET_MS \\|\\| (3000|4500)/.test(source), 'interactive recovery probe should be bounded');
 const api = fs.readFileSync(path.join(__dirname,'..','..','..','frontend','src','api.js'),'utf8');
 assert(api.includes('method==="get"?45000:25000'), 'frontend should begin ambiguous commit recovery promptly');
 console.log('Low-latency durable operations policy tests passed');

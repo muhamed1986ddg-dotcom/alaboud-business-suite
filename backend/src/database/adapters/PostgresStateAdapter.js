@@ -9,6 +9,8 @@ const TRANSIENT_CODES = new Set([
   "57P03", // cannot connect now / recovery mode
   "57P04", // database dropped
   "53300", // too many connections
+  "55P03", // lock not available / lock_timeout
+  "57014", // query canceled / statement_timeout
   "08000", "08001", "08003", "08004", "08006", "08007", "08P01"
 ]);
 
@@ -37,6 +39,11 @@ function isTransientPostgresError(error) {
     "socket hang up",
     "not queryable",
     "timeout expired",
+    "query read timeout",
+    "statement timeout",
+    "lock timeout",
+    "canceling statement due to statement timeout",
+    "canceling statement due to lock timeout",
     "getaddrinfo enotfound",
     "getaddrinfo eai_again",
     "temporary failure in name resolution"
@@ -83,7 +90,14 @@ class PostgresStateAdapter {
       // 30s idle eviction frequently forced a new TLS/database handshake just
       // before an add/edit/delete operation.
       idleTimeoutMillis: Math.max(1000, Number(process.env.PG_IDLE_TIMEOUT_MS || 900000)),
-      connectionTimeoutMillis: Math.max(1000, Number(process.env.PG_CONNECT_TIMEOUT_MS || 10000)),
+      // Never let a request sit in the pool queue indefinitely. Interactive
+      // mutations should either get a usable connection quickly or return a
+      // retryable 503 so the idempotency recovery path can take over.
+      connectionTimeoutMillis: Math.max(1000, Number(process.env.PG_CONNECT_TIMEOUT_MS || 4000)),
+      // node-postgres client-side guard. Server-side transaction limits are
+      // also applied with SET LOCAL in save() so an advisory lock or query can
+      // never leave PATCH/DELETE pending forever.
+      query_timeout: Math.max(1000, Number(process.env.PG_QUERY_TIMEOUT_MS || 12000)),
       keepAlive: true,
       keepAliveInitialDelayMillis: 10000
     });
@@ -211,14 +225,15 @@ class PostgresStateAdapter {
     return result.rows.length ? this.normalize(result.rows[0].payload) : null;
   }
 
-  async queryWithRetry(text, params = [], { operation = "query", attempts } = {}) {
+  async queryWithRetry(text, params = [], { operation = "query", attempts, queryTimeoutMs, recoveryBudgetMs } = {}) {
     const maxAttempts = Math.max(1, Number(attempts || process.env.PG_QUERY_RETRIES || 6));
     const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 500));
     const maxMs = Math.max(baseMs, Number(process.env.PG_RETRY_MAX_MS || 16000));
+    const timeoutMs = Math.max(500, Number(queryTimeoutMs || process.env.PG_QUERY_TIMEOUT_MS || 12000));
     let lastError;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        const result = await this.pool.query(text, params);
+        const result = await this.pool.query({ text, values: params, query_timeout: timeoutMs });
         this.connectionState = "connected";
         this.lastConnectedAt = new Date().toISOString();
         this.lastConnectionError = null;
@@ -234,7 +249,7 @@ class PostgresStateAdapter {
           }
           throw error;
         }
-        await this.recoverConnection(`${operation}:${error.code || error.message}`, { budgetMs: Number(process.env.PG_QUERY_RECOVERY_BUDGET_MS || 70000) });
+        await this.recoverConnection(`${operation}:${error.code || error.message}`, { budgetMs: Number(recoveryBudgetMs || process.env.PG_QUERY_RECOVERY_BUDGET_MS || 12000) });
         const delay = retryDelay(attempt, baseMs, maxMs);
         this.logger.warn(`PostgreSQL ${operation} unavailable; retrying (${attempt}/${maxAttempts}) in ${delay}ms. ${error.code || error.message}`);
         await wait(delay);
@@ -292,6 +307,9 @@ class PostgresStateAdapter {
     const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 250));
     const maxMs = Math.max(baseMs, Number(process.env.PG_WRITE_RETRY_MAX_MS || (interactive ? 2500 : 4000)));
     const retryBudgetMs = Math.max(1000, Number(interactive ? (process.env.PG_INTERACTIVE_WRITE_BUDGET_MS || 7000) : (process.env.PG_WRITE_RETRY_BUDGET_MS || 15000)));
+    const lockTimeoutMs = Math.max(500, Number(process.env.PG_INTERACTIVE_LOCK_TIMEOUT_MS || 2500));
+    const statementTimeoutMs = Math.max(lockTimeoutMs + 500, Number(process.env.PG_INTERACTIVE_STATEMENT_TIMEOUT_MS || 6500));
+    const clientQueryTimeoutMs = Math.max(statementTimeoutMs + 500, Number(process.env.PG_INTERACTIVE_CLIENT_QUERY_TIMEOUT_MS || 8000));
     const startedAt = Date.now();
     const payload = JSON.stringify(snapshot);
     let lastError;
@@ -303,7 +321,14 @@ class PostgresStateAdapter {
       try {
         client = await this.pool.connect();
         detach = this.attachClientErrorGuard(client, "durable-write-client");
-        await client.query("BEGIN");
+        await client.query({ text: "BEGIN", query_timeout: clientQueryTimeoutMs });
+        // Bound both advisory-lock waiting and statement execution on the
+        // PostgreSQL server. This is the key guard against transactions that
+        // stayed Pending in Chrome Network for 30+ seconds.
+        await client.query({
+          text: `SET LOCAL lock_timeout = '${lockTimeoutMs}ms'; SET LOCAL statement_timeout = '${statementTimeoutMs}ms'; SET LOCAL idle_in_transaction_session_timeout = '${statementTimeoutMs + 2000}ms'`,
+          query_timeout: clientQueryTimeoutMs
+        });
         // Keep the financial write fully durable, but collapse the advisory
         // lock + app_state upsert + idempotency receipt into ONE PostgreSQL
         // round trip. Previously these were three separate queries between
@@ -314,8 +339,8 @@ class PostgresStateAdapter {
           try { responseJson = JSON.stringify(operationReceipt.result ?? null); } catch {}
         }
         const result = operationReceipt?.key
-          ? await client.query(
-              `WITH lock_row AS (
+          ? await client.query({
+              text: `WITH lock_row AS (
                  SELECT pg_advisory_xact_lock(hashtext('alaboud:app_state:main')) AS locked
                ), saved AS (
                  INSERT INTO app_state (state_key,payload,revision,updated_at)
@@ -337,7 +362,7 @@ class PostgresStateAdapter {
                  RETURNING operation_key
                )
                SELECT revision FROM saved`,
-              [
+              values: [
                 payload,
                 String(operationReceipt.key),
                 String(operationReceipt.method || "POST"),
@@ -345,10 +370,11 @@ class PostgresStateAdapter {
                 operationReceipt.companyId ? String(operationReceipt.companyId) : null,
                 operationReceipt.branchId ? String(operationReceipt.branchId) : null,
                 responseJson
-              ]
-            )
-          : await client.query(
-              `WITH lock_row AS (
+              ],
+              query_timeout: clientQueryTimeoutMs
+            })
+          : await client.query({
+              text: `WITH lock_row AS (
                  SELECT pg_advisory_xact_lock(hashtext('alaboud:app_state:main')) AS locked
                ), saved AS (
                  INSERT INTO app_state (state_key,payload,revision,updated_at)
@@ -360,9 +386,10 @@ class PostgresStateAdapter {
                  RETURNING revision
                )
                SELECT revision FROM saved`,
-              [payload]
-            );
-        await client.query("COMMIT");
+              values: [payload],
+              query_timeout: clientQueryTimeoutMs
+            });
+        await client.query({ text: "COMMIT", query_timeout: clientQueryTimeoutMs });
         this.lastCommittedRevision = Number(result.rows?.[0]?.revision || 0);
         this.connectionState = "connected";
         this.lastConnectedAt = new Date().toISOString();
@@ -387,9 +414,10 @@ class PostgresStateAdapter {
         if (isTransientPostgresError(error) && options.operationReceipt?.key) {
           try {
             await this.resetPool(`ambiguous-commit:${error.code || error.message}`);
-            const receipt = await this.pool.query(
+            const receipt = await this.queryWithRetry(
               `SELECT app_revision FROM operation_receipts WHERE operation_key=$1 AND status='COMMITTED' LIMIT 1`,
-              [String(options.operationReceipt.key)]
+              [String(options.operationReceipt.key)],
+              { operation: "ambiguous-commit-receipt", attempts: 1, queryTimeoutMs: 2500, recoveryBudgetMs: 2500 }
             );
             if (receipt.rows?.[0]) {
               this.lastCommittedRevision = Number(receipt.rows[0].app_revision || 0);
@@ -414,7 +442,7 @@ class PostgresStateAdapter {
           }
           throw error;
         }
-        await this.recoverConnection(`write:${error.code || error.message}`, { budgetMs: Number(process.env.PG_WRITE_RECOVERY_BUDGET_MS || 4500) });
+        await this.recoverConnection(`write:${error.code || error.message}`, { budgetMs: Number(process.env.PG_WRITE_RECOVERY_BUDGET_MS || 3000) });
         const delay = retryDelay(attempt, baseMs, maxMs);
         this.logger.warn(`PostgreSQL write unavailable; retrying (${attempt}/${attempts}) in ${delay}ms. ${error.code || error.message}`);
         await wait(delay);
@@ -426,8 +454,8 @@ class PostgresStateAdapter {
     throw lastError;
   }
 
-  async query(text, params = []) {
-    return this.queryWithRetry(text, params, { operation: "query" });
+  async query(text, params = [], options = {}) {
+    return this.queryWithRetry(text, params, { operation: "query", ...options });
   }
 
   async health() {

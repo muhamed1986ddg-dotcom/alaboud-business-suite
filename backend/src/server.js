@@ -267,7 +267,8 @@ app.get("/api/operations/:key/status", auth, async (req,res)=>{
          FROM operation_receipts
         WHERE operation_key=$1
         LIMIT 1`,
-      [operationKey]
+      [operationKey],
+      { operation:"operation-status",attempts:1,queryTimeoutMs:2500,recoveryBudgetMs:2500 }
     );
     const receipt=result.rows?.[0];
     if(!receipt)return res.json({operationKey,status:"UNKNOWN",committed:false});
