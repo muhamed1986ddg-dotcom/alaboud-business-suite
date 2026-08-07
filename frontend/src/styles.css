@@ -6591,3 +6591,15 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
   .locked-transfer-customer{align-items:stretch;flex-direction:column}
   .locked-transfer-customer button{width:100%}
 }
+
+/* v25.14.5 — expenses and profits follow the transfer mobile-card layout */
+.expense-mobile-cards,.profits-mobile-cards{display:none}
+@media (max-width:760px){
+  .expense-table,.profits-monthly-table-card{display:none!important}
+  .expense-mobile-cards,.profits-mobile-cards{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:12px!important;width:100%!important;max-width:100%!important;min-width:0!important;padding:4px 2px 130px!important;margin:0!important;box-sizing:border-box!important}
+  .expense-mobile-card,.profit-mobile-card{display:block!important}
+  .expense-mobile-card .transaction-mobile-card__head strong{direction:rtl!important;text-align:right!important}
+  .expense-mobile-card .transaction-mobile-card__head small{display:block;margin-top:4px}
+  .expense-mobile-actions{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .expenses-multi-page,.ui-page-stack{min-width:0!important;max-width:100%!important;overflow-x:hidden!important}
+}
