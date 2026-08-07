@@ -1,3 +1,10 @@
+# v25.14.7 — Inventory Debt & Profit Integrity
+
+- Fixed monthly inventory "debts payable" so it includes local company payables, external partner payables, and remaining manual payable debts using the same source semantics as the debt page.
+- Added current-month net profit to the inventory screen and monthly snapshot for reconciliation.
+- Profit is informational only and is not added to the final inventory value to avoid double counting.
+- Added payable breakdown fields for audit and troubleshooting.
+
 # v25.14.6 — Monthly Inventory & Reminder
 
 - إضافة زر/تبويب **الجرد الشهري** داخل صفحة التقارير والأرباح.

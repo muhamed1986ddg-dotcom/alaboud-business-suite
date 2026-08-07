@@ -22,4 +22,8 @@ assert.strictEqual(totalCash+companyBalances+customerReceivable+companyReceivabl
 
 // Schedule is deliberately constrained to 1..28 so every month has the selected day.
 for(const day of [1,20,28])assert(day>=1&&day<=28);
+
+assert(server.includes("calculateInventoryPayables(store,{toCad})"),"inventory must use authoritative payable calculator");
+assert(server.includes("calculateInventoryMonthProfit(store"),"inventory must load current month profit");
+assert(server.includes("monthlyProfit:round(profitSummary.netProfit)"),"inventory snapshot must store monthly profit");
 console.log("MonthlyInventory.test.js: OK");

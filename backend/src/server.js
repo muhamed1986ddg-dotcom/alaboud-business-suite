@@ -16,6 +16,7 @@ const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistr
 const FinancialEngine = require("./finance/FinancialEngine");
 const { transactionFinancials } = require("./finance/TransactionFinancials");
 const { calculateReceivableSummary } = require("./finance/ReceivableSummary");
+const { calculateInventoryPayables, calculateInventoryMonthProfit } = require("./finance/MonthlyInventoryFinancials");
 const { markSoftDeleted } = require("./finance/FinancialIntegrity");
 const { registerHealthRoutes } = require("./routes/health");
 const { createIdempotencyMiddleware } = require("./reliability/idempotency");
@@ -1472,23 +1473,25 @@ function monthlyInventoryDraft(store,{vaultCash=0}={}){
     }
   }
 
-  const generalDebts=(Array.isArray(store.generalDebts)?store.generalDebts:[]).filter(item=>item&&!item.isDeleted&&item.type==="PAYABLE");
-  const debtPayments=(Array.isArray(store.generalDebtPayments)?store.generalDebtPayments:[]).filter(item=>item&&!item.isDeleted);
-  const paidByDebt=new Map();
-  for(const payment of debtPayments)paidByDebt.set(payment.debtId,(paidByDebt.get(payment.debtId)||0)+safeNumber(payment.amount));
-  let generalPayable=0;
-  for(const debt of generalDebts){
-    const remaining=Math.max(safeNumber(debt.amount)-safeNumber(paidByDebt.get(debt.id)),0);
-    generalPayable+=toCad(remaining,debt.currency||"CAD");
-  }
-  const debtsPayable=companyPayable+generalPayable;
+  const payableTotals=calculateInventoryPayables(store,{toCad});
+  const debtsPayable=payableTotals.total;
+
+  // Profit is stored with the inventory snapshot for reconciliation only.  It is
+  // deliberately not added to finalValue because doing so would double-count
+  // value already reflected in cash/receivables.
+  const local=inventoryLocalDate(store.notificationSettings||{});
+  const inventoryMonth=`${local.year}-${String(local.month).padStart(2,"0")}`;
+  const profitSummary=calculateInventoryMonthProfit(store,{month:inventoryMonth,transactionFinancials});
+
   const normalizedVault=Math.max(0,safeNumber(vaultCash));
   const finalValue=totalCash+companyBalances+customerReceivable+companyReceivable-debtsPayable+normalizedVault;
   const round=value=>+safeNumber(value).toFixed(2);
   return {
     currency:"CAD",totalCash:round(totalCash),companyBalances:round(companyBalances),customerReceivable:round(customerReceivable),
-    companyReceivable:round(companyReceivable),debtsPayable:round(debtsPayable),vaultCash:round(normalizedVault),finalValue:round(finalValue),
-    missingRates:[...missingRates]
+    companyReceivable:round(companyReceivable),debtsPayable:round(debtsPayable),
+    payableBreakdown:{companyLocal:round(payableTotals.companyLocal),companyExternal:round(payableTotals.companyExternal),manual:round(payableTotals.manual)},
+    monthlyProfit:round(profitSummary.netProfit),grossProfit:round(profitSummary.grossProfit),monthlyExpenses:round(profitSummary.expenses),
+    vaultCash:round(normalizedVault),finalValue:round(finalValue),missingRates:[...missingRates]
   };
 }
 
@@ -2459,7 +2462,7 @@ app.get("/api/profits", auth, (req,res)=>{
   };
 
   const transactions = s.transactions.filter((t)=>t&&!t.isDeleted&&t.status!=="CANCELLED" && inRange(t.transferDate||t.createdAt));
-  const expenses = s.expenses.filter((e)=>inRange(e.date || e.createdAt));
+  const expenses = s.expenses.filter((e)=>e&&!e.isDeleted&&inRange(e.date || e.createdAt));
 
   const exchangeProfit = transactions.reduce((a,t)=>a+transactionFinancials(t).exchangeProfit,0);
   const transferFees = transactions.reduce((a,t)=>a+transactionFinancials(t).transferFee,0);
