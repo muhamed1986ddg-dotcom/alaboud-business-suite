@@ -4,6 +4,7 @@ const getResponseCache=new Map();
 const DEFAULT_GET_CACHE_TTL=60000;
 const PERSISTED_CACHE_PREFIX="alaboud_get_cache_v1:";
 function persistedGet(key){try{const raw=sessionStorage.getItem(PERSISTED_CACHE_PREFIX+key);if(!raw)return null;const value=JSON.parse(raw);return value?.expiresAt>Date.now()?value:null}catch{return null}}
+function persistedGetAny(key){try{const raw=sessionStorage.getItem(PERSISTED_CACHE_PREFIX+key);if(!raw)return null;return JSON.parse(raw)||null}catch{return null}}
 function persistedSet(key,response,expiresAt){try{sessionStorage.setItem(PERSISTED_CACHE_PREFIX+key,JSON.stringify({expiresAt,data:response.data,status:response.status,statusText:response.statusText,headers:response.headers}))}catch{}}
 
 function cacheKey(url,config={}){
@@ -14,7 +15,10 @@ function cacheKey(url,config={}){
   return JSON.stringify([branchId,tokenScope,url,params]);
 }
 
-export function clearApiGetCache(){getResponseCache.clear();}
+export function clearApiGetCache(){
+  getResponseCache.clear();
+  try{for(let i=sessionStorage.length-1;i>=0;i-=1){const key=sessionStorage.key(i);if(key&&key.startsWith(PERSISTED_CACHE_PREFIX))sessionStorage.removeItem(key)}}catch{}
+}
 export function pruneApiGetCache(){
   const now=Date.now();
   for(const [key,value] of getResponseCache){if(value.expiresAt<=now)getResponseCache.delete(key);}
@@ -44,7 +48,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.14.14";
+  config.headers["X-Alaboud-Client-Version"]="25.14.15";
   // Durable writes have a bounded interactive recovery budget. If PostgreSQL
   // is temporarily unavailable, start commit verification promptly instead of
   // leaving add/edit/delete buttons spinning for more than a minute.
@@ -208,21 +212,67 @@ api.interceptors.response.use(
   }
 );
 
+function transientReadFailure(error){
+  if(!error)return false;
+  if(!error.response)return true;
+  if(error.code==="ECONNABORTED"||/timeout/i.test(String(error.message||"")))return true;
+  if([502,503,504].includes(Number(error.response?.status)))return true;
+  const code=String(error.response?.data?.code||error.code||"").toUpperCase();
+  if(["DATABASE_TEMPORARILY_UNAVAILABLE","57P01","57P02","57P03","08006"].includes(code))return true;
+  return isTechnicalDatabaseMessage(error.response?.data?.message||error.message||"");
+}
+export function isTransientReadFailure(error){return transientReadFailure(error)}
+
+async function getWithTransientRetry(url,requestConfig,retries=0){
+  const delays=[450,900,1500,2400,3600,5000];
+  let lastError=null;
+  for(let attempt=0;attempt<=retries;attempt+=1){
+    try{return await api.get(url,requestConfig)}catch(error){
+      lastError=error;
+      if(!transientReadFailure(error)||attempt>=retries)throw error;
+      if(typeof window!=="undefined")window.dispatchEvent(new CustomEvent("alaboud-database-status",{detail:{status:"reconnecting",message:"جارٍ استعادة الاتصال. ستُحدّث البيانات تلقائيًا."}}));
+      await sleep(delays[Math.min(attempt,delays.length-1)]);
+    }
+  }
+  throw lastError;
+}
+
 // Reuse fresh GET responses while navigating between pages. Concurrent
 // requests for the same resource share one promise; every successful write
 // clears the cache through the response interceptor above.
 export function cachedGet(url,config={}){
   const ttl=Number.isFinite(Number(config.cacheTtl))?Math.max(0,Number(config.cacheTtl)):DEFAULT_GET_CACHE_TTL;
   const persist=config.persistCache===true;
-  const requestConfig={...config};delete requestConfig.cacheTtl;delete requestConfig.persistCache;
-  if(ttl===0)return api.get(url,requestConfig);
+  const staleOnError=config.staleOnError===true;
+  const transientRetries=Math.max(0,Math.min(6,Number(config.transientRetries||0)));
+  const requestConfig={...config};
+  delete requestConfig.cacheTtl;delete requestConfig.persistCache;delete requestConfig.staleOnError;delete requestConfig.transientRetries;
   const key=cacheKey(url,requestConfig);
-  const current=getResponseCache.get(key);
-  if(current&&current.expiresAt>Date.now())return current.promise;
-  if(persist){const saved=persistedGet(key);if(saved){const response={data:saved.data,status:saved.status||200,statusText:saved.statusText||"OK",headers:saved.headers||{},config:requestConfig};const promise=Promise.resolve(response);getResponseCache.set(key,{promise,expiresAt:saved.expiresAt});return promise;}}
+  if(ttl>0){
+    const current=getResponseCache.get(key);
+    if(current&&current.expiresAt>Date.now())return current.promise;
+    if(persist){
+      const saved=persistedGet(key);
+      if(saved){
+        const response={data:saved.data,status:saved.status||200,statusText:saved.statusText||"OK",headers:saved.headers||{},config:requestConfig,fromPersistentCache:true};
+        const promise=Promise.resolve(response);getResponseCache.set(key,{promise,expiresAt:saved.expiresAt});return promise;
+      }
+    }
+  }
   const expiresAt=Date.now()+ttl;
-  const promise=api.get(url,requestConfig).then(response=>{if(persist)persistedSet(key,response,expiresAt);return response;}).catch(error=>{getResponseCache.delete(key);throw error;});
-  getResponseCache.set(key,{promise,expiresAt});
+  const stale=persist&&staleOnError?persistedGetAny(key):null;
+  const promise=getWithTransientRetry(url,requestConfig,transientRetries).then(response=>{
+    if(persist)persistedSet(key,response,expiresAt);
+    return response;
+  }).catch(error=>{
+    getResponseCache.delete(key);
+    if(stale&&transientReadFailure(error)){
+      if(typeof window!=="undefined")window.dispatchEvent(new CustomEvent("alaboud-database-status",{detail:{status:"reconnecting",message:"يتم عرض آخر بيانات محفوظة مؤقتًا حتى يعود الاتصال."}}));
+      return {data:stale.data,status:stale.status||200,statusText:stale.statusText||"OK",headers:stale.headers||{},config:requestConfig,fromStaleCache:true};
+    }
+    throw error;
+  });
+  if(ttl>0)getResponseCache.set(key,{promise,expiresAt});
   return promise;
 }
 

@@ -1,3 +1,11 @@
+# v25.14.15 — Automatic Customer Recovery
+
+- قائمة العملاء تعيد المحاولة تلقائيًا أثناء استعادة PostgreSQL بدل مطالبة المستخدم بالمحاولة يدويًا.
+- الاحتفاظ بآخر قائمة عملاء ناجحة في sessionStorage وعرضها مؤقتًا عند انقطاع قاعدة البيانات.
+- إعادة تحديث القائمة فور عودة health إلى حالة connected.
+- قائمة اختيار العميل تستخدم نفس الاستعادة الهادئة لتقليل النماذج الفارغة.
+- أخطاء PostgreSQL المؤقتة في مسار العملاء تُعاد كـ 503 retryable بدل خطأ 500 عام.
+
 # v25.14.14 — Low-Latency Durable Operations
 
 - Reduced PostgreSQL round trips for durable add/edit/delete operations by combining the advisory lock, app-state upsert, and idempotency receipt in one SQL statement.

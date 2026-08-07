@@ -1723,7 +1723,10 @@ app.get("/api/customers", auth, async (req,res)=>{
     res.json(windowResponse(win,items));
   }catch(error){
     console.error("Customer list failed",{requestId:req.requestId,error:error?.stack||error});
-    res.status(500).json({code:"CUSTOMERS_LIST_FAILED",message:"تعذر تحميل قائمة العملاء. حاول مرة أخرى.",requestId:req.requestId||null});
+    if(isTransientDatabaseError(error)){
+      return res.status(503).json({code:"DATABASE_TEMPORARILY_UNAVAILABLE",retryable:true,message:"جارٍ استعادة الاتصال. سيتم تحديث قائمة العملاء تلقائيًا.",requestId:req.requestId||null});
+    }
+    res.status(500).json({code:"CUSTOMERS_LIST_FAILED",message:"تعذر تحميل قائمة العملاء.",requestId:req.requestId||null});
   }
 });
 

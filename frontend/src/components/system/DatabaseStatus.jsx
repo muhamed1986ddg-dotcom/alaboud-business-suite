@@ -39,7 +39,7 @@ export default function DatabaseStatus(){
       try{
         const response=await api.get("/health",{timeout:10000,suppressToast:true,validateStatus:status=>status===200||status===503});
         const next=normalizeHealth(response.data||{});
-        if(next.status==="connected")failureCount.current=0;else failureCount.current+=1;
+        if(next.status==="connected"){if(failureCount.current>0)window.dispatchEvent(new Event("alaboud-database-recovered"));failureCount.current=0;}else failureCount.current+=1;
         update(next);
         schedule(next.status==="connected"?45000:Math.min(15000,3000+(failureCount.current*2000)));
       }catch(error){

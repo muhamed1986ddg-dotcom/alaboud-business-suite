@@ -1,0 +1,14 @@
+const fs=require('fs');
+const path=require('path');
+const root=path.resolve(__dirname,'../..');
+const customers=fs.readFileSync(path.join(root,'frontend/src/screens/Customers.jsx'),'utf8');
+const api=fs.readFileSync(path.join(root,'frontend/src/api.js'),'utf8');
+const server=fs.readFileSync(path.join(root,'backend/src/server.js'),'utf8');
+if(!customers.includes('persistCache:true,staleOnError:true,transientRetries:2'))throw new Error('customer list must use stale cache + transient retry');
+if(!customers.includes('جارٍ استعادة قائمة العملاء تلقائيًا'))throw new Error('customer list must use automatic recovery state');
+if(!customers.includes('alaboud-database-recovered'))throw new Error('customer list must reload when database recovers');
+if(!api.includes('persistedGetAny'))throw new Error('api must support stale persisted cache');
+if(!api.includes('getWithTransientRetry'))throw new Error('api must support bounded transient GET retries');
+if(!api.includes('isTransientReadFailure'))throw new Error('api must classify transient read failures');
+if(!server.includes('سيتم تحديث قائمة العملاء تلقائيًا'))throw new Error('customer route must expose retryable recovery response');
+console.log('Customer automatic recovery v25.14.15 test passed');

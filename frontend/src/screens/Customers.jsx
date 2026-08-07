@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
-import api,{cachedGet} from "../api";
+import api,{cachedGet,isTransientReadFailure} from "../api";
 import {APP_VERSION} from "../version";
 import {AppPagination} from "../components/ui";
 import {CustomerToolbar,CustomerListControls} from "../components/customers/CustomerToolbar";
@@ -20,6 +20,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     try{return localStorage.getItem("alaboud_customer_sort")||"name-asc"}catch{return "name-asc"}
   });
   const [error,setError]=useState("");
+  const retryTimerRef=useRef(null);
+  const retryAttemptRef=useRef(0);
 
   const [customerForm,setCustomerForm]=useState({customerNumber:"",name:"",phone:"",email:"",oldBalance:""});
   const [editingCustomer,setEditingCustomer]=useState(null);
@@ -68,7 +70,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     setError("");
     try{
       const params={page:requestedPage,pageSize,sort:requestedSort,search:requestedSearch.trim()};
-      const customersResponse=await cachedGet("/customers",{params,cacheTtl:30*1000});
+      const customersResponse=await cachedGet("/customers",{params,cacheTtl:30*1000,persistCache:true,staleOnError:true,transientRetries:2});
       const payload=customersResponse.data;
       if(payload&&Array.isArray(payload.items)){
         setList(payload.items);
@@ -80,17 +82,49 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         setServerTotal(rows.length);
         setServerTotalPages(Math.max(1,Math.ceil(rows.length/pageSize)));
       }
+      if(customersResponse.fromStaleCache){
+        setError("");
+        const delay=1800;
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current=setTimeout(()=>load(requestedSort,requestedSearch,requestedPage),delay);
+      }else{
+        retryAttemptRef.current=0;
+        if(retryTimerRef.current){clearTimeout(retryTimerRef.current);retryTimerRef.current=null;}
+      }
     }catch(requestError){
+      if(isTransientReadFailure(requestError)){
+        // لا نحوّل الاستعادة المؤقتة إلى خطأ يدوي. أبقِ آخر قائمة ظاهرة
+        // وأعد المحاولة تلقائيًا حتى تعود قاعدة البيانات.
+        setError(list.length?"":"جارٍ استعادة قائمة العملاء تلقائيًا…");
+        const attempt=Math.min(retryAttemptRef.current++,6);
+        const delay=[1200,1800,2500,3500,5000,7000,10000][attempt];
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current=setTimeout(()=>load(requestedSort,requestedSearch,requestedPage),delay);
+        return;
+      }
       setError(requestError.response?.data?.message||"تعذر تحميل العملاء");
     }
   }
 
-  useEffect(()=>{
-    cachedGet("/customers/options",{params:{limit:500},cacheTtl:2*60*1000})
-      .then(response=>setCustomerOptions(Array.isArray(response.data)?response.data:[]))
-      .catch(()=>setCustomerOptions([]));
-  },[]);
+  async function loadCustomerOptions(){
+    try{
+      const response=await cachedGet("/customers/options",{params:{limit:500},cacheTtl:2*60*1000,persistCache:true,staleOnError:true,transientRetries:4});
+      setCustomerOptions(Array.isArray(response.data)?response.data:[]);
+    }catch{
+      // اترك القائمة السابقة كما هي؛ ستُحدّث عند عودة الاتصال.
+    }
+  }
 
+  useEffect(()=>{loadCustomerOptions()},[]);
+
+  useEffect(()=>()=>{if(retryTimerRef.current)clearTimeout(retryTimerRef.current)},[]);
+
+
+  useEffect(()=>{
+    const recovered=()=>{load(sortMode,search,page);loadCustomerOptions();};
+    window.addEventListener("alaboud-database-recovered",recovered);
+    return()=>window.removeEventListener("alaboud-database-recovered",recovered);
+  },[sortMode,search,page]);
   useEffect(()=>{
     const requestedCustomerId=initialTransferRequest?.customerId;
     if(!requestedCustomerId)return;
@@ -730,6 +764,8 @@ export function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
   const [search,setSearch]=useState("");
   const [days,setDays]=useState("7");
   const [error,setError]=useState("");
+  const retryTimerRef=useRef(null);
+  const retryAttemptRef=useRef(0);
   const [success,setSuccess]=useState("");
   const [drafts,setDrafts]=useState({});
   const [syncingId,setSyncingId]=useState("");
