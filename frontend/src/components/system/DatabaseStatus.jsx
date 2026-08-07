@@ -1,6 +1,14 @@
 import React,{useEffect,useRef,useState}from"react";
 import api from"../../api";
 
+function publicDatabaseStatusMessage(value=""){
+  const text=String(value||"").toLowerCase();
+  if(["57p03","57p01","57p02","08006","connection terminated","not yet accepting connections","recovery mode","not queryable"].some(part=>text.includes(part))){
+    return "قاعدة البيانات قيد الاستعادة. سيستأنف النظام الاتصال تلقائيًا.";
+  }
+  return String(value||"");
+}
+
 function normalizeHealth(payload={},fallbackMessage=""){
   const database=payload.database||{};
   if(database.ok===true){
@@ -9,7 +17,7 @@ function normalizeHealth(payload={},fallbackMessage=""){
   const reconnecting=database.connectionState==="reconnecting"||database.connectionState==="connecting";
   return {
     status:reconnecting?"reconnecting":"offline",
-    message:database.lastConnectionError||payload.startupError||fallbackMessage||"تعذر الاتصال بقاعدة البيانات",
+    message:publicDatabaseStatusMessage(database.lastConnectionError||payload.startupError||fallbackMessage)||"تعذر الاتصال بقاعدة البيانات",
     lastConnectedAt:database.lastConnectedAt||null
   };
 }

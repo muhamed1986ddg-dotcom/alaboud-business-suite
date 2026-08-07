@@ -80,7 +80,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
       });
       await load();
     }catch(error){
-      setError(error.response?.data?.message||error.message||"تعذر حفظ الدفعة");
+      setError(error.response?.data?.message||"تعذر حفظ الدفعة. تحقق من اتصال قاعدة البيانات ثم حاول مرة أخرى.");
     }
   }
 

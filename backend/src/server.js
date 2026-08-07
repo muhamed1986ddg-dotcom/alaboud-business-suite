@@ -1,5 +1,5 @@
 const express = require("express");
-const { isRecoverableOperationalError } = require("./database/operational-error");
+const { isTransientDatabaseError, isRecoverableOperationalError } = require("./database/operational-error");
 const helmet = require("helmet");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
@@ -164,8 +164,7 @@ app.use((req,res,next)=>{
     message:"الخدمة تعيد الاتصال بقاعدة البيانات حاليًا. يرجى المحاولة بعد لحظات.",
     code:"SERVICE_STARTING_DATABASE_RETRY",
     retryable:true,
-    startupAttempt,
-    error:serviceStartupError?.message||null
+    startupAttempt
   });
 });
 app.use(versionAliasMiddleware);
@@ -5577,7 +5576,7 @@ app.use((err,req,res,_next)=>{
   const requestId=req.requestId||req.headers["x-request-id"]||null;
   console.error("Unhandled request error",{requestId,path:req.path,method:req.method,error:err?.stack||err});
   const status=Number(err?.status||err?.statusCode)||500;
-  const isDatabaseTemporary = status===503 || ["57P03","57P01","57P02","08006"].includes(String(err?.code||"").toUpperCase());
+  const isDatabaseTemporary = isTransientDatabaseError(err) || status===503;
   const message = err?.publicMessage || (isDatabaseTemporary
     ? "قاعدة البيانات تعيد الاتصال حاليًا. لم يتم حفظ أي تغيير، يرجى المحاولة بعد لحظات."
     : status>=500 ? "حدث خطأ داخلي في الخادم" : (err.message||"Request failed"));

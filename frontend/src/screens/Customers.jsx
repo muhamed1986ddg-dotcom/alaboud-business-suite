@@ -353,7 +353,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       await load();
       await loadDebtSummary();
     }catch(error){
-      setError(error.response?.data?.message||error.message||"تعذر إضافة الدفعة");
+      setError(error.response?.data?.message||"تعذر إضافة الدفعة. تحقق من اتصال قاعدة البيانات ثم حاول مرة أخرى.");
     }
   }
 

@@ -1,0 +1,18 @@
+"use strict";
+const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
+const adapter = fs.readFileSync(path.join(__dirname,"adapters","PostgresStateAdapter.js"),"utf8");
+const server = fs.readFileSync(path.join(__dirname,"..","server.js"),"utf8");
+const api = fs.readFileSync(path.join(__dirname,"..","..","..","frontend","src","api.js"),"utf8");
+const status = fs.readFileSync(path.join(__dirname,"..","..","..","frontend","src","components","system","DatabaseStatus.jsx"),"utf8");
+assert.match(adapter,/async recoverConnection/);
+assert.match(adapter,/SELECT 1/);
+assert.match(adapter,/PG_WRITE_RECOVERY_BUDGET_MS/);
+assert.match(adapter,/recoveryPromise/);
+assert.match(server,/isTransientDatabaseError\(err\)/);
+assert.doesNotMatch(server,/error:serviceStartupError\?\.message/);
+assert.match(api,/safeBackendMessage/);
+assert.match(api,/95000/);
+assert.match(status,/publicDatabaseStatusMessage/);
+console.log("Database recovery guard tests passed");

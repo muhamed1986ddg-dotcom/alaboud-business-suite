@@ -1,12 +1,12 @@
 {
   "name": "alaboud-stable-backend",
-  "version": "25.14.2",
+  "version": "25.14.3",
   "private": true,
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
     "test": "node src/selftest.js",
-    "check": "node --check src/server.js && node --check src/store.js && node --check src/database/DatabaseService.js && node --check src/database/MigrationRunner.js && node --check src/database/guardPgClient.js && node --check src/database/adapters/PostgresStateAdapter.js && node --check src/migration/StateToRelationalMapper.js && node --check src/migration/RelationalMigrationEngine.js && node --check src/migration/cli.js && node --check src/repositories/RelationalProjector.js && node --check src/repositories/PostgresEntityRepository.js && node --check src/repositories/NativeRepositoryRegistry.js && node --check src/repositories/PostgresEntityRepository.test.js && node --check src/access-control.js && node --check src/session-registry.js && node --check src/security-enterprise.test.js && node --check src/api-platform.js && node --check src/api-platform.test.js && node --check src/branch-manager.js && node --check src/branch-manager.test.js && node --check src/production-readiness.js && node --check src/production-readiness.test.js && node --check src/database/adapters/PostgresStateAdapter.resilience.test.js && node --check src/database/operational-error.js && node --check src/database/operational-error.test.js && node --check src/finance/TransactionFinancials.js && node --check src/finance/TransactionFinancials.test.js && node --check src/finance/Money.js && node --check src/finance/FinancialIntegrity.js && node --check src/finance/FinancialIntegrity.test.js && node --check src/finance/DeterministicFinancialMath.test.js",
+    "check": "node --check src/server.js && node --check src/store.js && node --check src/database/DatabaseService.js && node --check src/database/MigrationRunner.js && node --check src/database/guardPgClient.js && node --check src/database/adapters/PostgresStateAdapter.js && node --check src/migration/StateToRelationalMapper.js && node --check src/migration/RelationalMigrationEngine.js && node --check src/migration/cli.js && node --check src/repositories/RelationalProjector.js && node --check src/repositories/PostgresEntityRepository.js && node --check src/repositories/NativeRepositoryRegistry.js && node --check src/repositories/PostgresEntityRepository.test.js && node --check src/access-control.js && node --check src/session-registry.js && node --check src/security-enterprise.test.js && node --check src/api-platform.js && node --check src/api-platform.test.js && node --check src/branch-manager.js && node --check src/branch-manager.test.js && node --check src/production-readiness.js && node --check src/production-readiness.test.js && node --check src/database/adapters/PostgresStateAdapter.resilience.test.js && node --check src/database/operational-error.js && node --check src/database/operational-error.test.js && node --check src/finance/TransactionFinancials.js && node --check src/finance/TransactionFinancials.test.js && node --check src/finance/Money.js && node --check src/finance/FinancialIntegrity.js && node --check src/finance/FinancialIntegrity.test.js && node --check src/finance/DeterministicFinancialMath.test.js && node --check src/database/DatabaseRecoveryGuard.test.js",
     "migrate": "node src/migration/cli.js migrate",
     "migrate:verify": "node src/migration/cli.js verify",
     "migrate:rollback": "node src/migration/cli.js rollback",
@@ -23,7 +23,8 @@
     "test:receivables": "node src/finance/ReceivableSummary.test.js && node src/unified-receivable-gross-v25112.test.js",
     "test:transaction-financials": "node src/finance/TransactionFinancials.test.js",
     "test:financial-integrity": "node src/finance/FinancialIntegrity.test.js",
-    "test:deterministic-finance": "node src/finance/DeterministicFinancialMath.test.js"
+    "test:deterministic-finance": "node src/finance/DeterministicFinancialMath.test.js",
+    "test:database-recovery": "node src/database/DatabaseRecoveryGuard.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

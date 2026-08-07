@@ -1,6 +1,17 @@
+# Changelog
+
+## v25.14.3 — Database Recovery Guard
+
+- Added one shared PostgreSQL recovery gate with readiness probes (`SELECT 1`).
+- Extended the durable-write recovery budget for Render PostgreSQL startup windows.
+- Prevented repeated pool recreation storms while PostgreSQL is still recovering.
+- Sanitized PostgreSQL technical messages across API toasts and database-status banners.
+- Kept financial writes synchronous: no success is returned before PostgreSQL `COMMIT`.
+- Increased client write timeout to match the backend recovery budget and preserve the same idempotency key.
+
 # CHANGELOG
 
-## v25.14.2 — Deterministic Financial Math
+## v25.14.3 — Deterministic Financial Math
 
 - ربط `Money.js` فعليًا بحسابات الحوالات والعملاء بدل بقائه معزولًا في الاختبارات.
 - تحويل حساب قيمة الحوالة، المستحق، ربح فرق السعر، الأجور وإجمالي الربح إلى Fixed-point باستخدام BigInt.

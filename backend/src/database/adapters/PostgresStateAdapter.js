@@ -63,6 +63,7 @@ class PostgresStateAdapter {
     this.lastMirrorError = null;
     this.poolGeneration = 0;
     this.poolResetPromise = null;
+    this.recoveryPromise = null;
     this.connectionState = "connecting";
     this.lastConnectedAt = null;
     this.lastDisconnectedAt = null;
@@ -130,6 +131,49 @@ class PostgresStateAdapter {
     return this.poolResetPromise;
   }
 
+
+  async recoverConnection(reason = "transient-error", { budgetMs } = {}) {
+    if (this.recoveryPromise) return this.recoveryPromise;
+    const maxBudgetMs = Math.max(5000, Number(budgetMs || process.env.PG_RECOVERY_BUDGET_MS || 70000));
+    const startedAt = Date.now();
+    this.recoveryPromise = (async () => {
+      this.connectionState = "reconnecting";
+      let probeAttempt = 0;
+      let lastError = null;
+      await this.resetPool(reason);
+      while (Date.now() - startedAt < maxBudgetMs) {
+        probeAttempt += 1;
+        try {
+          await this.pool.query("SELECT 1");
+          this.connectionState = "connected";
+          this.lastConnectedAt = new Date().toISOString();
+          this.lastConnectionError = null;
+          this.consecutiveConnectionFailures = 0;
+          this.logger.info(`PostgreSQL connection recovered after ${probeAttempt} probe(s)`);
+          return true;
+        } catch (error) {
+          lastError = error;
+          this.lastConnectionError = error;
+          this.lastDisconnectedAt = new Date().toISOString();
+          this.consecutiveConnectionFailures += 1;
+          if (!isTransientPostgresError(error)) throw error;
+          // Recreate the pool only occasionally; repeatedly creating pools while
+          // PostgreSQL is still starting causes a connection storm on Render.
+          if (probeAttempt % 4 === 0) await this.resetPool(`recovery-probe:${error.code || error.message}`);
+          const delay = retryDelay(Math.min(probeAttempt, 6), 750, 10000);
+          this.logger.warn(`PostgreSQL recovery probe ${probeAttempt} failed; retrying in ${delay}ms. ${error.code || error.message}`);
+          await wait(delay);
+        }
+      }
+      const error = lastError || new Error("DATABASE_RECOVERY_TIMEOUT");
+      error.status = 503;
+      error.code = "DATABASE_TEMPORARILY_UNAVAILABLE";
+      error.publicMessage = "قاعدة البيانات قيد الاستعادة حاليًا. لم يتم حفظ أي تغيير، يرجى الانتظار قليلًا ثم المحاولة مرة أخرى.";
+      throw error;
+    })().finally(() => { this.recoveryPromise = null; });
+    return this.recoveryPromise;
+  }
+
   async init() {
     const runner = new MigrationRunner({ pool: this.pool, logger: this.logger });
     await runner.run();
@@ -161,7 +205,6 @@ class PostgresStateAdapter {
         this.consecutiveConnectionFailures = 0;
         return result;
       } catch (error) {
-        attemptError = error;
         lastError = error;
         if (!isTransientPostgresError(error) || attempt === maxAttempts) {
           if (isTransientPostgresError(error)) {
@@ -171,7 +214,7 @@ class PostgresStateAdapter {
           }
           throw error;
         }
-        await this.resetPool(`${operation}:${error.code || error.message}`);
+        await this.recoverConnection(`${operation}:${error.code || error.message}`, { budgetMs: Number(process.env.PG_QUERY_RECOVERY_BUDGET_MS || 70000) });
         const delay = retryDelay(attempt, baseMs, maxMs);
         this.logger.warn(`PostgreSQL ${operation} unavailable; retrying (${attempt}/${maxAttempts}) in ${delay}ms. ${error.code || error.message}`);
         await wait(delay);
@@ -256,7 +299,6 @@ class PostgresStateAdapter {
         this.queueRelationalMirror(snapshot);
         return { revision: this.lastCommittedRevision };
       } catch (error) {
-        attemptError = error;
         lastError = error;
         if (client) { try { await client.query("ROLLBACK"); } catch {} }
         if (isTransientPostgresError(error)) {
@@ -274,7 +316,7 @@ class PostgresStateAdapter {
           }
           throw error;
         }
-        await this.resetPool(`write:${error.code || error.message}`);
+        await this.recoverConnection(`write:${error.code || error.message}`, { budgetMs: Number(process.env.PG_WRITE_RECOVERY_BUDGET_MS || 75000) });
         const delay = retryDelay(attempt, baseMs, maxMs);
         this.logger.warn(`PostgreSQL write unavailable; retrying (${attempt}/${attempts}) in ${delay}ms. ${error.code || error.message}`);
         await wait(delay);

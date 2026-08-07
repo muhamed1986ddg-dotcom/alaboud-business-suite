@@ -44,13 +44,13 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.12.7";
+  config.headers["X-Alaboud-Client-Version"]="25.14.3";
   // PostgreSQL recovery retries can legitimately take longer than the normal
   // navigation timeout. Keep write requests open until the backend confirms
   // whether the durable save succeeded, otherwise Axios can report a false
   // failure while the server continues retrying and eventually commits it.
   const method=String(config.method||"get").toLowerCase();
-  config.timeout=method==="get"?30000:35000;
+  config.timeout=method==="get"?45000:95000;
   if(method!=="get"&&!config.headers["Idempotency-Key"]){
     config.headers["Idempotency-Key"]=(crypto?.randomUUID?.()||`op-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   }
@@ -82,11 +82,35 @@ function successToastMessage(method,url,response){
   return backendMessage||"تمت الإضافة بنجاح";
 }
 
+function isTechnicalDatabaseMessage(value){
+  const message=String(value||"").toLowerCase();
+  return [
+    "database system is not yet accepting connections",
+    "database system is in recovery mode",
+    "connection terminated unexpectedly",
+    "connection terminated",
+    "client is not queryable",
+    "57p03",
+    "57p01",
+    "57p02",
+    "08006"
+  ].some(fragment=>message.includes(fragment));
+}
+
+function safeBackendMessage(error){
+  const raw=String(error?.response?.data?.message||error?.message||"").trim();
+  if(isTechnicalDatabaseMessage(raw)){
+    if(typeof window!=="undefined")window.dispatchEvent(new CustomEvent("alaboud-database-status",{detail:{status:"reconnecting",message:"قاعدة البيانات قيد الاستعادة. تتم إعادة الاتصال تلقائيًا."}}));
+    return "قاعدة البيانات قيد الاستعادة حاليًا. لم يتم حفظ أي تغيير، يرجى الانتظار قليلًا ثم المحاولة مرة أخرى.";
+  }
+  return raw;
+}
+
 function errorToastMessage(method,error){
   if(error?.code==="ECONNABORTED"||/timeout/i.test(String(error?.message||""))){
     return "لم يصل تأكيد العملية خلال المهلة. لا تضغط مرة أخرى؛ تحقق من حالة السجل أولًا.";
   }
-  const backendMessage=String(error.response?.data?.message||"").trim();
+  const backendMessage=safeBackendMessage(error);
   if(error.response?.data?.code==="DATABASE_TEMPORARILY_UNAVAILABLE"){
     window.dispatchEvent(new CustomEvent("alaboud-database-status",{detail:{status:"reconnecting",message:backendMessage}}));
   }
