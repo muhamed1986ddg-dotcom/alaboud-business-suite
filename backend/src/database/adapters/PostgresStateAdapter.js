@@ -454,8 +454,10 @@ class PostgresStateAdapter {
 
   async save(snapshot, options = {}) {
     // Financial state is committed synchronously in one PostgreSQL transaction.
-    // The advisory transaction lock serializes writers across multiple Node
-    // instances, while SELECT ... FOR UPDATE protects the state row itself.
+    // Durable writes are serialized in-process by mutateDurable/durableSaveChain.
+    // PostgreSQL's app_state UPSERT supplies row-level serialization. Avoid an
+    // advisory lock here because a disrupted writer can make later PATCH/DELETE
+    // return 503 even though the database health probe is already 200.
     const interactive = options.interactive !== false;
     const attempts = Math.max(1, Number(interactive ? (process.env.PG_INTERACTIVE_WRITE_RETRIES || 2) : (process.env.PG_WRITE_RETRIES || 6)));
     const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 250));
@@ -486,9 +488,8 @@ class PostgresStateAdapter {
           text: `SET LOCAL lock_timeout = '${lockTimeoutMs}ms'; SET LOCAL statement_timeout = '${statementTimeoutMs}ms'; SET LOCAL idle_in_transaction_session_timeout = '${statementTimeoutMs + 2000}ms'`,
           query_timeout: clientQueryTimeoutMs
         }, hardStepTimeoutMs, "transaction-guards");
-        // Keep the financial write fully durable, but collapse the advisory
-        // lock + app_state upsert + idempotency receipt into ONE PostgreSQL
-        // round trip. Previously these were three separate queries between
+        // Keep the financial write fully durable and commit app_state plus the
+        // idempotency receipt in ONE PostgreSQL transaction/round trip. Previously these were three separate queries between
         // BEGIN/COMMIT, which was noticeable on Render's network latency.
         const operationReceipt = options.operationReceipt;
         let responseJson = "null";
@@ -497,11 +498,9 @@ class PostgresStateAdapter {
         }
         const result = operationReceipt?.key
           ? await runClientStep(client, {
-              text: `WITH lock_row AS (
-                 SELECT pg_advisory_xact_lock(hashtext('alaboud:app_state:main')) AS locked
-               ), saved AS (
+              text: `WITH saved AS (
                  INSERT INTO app_state (state_key,payload,revision,updated_at)
-                 SELECT 'main',$1::jsonb,1,NOW() FROM lock_row
+                 VALUES ('main',$1::jsonb,1,NOW())
                  ON CONFLICT (state_key)
                  DO UPDATE SET payload=EXCLUDED.payload,
                                revision=app_state.revision+1,
@@ -531,11 +530,9 @@ class PostgresStateAdapter {
               query_timeout: clientQueryTimeoutMs
             }, hardStepTimeoutMs, "state-write-with-receipt")
           : await runClientStep(client, {
-              text: `WITH lock_row AS (
-                 SELECT pg_advisory_xact_lock(hashtext('alaboud:app_state:main')) AS locked
-               ), saved AS (
+              text: `WITH saved AS (
                  INSERT INTO app_state (state_key,payload,revision,updated_at)
-                 SELECT 'main',$1::jsonb,1,NOW() FROM lock_row
+                 VALUES ('main',$1::jsonb,1,NOW())
                  ON CONFLICT (state_key)
                  DO UPDATE SET payload=EXCLUDED.payload,
                                revision=app_state.revision+1,
