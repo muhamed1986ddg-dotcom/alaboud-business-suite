@@ -1,3 +1,12 @@
+## v25.14.20 — PostgreSQL Watchdog Recovery
+- إضافة watchdog حقيقي لاتصالات PostgreSQL: إذا تجاوز الاستعلام المهلة يتم قطع socket نفسه، وليس فقط إنهاء Promise الواجهة.
+- وضع مهلة مستقلة لاكتساب PoolClient حتى لا يبقى طلب transactions في حالة Pending أثناء تعافي قاعدة البيانات.
+- إعادة بناء queryWithRetry على عميل مخصص يتم التخلص منه فور أي خطأ اتصال.
+- جعل recovery probes وhealth probes محدودة زمنيًا وقابلة لتدمير الاتصال العالق.
+- جعل /api/health يعرض حالة الاتصال فورًا دون انتظار استعلام PostgreSQL متعطل.
+- حماية المرآة العلائقية بمهلات BEGIN/Projection/COMMIT حتى لا تحتجز اتصالًا وتؤخر العمليات المالية.
+- الإبقاء على COMMIT المتين وIdempotency receipts ومنع تكرار الإضافة أو التعديل أو الحذف.
+
 # v25.14.19 — Database Write Readiness Gate
 
 - منع بدء عمليات الإضافة/التعديل/الحذف أثناء حالة PostgreSQL reconnecting إلا بعد جاهزية محددة المهلة.

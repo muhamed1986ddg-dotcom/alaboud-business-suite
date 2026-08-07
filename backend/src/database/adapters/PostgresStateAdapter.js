@@ -75,6 +75,61 @@ async function withHardTimeout(promiseFactory, timeoutMs, label) {
   }
 }
 
+function destroyPgClient(client, reason = "watchdog-timeout") {
+  if (!client) return;
+  try { client.connection?.stream?.destroy?.(hardTimeoutError(reason, 0)); } catch {}
+  try { client.release?.(true); } catch {}
+}
+
+async function runClientStep(client, queryConfig, timeoutMs, label) {
+  let timer;
+  let timedOut = false;
+  const queryPromise = Promise.resolve().then(() => client.query(queryConfig));
+  try {
+    return await Promise.race([
+      queryPromise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          const error = hardTimeoutError(label, timeoutMs);
+          // Promise.race alone does not cancel a node-postgres query. Destroy
+          // the socket so the underlying query cannot keep a PoolClient busy
+          // after the HTTP request has already timed out.
+          try { client.connection?.stream?.destroy?.(error); } catch {}
+          reject(error);
+        }, timeoutMs);
+        timer.unref?.();
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (timedOut) queryPromise.catch(() => undefined);
+  }
+}
+
+async function runClientTask(client, taskFactory, timeoutMs, label) {
+  let timer;
+  let timedOut = false;
+  const taskPromise = Promise.resolve().then(taskFactory);
+  try {
+    return await Promise.race([
+      taskPromise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          const error = hardTimeoutError(label, timeoutMs);
+          try { client.connection?.stream?.destroy?.(error); } catch {}
+          reject(error);
+        }, timeoutMs);
+        timer.unref?.();
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (timedOut) taskPromise.catch(() => undefined);
+  }
+}
+
 function retryDelay(attempt, baseMs = 500, maxMs = 16000) {
   const exponential = Math.min(maxMs, baseMs * (2 ** Math.max(0, attempt - 1)));
   const jitter = Math.floor(exponential * 0.15 * Math.random());
@@ -97,6 +152,7 @@ class PostgresStateAdapter {
     this.poolGeneration = 0;
     this.poolResetPromise = null;
     this.recoveryPromise = null;
+    this.healthProbePromise = null;
     this.connectionState = "connecting";
     this.lastConnectedAt = null;
     this.lastDisconnectedAt = null;
@@ -181,7 +237,7 @@ class PostgresStateAdapter {
 
   async recoverConnection(reason = "transient-error", { budgetMs } = {}) {
     if (this.recoveryPromise) return this.recoveryPromise;
-    const maxBudgetMs = Math.max(5000, Number(budgetMs || process.env.PG_RECOVERY_BUDGET_MS || 70000));
+    const maxBudgetMs = Math.max(2500, Number(budgetMs || process.env.PG_RECOVERY_BUDGET_MS || 20000));
     const startedAt = Date.now();
     this.recoveryPromise = (async () => {
       this.connectionState = "reconnecting";
@@ -190,8 +246,11 @@ class PostgresStateAdapter {
       await this.resetPool(reason);
       while (Date.now() - startedAt < maxBudgetMs) {
         probeAttempt += 1;
+        let client;
+        let probeError = null;
         try {
-          await this.pool.query("SELECT 1");
+          client = await this.acquireClient({ timeoutMs: Math.min(2500, maxBudgetMs), context: "recovery-probe-connect" });
+          await runClientStep(client, { text: "SELECT 1", query_timeout: 1200 }, 1700, "recovery-probe");
           this.connectionState = "connected";
           this.lastConnectedAt = new Date().toISOString();
           this.lastConnectionError = null;
@@ -199,17 +258,19 @@ class PostgresStateAdapter {
           this.logger.info(`PostgreSQL connection recovered after ${probeAttempt} probe(s)`);
           return true;
         } catch (error) {
+          probeError = error;
           lastError = error;
           this.lastConnectionError = error;
           this.lastDisconnectedAt = new Date().toISOString();
           this.consecutiveConnectionFailures += 1;
           if (!isTransientPostgresError(error)) throw error;
-          // Recreate the pool only occasionally; repeatedly creating pools while
-          // PostgreSQL is still starting causes a connection storm on Render.
-          if (probeAttempt % 4 === 0) await this.resetPool(`recovery-probe:${error.code || error.message}`);
-          const delay = retryDelay(Math.min(probeAttempt, 6), 750, 10000);
+          if (client) { try { client.release(true); client = null; } catch {} }
+          if (probeAttempt % 3 === 0) await this.resetPool(`recovery-probe:${error.code || error.message}`);
+          const delay = retryDelay(Math.min(probeAttempt, 5), 350, 2500);
           this.logger.warn(`PostgreSQL recovery probe ${probeAttempt} failed; retrying in ${delay}ms. ${error.code || error.message}`);
           await wait(delay);
+        } finally {
+          if (client) { try { client.release(Boolean(probeError)); } catch {} }
         }
       }
       const error = lastError || new Error("DATABASE_RECOVERY_TIMEOUT");
@@ -255,10 +316,21 @@ class PostgresStateAdapter {
     const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 500));
     const maxMs = Math.max(baseMs, Number(process.env.PG_RETRY_MAX_MS || 16000));
     const timeoutMs = Math.max(500, Number(queryTimeoutMs || process.env.PG_QUERY_TIMEOUT_MS || 12000));
+    const acquireTimeoutMs = Math.max(750, Math.min(timeoutMs, Number(process.env.PG_QUERY_ACQUIRE_TIMEOUT_MS || 3500)));
     let lastError;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      let client;
+      let attemptError = null;
+      let detach = () => {};
       try {
-        const result = await this.pool.query({ text, values: params, query_timeout: timeoutMs });
+        client = await this.acquireClient({ timeoutMs: acquireTimeoutMs, context: `${operation}-connect` });
+        detach = this.attachClientErrorGuard(client, `${operation}-client`);
+        const result = await runClientStep(
+          client,
+          { text, values: params, query_timeout: timeoutMs },
+          timeoutMs + 500,
+          operation
+        );
         this.connectionState = "connected";
         this.lastConnectedAt = new Date().toISOString();
         this.lastConnectionError = null;
@@ -266,6 +338,7 @@ class PostgresStateAdapter {
         return result;
       } catch (error) {
         lastError = error;
+        attemptError = error;
         if (!isTransientPostgresError(error) || attempt === maxAttempts) {
           if (isTransientPostgresError(error)) {
             error.status = 503;
@@ -274,10 +347,16 @@ class PostgresStateAdapter {
           }
           throw error;
         }
-        await this.recoverConnection(`${operation}:${error.code || error.message}`, { budgetMs: Number(recoveryBudgetMs || process.env.PG_QUERY_RECOVERY_BUDGET_MS || 12000) });
+        // Throw away the failed client immediately before recovery. This is
+        // crucial on Render: a dead TLS socket must never be returned to pg.Pool.
+        if (client) { try { client.release(true); client = null; } catch {} }
+        await this.recoverConnection(`${operation}:${error.code || error.message}`, { budgetMs: Number(recoveryBudgetMs || process.env.PG_QUERY_RECOVERY_BUDGET_MS || 6000) });
         const delay = retryDelay(attempt, baseMs, maxMs);
         this.logger.warn(`PostgreSQL ${operation} unavailable; retrying (${attempt}/${maxAttempts}) in ${delay}ms. ${error.code || error.message}`);
         await wait(delay);
+      } finally {
+        try { detach(); } catch {}
+        if (client) { try { client.release(Boolean(attemptError)); } catch {} }
       }
     }
     throw lastError;
@@ -303,15 +382,16 @@ class PostgresStateAdapter {
           let client;
           let detach = () => {};
           try {
-            client = await this.pool.connect();
+            client = await this.acquireClient({ timeoutMs: Number(process.env.PG_MIRROR_CONNECT_TIMEOUT_MS || 3500), context: "mirror-connect" });
             detach = this.attachClientErrorGuard(client, "mirror-client");
-            await client.query("BEGIN");
-            await this.projector.project(client, next);
-            await client.query("COMMIT");
+            await runClientStep(client, { text: "BEGIN", query_timeout: 2500 }, 3000, "mirror-begin");
+            await runClientStep(client, { text: "SET LOCAL statement_timeout = '8000ms'; SET LOCAL lock_timeout = '2500ms'", query_timeout: 3000 }, 3500, "mirror-guards");
+            await runClientTask(client, () => this.projector.project(client, next), 9000, "mirror-project");
+            await runClientStep(client, { text: "COMMIT", query_timeout: 2500 }, 3000, "mirror-commit");
             this.lastMirrorError = null;
           } catch (error) {
             this.lastMirrorError = error;
-            if (client) { try { await client.query("ROLLBACK"); } catch {} }
+            if (client && !isTransientPostgresError(error)) { try { await runClientStep(client, { text: "ROLLBACK", query_timeout: 1000 }, 1500, "mirror-rollback"); } catch {} }
             this.logger.warn(`Relational mirror deferred: ${error?.code || error?.message || error}`);
           } finally {
             try { detach(); } catch {}
@@ -321,6 +401,24 @@ class PostgresStateAdapter {
       })().finally(() => { this.mirrorRunning = false; });
     }, delayMs);
     this.mirrorScheduleTimer.unref?.();
+  }
+
+  async acquireClient({ timeoutMs = 4500, context = "pool-connect" } = {}) {
+    try {
+      return await withHardTimeout(() => this.pool.connect(), Math.max(750, Number(timeoutMs)), context);
+    } catch (error) {
+      if (isTransientPostgresError(error)) {
+        this.connectionState = "reconnecting";
+        this.lastDisconnectedAt = new Date().toISOString();
+        this.lastConnectionError = error;
+        this.consecutiveConnectionFailures += 1;
+        // Do not await pool recreation here; fail the request quickly and let
+        // recovery continue independently. This prevents an HTTP request from
+        // inheriting a long pool.end()/DNS recovery wait.
+        this.resetPool(`${context}:${error.code || error.message}`).catch(() => undefined);
+      }
+      throw error;
+    }
   }
 
   async waitForInteractiveWriteReady({ timeoutMs } = {}) {
@@ -378,16 +476,16 @@ class PostgresStateAdapter {
       let attemptError = null;
       let detach = () => {};
       try {
-        client = await this.pool.connect();
+        client = await this.acquireClient({ timeoutMs: Number(process.env.PG_INTERACTIVE_ACQUIRE_TIMEOUT_MS || 4000), context: "durable-write-connect" });
         detach = this.attachClientErrorGuard(client, "durable-write-client");
-        await withHardTimeout(() => client.query({ text: "BEGIN", query_timeout: clientQueryTimeoutMs }), hardStepTimeoutMs, "begin");
+        await runClientStep(client, { text: "BEGIN", query_timeout: clientQueryTimeoutMs }, hardStepTimeoutMs, "begin");
         // Bound both advisory-lock waiting and statement execution on the
         // PostgreSQL server. This is the key guard against transactions that
         // stayed Pending in Chrome Network for 30+ seconds.
-        await withHardTimeout(() => client.query({
+        await runClientStep(client, {
           text: `SET LOCAL lock_timeout = '${lockTimeoutMs}ms'; SET LOCAL statement_timeout = '${statementTimeoutMs}ms'; SET LOCAL idle_in_transaction_session_timeout = '${statementTimeoutMs + 2000}ms'`,
           query_timeout: clientQueryTimeoutMs
-        }), hardStepTimeoutMs, "transaction-guards");
+        }, hardStepTimeoutMs, "transaction-guards");
         // Keep the financial write fully durable, but collapse the advisory
         // lock + app_state upsert + idempotency receipt into ONE PostgreSQL
         // round trip. Previously these were three separate queries between
@@ -398,7 +496,7 @@ class PostgresStateAdapter {
           try { responseJson = JSON.stringify(operationReceipt.result ?? null); } catch {}
         }
         const result = operationReceipt?.key
-          ? await withHardTimeout(() => client.query({
+          ? await runClientStep(client, {
               text: `WITH lock_row AS (
                  SELECT pg_advisory_xact_lock(hashtext('alaboud:app_state:main')) AS locked
                ), saved AS (
@@ -431,8 +529,8 @@ class PostgresStateAdapter {
                 responseJson
               ],
               query_timeout: clientQueryTimeoutMs
-            }), hardStepTimeoutMs, "state-write-with-receipt")
-          : await withHardTimeout(() => client.query({
+            }, hardStepTimeoutMs, "state-write-with-receipt")
+          : await runClientStep(client, {
               text: `WITH lock_row AS (
                  SELECT pg_advisory_xact_lock(hashtext('alaboud:app_state:main')) AS locked
                ), saved AS (
@@ -447,8 +545,8 @@ class PostgresStateAdapter {
                SELECT revision FROM saved`,
               values: [payload],
               query_timeout: clientQueryTimeoutMs
-            }), hardStepTimeoutMs, "state-write");
-        await withHardTimeout(() => client.query({ text: "COMMIT", query_timeout: clientQueryTimeoutMs }), hardStepTimeoutMs, "commit");
+            }, hardStepTimeoutMs, "state-write");
+        await runClientStep(client, { text: "COMMIT", query_timeout: clientQueryTimeoutMs }, hardStepTimeoutMs, "commit");
         this.lastCommittedRevision = Number(result.rows?.[0]?.revision || 0);
         this.connectionState = "connected";
         this.lastConnectedAt = new Date().toISOString();
@@ -463,7 +561,7 @@ class PostgresStateAdapter {
         // already broken (or a hard deadline fired), ROLLBACK itself can wait
         // forever in node-postgres. Destroy that client in finally instead.
         if (client && !isTransientPostgresError(error)) {
-          try { await withHardTimeout(() => client.query({ text: "ROLLBACK", query_timeout: 1000 }), 1500, "rollback"); } catch {}
+          try { await runClientStep(client, { text: "ROLLBACK", query_timeout: 1000 }, 1500, "rollback"); } catch {}
         }
         if (isTransientPostgresError(error)) {
           this.connectionState = "reconnecting";
@@ -523,14 +621,47 @@ class PostgresStateAdapter {
   }
 
   async health() {
-    const startedAt = Date.now();
-    await this.queryWithRetry("SELECT 1", [], { operation: "health", attempts: 2 });
+    // Health must never wait behind a broken PostgreSQL socket. Return the
+    // adapter's live connection state synchronously and run a tiny probe in
+    // the background. Chrome /api/health therefore remains responsive even
+    // while a financial write is being recovered.
+    const pool = this.pool;
+    const knownConnected = this.connectionState === "connected";
+    if (pool && !this.healthProbePromise) {
+      this.healthProbePromise = (async () => {
+        let client;
+        let probeError = null;
+        try {
+          client = await this.acquireClient({ timeoutMs: 1000, context: "health-probe-connect" });
+          await runClientStep(client, { text: "SELECT 1", query_timeout: 700 }, 900, "health-probe");
+        } catch (error) {
+          probeError = error;
+          throw error;
+        } finally {
+          if (client) { try { client.release(Boolean(probeError)); } catch {} }
+        }
+      })().then(() => {
+        this.connectionState = "connected";
+        this.lastConnectedAt = new Date().toISOString();
+        this.lastConnectionError = null;
+        this.consecutiveConnectionFailures = 0;
+      }).catch((error) => {
+        this.connectionState = "reconnecting";
+        this.lastDisconnectedAt = new Date().toISOString();
+        this.lastConnectionError = error;
+        this.consecutiveConnectionFailures += 1;
+        if (isTransientPostgresError(error)) this.resetPool(`health-probe:${error.code || error.message}`).catch(() => undefined);
+      }).finally(() => { this.healthProbePromise = null; });
+    }
     return {
-      ok: true,
+      ok: knownConnected,
       mode: this.mode,
       relationalMirrorEnabled: this.relationalMirrorEnabled,
-      latencyMs: Date.now() - startedAt,
+      latencyMs: 0,
       poolGeneration: this.poolGeneration,
+      poolTotal: Number(pool?.totalCount || 0),
+      poolIdle: Number(pool?.idleCount || 0),
+      poolWaiting: Number(pool?.waitingCount || 0),
       mirrorPending: this.mirrorRunning || Boolean(this.mirrorPendingSnapshot),
       lastMirrorError: this.lastMirrorError?.message || null,
       connectionState: this.connectionState,

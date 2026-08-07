@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.19 Database Write Readiness Gate";
+export const APP_VERSION="v25.14.20 PostgreSQL Watchdog Recovery";
