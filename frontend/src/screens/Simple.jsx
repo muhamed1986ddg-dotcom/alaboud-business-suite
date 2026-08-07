@@ -27,14 +27,14 @@ function Simple({type}){
       const payload=type==="expenses"?{title,amount,currency,exchangeRate:Number(exchangeRate||1),category,date}:{type:move,amount,currency,description:title,date};
       if(type==="expenses"&&editingId)await api.put(`${endpoint}/${editingId}`,payload);else await api.post(endpoint,payload);
       if(type==="expenses")setMessage(editingId?"تم تعديل المصروف بنجاح":"تم حفظ المصروف بنجاح");
-      resetExpenseForm();await load();
+      resetExpenseForm();void load();
     }catch(err){setMessage(err?.response?.data?.message||"تعذر حفظ المصروف");}
     finally{setSaving(false);}
   }
   function editExpense(x){setEditingId(x.id);setTitle(x.title||"");setAmount(String(x.amount??""));setCurrency(x.currency||"CAD");setExchangeRate(String(x.exchangeRate||1));setCategory(x.category||"Other");setDate(x.date||new Date().toISOString().slice(0,10));setMessage("");window.scrollTo({top:0,behavior:"smooth"});}
   async function deleteExpense(x){
     if(!await confirmAction({title:"تأكيد حذف المصروف",message:`هل أنت متأكد من حذف المصروف: ${x.title}؟`,confirmText:"حذف المصروف"}))return;
-    try{await api.delete(`${endpoint}/${x.id}`);if(String(editingId)===String(x.id))resetExpenseForm();setMessage("تم حذف المصروف بنجاح");await load();}
+    try{await api.delete(`${endpoint}/${x.id}`);if(String(editingId)===String(x.id))resetExpenseForm();setMessage("تم حذف المصروف بنجاح");void load();}
     catch(err){setMessage(err?.response?.data?.message||"تعذر حذف المصروف");}
   }
   if(type!=="expenses")return <><h2>رأس المال</h2><form className="card form" onSubmit={add}><select value={move} onChange={e=>setMove(e.target.value)}><option value="IN">زيادة</option><option value="OUT">سحب</option></select><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="الوصف" required/><input type="number" step=".01" value={amount} onChange={e=>setAmount(e.target.value)} placeholder="المبلغ" required/><button>حفظ</button></form><div className="card tablewrap"><AppTable><tbody>{list.map(x=><tr key={x.id}><td>{x.date}</td><td>{x.description}</td><td>{x.type}</td><td>{money(x.amount)} {x.currency||"CAD"}</td></tr>)}</tbody></AppTable></div></>;

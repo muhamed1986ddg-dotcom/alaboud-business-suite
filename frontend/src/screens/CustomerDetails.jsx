@@ -53,7 +53,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
       await api.patch(`/customers/${id}`,{
         oldBalance:Number(oldBalanceForm||0)
       });
-      await load();
+      void load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر حفظ الحساب القديم");
     }finally{
@@ -78,7 +78,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         reference:"",
         notes:""
       });
-      await load();
+      void load();
     }catch(error){
       setError(error.response?.data?.message||"تعذر حفظ الدفعة. تحقق من اتصال قاعدة البيانات ثم حاول مرة أخرى.");
     }
@@ -294,7 +294,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
     try{
       await api.patch(`/transactions/${editingTransaction.id}`,editingTransaction);
       setEditingTransaction(null);
-      await load();
+      void load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تعديل الحوالة");
     }
@@ -306,7 +306,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
       await api.delete(`/transactions/${transactionId}`);
       clearApiGetCache();
       setData(current=>current?{...current,transactions:current.transactions.filter(item=>item.id!==transactionId)}:current);
-      await load();
+      void load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر حذف الحوالة");
     }
@@ -317,7 +317,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
     try{
       await api.patch(`/payments/${editingPayment.id}`,editingPayment);
       setEditingPayment(null);
-      await load();
+      void load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تعديل الدفعة");
     }
@@ -327,7 +327,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
     if(!await confirmAction({title:"تأكيد حذف الدفعة",message:"هل تريد حذف هذه الدفعة؟",confirmText:"حذف الدفعة"}))return;
     try{
       await api.delete(`/payments/${paymentId}`);
-      await load();
+      void load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر حذف الدفعة");
     }

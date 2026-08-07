@@ -1,0 +1,11 @@
+const fs=require("fs");
+const path=require("path");
+const store=fs.readFileSync(path.join(__dirname,"store.js"),"utf8");
+const db=fs.readFileSync(path.join(__dirname,"database","DatabaseService.js"),"utf8");
+const adapter=fs.readFileSync(path.join(__dirname,"database","adapters","PostgresStateAdapter.js"),"utf8");
+if(!store.includes("const draft=structuredClone(rootStore)"))throw new Error("durable mutation must use one private draft");
+if(store.includes("const before=structuredClone(normalizeStore(rootStore))"))throw new Error("legacy full rollback clone remains");
+if(!store.includes("ownedSnapshot:true"))throw new Error("owned durable snapshot not passed");
+if(!db.includes("ownedSnapshot ? nextStore"))throw new Error("DatabaseService still reclones owned snapshot");
+if(!adapter.includes("immutableSnapshot ? snapshot : structuredClone(snapshot)"))throw new Error("relational mirror still forces clone after commit");
+console.log("Fast durable operations v25.14.13 test passed");

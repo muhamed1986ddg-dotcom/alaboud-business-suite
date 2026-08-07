@@ -68,7 +68,7 @@ export function Transactions({openInvoice}){
         rateSource:"manual"
       });
       setEditingTransaction(null);
-      await load();
+      void load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تعديل الحوالة");
     }finally{
@@ -90,7 +90,7 @@ export function Transactions({openInvoice}){
       await api.delete(`/transactions/${transaction.id}`);
       clearApiGetCache();
       setList(current=>current.filter(item=>item.id!==transaction.id));
-      await load();
+      void load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر حذف الحوالة");
     }

@@ -210,8 +210,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       await api.patch(`/customers/${editingCustomer.id}`,editingCustomer);
       setEditingCustomer(null);
       setActivePanel("");
-      await load();
-      await loadDebtSummary();
+      void Promise.allSettled([load(),loadDebtSummary()]);
     }catch(requestError){
       const existing=requestError.response?.data?.existingCustomer||null;
       setDuplicateCustomer(existing);
@@ -226,8 +225,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     try{
       await api.delete(`/customers/${customer.id}`);
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
-      await load();
-      await loadDebtSummary();
+      void Promise.allSettled([load(),loadDebtSummary()]);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر حذف العميل");
     }
@@ -241,8 +239,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     try{
       await api.post(`/customers/${customer.id}/reset-account`,{});
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
-      await load();
-      await loadDebtSummary();
+      void Promise.allSettled([load(),loadDebtSummary()]);
       window.alert("تم تصفير الحساب وبدء حساب جديد بنجاح. الحساب السابق محفوظ في الأرشيف.");
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تصفير حساب العميل");
@@ -312,8 +309,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       setActivePanel("");
       setTransferCustomerLocked(false);
       setTransferCustomerName("");
-      await load();
-      await loadDebtSummary();
+      void Promise.allSettled([load(),loadDebtSummary()]);
       if(savedCustomerId)onTransferSaved?.(savedCustomerId);
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر إضافة الحوالة");
@@ -350,8 +346,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         reference:""
       });
       setActivePanel("");
-      await load();
-      await loadDebtSummary();
+      void Promise.allSettled([load(),loadDebtSummary()]);
     }catch(error){
       setError(error.response?.data?.message||"تعذر إضافة الدفعة. تحقق من اتصال قاعدة البيانات ثم حاول مرة أخرى.");
     }

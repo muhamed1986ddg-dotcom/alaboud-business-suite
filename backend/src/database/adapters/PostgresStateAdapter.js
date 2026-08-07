@@ -235,11 +235,13 @@ class PostgresStateAdapter {
     throw lastError;
   }
 
-  queueRelationalMirror(snapshot) {
+  queueRelationalMirror(snapshot, { immutableSnapshot = false } = {}) {
     if (!this.relationalMirrorEnabled) return;
     // The JSONB app_state row is the durable source of truth. Relational tables
     // are a reporting/search mirror, so they must not delay interactive saves.
-    this.mirrorPendingSnapshot = structuredClone(snapshot);
+    // Durable mutations now pass a private immutable draft, so reusing that
+    // reference removes another synchronous whole-store clone after COMMIT.
+    this.mirrorPendingSnapshot = immutableSnapshot ? snapshot : structuredClone(snapshot);
     if (this.mirrorRunning) return;
     this.mirrorRunning = true;
     this.mirrorPromise = (async () => {
@@ -332,7 +334,7 @@ class PostgresStateAdapter {
         this.lastConnectedAt = new Date().toISOString();
         this.lastConnectionError = null;
         this.consecutiveConnectionFailures = 0;
-        this.queueRelationalMirror(snapshot);
+        this.queueRelationalMirror(snapshot,{ immutableSnapshot: options.immutableSnapshot === true });
         return { revision: this.lastCommittedRevision };
       } catch (error) {
         lastError = error;

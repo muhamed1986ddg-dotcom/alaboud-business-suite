@@ -48,7 +48,7 @@ function GeneralDebts(){
     try{
       await api.post("/general-debts",form);
       setForm({type:"RECEIVABLE",partyName:"",amount:"",currency:"CAD",dueDate:"",description:"",reference:""});
-      setShowAddModal(false);setMessage("تم حفظ الدين بنجاح");await load();
+      setShowAddModal(false);setMessage("تم حفظ الدين بنجاح");void load();
     }catch(error){setMessage(error.response?.data?.message||"تعذر حفظ الدين");}
   }
 
@@ -59,7 +59,7 @@ function GeneralDebts(){
     try{
       await api.post(`/general-debts/${payment.debtId}/payments`,payment);
       setPayment({debtId:"",amount:"",paymentDate:"",method:"CASH",notes:""});
-      await load();
+      void load();
       setMessage("تم تسجيل الدفعة بنجاح");
       return true;
     }catch(error){
@@ -94,13 +94,13 @@ function GeneralDebts(){
 
   async function updateDebt(event){
     event.preventDefault();if(!selectedDebtId)return;setMessage("");
-    try{await api.patch(`/general-debts/${selectedDebtId}`,editForm);setActionMode("");setSelectedDebtId("");setMessage("تم تعديل الدين بنجاح");await load();}
+    try{await api.patch(`/general-debts/${selectedDebtId}`,editForm);setActionMode("");setSelectedDebtId("");setMessage("تم تعديل الدين بنجاح");void load();}
     catch(error){setMessage(error.response?.data?.message||"تعذر تعديل الدين");}
   }
 
   async function deleteDebt(){
     if(!selectedDebtId||!window.confirm("هل أنت متأكد من حذف هذا الدين؟ لا يمكن حذف دين مرتبط بدفعات."))return;setMessage("");
-    try{await api.delete(`/general-debts/${selectedDebtId}`);setActionMode("");setSelectedDebtId("");setMessage("تم حذف الدين بنجاح");await load();}
+    try{await api.delete(`/general-debts/${selectedDebtId}`);setActionMode("");setSelectedDebtId("");setMessage("تم حذف الدين بنجاح");void load();}
     catch(error){setMessage(error.response?.data?.message||"تعذر حذف الدين");}
   }
 

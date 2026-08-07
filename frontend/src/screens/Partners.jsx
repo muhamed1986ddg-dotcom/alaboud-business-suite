@@ -43,7 +43,7 @@ function PartnerProfile({id,back}){
       setNotice(editingTransactionId?"تم تعديل حركة الشركة":"تمت إضافة الحركة إلى حساب الشركة");
       setEditingTransactionId("");
       setTransaction(current=>({...current,type:"RECEIVABLE",amount:"",reference:"",description:"",dueDate:""}));
-      await load();
+      void load();
     }catch(requestError){setError(requestError.response?.data?.message||"تعذر حفظ حركة الشركة");}
     finally{setSaving(false);}
   }
@@ -56,7 +56,7 @@ function PartnerProfile({id,back}){
       setNotice(editingPaymentId?"تم تعديل الدفعة":"تم تسجيل الدفعة");
       setEditingPaymentId("");
       setPayment(current=>({...current,direction:"RECEIVED",amount:"",reference:"",notes:""}));
-      await load();
+      void load();
     }catch(requestError){setError(requestError.response?.data?.message||"تعذر حفظ دفعة الشركة");}
     finally{setSaving(false);}
   }
@@ -73,11 +73,11 @@ function PartnerProfile({id,back}){
   }
   async function deleteTransaction(item){
     if(!(await confirmAction({title:"حذف حركة الشركة",message:`حذف الحركة بقيمة ${money(item.amount)} ${item.currency||""}؟`,confirmText:"حذف"})))return;
-    try{await api.delete(`/partners/${id}/transactions/${item.id}`);setNotice("تم حذف الحركة");await load();}catch(requestError){setError(requestError.response?.data?.message||"تعذر حذف الحركة");}
+    try{await api.delete(`/partners/${id}/transactions/${item.id}`);setNotice("تم حذف الحركة");void load();}catch(requestError){setError(requestError.response?.data?.message||"تعذر حذف الحركة");}
   }
   async function deletePayment(item){
     if(!(await confirmAction({title:"حذف دفعة الشركة",message:`حذف الدفعة بقيمة ${money(item.amount)} ${item.currency||""}؟`,confirmText:"حذف"})))return;
-    try{await api.delete(`/partners/${id}/payments/${item.id}`);setNotice("تم حذف الدفعة");await load();}catch(requestError){setError(requestError.response?.data?.message||"تعذر حذف الدفعة");}
+    try{await api.delete(`/partners/${id}/payments/${item.id}`);setNotice("تم حذف الدفعة");void load();}catch(requestError){setError(requestError.response?.data?.message||"تعذر حذف الدفعة");}
   }
 
   if(showStatement)return <PartnerStatement partnerId={id} back={()=>setShowStatement(false)}/>;
@@ -308,7 +308,7 @@ function Partners({open,view="companies"}){
       await api.delete(`/partners/${partner.id}`);
       if(editingId===partner.id)resetPartnerForm();
       setMessage(`تم حذف شركة ${partner.name} بنجاح`);
-      await load();
+      void load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر حذف الشركة");
     }
@@ -326,7 +326,7 @@ function Partners({open,view="companies"}){
         setMessage("تمت إضافة الشركة وظهرت في قسم الشركات");
       }
       resetPartnerForm();
-      await load();
+      void load();
     }catch(requestError){
       setError(requestError.response?.data?.message||(editingId?"تعذر تعديل الشركة":"تعذر إضافة الشركة"));
     }

@@ -146,28 +146,25 @@ function mutateDurable(fn){
   const context=tenantContext.getStore();
   const companyId=context?.companyId||null;
   const branchId=context?.branchId||null;
-  // Financial and administrative writes are serialized and acknowledged only
-  // after PostgreSQL confirms the exact snapshot. On failure the in-memory
-  // state is rolled back, preventing a false success/read-after-write gap.
+  // Build every durable mutation on a private draft. The live in-memory store
+  // is not touched until PostgreSQL confirms COMMIT. This keeps rollback
+  // semantics while avoiding multiple full-store clones/normalizations on the
+  // hot add/edit/delete path.
   const execute=async()=>{
-    const before=structuredClone(normalizeStore(rootStore));
-    try{
-      const view=companyId?tenantView(rootStore,companyId,branchId):rootStore;
-      const result=await fn(view);
-      rootStore=database.replaceStore(normalizeStore(rootStore));
-      const requestOperation=getOperationContext();
-      const operationReceipt=requestOperation?.key ? {
-        ...requestOperation,
-        companyId,
-        branchId,
-        result
-      } : null;
-      await database.saveDurable(rootStore,{operationReceipt});
-      return result;
-    }catch(error){
-      rootStore=database.replaceStore(before);
-      throw error;
-    }
+    const draft=structuredClone(rootStore);
+    const view=companyId?tenantView(draft,companyId,branchId):draft;
+    const result=await fn(view);
+    const normalizedDraft=normalizeStore(draft);
+    const requestOperation=getOperationContext();
+    const operationReceipt=requestOperation?.key ? {
+      ...requestOperation,
+      companyId,
+      branchId,
+      result
+    } : null;
+    await database.saveDurable(normalizedDraft,{operationReceipt,ownedSnapshot:true});
+    rootStore=database.replaceStore(normalizedDraft);
+    return result;
   };
   const task=durableMutationChain.then(execute,execute);
   durableMutationChain=task.catch(()=>undefined);

@@ -75,7 +75,7 @@ function CapitalOverview(){
         date:new Date().toISOString().slice(0,10)
       });
       setMessage("تمت إضافة حركة رأس المال بنجاح");
-      await load();
+      void load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر إضافة رأس المال");
     }
@@ -88,7 +88,7 @@ function CapitalOverview(){
       await api.patch(`/capital/${editing.id}`,editing);
       setEditing(null);
       setMessage("تم تعديل حركة رأس المال بنجاح");
-      await load();
+      void load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تعديل رأس المال");
     }
@@ -101,7 +101,7 @@ function CapitalOverview(){
       await api.delete(`/capital/${item.id}`);
       setMessage("تم حذف حركة رأس المال");
       if(editing?.id===item.id)setEditing(null);
-      await load();
+      void load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر حذف رأس المال");
     }
