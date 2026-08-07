@@ -6674,3 +6674,24 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
   .capital-grand-total-card strong{text-align:right!important;direction:ltr!important}
   .capital-history-tools,.capital-table-filters,.capital-table-toolbar{overflow:hidden!important}
 }
+
+/* v25.14.12 — dark readable capital turnover card */
+.capital-formula{
+  border-inline-start:4px solid #d6aa38!important;
+  border:1px solid rgba(214,170,56,.34)!important;
+  background:linear-gradient(145deg,#07111f,#0d1b2d)!important;
+  color:#dbe5f3!important;
+  border-radius:16px!important;
+  box-shadow:0 10px 26px rgba(0,0,0,.18)!important;
+}
+.capital-formula h3{color:#f0c95d!important;margin-top:0!important}
+.capital-formula p{color:#cbd5e1!important}
+.capital-formula p strong{color:#f8fafc!important}
+.capital-formula p:last-child strong{color:#4ade80!important;font-size:1.08em!important}
+@media(max-width:700px){
+  .capital-formula{padding:16px!important;overflow:hidden!important}
+  .capital-formula h3{font-size:1.35rem!important;line-height:1.5!important}
+  .capital-formula p{font-size:.98rem!important;line-height:1.8!important;overflow-wrap:anywhere!important}
+  .capital-formula p:last-child{color:#aeb8c8!important}
+  .capital-formula p:last-child strong{display:inline!important;color:#4ade80!important;font-size:1.12rem!important}
+}

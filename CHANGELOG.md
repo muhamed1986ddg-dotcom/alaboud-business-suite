@@ -1,3 +1,9 @@
+# v25.14.12 — Dark Capital Turnover Card
+
+- Replaced the bright white capital turnover panel with the app dark navy theme.
+- Gold heading, light readable explanatory text, and green highlighted turnover value.
+- Improved mobile readability without changing financial calculations.
+
 # v25.14.11 — Capital Transfer-Style Mobile Cards
 
 - Rebuilt mobile capital history using the same card pattern as the transfers page.
