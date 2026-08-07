@@ -60,6 +60,7 @@ class PostgresStateAdapter {
     this.mirrorPendingSnapshot = null;
     this.mirrorPromise = Promise.resolve();
     this.mirrorRunning = false;
+    this.mirrorScheduleTimer = null;
     this.lastMirrorError = null;
     this.poolGeneration = 0;
     this.poolResetPromise = null;
@@ -77,7 +78,11 @@ class PostgresStateAdapter {
       connectionString: this.connectionString,
       ssl: this.connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
       max: Math.max(1, Number(process.env.PG_POOL_MAX || 5)),
-      idleTimeoutMillis: Math.max(1000, Number(process.env.PG_IDLE_TIMEOUT_MS || 30000)),
+      min: Math.max(0, Number(process.env.PG_POOL_MIN || 1)),
+      // Keep one warm PostgreSQL connection during an active session. The old
+      // 30s idle eviction frequently forced a new TLS/database handshake just
+      // before an add/edit/delete operation.
+      idleTimeoutMillis: Math.max(1000, Number(process.env.PG_IDLE_TIMEOUT_MS || 900000)),
       connectionTimeoutMillis: Math.max(1000, Number(process.env.PG_CONNECT_TIMEOUT_MS || 10000)),
       keepAlive: true,
       keepAliveInitialDelayMillis: 10000
@@ -238,37 +243,41 @@ class PostgresStateAdapter {
   queueRelationalMirror(snapshot, { immutableSnapshot = false } = {}) {
     if (!this.relationalMirrorEnabled) return;
     // The JSONB app_state row is the durable source of truth. Relational tables
-    // are a reporting/search mirror, so they must not delay interactive saves.
-    // Durable mutations now pass a private immutable draft, so reusing that
-    // reference removes another synchronous whole-store clone after COMMIT.
+    // are only a reporting/search mirror. Coalesce bursts of interactive writes
+    // so add/edit/delete operations do not immediately compete with a full mirror
+    // projection for PostgreSQL connections and CPU.
     this.mirrorPendingSnapshot = immutableSnapshot ? snapshot : structuredClone(snapshot);
-    if (this.mirrorRunning) return;
-    this.mirrorRunning = true;
-    this.mirrorPromise = (async () => {
-      while (this.mirrorPendingSnapshot) {
-        const next = this.mirrorPendingSnapshot;
-        this.mirrorPendingSnapshot = null;
-        let client;
-        let detach = () => {};
-        try {
-          client = await this.pool.connect();
-          detach = this.attachClientErrorGuard(client, "mirror-client");
-          await client.query("BEGIN");
-          await this.projector.project(client, next);
-          await client.query("COMMIT");
-          this.lastMirrorError = null;
-        } catch (error) {
-          this.lastMirrorError = error;
-          if (client) { try { await client.query("ROLLBACK"); } catch {} }
-          this.logger.warn(`Relational mirror deferred: ${error?.code || error?.message || error}`);
-          // Do not retry in a tight loop. The next successful app mutation will
-          // enqueue the newest complete snapshot and repair the mirror.
-        } finally {
-          try { detach(); } catch {}
-          if (client) { try { client.release(Boolean(this.lastMirrorError)); } catch {} }
+    if (this.mirrorRunning || this.mirrorScheduleTimer) return;
+    const delayMs = Math.max(0, Number(process.env.RELATIONAL_MIRROR_DELAY_MS || 1500));
+    this.mirrorScheduleTimer = setTimeout(() => {
+      this.mirrorScheduleTimer = null;
+      if (this.mirrorRunning || !this.mirrorPendingSnapshot) return;
+      this.mirrorRunning = true;
+      this.mirrorPromise = (async () => {
+        while (this.mirrorPendingSnapshot) {
+          const next = this.mirrorPendingSnapshot;
+          this.mirrorPendingSnapshot = null;
+          let client;
+          let detach = () => {};
+          try {
+            client = await this.pool.connect();
+            detach = this.attachClientErrorGuard(client, "mirror-client");
+            await client.query("BEGIN");
+            await this.projector.project(client, next);
+            await client.query("COMMIT");
+            this.lastMirrorError = null;
+          } catch (error) {
+            this.lastMirrorError = error;
+            if (client) { try { await client.query("ROLLBACK"); } catch {} }
+            this.logger.warn(`Relational mirror deferred: ${error?.code || error?.message || error}`);
+          } finally {
+            try { detach(); } catch {}
+            if (client) { try { client.release(Boolean(this.lastMirrorError)); } catch {} }
+          }
         }
-      }
-    })().finally(() => { this.mirrorRunning = false; });
+      })().finally(() => { this.mirrorRunning = false; });
+    }, delayMs);
+    this.mirrorScheduleTimer.unref?.();
   }
 
   async save(snapshot, options = {}) {
@@ -276,10 +285,10 @@ class PostgresStateAdapter {
     // The advisory transaction lock serializes writers across multiple Node
     // instances, while SELECT ... FOR UPDATE protects the state row itself.
     const interactive = options.interactive !== false;
-    const attempts = Math.max(1, Number(interactive ? (process.env.PG_INTERACTIVE_WRITE_RETRIES || 4) : (process.env.PG_WRITE_RETRIES || 6)));
+    const attempts = Math.max(1, Number(interactive ? (process.env.PG_INTERACTIVE_WRITE_RETRIES || 2) : (process.env.PG_WRITE_RETRIES || 6)));
     const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 250));
     const maxMs = Math.max(baseMs, Number(process.env.PG_WRITE_RETRY_MAX_MS || (interactive ? 2500 : 4000)));
-    const retryBudgetMs = Math.max(1000, Number(interactive ? (process.env.PG_INTERACTIVE_WRITE_BUDGET_MS || 12000) : (process.env.PG_WRITE_RETRY_BUDGET_MS || 15000)));
+    const retryBudgetMs = Math.max(1000, Number(interactive ? (process.env.PG_INTERACTIVE_WRITE_BUDGET_MS || 7000) : (process.env.PG_WRITE_RETRY_BUDGET_MS || 15000)));
     const startedAt = Date.now();
     const payload = JSON.stringify(snapshot);
     let lastError;
@@ -292,42 +301,64 @@ class PostgresStateAdapter {
         client = await this.pool.connect();
         detach = this.attachClientErrorGuard(client, "durable-write-client");
         await client.query("BEGIN");
-        await client.query("SELECT pg_advisory_xact_lock(hashtext('alaboud:app_state:main'))");
-        await client.query("SELECT revision FROM app_state WHERE state_key='main' FOR UPDATE");
-        const result = await client.query(
-          `INSERT INTO app_state (state_key,payload,revision,updated_at)
-           VALUES ('main',$1::jsonb,1,NOW())
-           ON CONFLICT (state_key)
-           DO UPDATE SET payload=EXCLUDED.payload,
-                         revision=app_state.revision+1,
-                         updated_at=NOW()
-           RETURNING revision`,
-          [payload]
-        );
+        // Keep the financial write fully durable, but collapse the advisory
+        // lock + app_state upsert + idempotency receipt into ONE PostgreSQL
+        // round trip. Previously these were three separate queries between
+        // BEGIN/COMMIT, which was noticeable on Render's network latency.
         const operationReceipt = options.operationReceipt;
+        let responseJson = "null";
         if (operationReceipt?.key) {
-          let responseJson = "null";
           try { responseJson = JSON.stringify(operationReceipt.result ?? null); } catch {}
-          await client.query(
-            `INSERT INTO operation_receipts
-               (operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at)
-             VALUES ($1,$2,$3,$4,$5,'COMMITTED',$6::jsonb,$7,NOW())
-             ON CONFLICT (operation_key)
-             DO UPDATE SET status='COMMITTED',
-                           response_body=EXCLUDED.response_body,
-                           app_revision=EXCLUDED.app_revision,
-                           committed_at=NOW()`,
-            [
-              String(operationReceipt.key),
-              String(operationReceipt.method || "POST"),
-              String(operationReceipt.path || "/"),
-              operationReceipt.companyId ? String(operationReceipt.companyId) : null,
-              operationReceipt.branchId ? String(operationReceipt.branchId) : null,
-              responseJson,
-              Number(result.rows?.[0]?.revision || 0)
-            ]
-          );
         }
+        const result = operationReceipt?.key
+          ? await client.query(
+              `WITH lock_row AS (
+                 SELECT pg_advisory_xact_lock(hashtext('alaboud:app_state:main')) AS locked
+               ), saved AS (
+                 INSERT INTO app_state (state_key,payload,revision,updated_at)
+                 SELECT 'main',$1::jsonb,1,NOW() FROM lock_row
+                 ON CONFLICT (state_key)
+                 DO UPDATE SET payload=EXCLUDED.payload,
+                               revision=app_state.revision+1,
+                               updated_at=NOW()
+                 RETURNING revision
+               ), receipt AS (
+                 INSERT INTO operation_receipts
+                   (operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at)
+                 SELECT $2,$3,$4,$5,$6,'COMMITTED',$7::jsonb,revision,NOW() FROM saved
+                 ON CONFLICT (operation_key)
+                 DO UPDATE SET status='COMMITTED',
+                               response_body=EXCLUDED.response_body,
+                               app_revision=EXCLUDED.app_revision,
+                               committed_at=NOW()
+                 RETURNING operation_key
+               )
+               SELECT revision FROM saved`,
+              [
+                payload,
+                String(operationReceipt.key),
+                String(operationReceipt.method || "POST"),
+                String(operationReceipt.path || "/"),
+                operationReceipt.companyId ? String(operationReceipt.companyId) : null,
+                operationReceipt.branchId ? String(operationReceipt.branchId) : null,
+                responseJson
+              ]
+            )
+          : await client.query(
+              `WITH lock_row AS (
+                 SELECT pg_advisory_xact_lock(hashtext('alaboud:app_state:main')) AS locked
+               ), saved AS (
+                 INSERT INTO app_state (state_key,payload,revision,updated_at)
+                 SELECT 'main',$1::jsonb,1,NOW() FROM lock_row
+                 ON CONFLICT (state_key)
+                 DO UPDATE SET payload=EXCLUDED.payload,
+                               revision=app_state.revision+1,
+                               updated_at=NOW()
+                 RETURNING revision
+               )
+               SELECT revision FROM saved`,
+              [payload]
+            );
         await client.query("COMMIT");
         this.lastCommittedRevision = Number(result.rows?.[0]?.revision || 0);
         this.connectionState = "connected";
@@ -354,7 +385,7 @@ class PostgresStateAdapter {
           }
           throw error;
         }
-        await this.recoverConnection(`write:${error.code || error.message}`, { budgetMs: Number(process.env.PG_WRITE_RECOVERY_BUDGET_MS || 75000) });
+        await this.recoverConnection(`write:${error.code || error.message}`, { budgetMs: Number(process.env.PG_WRITE_RECOVERY_BUDGET_MS || 4500) });
         const delay = retryDelay(attempt, baseMs, maxMs);
         this.logger.warn(`PostgreSQL write unavailable; retrying (${attempt}/${attempts}) in ${delay}ms. ${error.code || error.message}`);
         await wait(delay);
@@ -391,6 +422,7 @@ class PostgresStateAdapter {
   }
 
   async close() {
+    if (this.mirrorScheduleTimer) { clearTimeout(this.mirrorScheduleTimer); this.mirrorScheduleTimer = null; }
     const pool = this.pool;
     this.pool = null;
     if (pool) await pool.end();

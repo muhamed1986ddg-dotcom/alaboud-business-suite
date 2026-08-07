@@ -13,6 +13,7 @@ assert.match(adapter,/recoveryPromise/);
 assert.match(server,/isTransientDatabaseError\(err\)/);
 assert.doesNotMatch(server,/error:serviceStartupError\?\.message/);
 assert.match(api,/safeBackendMessage/);
-assert.match(api,/95000/);
+assert.match(api,/25000/);
+assert.doesNotMatch(api,/95000/);
 assert.match(status,/publicDatabaseStatusMessage/);
 console.log("Database recovery guard tests passed");

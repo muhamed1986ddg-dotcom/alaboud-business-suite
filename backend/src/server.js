@@ -381,11 +381,15 @@ function issueSession(user,company,context={}){
 }
 
 
+const nativeInteractiveReadsEnabled = String(process.env.NATIVE_INTERACTIVE_READS || "false").toLowerCase() === "true";
 function branchSafeRead(req,key,nativeRead,fallbackRead){
-  // The legacy relational schema is company-scoped. Until branch_id columns are
-  // projected in a later migration, branch requests must use the tenant proxy
-  // to guarantee that records from another branch are never returned.
-  if(req?.branch?.id)return Promise.resolve(fallbackRead());
+  // app_state + the in-memory tenant view are the authoritative interactive
+  // state on the single-instance deployment. Reading the relational mirror for
+  // every screen added a PostgreSQL round-trip after each add/edit/delete and
+  // made the UI wait for a mirror that is intentionally asynchronous. Prefer
+  // the already-committed in-memory state for interactive reads. Native reads
+  // remain opt-in for installations that explicitly need them.
+  if(req?.branch?.id || !nativeInteractiveReadsEnabled)return Promise.resolve(fallbackRead());
   return nativeRepositories.withFallback(key,nativeRead,fallbackRead);
 }
 

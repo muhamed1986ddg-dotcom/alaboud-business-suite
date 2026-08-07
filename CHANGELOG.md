@@ -1,3 +1,19 @@
+# v25.14.14 — Low-Latency Durable Operations
+
+- Reduced PostgreSQL round trips for durable add/edit/delete operations by combining the advisory lock, app-state upsert, and idempotency receipt in one SQL statement.
+- Preserved synchronous COMMIT confirmation and persistent idempotency.
+- Bounded interactive PostgreSQL recovery so a temporary outage no longer leaves operation buttons waiting for up to a minute.
+- Frontend begins ambiguous-commit verification after 25 seconds instead of waiting 95 seconds.
+- Relational mirror remains asynchronous and does not block interactive saves.
+
+# v25.14.14 — Fast Interactive Operations
+
+- Interactive list/detail reads now prefer the already-committed in-memory tenant state instead of waiting for the asynchronous relational mirror. Set `NATIVE_INTERACTIVE_READS=true` only when native mirror reads are explicitly required.
+- PostgreSQL pool keeps one warm connection by default (`PG_POOL_MIN=1`) and extends idle retention to 15 minutes to avoid repeated TLS/database handshakes before writes.
+- Relational mirror projections are coalesced for 1.5 seconds (`RELATIONAL_MIRROR_DELAY_MS`) so bursts of add/edit/delete operations do not compete with a full mirror projection.
+- Fixed duplicate connection-failure counter increment.
+- Financial writes remain synchronous and are only acknowledged after PostgreSQL COMMIT; idempotency and commit confirmation remain unchanged.
+
 # v25.14.13 — Fast Durable Operations
 
 - سرّع مسار الإضافة والتعديل والحذف مع الحفاظ على تأكيد PostgreSQL قبل إظهار النجاح.

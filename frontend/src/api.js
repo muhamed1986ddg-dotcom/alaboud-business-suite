@@ -44,13 +44,12 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.14.4";
-  // PostgreSQL recovery retries can legitimately take longer than the normal
-  // navigation timeout. Keep write requests open until the backend confirms
-  // whether the durable save succeeded, otherwise Axios can report a false
-  // failure while the server continues retrying and eventually commits it.
+  config.headers["X-Alaboud-Client-Version"]="25.14.14";
+  // Durable writes have a bounded interactive recovery budget. If PostgreSQL
+  // is temporarily unavailable, start commit verification promptly instead of
+  // leaving add/edit/delete buttons spinning for more than a minute.
   const method=String(config.method||"get").toLowerCase();
-  config.timeout=method==="get"?45000:95000;
+  config.timeout=method==="get"?45000:25000;
   if(method!=="get"&&!config.headers["Idempotency-Key"]){
     config.headers["Idempotency-Key"]=(crypto?.randomUUID?.()||`op-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   }
