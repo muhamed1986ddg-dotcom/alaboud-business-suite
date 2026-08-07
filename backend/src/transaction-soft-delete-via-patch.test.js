@@ -1,0 +1,13 @@
+const fs=require("fs"),path=require("path"),assert=require("assert");
+const root=path.join(__dirname,"../..");
+const server=fs.readFileSync(path.join(__dirname,"server.js"),"utf8");
+const tx=fs.readFileSync(path.join(root,"frontend/src/screens/Transactions.jsx"),"utf8");
+const detail=fs.readFileSync(path.join(root,"frontend/src/screens/CustomerDetails.jsx"),"utf8");
+assert(server.includes('if(req.body?._softDelete===true)'));
+assert(server.includes('transport:"PATCH"'));
+assert(server.includes('markSoftDeleted(transaction'));
+assert(tx.includes('api.patch(`/transactions/${transaction.id}`,{_softDelete:true'));
+assert(detail.includes('api.patch(`/transactions/${transactionId}`,{_softDelete:true'));
+assert(!tx.includes('api.delete(`/transactions/${transaction.id}`'));
+assert(!detail.includes('api.delete(`/transactions/${transactionId}`'));
+console.log("transaction soft-delete via PATCH regression: OK");

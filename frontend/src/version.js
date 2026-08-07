@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.25 PostgreSQL Pool Leak Fix";
+export const APP_VERSION="v25.14.26 Reliable Soft Delete";

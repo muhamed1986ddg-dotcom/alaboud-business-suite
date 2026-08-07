@@ -87,7 +87,7 @@ export function Transactions({openInvoice}){
     if(!confirmed)return;
     setError("");
     try{
-      await api.delete(`/transactions/${transaction.id}`);
+      await api.patch(`/transactions/${transaction.id}`,{_softDelete:true,reason:"حذف الحوالة"});
       clearApiGetCache();
       setList(current=>current.filter(item=>item.id!==transaction.id));
       void load();

@@ -303,7 +303,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
   async function deleteTransaction(transactionId){
     if(!await confirmAction({title:"تأكيد حذف الحوالة",message:"هل أنت متأكد من حذف الحوالة؟ سيتم حذف دفعاتها منطقيًا.",confirmText:"حذف الحوالة"}))return;
     try{
-      await api.delete(`/transactions/${transactionId}`);
+      await api.patch(`/transactions/${transactionId}`,{_softDelete:true,reason:"حذف الحوالة"});
       clearApiGetCache();
       setData(current=>current?{...current,transactions:current.transactions.filter(item=>item.id!==transactionId)}:current);
       void load();

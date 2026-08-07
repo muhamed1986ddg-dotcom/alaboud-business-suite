@@ -2214,6 +2214,29 @@ app.post("/api/transactions/:id/payments", auth, async (req,res)=>{
 
 app.patch("/api/transactions/:id", auth, async (req,res)=>{
   try{
+    // Soft-delete uses PATCH intentionally. In production the normal PATCH
+    // durable-write path is stable, while some proxies/connections were
+    // repeatedly aborting HTTP DELETE requests. Since deletion is logical
+    // (isDeleted=true), PATCH is also the correct state-transition semantics.
+    if(req.body?._softDelete===true){
+      const deleted=await mutateDurable((state)=>{
+        const transaction=state.transactions.find(item=>item.id===req.params.id&&!item.isDeleted);
+        if(!transaction)return null;
+        const deletedAt=now();
+        const reason=String(req.body?.reason||"حذف الحوالة");
+        markSoftDeleted(transaction,{userId:req.user.id,reason,at:deletedAt});
+        for(const payment of state.payments||[]){
+          if(payment.transactionId===transaction.id&&!payment.isDeleted){
+            markSoftDeleted(payment,{userId:req.user.id,reason:"حذف تابع لحوالة محذوفة",at:deletedAt});
+          }
+        }
+        audit(state,req.user.id,"DELETE","TRANSACTION",transaction.id,{softDelete:true,transport:"PATCH"});
+        return {id:transaction.id,number:transaction.number};
+      });
+      if(!deleted)return res.status(404).json({message:"الحوالة غير موجودة أو محذوفة مسبقًا"});
+      return res.json({success:true,id:deleted.id,message:"تم حذف الحوالة بنجاح",committed:true});
+    }
+
     const updated=await mutateDurable((s)=>{
       const transaction=s.transactions.find(item=>item.id===req.params.id&&!item.isDeleted);
       if(!transaction)return null;
