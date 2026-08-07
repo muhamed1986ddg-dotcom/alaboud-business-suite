@@ -1,0 +1,11 @@
+import fs from "node:fs";
+import assert from "node:assert/strict";
+const src=fs.readFileSync(new URL("../src/screens/CapitalOverview.jsx", import.meta.url),"utf8");
+const css=fs.readFileSync(new URL("../src/styles.css", import.meta.url),"utf8");
+assert.match(src,/className="capital-history-table"/);
+for (const label of ["التاريخ","النوع","المبلغ الأصلي","العملة","سعر التحويل","القيمة CAD","الوصف","الإجراءات"]) assert.match(src,new RegExp(`data-label="${label}"`));
+assert.match(css,/\.capital-history-table thead\{display:none!important\}/);
+assert.match(css,/\.capital-history-table tbody tr\{display:block!important/);
+assert.match(css,/\.capital-history-table tbody td::before\{content:attr\(data-label\)/);
+assert.match(css,/\.capital-history-table tbody td\.actions\{display:grid!important/);
+console.log("capital mobile history v25.14.10 checks passed");

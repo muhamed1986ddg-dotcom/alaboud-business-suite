@@ -6622,3 +6622,29 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 .capital-grand-total-card strong{font-size:1.45rem;color:#fff}
 .capital-grand-total-card small{width:100%;color:#aeb8c8}
 @media(max-width:650px){.capital-history-tools{flex-direction:column;align-items:stretch}.capital-total-button{width:100%}.capital-grand-total-card{align-items:flex-start;flex-direction:column}.capital-grand-total-card strong{font-size:1.3rem}}
+
+/* v25.14.10 — mobile capital history cards + additions total */
+@media(max-width:700px){
+  .capital-movements-table{min-width:0!important;width:100%!important;max-width:100%!important;overflow-x:hidden!important;padding-bottom:96px}
+  .capital-movements-table .capital-table-toolbar{display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:12px!important;min-width:0!important}
+  .capital-movements-table .capital-table-toolbar>div,.capital-movements-table .capital-history-tools,.capital-movements-table .capital-table-filters{width:100%!important;min-width:0!important;max-width:100%!important}
+  .capital-movements-table .capital-table-filters{display:grid!important;grid-template-columns:1fr!important;gap:10px!important}
+  .capital-movements-table .capital-table-filters input,.capital-movements-table .capital-table-filters select{width:100%!important;min-width:0!important;box-sizing:border-box!important}
+  .capital-history-table{width:100%!important;max-width:100%!important;overflow:visible!important;border:0!important}
+  .capital-history-table .app-table{display:block!important;width:100%!important;min-width:0!important;max-width:100%!important;border:0!important;background:transparent!important}
+  .capital-history-table thead{display:none!important}
+  .capital-history-table tbody{display:grid!important;grid-template-columns:1fr!important;gap:14px!important;width:100%!important}
+  .capital-history-table tbody tr{display:block!important;width:100%!important;min-width:0!important;max-width:100%!important;overflow:hidden!important;border:1px solid rgba(205,164,75,.38)!important;border-radius:18px!important;background:#101010!important;box-shadow:0 8px 24px rgba(0,0,0,.18)!important}
+  .capital-history-table tbody td{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:14px!important;width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;padding:13px 15px!important;border:0!important;border-bottom:1px solid rgba(255,255,255,.08)!important;text-align:left!important;white-space:normal!important;overflow-wrap:anywhere!important;direction:ltr!important}
+  .capital-history-table tbody td::before{content:attr(data-label);flex:0 0 42%;max-width:42%;color:#dcb84e;font-weight:800;text-align:right;direction:rtl}
+  .capital-history-table tbody td>*{min-width:0;max-width:58%}
+  .capital-history-table tbody td:last-child{border-bottom:0!important}
+  .capital-history-table tbody td.actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:10px!important;padding:14px!important}
+  .capital-history-table tbody td.actions::before{grid-column:1/-1;max-width:none;text-align:right}
+  .capital-history-table tbody td.actions button{width:100%!important;max-width:none!important;margin:0!important}
+  .capital-history-table .capital-history-empty{display:block!important;text-align:center!important;padding:24px!important;direction:rtl!important}
+  .capital-history-table .capital-history-empty::before{display:none!important}
+  .capital-total-button{width:100%!important;min-height:48px!important;font-size:1rem!important}
+  .capital-grand-total-card{width:100%!important;box-sizing:border-box!important;margin:0 0 14px!important;align-items:stretch!important}
+  .capital-grand-total-card strong{font-size:1.35rem!important;direction:ltr!important;text-align:right!important}
+}
