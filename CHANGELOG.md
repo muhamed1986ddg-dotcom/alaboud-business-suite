@@ -1,3 +1,11 @@
+# v25.14.8 — Simple Monthly Inventory
+
+- تبسيط الجرد الشهري ليعتمد على **صافي رأس المال** بنفس معادلة صفحة الميزانية.
+- الكاش الموجود في الخزنة يُدخل يدويًا فقط.
+- قيمة الجرد النهائية = صافي رأس المال + كاش الخزنة.
+- تثبيت لقطة الجرد الشهرية والأرشيف والتنبيه في اليوم المحدد بقيت كما هي.
+- تبسيط أرشيف الجرد ليعرض صافي رأس المال، كاش الخزنة، والقيمة النهائية.
+
 # v25.14.7 — Inventory Debt & Profit Integrity
 
 - Fixed monthly inventory "debts payable" so it includes local company payables, external partner payables, and remaining manual payable debts using the same source semantics as the debt page.

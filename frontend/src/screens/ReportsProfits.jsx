@@ -163,15 +163,10 @@ function ReportsProfits(){
 
       {inventoryBusy&&!inventory?<AppLoader label="جاري تحميل الجرد..."/>:inventory&&<>
         <AppCard title={`جرد ${inventory.alert?.month||new Date().toISOString().slice(0,7)}`}>
-          <div className="inventory-breakdown">
-            <div><span>إجمالي النقد</span><strong>{money(inventory.current?.totalCash)}</strong></div>
-            <div><span>+ أرصدة الشركات</span><strong>{money(inventory.current?.companyBalances)}</strong></div>
-            <div><span>+ ديون العملاء لنا</span><strong>{money(inventory.current?.customerReceivable)}</strong></div>
-            <div><span>+ ديون الشركات لنا</span><strong>{money(inventory.current?.companyReceivable)}</strong></div>
-            <div className="inventory-payable-row"><span>- الديون علينا</span><strong>{money(inventory.current?.debtsPayable)}</strong><small>محلي {money(inventory.current?.payableBreakdown?.companyLocal)} · خارجي {money(inventory.current?.payableBreakdown?.companyExternal)} · عام {money(inventory.current?.payableBreakdown?.manual)}</small></div>
-            <div className="inventory-profit-info"><span>صافي أرباح الشهر (للمراجعة)</span><strong>{money(inventory.current?.monthlyProfit)}</strong></div>
-            <div className="inventory-vault-input"><span>+ الكاش في الخزنة</span><AppInput type="number" min="0" step="0.01" value={vaultCash} onChange={event=>setVaultCash(event.target.value)} placeholder="أدخل قيمة الكاش يدويًا"/></div>
-            <div className="inventory-final"><span>= قيمة الجرد النهائية</span><strong>{money(Number(inventory.current?.finalValue||0)+Number(vaultCash||0))}</strong></div>
+          <div className="inventory-breakdown inventory-breakdown--simple">
+            <div className="inventory-net-capital"><span>💎 صافي رأس المال من صفحة الميزانية</span><strong>{money(inventory.current?.netCapital)} CAD</strong></div>
+            <div className="inventory-vault-input"><span>+ الكاش الموجود في الخزنة</span><AppInput type="number" min="0" step="0.01" value={vaultCash} onChange={event=>setVaultCash(event.target.value)} placeholder="أدخل قيمة الكاش يدويًا"/></div>
+            <div className="inventory-final"><span>= قيمة الجرد النهائية</span><strong>{money(Number(inventory.current?.netCapital||0)+Number(vaultCash||0))} CAD</strong></div>
           </div>
           <div className="inventory-notes"><AppInput label="ملاحظات الجرد (اختياري)" value={inventoryNotes} onChange={event=>setInventoryNotes(event.target.value)} placeholder="أي ملاحظة على الكاش أو الجرد"/></div>
           {inventory.current?.missingRates?.length>0&&<p className="customer-error">ينقص سعر تحويل: {inventory.current.missingRates.join("، ")}</p>}
@@ -187,9 +182,7 @@ function ReportsProfits(){
               return <article className="transaction-mobile-card inventory-history-card" key={row.id||row.month}>
                 <header className="transaction-mobile-card__head"><div><strong>{row.month}</strong><small>{row.inventoryDate||row.fixedAt?.slice?.(0,10)||""}</small></div><b>{money(row.finalValue)}</b></header>
                 <div className="transaction-mobile-card__grid">
-                  <div><span>إجمالي النقد</span><strong>{money(row.totalCash)}</strong></div><div><span>أرصدة الشركات</span><strong>{money(row.companyBalances)}</strong></div>
-                  <div><span>ديون العملاء لنا</span><strong>{money(row.customerReceivable)}</strong></div><div><span>ديون الشركات لنا</span><strong>{money(row.companyReceivable)}</strong></div>
-                  <div><span>الديون علينا</span><strong>{money(row.debtsPayable)}</strong></div><div><span>صافي أرباح الشهر</span><strong>{money(row.monthlyProfit)}</strong></div><div><span>الكاش في الخزنة</span><strong>{money(row.vaultCash)}</strong></div>
+                  <div><span>صافي رأس المال</span><strong>{money(row.netCapital ?? (Number(row.finalValue||0)-Number(row.vaultCash||0)))}</strong></div><div><span>الكاش في الخزنة</span><strong>{money(row.vaultCash)}</strong></div>
                   {diff!==null&&<div className="transaction-mobile-card__total"><span>الفرق عن الشهر السابق</span><strong className={diff<0?"value-negative":"value-positive"}>{diff>=0?"+":""}{money(diff)}</strong></div>}
                 </div>
                 {row.notes&&<p className="inventory-row-notes">{row.notes}</p>}

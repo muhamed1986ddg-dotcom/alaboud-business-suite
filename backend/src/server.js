@@ -1423,7 +1423,28 @@ function inventoryLocalDate(settings={}){
   }
 }
 
-function monthlyInventoryDraft(store,{vaultCash=0}={}){
+function calculateInventoryNetCapital(store){
+  // IMPORTANT: this mirrors the authoritative "صافي رأس المال" equation used by
+  // /api/capital-overview. Monthly inventory must snapshot that KPI, not rebuild
+  // a second inventory-specific balance equation.
+  const transactions=(Array.isArray(store.transactions)?store.transactions:[])
+    .filter(item=>item&&!item.isDeleted&&item.status!=="CANCELLED");
+  const capitalMovements=Array.isArray(store.capitalMovements)?store.capitalMovements:[];
+  const expenses=Array.isArray(store.expenses)?store.expenses:[];
+  const customers=Array.isArray(store.customers)?store.customers:[];
+  const debts=Array.isArray(store.generalDebts)?store.generalDebts:[];
+  const debtPayments=Array.isArray(store.generalDebtPayments)?store.generalDebtPayments:[];
+
+  const capitalBalance=capitalMovements.reduce(
+    (sum,item)=>sum+(item.type==="IN"?capitalCadAmount(store,item):-capitalCadAmount(store,item)),0
+  );
+  const customerReceivable=customers.reduce(
+    (sum,customer)=>sum+safeNumber(customerSummary(store,customer).finalBalance),0
+  );
+  const debtPaidById=new Map();
+  for(const payment of debtPayments){
+    debtPaidById.set(payment.debtId,safeNumber(debtPaidById.get(payment.debtId))+safeNumber(payment.amount));
+  }
   const missingRates=new Set();
   const toCad=(amount,currency="CAD")=>{
     const normalized=String(currency||"CAD").toUpperCase();
@@ -1432,66 +1453,73 @@ function monthlyInventoryDraft(store,{vaultCash=0}={}){
     if(!conversion){missingRates.add(normalized);return 0;}
     return safeNumber(amount)*conversion.factor;
   };
+  let generalPayable=0;
+  for(const debt of debts){
+    const remaining=Math.max(safeNumber(debt.amount)-safeNumber(debtPaidById.get(debt.id)),0);
+    if(debt.type==="PAYABLE")generalPayable+=toCad(remaining,debt.currency||"CAD");
+  }
 
-  const totalCash=(Array.isArray(store.capitalMovements)?store.capitalMovements:[])
-    .filter(item=>item&&!item.isDeleted)
-    .reduce((sum,item)=>sum+(item.type==="IN"?capitalCadAmount(store,item):-capitalCadAmount(store,item)),0);
-
-  const customerReceivable=FinancialEngine.customerDebtSummary(store).totalDebtCad;
+  let partnerReceivable=0;
+  let partnerPayable=0;
   const partners=Array.isArray(store.partners)?store.partners:[];
-  const partnerTransactions=(Array.isArray(store.partnerTransactions)?store.partnerTransactions:[]).filter(item=>item&&!item.isDeleted);
-  const partnerPayments=(Array.isArray(store.partnerPayments)?store.partnerPayments:[]).filter(item=>item&&!item.isDeleted);
-  let companyReceivable=0;
-  let companyPayable=0;
-  let companyBalances=0;
-
+  const partnerTransactions=Array.isArray(store.partnerTransactions)?store.partnerTransactions:[];
+  const partnerPayments=Array.isArray(store.partnerPayments)?store.partnerPayments:[];
   for(const partner of partners){
     const txs=partnerTransactions.filter(item=>item.partnerId===partner.id);
     const pays=partnerPayments.filter(item=>item.partnerId===partner.id);
-    const currencies=new Set([...txs.map(item=>String(item.currency||"CAD").toUpperCase()),...pays.map(item=>String(item.currency||"CAD").toUpperCase())]);
+    const currencies=new Set([
+      ...txs.map(item=>String(item.currency||"CAD").toUpperCase()),
+      ...pays.map(item=>String(item.currency||"CAD").toUpperCase())
+    ]);
     for(const currency of currencies){
       const receivable=txs.filter(item=>item.type==="RECEIVABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
       const payable=txs.filter(item=>item.type==="PAYABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
       const received=pays.filter(item=>item.direction==="RECEIVED"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
       const paid=pays.filter(item=>item.direction==="PAID"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-      companyReceivable+=toCad(Math.max(receivable-received,0),currency);
-      companyPayable+=toCad(Math.max(payable-paid,0),currency);
+      partnerReceivable+=toCad(Math.max(receivable-received,0),currency);
+      partnerPayable+=toCad(Math.max(payable-paid,0),currency);
     }
-
     const multi=partner.externalBalances&&typeof partner.externalBalances==="object"?partner.externalBalances:null;
     const entries=multi?Object.entries(multi).filter(([currency,value])=>currency&&value&&typeof value==="object"):[];
     if(entries.length){
       for(const [currency,value] of entries){
-        const net=safeNumber(value.balance??(safeNumber(value.receivable)-safeNumber(value.payable)));
-        companyBalances+=toCad(net,currency);
+        partnerReceivable+=toCad(Math.max(safeNumber(value.receivable),0),currency);
+        partnerPayable+=toCad(Math.max(safeNumber(value.payable),0),currency);
       }
     }else{
       const currency=String(partner.accountCurrency||"USD").toUpperCase();
-      const explicit=Number(partner.externalBalance);
-      const net=Number.isFinite(explicit)?explicit:(safeNumber(partner.externalReceivable)-safeNumber(partner.externalPayable));
-      companyBalances+=toCad(net,currency);
+      const extReceivable=Math.max(safeNumber(partner.externalReceivable),0);
+      const extPayable=Math.max(safeNumber(partner.externalPayable),0);
+      if(extReceivable>0.001||extPayable>0.001){
+        partnerReceivable+=toCad(extReceivable,currency);
+        partnerPayable+=toCad(extPayable,currency);
+      }else{
+        const balance=safeNumber(partner.externalBalance);
+        if(balance>0.001)partnerReceivable+=toCad(balance,currency);
+        if(balance<-0.001)partnerPayable+=toCad(Math.abs(balance),currency);
+      }
     }
   }
 
-  const payableTotals=calculateInventoryPayables(store,{toCad});
-  const debtsPayable=payableTotals.total;
+  const accumulatedProfit=transactions.reduce((sum,item)=>sum+transactionFinancials(item).totalProfit,0);
+  const accumulatedExpenses=expenses.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
+  const totalReceivables=customerReceivable+partnerReceivable;
+  const totalPayables=generalPayable+partnerPayable;
+  const totalMoney=capitalBalance+accumulatedProfit+totalReceivables;
+  const totalLiabilities=accumulatedExpenses+totalPayables;
+  return {netCapital:totalMoney-totalLiabilities,missingRates:[...missingRates]};
+}
 
-  // Profit is stored with the inventory snapshot for reconciliation only.  It is
-  // deliberately not added to finalValue because doing so would double-count
-  // value already reflected in cash/receivables.
-  const local=inventoryLocalDate(store.notificationSettings||{});
-  const inventoryMonth=`${local.year}-${String(local.month).padStart(2,"0")}`;
-  const profitSummary=calculateInventoryMonthProfit(store,{month:inventoryMonth,transactionFinancials});
-
+function monthlyInventoryDraft(store,{vaultCash=0}={}){
+  const capital=calculateInventoryNetCapital(store);
   const normalizedVault=Math.max(0,safeNumber(vaultCash));
-  const finalValue=totalCash+companyBalances+customerReceivable+companyReceivable-debtsPayable+normalizedVault;
   const round=value=>+safeNumber(value).toFixed(2);
   return {
-    currency:"CAD",totalCash:round(totalCash),companyBalances:round(companyBalances),customerReceivable:round(customerReceivable),
-    companyReceivable:round(companyReceivable),debtsPayable:round(debtsPayable),
-    payableBreakdown:{companyLocal:round(payableTotals.companyLocal),companyExternal:round(payableTotals.companyExternal),manual:round(payableTotals.manual)},
-    monthlyProfit:round(profitSummary.netProfit),grossProfit:round(profitSummary.grossProfit),monthlyExpenses:round(profitSummary.expenses),
-    vaultCash:round(normalizedVault),finalValue:round(finalValue),missingRates:[...missingRates]
+    currency:"CAD",
+    netCapital:round(capital.netCapital),
+    vaultCash:round(normalizedVault),
+    finalValue:round(capital.netCapital+normalizedVault),
+    missingRates:capital.missingRates
   };
 }
 
