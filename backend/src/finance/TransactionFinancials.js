@@ -1,74 +1,120 @@
 "use strict";
 
-function safeNumber(value, fallback = 0) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : fallback;
+const {
+  money,
+  rate,
+  moneyToNumber,
+  rateToNumber,
+  multiplyAmountByRate,
+  divideMoneyByAmountToRate,
+  roundedDivide,
+  RATE_SCALE,
+} = require("./Money");
+
+function safeDecimal(value, fallback = "0") {
+  const text = String(value ?? fallback).trim();
+  return /^-?\d+(?:\.\d+)?$/.test(text) ? text : String(fallback);
 }
 
-function positiveNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) && number > 0 ? number : 0;
+function positiveMoney(value) {
+  try { const parsed = money(safeDecimal(value)); return parsed > 0n ? parsed : 0n; }
+  catch { return 0n; }
 }
 
-/**
- * Returns the rate that belongs to this exact transfer.
- * Priority deliberately avoids customer-level averages/derived legacy fields:
- * 1) finalRate saved on the transfer
- * 2) rate reconstructed from the transfer's own CAD due/value
- * 3) rate reconstructed from the transfer's stored exchange profit + cost rate
- * 4) legacy customerRate/clientRate only as a final compatibility fallback
- */
-function authoritativeTransactionRate(transaction = {}) {
-  const amount = positiveNumber(transaction.amount ?? transaction.usdAmount);
+function positiveRate(value) {
+  try { const parsed = rate(safeDecimal(value)); return parsed > 0n ? parsed : 0n; }
+  catch { return 0n; }
+}
 
-  const finalRate = positiveNumber(transaction.finalRate);
+/** Returns the exact rate belonging to this transfer, in RATE_SCALE units. */
+function authoritativeTransactionRateScaled(transaction = {}) {
+  const amount = positiveMoney(transaction.amount ?? transaction.usdAmount);
+  const finalRate = positiveRate(transaction.finalRate);
   if (finalRate) return finalRate;
 
-  if (amount) {
-    const fee = Math.max(0, safeNumber(transaction.transferFee));
+  if (amount > 0n) {
+    const fee = positiveMoney(transaction.transferFee);
     const feeMethod = String(transaction.feeMethod || "ADD").toUpperCase();
-    const due = positiveNumber(
-      transaction.baseCustomerDue ??
-      transaction.convertedCad ??
-      transaction.formulaResultCad ??
-      transaction.cadValue ??
-      transaction.valueCad
+    const due = positiveMoney(
+      transaction.baseCustomerDue ?? transaction.convertedCad ?? transaction.formulaResultCad ??
+      transaction.cadValue ?? transaction.valueCad
     );
-    if (due) return due / amount;
+    if (due > 0n) return roundedDivide(due * RATE_SCALE, amount);
 
-    const totalDue = positiveNumber(transaction.totalCustomerDue);
-    if (totalDue) {
-      const baseDue = feeMethod === "ADD" ? Math.max(totalDue - fee, 0) : totalDue;
-      if (baseDue > 0) return baseDue / amount;
+    const totalDue = positiveMoney(transaction.totalCustomerDue);
+    if (totalDue > 0n) {
+      const baseDue = feeMethod === "ADD" ? (totalDue > fee ? totalDue - fee : 0n) : totalDue;
+      if (baseDue > 0n) return roundedDivide(baseDue * RATE_SCALE, amount);
     }
 
-    const costRate = positiveNumber(transaction.costRate);
-    const storedExchangeProfit = Number(transaction.exchangeProfit);
-    if (costRate && Number.isFinite(storedExchangeProfit)) {
-      const reconstructed = costRate + storedExchangeProfit / amount;
-      if (Number.isFinite(reconstructed) && reconstructed > 0) return reconstructed;
+    const costRate = positiveRate(transaction.costRate);
+    let storedProfit = 0n;
+    try { storedProfit = money(safeDecimal(transaction.exchangeProfit)); } catch { storedProfit = 0n; }
+    if (costRate > 0n && storedProfit !== 0n) {
+      const profitRate = roundedDivide(storedProfit * RATE_SCALE, amount);
+      const reconstructed = costRate + profitRate;
+      if (reconstructed > 0n) return reconstructed;
     }
   }
 
   for (const key of ["customerRate", "clientRate"]) {
-    const rate = positiveNumber(transaction?.[key]);
-    if (rate) return rate;
+    const legacyRate = positiveRate(transaction?.[key]);
+    if (legacyRate) return legacyRate;
   }
-  return 0;
+  return 0n;
+}
+
+function authoritativeTransactionRate(transaction = {}) {
+  return rateToNumber(authoritativeTransactionRateScaled(transaction));
 }
 
 function transactionFinancials(transaction = {}) {
-  const amount = Math.max(0, safeNumber(transaction.amount ?? transaction.usdAmount));
-  const finalRate = authoritativeTransactionRate(transaction);
-  const costRate = Math.max(0, safeNumber(transaction.costRate));
-  const transferFee = Math.max(0, safeNumber(transaction.transferFee));
+  const amountScaled = positiveMoney(transaction.amount ?? transaction.usdAmount);
+  const finalRateScaled = authoritativeTransactionRateScaled(transaction);
+  const costRateScaled = positiveRate(transaction.costRate);
+  const transferFeeScaled = positiveMoney(transaction.transferFee);
   const feeMethod = String(transaction.feeMethod || "ADD").toUpperCase();
-  const convertedCad = amount * finalRate;
-  const totalCustomerDue = feeMethod === "ADD" ? convertedCad + transferFee : convertedCad;
-  const exchangeProfit = amount * (finalRate - costRate);
-  const totalProfit = exchangeProfit + transferFee;
-  const valid = amount > 0 && finalRate > 0 && costRate > 0;
-  return {amount, finalRate, costRate, transferFee, feeMethod, convertedCad, totalCustomerDue, exchangeProfit, totalProfit, valid};
+
+  const convertedCadScaled = finalRateScaled > 0n
+    ? roundedDivide(amountScaled * finalRateScaled, RATE_SCALE)
+    : 0n;
+  const totalCustomerDueScaled = feeMethod === "ADD"
+    ? convertedCadScaled + transferFeeScaled
+    : convertedCadScaled;
+  const exchangeProfitScaled = roundedDivide(
+    amountScaled * (finalRateScaled - costRateScaled),
+    RATE_SCALE
+  );
+  const totalProfitScaled = exchangeProfitScaled + transferFeeScaled;
+
+  const amount = moneyToNumber(amountScaled);
+  const finalRate = rateToNumber(finalRateScaled);
+  const costRate = rateToNumber(costRateScaled);
+  const transferFee = moneyToNumber(transferFeeScaled);
+  const convertedCad = moneyToNumber(convertedCadScaled);
+  const totalCustomerDue = moneyToNumber(totalCustomerDueScaled);
+  const exchangeProfit = moneyToNumber(exchangeProfitScaled);
+  const totalProfit = moneyToNumber(totalProfitScaled);
+  const valid = amountScaled > 0n && finalRateScaled > 0n && costRateScaled > 0n;
+
+  return {
+    amount, finalRate, costRate, transferFee, feeMethod,
+    convertedCad, totalCustomerDue, exchangeProfit, totalProfit, valid,
+    scaled: {
+      amount: amountScaled,
+      finalRate: finalRateScaled,
+      costRate: costRateScaled,
+      transferFee: transferFeeScaled,
+      convertedCad: convertedCadScaled,
+      totalCustomerDue: totalCustomerDueScaled,
+      exchangeProfit: exchangeProfitScaled,
+      totalProfit: totalProfitScaled,
+    },
+  };
 }
 
-module.exports = { authoritativeTransactionRate, transactionFinancials };
+module.exports = {
+  authoritativeTransactionRate,
+  authoritativeTransactionRateScaled,
+  transactionFinancials,
+};

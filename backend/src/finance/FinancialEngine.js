@@ -1,10 +1,16 @@
 "use strict";
 
 const { transactionFinancials } = require("./TransactionFinancials");
+const { money, moneyToNumber } = require("./Money");
 
 function number(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : Number(fallback) || 0;
+}
+
+function moneySafe(value, fallback = 0) {
+  try { return money(value ?? fallback); }
+  catch { return money(fallback); }
 }
 
 function recordTime(value) {
@@ -21,21 +27,27 @@ function isAfterReset(record, customer, preferredDateKey = "") {
   return Math.max(recordTime(preferredDateKey ? record?.[preferredDateKey] : ""), recordTime(record?.createdAt || record?.updatedAt)) >= resetTime;
 }
 
-function customerReceipts(payments, customerId) {
+function customerReceiptsScaled(payments, customerId) {
   const rows = (Array.isArray(payments) ? payments : []).filter(payment => payment && !payment.isDeleted && payment.customerId === customerId);
   const receipts = rows.filter(payment => payment.recordType === "CUSTOMER_PAYMENT_RECEIPT");
   const receiptBatchIds = new Set(receipts.map(payment => payment.paymentBatchId).filter(Boolean));
-  let total = receipts.reduce((sum, receipt) => sum + number(receipt.originalAmount, receipt.amount), 0);
+  let total = receipts.reduce((sum, receipt) => sum + moneySafe(receipt.originalAmount ?? receipt.amount), 0n);
   const legacyGroups = new Map();
   for (const payment of rows) {
     if (payment.recordType === "CUSTOMER_PAYMENT_RECEIPT") continue;
     if (payment.recordType === "PAYMENT_ALLOCATION" && payment.paymentBatchId && receiptBatchIds.has(payment.paymentBatchId)) continue;
-    const key = payment.paymentBatchId || (payment.allocationMode === "CUSTOMER_AUTO" ? `${payment.customerId}:${payment.paymentDate || payment.date || payment.createdAt || ""}:${number(payment.originalAmount, payment.amount)}` : `single:${payment.id}`);
-    if (!legacyGroups.has(key)) legacyGroups.set(key, 0);
-    legacyGroups.set(key, legacyGroups.get(key) + number(payment.originalAmount, payment.amount));
+    const key = payment.paymentBatchId || (payment.allocationMode === "CUSTOMER_AUTO"
+      ? `${payment.customerId}:${payment.paymentDate || payment.date || payment.createdAt || ""}:${payment.originalAmount ?? payment.amount ?? 0}`
+      : `single:${payment.id}`);
+    if (!legacyGroups.has(key)) legacyGroups.set(key, 0n);
+    legacyGroups.set(key, legacyGroups.get(key) + moneySafe(payment.originalAmount ?? payment.amount));
   }
   for (const amount of legacyGroups.values()) total += amount;
   return total;
+}
+
+function customerReceipts(payments, customerId) {
+  return moneyToNumber(customerReceiptsScaled(payments, customerId));
 }
 
 function customerSummary(store, customer, { overdueDays = 7 } = {}) {
@@ -44,31 +56,39 @@ function customerSummary(store, customer, { overdueDays = 7 } = {}) {
   const payments = (Array.isArray(store?.payments) ? store.payments : []).filter(item => item && !item.isDeleted);
   const txs = transactions.filter(transaction => transaction.customerId === customer.id && transaction.status !== "CANCELLED" && isAfterReset(transaction, customer, "transferDate"));
   const paymentByTransaction = new Map();
-  for (const payment of payments) paymentByTransaction.set(payment.transactionId, number(paymentByTransaction.get(payment.transactionId)) + number(payment.amount));
+  for (const payment of payments) {
+    const current = paymentByTransaction.get(payment.transactionId) || 0n;
+    paymentByTransaction.set(payment.transactionId, current + moneySafe(payment.amount));
+  }
 
   const reset = Boolean(customer.accountResetAt);
-  const storedOpening = reset ? 0 : Math.max(number(customer.oldBalance), 0);
-  const legacyPaid = reset ? 0 : Math.min(Math.max(number(customer.oldBalancePaid), 0), storedOpening);
-  const openingOutstanding = Math.max(storedOpening - legacyPaid, 0);
-  const openingInitial = reset ? 0 : Math.max(number(customer.openingBalanceInitial, storedOpening), openingOutstanding);
-  const actualPayments = customerReceipts(payments.filter(payment => isAfterReset(payment, customer, "paymentDate")), customer.id);
+  const storedOpening = reset ? 0n : (moneySafe(customer.oldBalance) > 0n ? moneySafe(customer.oldBalance) : 0n);
+  const rawLegacyPaid = reset ? 0n : moneySafe(customer.oldBalancePaid);
+  const legacyPaid = rawLegacyPaid > storedOpening ? storedOpening : (rawLegacyPaid > 0n ? rawLegacyPaid : 0n);
+  const openingOutstanding = storedOpening > legacyPaid ? storedOpening - legacyPaid : 0n;
+  const rawOpeningInitial = reset ? 0n : moneySafe(customer.openingBalanceInitial ?? customer.oldBalance);
+  const openingInitial = rawOpeningInitial > openingOutstanding ? rawOpeningInitial : openingOutstanding;
+  const actualPayments = customerReceiptsScaled(payments.filter(payment => isAfterReset(payment, customer, "paymentDate")), customer.id);
 
-  let transactionTotal = 0;
-  let transactionPaid = 0;
+  let transactionTotal = 0n;
+  let transactionPaid = 0n;
+  let transactionOutstanding = 0n;
   let oldestUnpaidDate = "";
   let overdueTransactions = 0;
   let lastTransactionDate = "";
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
   for (const transaction of txs) {
-    const due = transactionFinancials(transaction).totalCustomerDue;
-    const paid = number(paymentByTransaction.get(transaction.id));
-    const remaining = Math.max(due - paid, 0);
+    const financials = transactionFinancials(transaction);
+    const due = financials.scaled.totalCustomerDue;
+    const paid = paymentByTransaction.get(transaction.id) || 0n;
+    const remaining = due > paid ? due - paid : 0n;
     transactionTotal += due;
     transactionPaid += paid;
+    transactionOutstanding += remaining;
     const dateText = String(transaction.transferDate || transaction.createdAt || "").slice(0, 10);
     if (dateText > lastTransactionDate) lastTransactionDate = dateText;
-    if (remaining > 0 && dateText) {
+    if (remaining > 0n && dateText) {
       const date = new Date(`${dateText}T00:00:00`);
       if (!Number.isNaN(date.getTime())) {
         const age = Math.floor((today - date) / 86400000);
@@ -78,24 +98,20 @@ function customerSummary(store, customer, { overdueDays = 7 } = {}) {
     }
   }
 
-  const transactionOutstanding = txs.reduce((sum, transaction) => {
-    const due = transactionFinancials(transaction).totalCustomerDue;
-    return sum + Math.max(due - number(paymentByTransaction.get(transaction.id)), 0);
-  }, 0);
-  const outstanding = Math.max(transactionOutstanding + openingOutstanding, 0);
+  const outstanding = transactionOutstanding + openingOutstanding;
   const overdueAge = oldestUnpaidDate ? Math.max(0, Math.floor((today - new Date(`${oldestUnpaidDate}T00:00:00`)) / 86400000)) : 0;
 
   return {
     ...customer,
     name: String(customer?.name || "عميل بدون اسم"),
-    oldBalance: +openingOutstanding.toFixed(2),
-    openingBalanceInitial: +openingInitial.toFixed(2),
+    oldBalance: moneyToNumber(openingOutstanding),
+    openingBalanceInitial: moneyToNumber(openingInitial),
     oldBalancePaid: 0,
-    oldBalanceRemaining: +openingOutstanding.toFixed(2),
-    totalTransactions: +(openingInitial + transactionTotal).toFixed(2),
-    totalPaid: +actualPayments.toFixed(2),
-    finalBalance: +outstanding.toFixed(2),
-    overdue: outstanding > 0 && overdueAge > threshold,
+    oldBalanceRemaining: moneyToNumber(openingOutstanding),
+    totalTransactions: moneyToNumber(openingInitial + transactionTotal),
+    totalPaid: moneyToNumber(actualPayments),
+    finalBalance: moneyToNumber(outstanding),
+    overdue: outstanding > 0n && overdueAge > threshold,
     overdueThreshold: threshold,
     overdueDays: overdueAge,
     overdueTransactions,
@@ -107,13 +123,21 @@ function customerSummary(store, customer, { overdueDays = 7 } = {}) {
 function customerDebtSummary(store, options = {}) {
   const customers = (Array.isArray(store?.customers) ? store.customers : []).filter(customer => customer && !customer.isDeleted);
   const rows = customers.map(customer => customerSummary(store, customer, options));
-  const debtors = rows.filter(customer => number(customer.finalBalance) > 0);
+  const debtors = rows.filter(customer => moneySafe(customer.finalBalance) > 0n);
+  const totalDebtScaled = debtors.reduce((sum, customer) => sum + moneySafe(customer.finalBalance), 0n);
   return {
     currency: "CAD",
-    totalDebtCad: +debtors.reduce((sum, customer) => sum + number(customer.finalBalance), 0).toFixed(2),
+    totalDebtCad: moneyToNumber(totalDebtScaled),
     debtorsCount: debtors.length,
     customersCount: customers.length,
   };
 }
 
-module.exports = { customerSummary, customerDebtSummary, number, isAfterReset };
+module.exports = {
+  customerSummary,
+  customerDebtSummary,
+  customerReceipts,
+  customerReceiptsScaled,
+  number,
+  isAfterReset,
+};
