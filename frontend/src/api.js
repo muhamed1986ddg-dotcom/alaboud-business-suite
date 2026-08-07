@@ -48,7 +48,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.14.15";
+  config.headers["X-Alaboud-Client-Version"]="25.14.16";
   // Durable writes have a bounded interactive recovery budget. If PostgreSQL
   // is temporarily unavailable, start commit verification promptly instead of
   // leaving add/edit/delete buttons spinning for more than a minute.
@@ -155,29 +155,67 @@ async function verifyCommittedOperation(error){
   if(token)headers.Authorization=`Bearer ${token}`;
   if(branchId)headers["X-Branch-ID"]=branchId;
   dispatchOperationToast("لم يصل تأكيد الحفظ. جارٍ التحقق من نتيجة العملية…","info");
-  const delays=[0,1200,1800,2500,3500,5000,7000,9000,12000,15000];
-  for(const delay of delays){
-    if(delay)await sleep(delay);
-    try{
-      const response=await axios.get(`/api/operations/${encodeURIComponent(operationKey)}/status`,{headers,timeout:12000});
-      if(response?.data?.committed===true){
-        clearApiGetCache();
-        dispatchOperationToast("تم تأكيد حفظ العملية بنجاح","success");
-        return {
-          data:response.data.response??{committed:true,operationKey},
-          status:200,
-          statusText:"OK",
-          headers:{"x-operation-committed":"true"},
-          config:error.config,
-          request:error.request,
-          recoveredFromAmbiguousCommit:true
-        };
+
+  const committedResponse=(statusResponse)=>{
+    clearApiGetCache();
+    dispatchOperationToast("تم تأكيد حفظ العملية بنجاح","success");
+    return {
+      data:statusResponse?.data?.response??{committed:true,operationKey},
+      status:200,
+      statusText:"OK",
+      headers:{"x-operation-committed":"true"},
+      config:error.config,
+      request:error.request,
+      recoveredFromAmbiguousCommit:true
+    };
+  };
+
+  async function checkReceipt(delays){
+    let sawUnknown=false;
+    for(const delay of delays){
+      if(delay)await sleep(delay);
+      try{
+        const response=await axios.get(`/api/operations/${encodeURIComponent(operationKey)}/status`,{headers,timeout:8000});
+        if(response?.data?.committed===true)return {committed:committedResponse(response),sawUnknown:true};
+        if(response?.data?.status==="UNKNOWN"||response?.data?.committed===false)sawUnknown=true;
+      }catch(checkError){
+        if(checkError?.response?.status===401)return {authFailed:true,sawUnknown};
+        // 502/503/504 means PostgreSQL is still recovering. Keep checking.
       }
-    }catch(checkError){
-      if(checkError?.response?.status===401)break;
-      // A 503 here only means PostgreSQL is still recovering; keep polling.
+    }
+    return {committed:null,sawUnknown};
+  }
+
+  // First give the original request a short window to finish its COMMIT.
+  const firstCheck=await checkReceipt([0,500,900,1400]);
+  if(firstCheck.committed)return firstCheck.committed;
+  if(firstCheck.authFailed)return null;
+
+  // If there is still no receipt, replay the SAME request once with the SAME
+  // Idempotency-Key. This is safe: if the original request committed, the
+  // server replays its durable receipt; if it is still running, the server
+  // returns DUPLICATE_OPERATION_IN_PROGRESS; if PostgreSQL rejected it before
+  // mutation, this replay gives edit/delete a chance to complete automatically.
+  const replayCount=Number(error?.config?._alaboudWriteReplayCount||0);
+  if(replayCount<1){
+    try{
+      const replayConfig={...error.config,_alaboudWriteReplayCount:replayCount+1,timeout:25000};
+      replayConfig.headers={...(error.config?.headers||{}),"Idempotency-Key":operationKey};
+      const replay=await axios.request(replayConfig);
+      if(replay?.status>=200&&replay?.status<300){
+        clearApiGetCache();
+        dispatchOperationToast(successToastMessage(String(replayConfig.method||"post").toLowerCase(),String(replayConfig.url||""),replay),"success");
+        return {...replay,recoveredFromAmbiguousCommit:true};
+      }
+    }catch(replayError){
+      if(replayError?.response?.status===401)return null;
+      // 409 means the first request is still executing. 503 means the database
+      // is still recovering. In both cases the receipt polling below is safe.
     }
   }
+
+  const finalCheck=await checkReceipt([700,1200,1800,2500,3500,5000,7000]);
+  if(finalCheck.committed)return finalCheck.committed;
   return null;
 }
 

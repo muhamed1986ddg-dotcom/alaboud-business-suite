@@ -2283,11 +2283,10 @@ app.delete("/api/transactions/:id", auth, async (req,res)=>{
     });
 
     if(!deleted)return res.status(404).json({message:"الحوالة غير موجودة أو محذوفة مسبقًا"});
-    const persisted=readStore().transactions.find(item=>item.id===deleted.id);
-    if(!persisted?.isDeleted){
-      return res.status(500).json({message:"تعذر تأكيد حذف الحوالة، يرجى المحاولة مرة أخرى"});
-    }
-    res.json({success:true,id:deleted.id,message:"تم حذف الحوالة بنجاح"});
+    // mutateDurable resolves only after PostgreSQL COMMIT succeeds. A second
+    // in-memory verification here was redundant and could turn a committed
+    // delete into a false 500 response while the request context was changing.
+    res.json({success:true,id:deleted.id,message:"تم حذف الحوالة بنجاح",committed:true});
   }catch(error){
     console.error("Delete transaction failed:",error);
     res.status(error?.statusCode||500).json({message:error?.message||"تعذر حذف الحوالة"});

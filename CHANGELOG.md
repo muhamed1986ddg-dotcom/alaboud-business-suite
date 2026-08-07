@@ -1,3 +1,9 @@
+# v25.14.16 — Edit/Delete Reliability
+
+- Safe same-key replay for ambiguous update/delete writes.
+- Removed redundant post-COMMIT delete verification that could return false 500 errors.
+- Preserved durable PostgreSQL COMMIT and idempotency guarantees.
+
 # v25.14.15 — Automatic Customer Recovery
 
 - قائمة العملاء تعيد المحاولة تلقائيًا أثناء استعادة PostgreSQL بدل مطالبة المستخدم بالمحاولة يدويًا.
