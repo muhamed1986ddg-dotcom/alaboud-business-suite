@@ -1,3 +1,11 @@
+# v25.14.17 — PostgreSQL Edit/Delete Recovery
+
+- أصلح إعادة اتصال PostgreSQL بعد فشل التعديل أو الحذف: أي client يفشل أثناء المعاملة يُزال من الـ pool بدل إعادته كاتصال سليم.
+- منع إعادة إنشاء الـ pool من event الخاص بعميل checked-out حتى لا يتسابق مع معاملة مالية أخرى نشطة.
+- إضافة تحقق durable من `operation_receipts` بعد انقطاع الاتصال أثناء COMMIT؛ إذا كان التعديل/الحذف قد ثبت بالفعل، يُعامل كنجاح ولا يعاد تنفيذه.
+- مسارا تعديل وحذف الحوالات يعيدان الآن 503 retryable برسالة تشغيلية واضحة عند انقطاع PostgreSQL بدل 400/500 برسالة `Connection terminated unexpectedly`.
+- لا تغيير في قواعد الحسابات المالية أو آلية soft-delete أو Idempotency.
+
 # v25.14.16 — Edit/Delete Reliability
 
 - Safe same-key replay for ambiguous update/delete writes.

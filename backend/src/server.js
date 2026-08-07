@@ -2260,6 +2260,13 @@ app.patch("/api/transactions/:id", auth, async (req,res)=>{
     if(!updated)return res.status(404).json({message:"الحوالة غير موجودة"});
     res.json(updated);
   }catch(error){
+    if(isTransientDatabaseError(error)||Number(error?.status||error?.statusCode||0)===503){
+      return res.status(503).json({
+        code:"DATABASE_TEMPORARILY_UNAVAILABLE",
+        retryable:true,
+        message:error?.publicMessage||"تعذر تأكيد التعديل الآن بسبب اتصال قاعدة البيانات. تتم إعادة التحقق تلقائيًا."
+      });
+    }
     res.status(400).json({message:error.message||"تعذر تعديل الحوالة"});
   }
 });
@@ -2289,7 +2296,14 @@ app.delete("/api/transactions/:id", auth, async (req,res)=>{
     res.json({success:true,id:deleted.id,message:"تم حذف الحوالة بنجاح",committed:true});
   }catch(error){
     console.error("Delete transaction failed:",error);
-    res.status(error?.statusCode||500).json({message:error?.message||"تعذر حذف الحوالة"});
+    if(isTransientDatabaseError(error)||Number(error?.status||error?.statusCode||0)===503){
+      return res.status(503).json({
+        code:"DATABASE_TEMPORARILY_UNAVAILABLE",
+        retryable:true,
+        message:error?.publicMessage||"تعذر تأكيد الحذف الآن بسبب اتصال قاعدة البيانات. تتم إعادة التحقق تلقائيًا."
+      });
+    }
+    res.status(error?.statusCode||error?.status||500).json({message:error?.message||"تعذر حذف الحوالة"});
   }
 });
 

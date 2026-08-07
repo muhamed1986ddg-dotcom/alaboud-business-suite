@@ -105,16 +105,19 @@ class PostgresStateAdapter {
     const onError = (error) => {
       handled = true;
       const label = error?.code || error?.message || "unknown-error";
+      this.connectionState = "reconnecting";
+      this.lastDisconnectedAt = new Date().toISOString();
+      this.lastConnectionError = error;
+      this.consecutiveConnectionFailures += 1;
       this.logger.warn(`PostgreSQL ${context} connection error handled: ${label}`);
-      if (isTransientPostgresError(error)) {
-        this.resetPool(`${context}:${label}`).catch((resetError) => {
-          this.logger.error("PostgreSQL pool reset failed after client error:", resetError?.message || resetError);
-        });
-      }
+      // Do not reset the entire pool from the checked-out client's error
+      // event. The request's catch/retry path owns recovery. Resetting here
+      // can race with another active edit/delete transaction and make that
+      // healthy request fail with "Connection terminated unexpectedly".
     };
     client.on("error", onError);
     return () => {
-      if (!handled && typeof client.removeListener === "function") client.removeListener("error", onError);
+      if (typeof client.removeListener === "function") client.removeListener("error", onError);
     };
   }
 
@@ -369,6 +372,7 @@ class PostgresStateAdapter {
         return { revision: this.lastCommittedRevision };
       } catch (error) {
         lastError = error;
+        attemptError = error;
         if (client) { try { await client.query("ROLLBACK"); } catch {} }
         if (isTransientPostgresError(error)) {
           this.connectionState = "reconnecting";
@@ -376,6 +380,31 @@ class PostgresStateAdapter {
           this.lastConnectionError = error;
           this.consecutiveConnectionFailures += 1;
         }
+        // A connection can drop while COMMIT is returning even though the
+        // transaction was committed by PostgreSQL. The operation receipt lives
+        // in that SAME transaction, so use a fresh pool connection to resolve
+        // this ambiguity before replaying the edit/delete.
+        if (isTransientPostgresError(error) && options.operationReceipt?.key) {
+          try {
+            await this.resetPool(`ambiguous-commit:${error.code || error.message}`);
+            const receipt = await this.pool.query(
+              `SELECT app_revision FROM operation_receipts WHERE operation_key=$1 AND status='COMMITTED' LIMIT 1`,
+              [String(options.operationReceipt.key)]
+            );
+            if (receipt.rows?.[0]) {
+              this.lastCommittedRevision = Number(receipt.rows[0].app_revision || 0);
+              this.connectionState = "connected";
+              this.lastConnectedAt = new Date().toISOString();
+              this.lastConnectionError = null;
+              this.consecutiveConnectionFailures = 0;
+              this.queueRelationalMirror(snapshot,{ immutableSnapshot: options.immutableSnapshot === true });
+              return { revision: this.lastCommittedRevision, recoveredFromAmbiguousCommit: true };
+            }
+          } catch (receiptError) {
+            this.logger.warn(`PostgreSQL ambiguous commit verification deferred: ${receiptError?.code || receiptError?.message || receiptError}`);
+          }
+        }
+
         const budgetExhausted = Date.now() - startedAt >= retryBudgetMs;
         if (!isTransientPostgresError(error) || attempt === attempts || budgetExhausted) {
           if (isTransientPostgresError(error)) {
