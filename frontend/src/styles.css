@@ -6613,3 +6613,12 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 .inventory-profit-info{border-style:dashed!important}.inventory-profit-info span:after{content:" — لا يضاف مرة ثانية إلى قيمة الجرد";font-size:.78em;opacity:.72}
 
 .inventory-payable-row{flex-wrap:wrap}.inventory-payable-row small{width:100%;opacity:.72;font-size:.78rem;text-align:left;direction:rtl}
+
+/* v25.14.9 — capital added grand total */
+.capital-history-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.capital-total-button{white-space:nowrap;background:linear-gradient(135deg,#b88916,#f3c53f);color:#101010;border:1px solid rgba(255,215,92,.7);font-weight:800}
+.capital-grand-total-card{margin:0 0 14px;padding:16px 18px;border:1px solid rgba(224,178,55,.58);border-radius:16px;background:linear-gradient(135deg,rgba(185,137,22,.20),rgba(12,30,52,.94));display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.capital-grand-total-card span{color:#f3d472;font-weight:800;font-size:1.02rem}
+.capital-grand-total-card strong{font-size:1.45rem;color:#fff}
+.capital-grand-total-card small{width:100%;color:#aeb8c8}
+@media(max-width:650px){.capital-history-tools{flex-direction:column;align-items:stretch}.capital-total-button{width:100%}.capital-grand-total-card{align-items:flex-start;flex-direction:column}.capital-grand-total-card strong{font-size:1.3rem}}

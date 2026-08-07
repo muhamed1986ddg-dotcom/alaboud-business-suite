@@ -1,3 +1,11 @@
+# v25.14.9 — Capital Added Total
+
+- Added a **المجموع النهائي** button to the capital movement history.
+- The button reveals the total of all capital additions in CAD across the complete capital ledger.
+- Withdrawals are not included in this figure.
+- Deleted/soft-deleted movements are excluded when present.
+- The total updates after add, edit, and delete because it is derived from the freshly loaded ledger.
+
 # v25.14.8 — Simple Monthly Inventory
 
 - تبسيط الجرد الشهري ليعتمد على **صافي رأس المال** بنفس معادلة صفحة الميزانية.

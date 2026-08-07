@@ -21,6 +21,7 @@ function CapitalOverview(){
   const [budgetModal,setBudgetModal]=useState(null);
   const [movementFilter,setMovementFilter]=useState("ALL");
   const [movementSearch,setMovementSearch]=useState("");
+  const [showCapitalInTotal,setShowCapitalInTotal]=useState(false);
   const [form,setForm]=useState({
     type:"IN",
     amount:"",
@@ -138,6 +139,7 @@ function CapitalOverview(){
   const outShare=totalFlow?100-inShare:0;
   const monthlyNet=Number(data.monthlyProfit||0)-Number(data.monthlyExpenses||0);
   const liquidityStatus=Number(data.capitalBalance||0)>0?"مستقرة":"تحتاج متابعة";
+  const totalAddedCapital=movements.filter(item=>item.type==="IN"&&!item.isDeleted&&!item.deletedAt).reduce((sum,item)=>sum+Number(item.cadAmount ?? (String(item.currency||"CAD").toUpperCase()==="CAD"?item.amount:0) ?? 0),0);
   const filteredMovements=movements.filter(item=>{
     const matchesType=movementFilter==="ALL"||item.type===movementFilter;
     const text=`${item.description||""} ${item.currency||""} ${item.amount||""} ${item.date||item.createdAt||""}`.toLowerCase();
@@ -363,7 +365,14 @@ function CapitalOverview(){
         </form>}
 
         {budgetModal==="history"&&<div className="tablewrap capital-movements-table">
-          <div className="capital-table-toolbar"><div><h3>جميع الحركات</h3><small>{filteredMovements.length} حركة</small></div><div className="capital-table-filters"><input value={movementSearch} onChange={e=>setMovementSearch(e.target.value)} placeholder="ابحث في السجل..."/><select value={movementFilter} onChange={e=>setMovementFilter(e.target.value)}><option value="ALL">جميع الحركات</option><option value="IN">الإضافات فقط</option><option value="OUT">السحوبات فقط</option></select></div></div>
+          <div className="capital-table-toolbar">
+            <div><h3>جميع الحركات</h3><small>{filteredMovements.length} حركة</small></div>
+            <div className="capital-history-tools">
+              <button type="button" className="capital-total-button" onClick={()=>setShowCapitalInTotal(value=>!value)}>💰 المجموع النهائي</button>
+              <div className="capital-table-filters"><input value={movementSearch} onChange={e=>setMovementSearch(e.target.value)} placeholder="ابحث في السجل..."/><select value={movementFilter} onChange={e=>setMovementFilter(e.target.value)}><option value="ALL">جميع الحركات</option><option value="IN">الإضافات فقط</option><option value="OUT">السحوبات فقط</option></select></div>
+            </div>
+          </div>
+          {showCapitalInTotal&&<div className="capital-grand-total-card"><span>إجمالي رأس المال المضاف</span><strong>{money(totalAddedCapital)} CAD</strong><small>مجموع جميع حركات الإضافة المسجلة بعد تحويلها إلى الدولار الكندي</small></div>}
           <AppTable><thead><tr><th>التاريخ</th><th>النوع</th><th>المبلغ الأصلي</th><th>العملة</th><th>سعر التحويل</th><th>القيمة CAD</th><th>الوصف</th><th>الإجراءات</th></tr></thead><tbody>{filteredMovements.length?filteredMovements.map(item=><tr key={item.id}><td>{item.date||String(item.createdAt||"").slice(0,10)}</td><td><span className={`capital-type-badge ${item.type==="IN"?"capital-in":"capital-out"}`}>{item.type==="IN"?"إضافة":"سحب"}</span></td><td><strong>{money(item.amount)}</strong></td><td>{item.currency||"CAD"}</td><td>{Number(item.exchangeRate||1).toFixed(6)}</td><td><strong>{item.cadAmount!=null?money(item.cadAmount):"—"} CAD</strong></td><td>{item.description||"-"}</td><td className="actions"><button type="button" onClick={()=>{setBudgetModal(null);setEditing({...item});}}>تعديل</button><button type="button" className="danger-button" onClick={()=>deleteCapital(item)}>حذف</button></td></tr>):<tr><td colSpan="8">لا توجد حركات رأس مال مسجلة.</td></tr>}</tbody></AppTable>
         </div>}
 
