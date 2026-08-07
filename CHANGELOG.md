@@ -1,3 +1,10 @@
+## v25.14.28 — Isolated Durable Writes
+- عزل اتصالات إضافة/تعديل/حذف في PostgreSQL write pool مستقل عن health والتقارير والتحديثات الخلفية.
+- إيقاف relational mirror افتراضيًا لتقليل الضغط على PostgreSQL؛ يمكن تفعيله صراحةً عبر RELATIONAL_MIRROR_ENABLED=true.
+- إعادة إنشاء write pool وحده عند 57P03/انقطاع الاتصال بدل التأثير على بقية الاتصالات.
+- منع أخطاء pool قديم من إعادة تدوير pool جديد بعد الاستعادة.
+- تأكيد ambiguous COMMIT من نفس write pool المعزول قبل إعادة العملية.
+
 ## v25.14.27 — Write Path Stability
 
 - فصل /health بالكامل عن قرارات إعادة إنشاء PostgreSQL Pool.

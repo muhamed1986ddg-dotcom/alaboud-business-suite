@@ -11,4 +11,4 @@ assert(health.includes("PG_HEALTH_PROBE_INTERVAL_MS || 15000"));
 assert(health.includes("pool?.waitingCount"));
 assert(!save.includes("await this.waitForInteractiveWriteReady"));
 assert(save.includes('context: "durable-write-connect"'));
-console.log("health/write isolation v25.14.27: OK");
+console.log("health/write isolation v25.14.28: OK");

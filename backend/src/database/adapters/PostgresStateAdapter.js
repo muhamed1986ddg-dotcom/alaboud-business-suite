@@ -142,7 +142,7 @@ class PostgresStateAdapter {
     this.normalize = normalize;
     this.logger = logger;
     this.mode = "postgres-native-transition";
-    this.relationalMirrorEnabled = String(process.env.RELATIONAL_MIRROR_ENABLED || "true").toLowerCase() !== "false";
+    this.relationalMirrorEnabled = String(process.env.RELATIONAL_MIRROR_ENABLED || "false").toLowerCase() === "true";
     this.projector = new RelationalProjector({ logger });
     this.mirrorPendingSnapshot = null;
     this.mirrorPromise = Promise.resolve();
@@ -151,6 +151,7 @@ class PostgresStateAdapter {
     this.lastMirrorError = null;
     this.poolGeneration = 0;
     this.poolResetPromise = null;
+    this.writePoolResetPromise = null;
     this.recoveryPromise = null;
     this.healthProbePromise = null;
     this.lastHealthProbeAt = 0;
@@ -159,15 +160,20 @@ class PostgresStateAdapter {
     this.lastDisconnectedAt = null;
     this.lastConnectionError = null;
     this.consecutiveConnectionFailures = 0;
-    this.pool = this.createPool();
+    this.pool = this.createPool("general");
+    // Financial mutations use a physically separate pool. Background health,
+    // exchange-rate refreshes, reporting and relational projection can no
+    // longer recycle or congest the sockets used by add/edit/delete.
+    this.writePool = this.createPool("write");
   }
 
-  createPool() {
+  createPool(role = "general") {
+    const isWritePool = role === "write";
     const pool = new Pool({
       connectionString: this.connectionString,
       ssl: this.connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
-      max: Math.max(1, Number(process.env.PG_POOL_MAX || 5)),
-      min: Math.max(0, Number(process.env.PG_POOL_MIN || 1)),
+      max: Math.max(1, Number(isWritePool ? (process.env.PG_WRITE_POOL_MAX || 2) : (process.env.PG_POOL_MAX || 3))),
+      min: 0,
       // Keep one warm PostgreSQL connection during an active session. The old
       // 30s idle eviction frequently forced a new TLS/database handshake just
       // before an add/edit/delete operation.
@@ -185,12 +191,19 @@ class PostgresStateAdapter {
     });
     const generation = ++this.poolGeneration;
     pool.on("error", (error) => {
+      // Ignore late errors emitted by a pool generation that has already been
+      // retired. Otherwise an old socket can recycle the brand-new pool.
+      const currentPool = isWritePool ? this.writePool : this.pool;
+      if (currentPool && currentPool !== pool) return;
       this.connectionState = "reconnecting";
       this.lastDisconnectedAt = new Date().toISOString();
       this.lastConnectionError = error;
       this.consecutiveConnectionFailures += 1;
-      this.logger.error(`PostgreSQL idle client error (pool ${generation}):`, error.message);
-      if (isTransientPostgresError(error)) this.resetPool(`idle-client:${error.code || error.message}`).catch(() => {});
+      this.logger.error(`PostgreSQL ${role} idle client error (pool ${generation}):`, error.message);
+      if (isTransientPostgresError(error)) {
+        const reset = isWritePool ? this.resetWritePool.bind(this) : this.resetPool.bind(this);
+        reset(`idle-client:${error.code || error.message}`).catch(() => {});
+      }
     });
     return pool;
   }
@@ -235,6 +248,21 @@ class PostgresStateAdapter {
     return this.poolResetPromise;
   }
 
+
+  async resetWritePool(reason = "transient-write-error") {
+    if (this.writePoolResetPromise) return this.writePoolResetPromise;
+    this.writePoolResetPromise = (async () => {
+      const oldPool = this.writePool;
+      const newPool = this.createPool("write");
+      this.writePool = newPool;
+      this.connectionState = "reconnecting";
+      this.logger.warn(`PostgreSQL write pool recreated after ${reason}`);
+      if (oldPool && oldPool !== newPool) {
+        Promise.race([oldPool.end().catch(() => undefined), wait(2000)]).catch(() => undefined);
+      }
+    })().finally(() => { this.writePoolResetPromise = null; });
+    return this.writePoolResetPromise;
+  }
 
   async recoverConnection(reason = "transient-error", { budgetMs } = {}) {
     if (this.recoveryPromise) return this.recoveryPromise;
@@ -437,12 +465,12 @@ class PostgresStateAdapter {
     this.mirrorScheduleTimer.unref?.();
   }
 
-  async acquireClient({ timeoutMs = 4500, context = "pool-connect" } = {}) {
+  async acquireClient({ timeoutMs = 4500, context = "pool-connect", poolRole = "general" } = {}) {
     // Never wrap pool.connect() in Promise.race without cleaning up the late
     // result. node-postgres cannot cancel pool.connect(); if it resolves after
     // our HTTP deadline, that PoolClient must be released/destroyed or the pool
     // is slowly exhausted.
-    const pool = this.pool;
+    const pool = poolRole === "write" ? this.writePool : this.pool;
     if (!pool) {
       const error = new Error("PostgreSQL pool is not available");
       error.code = "PG_POOL_UNAVAILABLE";
@@ -468,7 +496,7 @@ class PostgresStateAdapter {
 
         connectPromise.then(
           (client) => {
-            if (timedOut || completed || pool !== this.pool) {
+            if (timedOut || completed || (poolRole === "general" && pool !== this.pool) || (poolRole === "write" && pool !== this.writePool)) {
               // Critical leak guard: a client that arrives after the request
               // deadline must NEVER remain checked out.
               try { client?.release?.(true); } catch {}
@@ -498,7 +526,7 @@ class PostgresStateAdapter {
         // Recreating the pool on that signal caused cascading 503s. Only real
         // socket/DNS/PostgreSQL errors recreate it.
         if (!localAcquireDeadline) {
-          this.resetPool(`${context}:${error.code || error.message}`).catch(() => undefined);
+          (poolRole === "write" ? this.resetWritePool(`${context}:${error.code || error.message}`) : this.resetPool(`${context}:${error.code || error.message}`)).catch(() => undefined);
         }
       }
       throw error;
@@ -566,7 +594,7 @@ class PostgresStateAdapter {
       let attemptError = null;
       let detach = () => {};
       try {
-        client = await this.acquireClient({ timeoutMs: Number(process.env.PG_INTERACTIVE_ACQUIRE_TIMEOUT_MS || 6000), context: "durable-write-connect" });
+        client = await this.acquireClient({ timeoutMs: Number(process.env.PG_INTERACTIVE_ACQUIRE_TIMEOUT_MS || 6000), context: "durable-write-connect", poolRole: "write" });
         detach = this.attachClientErrorGuard(client, "durable-write-client");
         await runClientStep(client, { text: "BEGIN", query_timeout: clientQueryTimeoutMs }, hardStepTimeoutMs, "begin");
         // Bound both advisory-lock waiting and statement execution on the
@@ -660,12 +688,13 @@ class PostgresStateAdapter {
         // this ambiguity before replaying the edit/delete.
         if (isTransientPostgresError(error) && options.operationReceipt?.key) {
           try {
-            await this.resetPool(`ambiguous-commit:${error.code || error.message}`);
-            const receipt = await this.queryWithRetry(
-              `SELECT app_revision FROM operation_receipts WHERE operation_key=$1 AND status='COMMITTED' LIMIT 1`,
-              [String(options.operationReceipt.key)],
-              { operation: "ambiguous-commit-receipt", attempts: 1, queryTimeoutMs: 2500, recoveryBudgetMs: 2500 }
-            );
+            await this.resetWritePool(`ambiguous-commit:${error.code || error.message}`);
+            const receiptClient = await this.acquireClient({ timeoutMs: 2500, context: "ambiguous-commit-receipt-connect", poolRole: "write" });
+            let receipt;
+            try {
+              receipt = await runClientStep(receiptClient, { text:
+              `SELECT app_revision FROM operation_receipts WHERE operation_key=$1 AND status='COMMITTED' LIMIT 1`, values: [String(options.operationReceipt.key)], query_timeout: 2000 }, 2500, "ambiguous-commit-receipt");
+            } finally { try { receiptClient.release(); } catch {} }
             if (receipt.rows?.[0]) {
               this.lastCommittedRevision = Number(receipt.rows[0].app_revision || 0);
               this.connectionState = "connected";
@@ -689,7 +718,7 @@ class PostgresStateAdapter {
           }
           throw error;
         }
-        await this.recoverConnection(`write:${error.code || error.message}`, { budgetMs: Number(process.env.PG_WRITE_RECOVERY_BUDGET_MS || 3000) });
+        await this.resetWritePool(`write:${error.code || error.message}`);
         const delay = retryDelay(attempt, baseMs, maxMs);
         this.logger.warn(`PostgreSQL write unavailable; retrying (${attempt}/${attempts}) in ${delay}ms. ${error.code || error.message}`);
         await wait(delay);
@@ -764,6 +793,9 @@ class PostgresStateAdapter {
       poolTotal: Number(pool?.totalCount || 0),
       poolIdle: Number(pool?.idleCount || 0),
       poolWaiting: Number(pool?.waitingCount || 0),
+      writePoolTotal: Number(this.writePool?.totalCount || 0),
+      writePoolIdle: Number(this.writePool?.idleCount || 0),
+      writePoolWaiting: Number(this.writePool?.waitingCount || 0),
       mirrorPending: this.mirrorRunning || Boolean(this.mirrorPendingSnapshot),
       lastMirrorError: this.lastMirrorError?.message || null,
       connectionState: this.connectionState,
@@ -778,8 +810,11 @@ class PostgresStateAdapter {
   async close() {
     if (this.mirrorScheduleTimer) { clearTimeout(this.mirrorScheduleTimer); this.mirrorScheduleTimer = null; }
     const pool = this.pool;
+    const writePool = this.writePool;
     this.pool = null;
+    this.writePool = null;
     if (pool) await pool.end();
+    if (writePool && writePool !== pool) await writePool.end();
   }
 }
 
