@@ -1,3 +1,11 @@
+# v25.14.19 — Database Write Readiness Gate
+
+- منع بدء عمليات الإضافة/التعديل/الحذف أثناء حالة PostgreSQL reconnecting إلا بعد جاهزية محددة المهلة.
+- إضافة hard deadline على خطوات المعاملة بما فيها COMMIT.
+- منع ROLLBACK المعلق على socket مكسور؛ يتم التخلص من العميل المعطوب بدلًا من إبقاء HTTP Pending.
+- خفض مهلة الكتابة وإعادة المحاولة في الواجهة إلى 15 ثانية مع نفس Idempotency-Key.
+- الحفاظ على durable commit وoperation receipts ومنع التكرار.
+
 # v25.14.18 — Transaction Write Timeout Recovery
 
 - Bound PostgreSQL pool acquisition for interactive operations so PATCH/DELETE cannot remain pending indefinitely.

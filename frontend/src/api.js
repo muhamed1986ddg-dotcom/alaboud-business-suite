@@ -48,12 +48,12 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.14.18";
+  config.headers["X-Alaboud-Client-Version"]="25.14.19";
   // Durable writes have a bounded interactive recovery budget. If PostgreSQL
   // is temporarily unavailable, start commit verification promptly instead of
   // leaving add/edit/delete buttons spinning for more than a minute.
   const method=String(config.method||"get").toLowerCase();
-  config.timeout=method==="get"?45000:25000;
+  config.timeout=method==="get"?45000:15000;
   if(method!=="get"&&!config.headers["Idempotency-Key"]){
     config.headers["Idempotency-Key"]=(crypto?.randomUUID?.()||`op-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   }
@@ -199,7 +199,7 @@ async function verifyCommittedOperation(error){
   const replayCount=Number(error?.config?._alaboudWriteReplayCount||0);
   if(replayCount<1){
     try{
-      const replayConfig={...error.config,_alaboudWriteReplayCount:replayCount+1,timeout:25000};
+      const replayConfig={...error.config,_alaboudWriteReplayCount:replayCount+1,timeout:15000};
       replayConfig.headers={...(error.config?.headers||{}),"Idempotency-Key":operationKey};
       const replay=await axios.request(replayConfig);
       if(replay?.status>=200&&replay?.status<300){

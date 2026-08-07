@@ -11,6 +11,7 @@ const TRANSIENT_CODES = new Set([
   "53300", // too many connections
   "55P03", // lock not available / lock_timeout
   "57014", // query canceled / statement_timeout
+  "PG_CLIENT_HARD_TIMEOUT", // local hard deadline destroyed the checked-out client
   "08000", "08001", "08003", "08004", "08006", "08007", "08P01"
 ]);
 
@@ -48,6 +49,30 @@ function isTransientPostgresError(error) {
     "getaddrinfo eai_again",
     "temporary failure in name resolution"
   ].some((part) => message.includes(part));
+}
+
+
+function hardTimeoutError(label, timeoutMs) {
+  const error = new Error(`PostgreSQL ${label} hard timeout after ${timeoutMs}ms`);
+  error.code = "PG_CLIENT_HARD_TIMEOUT";
+  error.status = 503;
+  error.publicMessage = "قاعدة البيانات تستعيد الاتصال. تم إيقاف الطلب المعلق بأمان وسيُعاد التحقق تلقائيًا.";
+  return error;
+}
+
+async function withHardTimeout(promiseFactory, timeoutMs, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(promiseFactory),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(hardTimeoutError(label, timeoutMs)), timeoutMs);
+        timer.unref?.();
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function retryDelay(attempt, baseMs = 500, maxMs = 16000) {
@@ -298,6 +323,37 @@ class PostgresStateAdapter {
     this.mirrorScheduleTimer.unref?.();
   }
 
+  async waitForInteractiveWriteReady({ timeoutMs } = {}) {
+    if (this.connectionState !== "reconnecting") return true;
+    const budgetMs = Math.max(750, Number(timeoutMs || process.env.PG_INTERACTIVE_READY_TIMEOUT_MS || 3000));
+    // If a recovery probe is already running, do not start a financial write on
+    // the same unhealthy pool. Wait only a short bounded window, then fail fast
+    // so the browser can retry the SAME idempotent operation after recovery.
+    if (this.recoveryPromise) {
+      await withHardTimeout(() => this.recoveryPromise, budgetMs, "write-readiness");
+      return true;
+    }
+    try {
+      await withHardTimeout(
+        () => this.pool.query({ text: "SELECT 1", query_timeout: Math.min(1500, budgetMs) }),
+        Math.min(2000, budgetMs),
+        "write-readiness-probe"
+      );
+      this.connectionState = "connected";
+      this.lastConnectedAt = new Date().toISOString();
+      this.lastConnectionError = null;
+      this.consecutiveConnectionFailures = 0;
+      return true;
+    } catch (error) {
+      if (isTransientPostgresError(error)) {
+        error.status = 503;
+        error.code = error.code || "DATABASE_TEMPORARILY_UNAVAILABLE";
+        error.publicMessage = error.publicMessage || "قاعدة البيانات قيد الاستعادة. سيتم إعادة محاولة العملية تلقائيًا.";
+      }
+      throw error;
+    }
+  }
+
   async save(snapshot, options = {}) {
     // Financial state is committed synchronously in one PostgreSQL transaction.
     // The advisory transaction lock serializes writers across multiple Node
@@ -310,9 +366,12 @@ class PostgresStateAdapter {
     const lockTimeoutMs = Math.max(500, Number(process.env.PG_INTERACTIVE_LOCK_TIMEOUT_MS || 2500));
     const statementTimeoutMs = Math.max(lockTimeoutMs + 500, Number(process.env.PG_INTERACTIVE_STATEMENT_TIMEOUT_MS || 6500));
     const clientQueryTimeoutMs = Math.max(statementTimeoutMs + 500, Number(process.env.PG_INTERACTIVE_CLIENT_QUERY_TIMEOUT_MS || 8000));
+    const hardStepTimeoutMs = Math.max(clientQueryTimeoutMs + 500, Number(process.env.PG_INTERACTIVE_HARD_STEP_TIMEOUT_MS || 9000));
     const startedAt = Date.now();
     const payload = JSON.stringify(snapshot);
     let lastError;
+
+    if (interactive) await this.waitForInteractiveWriteReady({ timeoutMs: Number(process.env.PG_INTERACTIVE_READY_TIMEOUT_MS || 3000) });
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       let client;
@@ -321,14 +380,14 @@ class PostgresStateAdapter {
       try {
         client = await this.pool.connect();
         detach = this.attachClientErrorGuard(client, "durable-write-client");
-        await client.query({ text: "BEGIN", query_timeout: clientQueryTimeoutMs });
+        await withHardTimeout(() => client.query({ text: "BEGIN", query_timeout: clientQueryTimeoutMs }), hardStepTimeoutMs, "begin");
         // Bound both advisory-lock waiting and statement execution on the
         // PostgreSQL server. This is the key guard against transactions that
         // stayed Pending in Chrome Network for 30+ seconds.
-        await client.query({
+        await withHardTimeout(() => client.query({
           text: `SET LOCAL lock_timeout = '${lockTimeoutMs}ms'; SET LOCAL statement_timeout = '${statementTimeoutMs}ms'; SET LOCAL idle_in_transaction_session_timeout = '${statementTimeoutMs + 2000}ms'`,
           query_timeout: clientQueryTimeoutMs
-        });
+        }), hardStepTimeoutMs, "transaction-guards");
         // Keep the financial write fully durable, but collapse the advisory
         // lock + app_state upsert + idempotency receipt into ONE PostgreSQL
         // round trip. Previously these were three separate queries between
@@ -339,7 +398,7 @@ class PostgresStateAdapter {
           try { responseJson = JSON.stringify(operationReceipt.result ?? null); } catch {}
         }
         const result = operationReceipt?.key
-          ? await client.query({
+          ? await withHardTimeout(() => client.query({
               text: `WITH lock_row AS (
                  SELECT pg_advisory_xact_lock(hashtext('alaboud:app_state:main')) AS locked
                ), saved AS (
@@ -372,8 +431,8 @@ class PostgresStateAdapter {
                 responseJson
               ],
               query_timeout: clientQueryTimeoutMs
-            })
-          : await client.query({
+            }), hardStepTimeoutMs, "state-write-with-receipt")
+          : await withHardTimeout(() => client.query({
               text: `WITH lock_row AS (
                  SELECT pg_advisory_xact_lock(hashtext('alaboud:app_state:main')) AS locked
                ), saved AS (
@@ -388,8 +447,8 @@ class PostgresStateAdapter {
                SELECT revision FROM saved`,
               values: [payload],
               query_timeout: clientQueryTimeoutMs
-            });
-        await client.query({ text: "COMMIT", query_timeout: clientQueryTimeoutMs });
+            }), hardStepTimeoutMs, "state-write");
+        await withHardTimeout(() => client.query({ text: "COMMIT", query_timeout: clientQueryTimeoutMs }), hardStepTimeoutMs, "commit");
         this.lastCommittedRevision = Number(result.rows?.[0]?.revision || 0);
         this.connectionState = "connected";
         this.lastConnectedAt = new Date().toISOString();
@@ -400,7 +459,12 @@ class PostgresStateAdapter {
       } catch (error) {
         lastError = error;
         attemptError = error;
-        if (client) { try { await client.query("ROLLBACK"); } catch {} }
+        // Never let cleanup keep the HTTP request Pending. When the socket is
+        // already broken (or a hard deadline fired), ROLLBACK itself can wait
+        // forever in node-postgres. Destroy that client in finally instead.
+        if (client && !isTransientPostgresError(error)) {
+          try { await withHardTimeout(() => client.query({ text: "ROLLBACK", query_timeout: 1000 }), 1500, "rollback"); } catch {}
+        }
         if (isTransientPostgresError(error)) {
           this.connectionState = "reconnecting";
           this.lastDisconnectedAt = new Date().toISOString();
