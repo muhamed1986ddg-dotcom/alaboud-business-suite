@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.24 Unified Version Source";
+export const APP_VERSION="v25.14.25 PostgreSQL Pool Leak Fix";

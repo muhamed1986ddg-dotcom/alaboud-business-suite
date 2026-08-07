@@ -174,7 +174,7 @@ class PostgresStateAdapter {
       // Never let a request sit in the pool queue indefinitely. Interactive
       // mutations should either get a usable connection quickly or return a
       // retryable 503 so the idempotency recovery path can take over.
-      connectionTimeoutMillis: Math.max(1000, Number(process.env.PG_CONNECT_TIMEOUT_MS || 4000)),
+      connectionTimeoutMillis: Math.max(3000, Number(process.env.PG_CONNECT_TIMEOUT_MS || 12000)),
       // node-postgres client-side guard. Server-side transaction limits are
       // also applied with SET LOCAL in save() so an advisory lock or query can
       // never leave PATCH/DELETE pending forever.
@@ -437,20 +437,73 @@ class PostgresStateAdapter {
   }
 
   async acquireClient({ timeoutMs = 4500, context = "pool-connect" } = {}) {
+    // Never wrap pool.connect() in Promise.race without cleaning up the late
+    // result. node-postgres cannot cancel pool.connect(); if it resolves after
+    // our HTTP deadline, that PoolClient must be released/destroyed or the pool
+    // is slowly exhausted.
+    const pool = this.pool;
+    if (!pool) {
+      const error = new Error("PostgreSQL pool is not available");
+      error.code = "PG_POOL_UNAVAILABLE";
+      error.status = 503;
+      throw error;
+    }
+
+    const deadlineMs = Math.max(750, Number(timeoutMs));
+    let timer = null;
+    let timedOut = false;
+    let completed = false;
+    const connectPromise = Promise.resolve().then(() => pool.connect());
+
     try {
-      return await withHardTimeout(() => this.pool.connect(), Math.max(750, Number(timeoutMs)), context);
+      return await new Promise((resolve, reject) => {
+        timer = setTimeout(() => {
+          if (completed) return;
+          timedOut = true;
+          completed = true;
+          reject(hardTimeoutError(context, deadlineMs));
+        }, deadlineMs);
+        timer.unref?.();
+
+        connectPromise.then(
+          (client) => {
+            if (timedOut || completed || pool !== this.pool) {
+              // Critical leak guard: a client that arrives after the request
+              // deadline must NEVER remain checked out.
+              try { client?.release?.(true); } catch {}
+              return;
+            }
+            completed = true;
+            if (timer) clearTimeout(timer);
+            resolve(client);
+          },
+          (error) => {
+            if (timedOut || completed) return;
+            completed = true;
+            if (timer) clearTimeout(timer);
+            reject(error);
+          }
+        );
+      });
     } catch (error) {
+      const localAcquireDeadline = error?.code === "PG_CLIENT_HARD_TIMEOUT";
       if (isTransientPostgresError(error)) {
         this.connectionState = "reconnecting";
         this.lastDisconnectedAt = new Date().toISOString();
         this.lastConnectionError = error;
         this.consecutiveConnectionFailures += 1;
-        // Do not await pool recreation here; fail the request quickly and let
-        // recovery continue independently. This prevents an HTTP request from
-        // inheriting a long pool.end()/DNS recovery wait.
-        this.resetPool(`${context}:${error.code || error.message}`).catch(() => undefined);
+
+        // A local wait deadline can mean pool pressure, not a dead database.
+        // Recreating the pool on that signal caused cascading 503s. Only real
+        // socket/DNS/PostgreSQL errors recreate it.
+        if (!localAcquireDeadline) {
+          this.resetPool(`${context}:${error.code || error.message}`).catch(() => undefined);
+        }
       }
       throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (timedOut) connectPromise.catch(() => undefined);
     }
   }
 
@@ -511,7 +564,7 @@ class PostgresStateAdapter {
       let attemptError = null;
       let detach = () => {};
       try {
-        client = await this.acquireClient({ timeoutMs: Number(process.env.PG_INTERACTIVE_ACQUIRE_TIMEOUT_MS || 4000), context: "durable-write-connect" });
+        client = await this.acquireClient({ timeoutMs: Number(process.env.PG_INTERACTIVE_ACQUIRE_TIMEOUT_MS || 6000), context: "durable-write-connect" });
         detach = this.attachClientErrorGuard(client, "durable-write-client");
         await runClientStep(client, { text: "BEGIN", query_timeout: clientQueryTimeoutMs }, hardStepTimeoutMs, "begin");
         // Bound both advisory-lock waiting and statement execution on the
