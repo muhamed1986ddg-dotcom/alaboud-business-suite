@@ -260,7 +260,7 @@ app.get("/api/operations/:key/status", auth, async (req,res)=>{
   const operationKey=String(req.params.key||"").trim();
   if(!operationKey||operationKey.length>200)return res.status(400).json({message:"معرّف العملية غير صالح"});
   const query=getDatabaseQuery();
-  if(!query)return res.status(503).json({code:"DATABASE_TEMPORARILY_UNAVAILABLE",retryable:true,message:"قاعدة البيانات قيد الاستعادة. تتم إعادة التحقق تلقائيًا."});
+  if(!query){res.set("Retry-After","2");return res.status(503).json({code:"DATABASE_TEMPORARILY_UNAVAILABLE",retryable:true,message:"قاعدة البيانات غير جاهزة للتحقق الآن."});}
   try{
     const result=await query(
       `SELECT operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at
@@ -268,7 +268,7 @@ app.get("/api/operations/:key/status", auth, async (req,res)=>{
         WHERE operation_key=$1
         LIMIT 1`,
       [operationKey],
-      { operation:"operation-status",attempts:1,queryTimeoutMs:2500,recoveryBudgetMs:2500 }
+      { operation:"operation-status",attempts:1,queryTimeoutMs:1200,recoveryBudgetMs:1200 }
     );
     const receipt=result.rows?.[0];
     if(!receipt)return res.json({operationKey,status:"UNKNOWN",committed:false});
@@ -285,7 +285,7 @@ app.get("/api/operations/:key/status", auth, async (req,res)=>{
     });
   }catch(error){
     if(isTransientDatabaseError(error)||String(error?.code||"").startsWith("08")||String(error?.code||"")==="57P03"){
-      return res.status(503).json({code:"DATABASE_TEMPORARILY_UNAVAILABLE",retryable:true,message:"قاعدة البيانات قيد الاستعادة. تتم إعادة التحقق تلقائيًا."});
+      res.set("Retry-After","2"); return res.status(503).json({code:"DATABASE_TEMPORARILY_UNAVAILABLE",retryable:true,message:"قاعدة البيانات غير جاهزة للتحقق الآن."});
     }
     throw error;
   }
@@ -2265,7 +2265,7 @@ app.patch("/api/transactions/:id", auth, async (req,res)=>{
       return res.status(503).json({
         code:"DATABASE_TEMPORARILY_UNAVAILABLE",
         retryable:true,
-        message:error?.publicMessage||"تعذر تأكيد التعديل الآن بسبب اتصال قاعدة البيانات. تتم إعادة التحقق تلقائيًا."
+        message:error?.publicMessage||"تعذر تنفيذ التعديل الآن لأن قاعدة البيانات غير جاهزة. لم يتم تأكيد أي تغيير."
       });
     }
     res.status(400).json({message:error.message||"تعذر تعديل الحوالة"});
@@ -2301,7 +2301,7 @@ app.delete("/api/transactions/:id", auth, async (req,res)=>{
       return res.status(503).json({
         code:"DATABASE_TEMPORARILY_UNAVAILABLE",
         retryable:true,
-        message:error?.publicMessage||"تعذر تأكيد الحذف الآن بسبب اتصال قاعدة البيانات. تتم إعادة التحقق تلقائيًا."
+        message:error?.publicMessage||"تعذر تنفيذ الحذف الآن لأن قاعدة البيانات غير جاهزة. لم يتم تأكيد أي تغيير."
       });
     }
     res.status(error?.statusCode||error?.status||500).json({message:error?.message||"تعذر حذف الحوالة"});
