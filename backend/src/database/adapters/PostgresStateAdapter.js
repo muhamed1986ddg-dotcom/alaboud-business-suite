@@ -364,41 +364,74 @@ class PostgresStateAdapter {
 
   queueRelationalMirror(snapshot, { immutableSnapshot = false } = {}) {
     if (!this.relationalMirrorEnabled) return;
-    // The JSONB app_state row is the durable source of truth. Relational tables
-    // are only a reporting/search mirror. Coalesce bursts of interactive writes
-    // so add/edit/delete operations do not immediately compete with a full mirror
-    // projection for PostgreSQL connections and CPU.
+    // app_state is the durable source of truth. The relational projection is
+    // background reporting infrastructure and must not compete with a user's
+    // next edit/delete. Debounce it after the LAST successful write instead of
+    // starting shortly after the first add.
     this.mirrorPendingSnapshot = immutableSnapshot ? snapshot : structuredClone(snapshot);
-    if (this.mirrorRunning || this.mirrorScheduleTimer) return;
-    const delayMs = Math.max(0, Number(process.env.RELATIONAL_MIRROR_DELAY_MS || 1500));
+
+    if (this.mirrorScheduleTimer) {
+      clearTimeout(this.mirrorScheduleTimer);
+      this.mirrorScheduleTimer = null;
+    }
+
+    const delayMs = Math.max(10000, Number(process.env.RELATIONAL_MIRROR_DELAY_MS || 30000));
     this.mirrorScheduleTimer = setTimeout(() => {
       this.mirrorScheduleTimer = null;
       if (this.mirrorRunning || !this.mirrorPendingSnapshot) return;
+
+      // If another request is already waiting for a PostgreSQL connection,
+      // yield to the interactive request and try the mirror later.
+      if (Number(this.pool?.waitingCount || 0) > 0) {
+        const latest = this.mirrorPendingSnapshot;
+        this.mirrorPendingSnapshot = null;
+        this.queueRelationalMirror(latest, { immutableSnapshot: true });
+        return;
+      }
+
       this.mirrorRunning = true;
       this.mirrorPromise = (async () => {
-        while (this.mirrorPendingSnapshot) {
-          const next = this.mirrorPendingSnapshot;
-          this.mirrorPendingSnapshot = null;
-          let client;
-          let detach = () => {};
-          try {
-            client = await this.acquireClient({ timeoutMs: Number(process.env.PG_MIRROR_CONNECT_TIMEOUT_MS || 3500), context: "mirror-connect" });
-            detach = this.attachClientErrorGuard(client, "mirror-client");
-            await runClientStep(client, { text: "BEGIN", query_timeout: 2500 }, 3000, "mirror-begin");
-            await runClientStep(client, { text: "SET LOCAL statement_timeout = '8000ms'; SET LOCAL lock_timeout = '2500ms'", query_timeout: 3000 }, 3500, "mirror-guards");
-            await runClientTask(client, () => this.projector.project(client, next), 9000, "mirror-project");
-            await runClientStep(client, { text: "COMMIT", query_timeout: 2500 }, 3000, "mirror-commit");
-            this.lastMirrorError = null;
-          } catch (error) {
-            this.lastMirrorError = error;
-            if (client && !isTransientPostgresError(error)) { try { await runClientStep(client, { text: "ROLLBACK", query_timeout: 1000 }, 1500, "mirror-rollback"); } catch {} }
-            this.logger.warn(`Relational mirror deferred: ${error?.code || error?.message || error}`);
-          } finally {
-            try { detach(); } catch {}
-            if (client) { try { client.release(Boolean(this.lastMirrorError)); } catch {} }
+        const next = this.mirrorPendingSnapshot;
+        this.mirrorPendingSnapshot = null;
+        let client;
+        let detach = () => {};
+        let mirrorError = null;
+        try {
+          client = await this.acquireClient({
+            timeoutMs: Number(process.env.PG_MIRROR_CONNECT_TIMEOUT_MS || 2000),
+            context: "mirror-connect"
+          });
+          detach = this.attachClientErrorGuard(client, "mirror-client");
+          await runClientStep(client, { text: "BEGIN", query_timeout: 1500 }, 1800, "mirror-begin");
+          await runClientStep(client, {
+            text: "SET LOCAL statement_timeout = '4500ms'; SET LOCAL lock_timeout = '900ms'",
+            query_timeout: 1500
+          }, 1800, "mirror-guards");
+          await runClientTask(client, () => this.projector.project(client, next), 5000, "mirror-project");
+          await runClientStep(client, { text: "COMMIT", query_timeout: 1500 }, 1800, "mirror-commit");
+          this.lastMirrorError = null;
+        } catch (error) {
+          mirrorError = error;
+          this.lastMirrorError = error;
+          if (client && !isTransientPostgresError(error)) {
+            try { await runClientStep(client, { text: "ROLLBACK", query_timeout: 600 }, 800, "mirror-rollback"); } catch {}
           }
+          // Preserve the newest state for the next quiet period, but never retry
+          // immediately and compete again with edit/delete.
+          if (!this.mirrorPendingSnapshot) this.mirrorPendingSnapshot = next;
+          this.logger.warn(`Relational mirror deferred: ${error?.code || error?.message || error}`);
+        } finally {
+          try { detach(); } catch {}
+          if (client) { try { client.release(Boolean(mirrorError)); } catch {} }
         }
-      })().finally(() => { this.mirrorRunning = false; });
+      })().finally(() => {
+        this.mirrorRunning = false;
+        if (this.mirrorPendingSnapshot && !this.mirrorScheduleTimer) {
+          const latest = this.mirrorPendingSnapshot;
+          this.mirrorPendingSnapshot = null;
+          this.queueRelationalMirror(latest, { immutableSnapshot: true });
+        }
+      });
     }, delayMs);
     this.mirrorScheduleTimer.unref?.();
   }
