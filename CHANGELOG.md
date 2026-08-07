@@ -1,3 +1,12 @@
+## v25.14.27 — Write Path Stability
+
+- فصل /health بالكامل عن قرارات إعادة إنشاء PostgreSQL Pool.
+- health لم يعد يستطيع قطع Pool أثناء إضافة/تعديل/حذف.
+- تقليل probing إلى مرة كل 15 ثانية، وعدم probing عند وجود طلبات تنتظر Pool.
+- إزالة write-readiness gate المعتمدة على connectionState القديمة.
+- عملية الحفظ نفسها (acquire/BEGIN/COMMIT) أصبحت المصدر الوحيد لتقرير جاهزية الكتابة.
+- لا تغيير في الحسابات المالية أو البيانات.
+
 ## v25.14.26 — Reliable Soft Delete
 
 - تحويل حذف الحوالة من HTTP DELETE إلى PATCH soft-delete في الواجهة.

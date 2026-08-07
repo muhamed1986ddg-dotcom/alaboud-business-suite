@@ -1,0 +1,14 @@
+const fs=require("fs"),path=require("path"),assert=require("assert");
+const s=fs.readFileSync(path.join(__dirname,"database/adapters/PostgresStateAdapter.js"),"utf8");
+const hs=s.indexOf("async health()");
+const he=s.indexOf("async close()",hs);
+const health=s.slice(hs,he);
+const ss=s.indexOf("async save(");
+const se=s.indexOf("async query(",ss);
+const save=s.slice(ss,se);
+assert(!health.includes("resetPool("),"health must not reset/recreate PostgreSQL pool");
+assert(health.includes("PG_HEALTH_PROBE_INTERVAL_MS || 15000"));
+assert(health.includes("pool?.waitingCount"));
+assert(!save.includes("await this.waitForInteractiveWriteReady"));
+assert(save.includes('context: "durable-write-connect"'));
+console.log("health/write isolation v25.14.27: OK");

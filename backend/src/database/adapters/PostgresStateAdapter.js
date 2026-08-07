@@ -153,6 +153,7 @@ class PostgresStateAdapter {
     this.poolResetPromise = null;
     this.recoveryPromise = null;
     this.healthProbePromise = null;
+    this.lastHealthProbeAt = 0;
     this.connectionState = "connecting";
     this.lastConnectedAt = null;
     this.lastDisconnectedAt = null;
@@ -557,8 +558,9 @@ class PostgresStateAdapter {
     const payload = JSON.stringify(snapshot);
     let lastError;
 
-    if (interactive) await this.waitForInteractiveWriteReady({ timeoutMs: Number(process.env.PG_INTERACTIVE_READY_TIMEOUT_MS || 3000) });
-
+    // The write itself is the authoritative readiness check. Do not block
+    // financial writes on a cached reconnecting flag or a background recovery
+    // promise that may already be stale.
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       let client;
       let attemptError = null;
@@ -704,38 +706,55 @@ class PostgresStateAdapter {
   }
 
   async health() {
-    // Health must never wait behind a broken PostgreSQL socket. Return the
-    // adapter's live connection state synchronously and run a tiny probe in
-    // the background. Chrome /api/health therefore remains responsive even
-    // while a financial write is being recovered.
+    // Observational only: /health must never reset/recreate the PostgreSQL pool.
+    // The frontend polls this endpoint while add/edit/delete are running. A
+    // short health-probe timeout used to reset the same pool used by the write,
+    // producing transactions=503 while health itself still returned 200.
     const pool = this.pool;
     const knownConnected = this.connectionState === "connected";
-    if (pool && !this.healthProbePromise) {
+    const nowMs = Date.now();
+    const minProbeIntervalMs = Math.max(5000, Number(process.env.PG_HEALTH_PROBE_INTERVAL_MS || 15000));
+    const poolBusy = Number(pool?.waitingCount || 0) > 0;
+
+    if (
+      pool &&
+      !poolBusy &&
+      !this.healthProbePromise &&
+      (!this.lastHealthProbeAt || nowMs - this.lastHealthProbeAt >= minProbeIntervalMs)
+    ) {
+      this.lastHealthProbeAt = nowMs;
       this.healthProbePromise = (async () => {
         let client;
         let probeError = null;
         try {
-          client = await this.acquireClient({ timeoutMs: 1000, context: "health-probe-connect" });
-          await runClientStep(client, { text: "SELECT 1", query_timeout: 700 }, 900, "health-probe");
+          client = await this.acquireClient({
+            timeoutMs: Number(process.env.PG_HEALTH_ACQUIRE_TIMEOUT_MS || 2500),
+            context: "health-probe-connect"
+          });
+          await runClientStep(client, { text: "SELECT 1", query_timeout: 1200 }, 1600, "health-probe");
+          return true;
         } catch (error) {
           probeError = error;
-          throw error;
+          return false;
         } finally {
-          if (client) { try { client.release(Boolean(probeError)); } catch {} }
+          if (client) {
+            try { client.release(Boolean(probeError)); } catch {}
+          }
         }
-      })().then(() => {
-        this.connectionState = "connected";
-        this.lastConnectedAt = new Date().toISOString();
-        this.lastConnectionError = null;
-        this.consecutiveConnectionFailures = 0;
-      }).catch((error) => {
-        this.connectionState = "reconnecting";
-        this.lastDisconnectedAt = new Date().toISOString();
-        this.lastConnectionError = error;
-        this.consecutiveConnectionFailures += 1;
-        if (isTransientPostgresError(error)) this.resetPool(`health-probe:${error.code || error.message}`).catch(() => undefined);
-      }).finally(() => { this.healthProbePromise = null; });
+      })().then((ok) => {
+        if (ok) {
+          this.connectionState = "connected";
+          this.lastConnectedAt = new Date().toISOString();
+          this.lastConnectionError = null;
+          this.consecutiveConnectionFailures = 0;
+        }
+        // Failed health probes are telemetry only. They do NOT change the pool,
+        // do NOT mark reconnecting, and do NOT interfere with financial writes.
+      }).finally(() => {
+        this.healthProbePromise = null;
+      });
     }
+
     return {
       ok: knownConnected,
       mode: this.mode,
