@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useState}from"react";
-import {cachedGet} from"../api";
+import api,{cachedGet} from"../api";
 import {money} from"../shared";
 import {AppButton,AppCard,AppInput,AppLoader,AppStatCard,AppTable,AppToolbar} from"../components/ui";
 
@@ -11,6 +11,12 @@ function ReportsProfits(){
   const [monthly,setMonthly]=useState(null);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
+  const [inventory,setInventory]=useState(null);
+  const [inventoryDay,setInventoryDay]=useState(20);
+  const [vaultCash,setVaultCash]=useState("");
+  const [inventoryNotes,setInventoryNotes]=useState("");
+  const [inventoryBusy,setInventoryBusy]=useState(false);
+  const [inventoryNotice,setInventoryNotice]=useState("");
 
   async function loadProfits(){
     setLoading(true);setError("");
@@ -25,8 +31,30 @@ function ReportsProfits(){
     finally{setLoading(false);}
   }
 
+
+  async function loadInventory(){
+    setInventoryBusy(true);setError("");
+    try{const response=await cachedGet("/monthly-inventory");setInventory(response.data);setInventoryDay(response.data?.scheduleDay||20);}
+    catch(requestError){setError(requestError.response?.data?.message||"تعذر تحميل الجرد الشهري");}
+    finally{setInventoryBusy(false);}
+  }
+  async function saveInventoryDay(){
+    setInventoryBusy(true);setError("");setInventoryNotice("");
+    try{const response=await api.patch("/monthly-inventory/settings",{day:Number(inventoryDay)});setInventoryNotice(response.data?.message||"تم حفظ يوم الجرد");await loadInventory();}
+    catch(requestError){setError(requestError.response?.data?.message||"تعذر حفظ يوم الجرد");}
+    finally{setInventoryBusy(false);}
+  }
+  async function closeInventory(){
+    if(vaultCash===""||!Number.isFinite(Number(vaultCash))||Number(vaultCash)<0){setError("أدخل قيمة الكاش في الخزنة أولًا");return;}
+    if(!window.confirm("سيتم تثبيت أرقام الجرد لهذا الشهر ولن تتغير لاحقًا. هل تريد المتابعة؟"))return;
+    setInventoryBusy(true);setError("");setInventoryNotice("");
+    try{const response=await api.post("/monthly-inventory/close",{vaultCash:Number(vaultCash),notes:inventoryNotes});setInventoryNotice(response.data?.message||"تم تثبيت الجرد");setVaultCash("");setInventoryNotes("");await loadInventory();}
+    catch(requestError){setError(requestError.response?.data?.message||"تعذر تثبيت الجرد الشهري");}
+    finally{setInventoryBusy(false);}
+  }
+
   useEffect(()=>{loadProfits();},[]);
-  useEffect(()=>{if(activeTab==="monthly"&&!monthly)loadMonthly();},[activeTab]);
+  useEffect(()=>{if(activeTab==="monthly"&&!monthly)loadMonthly();if(activeTab==="inventory"&&!inventory)loadInventory();},[activeTab]);
 
   const summary=monthly?.summary||{};
   const overview={
@@ -62,6 +90,7 @@ function ReportsProfits(){
     <AppToolbar className="no-print" actions={<AppButton onClick={()=>window.print()}>🖨️ طباعة</AppButton>}>
       <AppButton variant={activeTab==="summary"?"primary":"secondary"} onClick={()=>setActiveTab("summary")}>📈 ملخص الأرباح</AppButton>
       <AppButton variant={activeTab==="monthly"?"primary":"secondary"} onClick={()=>setActiveTab("monthly")}>📅 التقرير الشهري</AppButton>
+      <AppButton variant={activeTab==="inventory"?"primary":"secondary"} onClick={()=>setActiveTab("inventory")}>📦 الجرد الشهري</AppButton>
     </AppToolbar>
 
     {error&&<AppCard className="customer-error">{error}</AppCard>}
@@ -117,6 +146,59 @@ function ReportsProfits(){
         <AppCard title="الحركة اليومية خلال الشهر"><AppTable columns={dailyColumns} rows={monthly.daily||[]} rowKey="date" emptyText="لا توجد حوالات في هذا الشهر."/></AppCard>
       </>}
     </>}
+
+
+    {activeTab==="inventory"&&<>
+      {inventory?.alert&&<AppCard className={`inventory-alert inventory-alert--${String(inventory.alert.status||"").toLowerCase()}`} title="تنبيه الجرد الشهري">
+        <div className="inventory-alert-line"><strong>{inventory.alert.message}</strong><span>اليوم المحدد: {inventory.alert.day} من كل شهر</span></div>
+      </AppCard>}
+
+      <AppCard className="no-print" title="موعد الجرد الشهري">
+        <div className="ui-form-grid inventory-settings-grid">
+          <AppInput label="يوم الجرد" type="number" min="1" max="28" value={inventoryDay} onChange={event=>setInventoryDay(event.target.value)}/>
+          <AppButton variant="secondary" busy={inventoryBusy} onClick={saveInventoryDay}>حفظ يوم الجرد</AppButton>
+        </div>
+        <small>سيظهر تنبيه قبل الموعد بيوم، ويوم الجرد، وبعد التأخير حتى يتم تثبيت جرد الشهر.</small>
+      </AppCard>
+
+      {inventoryBusy&&!inventory?<AppLoader label="جاري تحميل الجرد..."/>:inventory&&<>
+        <AppCard title={`جرد ${inventory.alert?.month||new Date().toISOString().slice(0,7)}`}>
+          <div className="inventory-breakdown">
+            <div><span>إجمالي النقد</span><strong>{money(inventory.current?.totalCash)}</strong></div>
+            <div><span>+ أرصدة الشركات</span><strong>{money(inventory.current?.companyBalances)}</strong></div>
+            <div><span>+ ديون العملاء لنا</span><strong>{money(inventory.current?.customerReceivable)}</strong></div>
+            <div><span>+ ديون الشركات لنا</span><strong>{money(inventory.current?.companyReceivable)}</strong></div>
+            <div><span>- الديون علينا</span><strong>{money(inventory.current?.debtsPayable)}</strong></div>
+            <div className="inventory-vault-input"><span>+ الكاش في الخزنة</span><AppInput type="number" min="0" step="0.01" value={vaultCash} onChange={event=>setVaultCash(event.target.value)} placeholder="أدخل قيمة الكاش يدويًا"/></div>
+            <div className="inventory-final"><span>= قيمة الجرد النهائية</span><strong>{money(Number(inventory.current?.finalValue||0)+Number(vaultCash||0))}</strong></div>
+          </div>
+          <div className="inventory-notes"><AppInput label="ملاحظات الجرد (اختياري)" value={inventoryNotes} onChange={event=>setInventoryNotes(event.target.value)} placeholder="أي ملاحظة على الكاش أو الجرد"/></div>
+          {inventory.current?.missingRates?.length>0&&<p className="customer-error">ينقص سعر تحويل: {inventory.current.missingRates.join("، ")}</p>}
+          <AppButton variant="primary" busy={inventoryBusy} disabled={inventory.alert?.status==="DONE"} onClick={closeInventory}>{inventory.alert?.status==="DONE"?"✅ تم تثبيت جرد هذا الشهر":"📌 تثبيت جرد الشهر"}</AppButton>
+          {inventoryNotice&&<p className="customer-success">{inventoryNotice}</p>}
+        </AppCard>
+
+        <AppCard title="أرشيف الجرد الشهري">
+          <div className="inventory-history">
+            {(inventory.rows||[]).length?(inventory.rows||[]).map((row,index)=>{
+              const previous=(inventory.rows||[])[index+1];
+              const diff=previous?Number(row.finalValue||0)-Number(previous.finalValue||0):null;
+              return <article className="transaction-mobile-card inventory-history-card" key={row.id||row.month}>
+                <header className="transaction-mobile-card__head"><div><strong>{row.month}</strong><small>{row.inventoryDate||row.fixedAt?.slice?.(0,10)||""}</small></div><b>{money(row.finalValue)}</b></header>
+                <div className="transaction-mobile-card__grid">
+                  <div><span>إجمالي النقد</span><strong>{money(row.totalCash)}</strong></div><div><span>أرصدة الشركات</span><strong>{money(row.companyBalances)}</strong></div>
+                  <div><span>ديون العملاء لنا</span><strong>{money(row.customerReceivable)}</strong></div><div><span>ديون الشركات لنا</span><strong>{money(row.companyReceivable)}</strong></div>
+                  <div><span>الديون علينا</span><strong>{money(row.debtsPayable)}</strong></div><div><span>الكاش في الخزنة</span><strong>{money(row.vaultCash)}</strong></div>
+                  {diff!==null&&<div className="transaction-mobile-card__total"><span>الفرق عن الشهر السابق</span><strong className={diff<0?"value-negative":"value-positive"}>{diff>=0?"+":""}{money(diff)}</strong></div>}
+                </div>
+                {row.notes&&<p className="inventory-row-notes">{row.notes}</p>}
+              </article>;
+            }):<div className="transaction-mobile-empty">لا يوجد جرد شهري مثبت حتى الآن.</div>}
+          </div>
+        </AppCard>
+      </>}
+    </>}
+
   </div>;
 }
 

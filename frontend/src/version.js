@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.5 Mobile Expenses & Profits Cards";
+export const APP_VERSION="v25.14.6 Monthly Inventory & Reminder";

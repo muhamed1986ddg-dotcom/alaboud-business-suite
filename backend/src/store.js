@@ -19,13 +19,13 @@ if(isProduction && !databaseUrl){
   throw new Error("DATABASE_URL is required in production; JSON fallback is disabled to protect persistent data");
 }
 
-const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","apiKeys","webhooks","integrationLogs"];
+const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","apiKeys","webhooks","integrationLogs","monthlyInventories"];
 const emptyStore = () => ({
   companies: [], branches: [], users: [], customers: [], transactions: [], payments: [], expenses: [],
   capitalMovements: [], exchangeRates: [], generalDebts: [], generalDebtPayments: [],
   partners: [], partnerTransactions: [], partnerPayments: [], partnerSyncLogs: [],
   notificationSettings: { overdueDays: 7, lowCashLimit: 5000, whatsappTemplate: "" },
-  companySettings: {}, notificationActions: [], auditLogs: [], devices: [], apiKeys: [], webhooks: [], integrationLogs: []
+  companySettings: {}, notificationActions: [], auditLogs: [], devices: [], apiKeys: [], webhooks: [], integrationLogs: [], monthlyInventories: []
 });
 
 function normalizeStore(store){

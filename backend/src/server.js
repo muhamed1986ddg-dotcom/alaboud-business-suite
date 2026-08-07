@@ -206,7 +206,7 @@ async function seedAdmin(){
       admin.companyId=company.id;
     }
 
-    const tenantArrays=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","sessions"];
+    const tenantArrays=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","sessions","monthlyInventories"];
     for(const key of tenantArrays){
       for(const item of store[key]||[]){
         if(item&&!item.companyId)item.companyId=company.id;
@@ -1407,6 +1407,137 @@ app.get("/api/capital-overview", auth, (req,res)=>{
     generalPayable:+generalPayable.toFixed(2),
     turnoverRate:+turnoverRate.toFixed(3)
   });
+});
+
+
+function inventoryLocalDate(settings={}){
+  const timeZone=String(settings.timeZone||"America/Toronto");
+  try{
+    const parts=new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+    const values=Object.fromEntries(parts.map(part=>[part.type,part.value]));
+    return {date:`${values.year}-${values.month}-${values.day}`,year:Number(values.year),month:Number(values.month),day:Number(values.day),timeZone};
+  }catch(_error){
+    const date=new Date();
+    return {date:date.toISOString().slice(0,10),year:date.getUTCFullYear(),month:date.getUTCMonth()+1,day:date.getUTCDate(),timeZone:"UTC"};
+  }
+}
+
+function monthlyInventoryDraft(store,{vaultCash=0}={}){
+  const missingRates=new Set();
+  const toCad=(amount,currency="CAD")=>{
+    const normalized=String(currency||"CAD").toUpperCase();
+    if(normalized==="CAD")return safeNumber(amount);
+    const conversion=currencyConversion(store,normalized,"CAD");
+    if(!conversion){missingRates.add(normalized);return 0;}
+    return safeNumber(amount)*conversion.factor;
+  };
+
+  const totalCash=(Array.isArray(store.capitalMovements)?store.capitalMovements:[])
+    .filter(item=>item&&!item.isDeleted)
+    .reduce((sum,item)=>sum+(item.type==="IN"?capitalCadAmount(store,item):-capitalCadAmount(store,item)),0);
+
+  const customerReceivable=FinancialEngine.customerDebtSummary(store).totalDebtCad;
+  const partners=Array.isArray(store.partners)?store.partners:[];
+  const partnerTransactions=(Array.isArray(store.partnerTransactions)?store.partnerTransactions:[]).filter(item=>item&&!item.isDeleted);
+  const partnerPayments=(Array.isArray(store.partnerPayments)?store.partnerPayments:[]).filter(item=>item&&!item.isDeleted);
+  let companyReceivable=0;
+  let companyPayable=0;
+  let companyBalances=0;
+
+  for(const partner of partners){
+    const txs=partnerTransactions.filter(item=>item.partnerId===partner.id);
+    const pays=partnerPayments.filter(item=>item.partnerId===partner.id);
+    const currencies=new Set([...txs.map(item=>String(item.currency||"CAD").toUpperCase()),...pays.map(item=>String(item.currency||"CAD").toUpperCase())]);
+    for(const currency of currencies){
+      const receivable=txs.filter(item=>item.type==="RECEIVABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      const payable=txs.filter(item=>item.type==="PAYABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      const received=pays.filter(item=>item.direction==="RECEIVED"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      const paid=pays.filter(item=>item.direction==="PAID"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      companyReceivable+=toCad(Math.max(receivable-received,0),currency);
+      companyPayable+=toCad(Math.max(payable-paid,0),currency);
+    }
+
+    const multi=partner.externalBalances&&typeof partner.externalBalances==="object"?partner.externalBalances:null;
+    const entries=multi?Object.entries(multi).filter(([currency,value])=>currency&&value&&typeof value==="object"):[];
+    if(entries.length){
+      for(const [currency,value] of entries){
+        const net=safeNumber(value.balance??(safeNumber(value.receivable)-safeNumber(value.payable)));
+        companyBalances+=toCad(net,currency);
+      }
+    }else{
+      const currency=String(partner.accountCurrency||"USD").toUpperCase();
+      const explicit=Number(partner.externalBalance);
+      const net=Number.isFinite(explicit)?explicit:(safeNumber(partner.externalReceivable)-safeNumber(partner.externalPayable));
+      companyBalances+=toCad(net,currency);
+    }
+  }
+
+  const generalDebts=(Array.isArray(store.generalDebts)?store.generalDebts:[]).filter(item=>item&&!item.isDeleted&&item.type==="PAYABLE");
+  const debtPayments=(Array.isArray(store.generalDebtPayments)?store.generalDebtPayments:[]).filter(item=>item&&!item.isDeleted);
+  const paidByDebt=new Map();
+  for(const payment of debtPayments)paidByDebt.set(payment.debtId,(paidByDebt.get(payment.debtId)||0)+safeNumber(payment.amount));
+  let generalPayable=0;
+  for(const debt of generalDebts){
+    const remaining=Math.max(safeNumber(debt.amount)-safeNumber(paidByDebt.get(debt.id)),0);
+    generalPayable+=toCad(remaining,debt.currency||"CAD");
+  }
+  const debtsPayable=companyPayable+generalPayable;
+  const normalizedVault=Math.max(0,safeNumber(vaultCash));
+  const finalValue=totalCash+companyBalances+customerReceivable+companyReceivable-debtsPayable+normalizedVault;
+  const round=value=>+safeNumber(value).toFixed(2);
+  return {
+    currency:"CAD",totalCash:round(totalCash),companyBalances:round(companyBalances),customerReceivable:round(customerReceivable),
+    companyReceivable:round(companyReceivable),debtsPayable:round(debtsPayable),vaultCash:round(normalizedVault),finalValue:round(finalValue),
+    missingRates:[...missingRates]
+  };
+}
+
+function inventoryAlert(store){
+  const settings=store.notificationSettings||{};
+  const scheduleDay=Math.max(1,Math.min(28,Math.trunc(safeNumber(settings.inventoryDay,20)||20)));
+  const local=inventoryLocalDate(settings);
+  const month=`${local.year}-${String(local.month).padStart(2,"0")}`;
+  const closed=(Array.isArray(store.monthlyInventories)?store.monthlyInventories:[]).some(item=>item&&item.month===month&&!item.isDeleted);
+  if(closed)return {status:"DONE",day:scheduleDay,month,message:"تم إنجاز جرد هذا الشهر"};
+  const delta=local.day-scheduleDay;
+  if(delta===-1)return {status:"TOMORROW",day:scheduleDay,month,message:"غدًا موعد الجرد الشهري"};
+  if(delta===0)return {status:"DUE",day:scheduleDay,month,message:"اليوم موعد الجرد الشهري — لم يتم تثبيت الجرد بعد"};
+  if(delta>0)return {status:"OVERDUE",day:scheduleDay,month,daysLate:delta,message:`الجرد الشهري متأخر منذ ${delta} ${delta===1?"يوم":"أيام"}`};
+  return {status:"UPCOMING",day:scheduleDay,month,daysUntil:-delta,message:`موعد الجرد القادم يوم ${scheduleDay} من الشهر`};
+}
+
+app.get("/api/monthly-inventory", auth, (req,res)=>{
+  const store=readStore();
+  const settings=store.notificationSettings||{};
+  const scheduleDay=Math.max(1,Math.min(28,Math.trunc(safeNumber(settings.inventoryDay,20)||20)));
+  const rows=Array.from(store.monthlyInventories||[]).filter(item=>item&&!item.isDeleted).sort((a,b)=>String(b.month).localeCompare(String(a.month)));
+  const current=monthlyInventoryDraft(store,{vaultCash:0});
+  res.json({scheduleDay,alert:inventoryAlert(store),current,rows});
+});
+
+app.patch("/api/monthly-inventory/settings", auth, async (req,res)=>{
+  const day=Math.trunc(safeNumber(req.body?.day));
+  if(day<1||day>28)return res.status(400).json({message:"يوم الجرد يجب أن يكون بين 1 و28"});
+  await mutateDurable(store=>{store.notificationSettings={...(store.notificationSettings||{}),inventoryDay:day};audit(store,req.user.id,"UPDATE","MONTHLY_INVENTORY_SETTINGS",String(day),{day});});
+  res.json({message:"تم حفظ يوم الجرد الشهري",day});
+});
+
+app.post("/api/monthly-inventory/close", auth, async (req,res)=>{
+  const vaultCash=safeNumber(req.body?.vaultCash);
+  if(vaultCash<0)return res.status(400).json({message:"قيمة الكاش في الخزنة لا يمكن أن تكون سالبة"});
+  const result=await mutateDurable(store=>{
+    const local=inventoryLocalDate(store.notificationSettings||{});
+    const month=`${local.year}-${String(local.month).padStart(2,"0")}`;
+    const existing=(store.monthlyInventories||[]).find(item=>item&&item.month===month&&!item.isDeleted);
+    if(existing){const error=new Error("تم تثبيت جرد هذا الشهر مسبقًا");error.statusCode=409;throw error;}
+    const draft=monthlyInventoryDraft(store,{vaultCash});
+    if(draft.missingRates.length){const error=new Error(`لا يمكن تثبيت الجرد قبل إضافة أسعار تحويل العملات: ${draft.missingRates.join(", ")}`);error.statusCode=400;throw error;}
+    const item={id:id(),month,inventoryDate:local.date,scheduleDay:Math.max(1,Math.min(28,Math.trunc(safeNumber(store.notificationSettings?.inventoryDay,20)||20))),...draft,notes:String(req.body?.notes||"").trim().slice(0,1000),fixedAt:now(),fixedBy:req.user.id,fixedByName:req.user.name||"",createdAt:now()};
+    store.monthlyInventories.push(item);
+    audit(store,req.user.id,"CREATE","MONTHLY_INVENTORY",item.id,{month,finalValue:item.finalValue,vaultCash:item.vaultCash});
+    return item;
+  });
+  res.status(201).json({message:"تم تثبيت جرد الشهر بنجاح",inventory:result});
 });
 
 app.get("/api/monthly-report", auth, (req,res)=>{
@@ -5515,7 +5646,7 @@ if (!fs.existsSync(indexFile)) {
 }
 
 
-const BACKUP_ARRAYS=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions"];
+const BACKUP_ARRAYS=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","monthlyInventories"];
 
 app.get("/api/backup", auth, requirePermission("admin.only"), (req,res)=>{
   const store=readStore();

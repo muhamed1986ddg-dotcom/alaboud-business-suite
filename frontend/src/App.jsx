@@ -223,6 +223,17 @@ export default function App(){
   },[token]);
 
   useEffect(()=>{
+    if(!token)return;
+    const refreshInventoryAlert=()=>cachedGet("/monthly-inventory").then(({data})=>{
+      const alert=data?.alert||null;
+      setInventoryAlert(alert&&["TOMORROW","DUE","OVERDUE"].includes(alert.status)?alert:null);
+    }).catch(()=>{});
+    refreshInventoryAlert();
+    const timer=setInterval(refreshInventoryAlert,60*60*1000);
+    return()=>clearInterval(timer);
+  },[token,activeBranchId]);
+
+  useEffect(()=>{
     const handleAuthExpired=()=>setToken(null);
     window.addEventListener("alaboud-auth-expired",handleAuthExpired);
     return()=>window.removeEventListener("alaboud-auth-expired",handleAuthExpired);
@@ -236,6 +247,7 @@ export default function App(){
   const [overdueCount,setOverdueCount]=useState(0);
   const [logoutConfirm,setLogoutConfirm]=useState(false);
   const [saveToast,setSaveToast]=useState(null);
+  const [inventoryAlert,setInventoryAlert]=useState(null);
   const [mobileMenuOpen,setMobileMenuOpen]=useState(
     typeof window!=="undefined" ? window.matchMedia("(max-width: 800px)").matches : false
   );
@@ -442,6 +454,7 @@ export default function App(){
       </div>}
     </aside>
     <main className="app-main-content">
+      {inventoryAlert&&<button className={`global-inventory-alert global-inventory-alert--${String(inventoryAlert.status||"").toLowerCase()} no-print`} onClick={()=>navigate("reports-profits")}><span>📦</span><strong>{inventoryAlert.message}</strong><small>فتح الجرد الشهري</small></button>}
       <AppErrorBoundary key={`${page}-${customerId}-${invoiceId}-${statementCustomerId}-${partnerId}`}>
         <React.Suspense fallback={<div className="route-inline-loader" role="status"><span className="app-loading-spinner" aria-hidden="true"/><small>تحميل المحتوى…</small></div>}>
           {content}
