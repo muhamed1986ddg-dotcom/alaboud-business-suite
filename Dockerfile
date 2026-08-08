@@ -8,6 +8,10 @@ RUN npm ci --prefix backend --ignore-scripts
 RUN npm ci --prefix frontend
 RUN npm run build --prefix frontend
 
+RUN rm -rf backend/public \
+    && mkdir -p backend/public \
+    && cp -r frontend/dist/* backend/public/
+
 ENV NODE_ENV=production
 
 EXPOSE 8080
