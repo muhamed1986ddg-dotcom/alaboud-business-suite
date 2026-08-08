@@ -1,0 +1,9 @@
+**/node_modules
+**/.git
+**/.DS_Store
+**/*.log
+.gradle
+build
+app/build
+frontend/dist
+backend/public

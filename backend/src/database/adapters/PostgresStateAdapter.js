@@ -181,11 +181,11 @@ class PostgresStateAdapter {
       // Never let a request sit in the pool queue indefinitely. Interactive
       // mutations should either get a usable connection quickly or return a
       // retryable 503 so the idempotency recovery path can take over.
-      connectionTimeoutMillis: Math.max(3000, Number(process.env.PG_CONNECT_TIMEOUT_MS || 12000)),
+      connectionTimeoutMillis: Math.max(3000, Number(process.env.PG_CONNECT_TIMEOUT_MS || 20000)),
       // node-postgres client-side guard. Server-side transaction limits are
       // also applied with SET LOCAL in save() so an advisory lock or query can
       // never leave PATCH/DELETE pending forever.
-      query_timeout: Math.max(1000, Number(process.env.PG_QUERY_TIMEOUT_MS || 12000)),
+      query_timeout: Math.max(1000, Number(process.env.PG_QUERY_TIMEOUT_MS || 30000)),
       keepAlive: true,
       keepAliveInitialDelayMillis: 10000
     });
@@ -344,7 +344,7 @@ class PostgresStateAdapter {
     const maxAttempts = Math.max(1, Number(attempts || process.env.PG_QUERY_RETRIES || 6));
     const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 500));
     const maxMs = Math.max(baseMs, Number(process.env.PG_RETRY_MAX_MS || 16000));
-    const timeoutMs = Math.max(500, Number(queryTimeoutMs || process.env.PG_QUERY_TIMEOUT_MS || 12000));
+    const timeoutMs = Math.max(500, Number(queryTimeoutMs || process.env.PG_QUERY_TIMEOUT_MS || 30000));
     const acquireTimeoutMs = Math.max(750, Math.min(timeoutMs, Number(process.env.PG_QUERY_ACQUIRE_TIMEOUT_MS || 3500)));
     let lastError;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -385,7 +385,7 @@ class PostgresStateAdapter {
         await wait(delay);
       } finally {
         try { detach(); } catch {}
-        if (client) { try { client.release(Boolean(attemptError)); } catch {} }
+        if (client) { try { client.release(isConnectionError(attemptError) && String(attemptError?.code || "") !== "57014"); } catch {} }
       }
     }
     throw lastError;
@@ -578,10 +578,10 @@ class PostgresStateAdapter {
     const baseMs = Math.max(100, Number(process.env.PG_RETRY_BASE_MS || 250));
     const maxMs = Math.max(baseMs, Number(process.env.PG_WRITE_RETRY_MAX_MS || (interactive ? 2500 : 4000)));
     const retryBudgetMs = Math.max(1000, Number(interactive ? (process.env.PG_INTERACTIVE_WRITE_BUDGET_MS || 7000) : (process.env.PG_WRITE_RETRY_BUDGET_MS || 15000)));
-    const lockTimeoutMs = Math.max(500, Number(process.env.PG_INTERACTIVE_LOCK_TIMEOUT_MS || 2500));
-    const statementTimeoutMs = Math.max(lockTimeoutMs + 500, Number(process.env.PG_INTERACTIVE_STATEMENT_TIMEOUT_MS || 6500));
-    const clientQueryTimeoutMs = Math.max(statementTimeoutMs + 500, Number(process.env.PG_INTERACTIVE_CLIENT_QUERY_TIMEOUT_MS || 8000));
-    const hardStepTimeoutMs = Math.max(clientQueryTimeoutMs + 500, Number(process.env.PG_INTERACTIVE_HARD_STEP_TIMEOUT_MS || 9000));
+    const lockTimeoutMs = Math.max(500, Number(process.env.PG_INTERACTIVE_LOCK_TIMEOUT_MS || 5000));
+    const statementTimeoutMs = Math.max(lockTimeoutMs + 500, Number(process.env.PG_INTERACTIVE_STATEMENT_TIMEOUT_MS || 20000));
+    const clientQueryTimeoutMs = Math.max(statementTimeoutMs + 500, Number(process.env.PG_INTERACTIVE_CLIENT_QUERY_TIMEOUT_MS || 25000));
+    const hardStepTimeoutMs = Math.max(clientQueryTimeoutMs + 500, Number(process.env.PG_INTERACTIVE_HARD_STEP_TIMEOUT_MS || 30000));
     const startedAt = Date.now();
     const payload = JSON.stringify(snapshot);
     let lastError;
@@ -594,7 +594,7 @@ class PostgresStateAdapter {
       let attemptError = null;
       let detach = () => {};
       try {
-        client = await this.acquireClient({ timeoutMs: Number(process.env.PG_INTERACTIVE_ACQUIRE_TIMEOUT_MS || 6000), context: "durable-write-connect", poolRole: "write" });
+        client = await this.acquireClient({ timeoutMs: Number(process.env.PG_INTERACTIVE_ACQUIRE_TIMEOUT_MS || 10000), context: "durable-write-connect", poolRole: "write" });
         detach = this.attachClientErrorGuard(client, "durable-write-client");
         await runClientStep(client, { text: "BEGIN", query_timeout: clientQueryTimeoutMs }, hardStepTimeoutMs, "begin");
         // Bound both advisory-lock waiting and statement execution on the
@@ -724,7 +724,7 @@ class PostgresStateAdapter {
         await wait(delay);
       } finally {
         try { detach(); } catch {}
-        if (client) { try { client.release(Boolean(attemptError)); } catch {} }
+        if (client) { try { client.release(isConnectionError(attemptError) && String(attemptError?.code || "") !== "57014"); } catch {} }
       }
     }
     throw lastError;

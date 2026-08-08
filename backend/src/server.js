@@ -4003,7 +4003,7 @@ async function syncJadPartnerHttp(partner,{fromDate,toDate,testOnly=false}={}){
 async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
   let chromium;
   try{({chromium}=require("playwright"));}
-  catch(error){const wrapped=new Error("موصل المتصفح غير مثبت. نفّذ npm install داخل backend ثم أعد النشر");wrapped.code="JAD_BROWSER_UNAVAILABLE";wrapped.cause=error;throw wrapped;}
+  catch(error){const wrapped=new Error("موصل JAD بالمتصفح غير متاح: تأكد من تثبيت playwright وChromium داخل صورة التشغيل");wrapped.code="JAD_BROWSER_UNAVAILABLE";wrapped.cause=error;throw wrapped;}
 
   const {base,prefix,loginUrl,accountUrl,landingUrl}=resolveJadConnection(partner);
   const username=String(partner.username||"").trim();
@@ -4057,7 +4057,13 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
   try{
     try {
       const executable=chromium.executablePath ? chromium.executablePath() : "";
-      console.log("[JAD][CHROMIUM][BEFORE_LAUNCH]",{executable,exists:executable?fs.existsSync(executable):false,launchOptions:{...launchOptions,args:[...launchOptions.args]}});
+      const executableExists=executable ? fs.existsSync(executable) : false;
+      console.log("[JAD][CHROMIUM][BEFORE_LAUNCH]",{executable,exists:executableExists,launchOptions:{...launchOptions,args:[...launchOptions.args]}});
+      if(executable && !executableExists && !process.env.CHROME_EXECUTABLE_PATH){
+        const missing=new Error(`Chromium executable not found at ${executable}`);
+        missing.code="JAD_BROWSER_UNAVAILABLE";
+        throw missing;
+      }
       browser=await chromium.launch(launchOptions);
       trace.push({label:"chromium-launched",time:new Date().toISOString(),executable,exists:executable?fs.existsSync(executable):false});
       console.log("[JAD][CHROMIUM][LAUNCHED]",{executable});
@@ -4065,7 +4071,8 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
       const executable=chromium.executablePath ? chromium.executablePath() : "";
       const details=errorDetails(launchError);
       console.error("[JAD][CHROMIUM][LAUNCH_FAILED]",{...details,executable,exists:executable?fs.existsSync(executable):false,platform:process.platform,arch:process.arch,node:process.version,cwd:process.cwd()});
-      const wrapped=await diagnosticError(`فشل تشغيل Chromium: ${details.message}${executable ? ` | المسار: ${executable}` : ""}`,"JAD_CHROMIUM_LAUNCH_FAILED",launchError);
+      const launchCode=String(launchError?.code||"")==="JAD_BROWSER_UNAVAILABLE" ? "JAD_BROWSER_UNAVAILABLE" : "JAD_CHROMIUM_LAUNCH_FAILED";
+      const wrapped=await diagnosticError(`فشل تشغيل Chromium: ${details.message}${executable ? ` | المسار: ${executable}` : ""}`,launchCode,launchError);
       wrapped.executablePath=executable;
       throw wrapped;
     }
@@ -4449,7 +4456,7 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
 }
 
 async function syncJadPartner(partner,options={}){
-  const mode=String(process.env.JAD_CONNECTOR_MODE||"http").toLowerCase();
+  const mode=String(process.env.JAD_CONNECTOR_MODE||"browser").toLowerCase();
   if(mode==="http")return syncJadPartnerHttp(partner,options);
   try{
     return await syncJadPartnerBrowser(partner,options);
