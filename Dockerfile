@@ -5,6 +5,7 @@ WORKDIR /app
 COPY . .
 
 RUN npm ci --prefix backend --ignore-scripts
+RUN cd backend && npx playwright install --with-deps chromium
 RUN npm ci --prefix frontend
 RUN npm run build --prefix frontend
 
