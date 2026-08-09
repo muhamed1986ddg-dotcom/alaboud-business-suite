@@ -121,6 +121,21 @@ async function sendEmail(to, subject, text) {
   console.log(`[DEV EMAIL] To: ${to} | Subject: ${subject}\n${text}`);
   return false;
 }
+async function sendRaselSms({to,body}){
+  const apiKey=String(process.env.RASEL_API_KEY||"").trim();
+  if(!apiKey)return {ok:false,reason:"RASEL_NOT_CONFIGURED"};
+  const response=await fetch("https://raselsms.com/api/v2/messages/send",{
+    method:"POST",
+    headers:{"X-API-Key":apiKey,"Content-Type":"application/json","Accept":"application/json"},
+    body:JSON.stringify({to,channel:"local_sms",messageType:"free_text",content:{text:body}}),
+    signal:AbortSignal.timeout(10000)
+  });
+  if(response.ok)return {ok:true,provider:"rasel"};
+  let detail="";try{const payload=await response.json();detail=payload?.message||payload?.error||JSON.stringify(payload).slice(0,300)}catch{}
+  console.error("Rasel SMS failed:",response.status,detail);
+  return {ok:false,reason:"RASEL_SEND_FAILED",status:response.status};
+}
+
 async function sendTwilioMessage({channel,to,body}){
   const accountSid=String(process.env.TWILIO_ACCOUNT_SID||"").trim();
   const authToken=String(process.env.TWILIO_AUTH_TOKEN||"").trim();
@@ -756,7 +771,7 @@ app.get("/api/auth/account-verification",auth,(req,res)=>{
     emailVerifiedAt:user.emailVerifiedAt||null,phoneVerifiedAt:user.phoneVerifiedAt||null,
     preferredChannel:normalizeChannel(user.preferredVerificationChannel)||"EMAIL",
     maskedEmail:maskEmail(email),maskedPhone:maskPhone(phone),
-    providers:{email:Boolean(mailTransport),sms:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_SMS_FROM),whatsapp:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_WHATSAPP_FROM)}
+    providers:{email:Boolean(mailTransport),sms:Boolean(process.env.RASEL_API_KEY||process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_SMS_FROM),whatsapp:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_WHATSAPP_FROM)}
   });
 });
 
@@ -793,10 +808,10 @@ app.post("/api/auth/account-verification/send",auth,rateLimit("account-verificat
   const body=`رمز تأكيد حساب العبود هو: ${code}\nينتهي الرمز خلال 10 دقائق. لا تشارك هذا الرمز مع أي شخص.`;
   let delivered=false,reason="";
   if(channel==="EMAIL")delivered=await sendEmail(target,"رمز تأكيد حساب العبود",body);
-  else {try{const result=await sendTwilioMessage({channel,to:target,body});delivered=result.ok;reason=result.reason||"";}catch(error){console.error("verification delivery failed",error.message);reason="DELIVERY_ERROR";}}
+  else {try{const result=channel==="SMS"&&process.env.RASEL_API_KEY?await sendRaselSms({to:target,body}):await sendTwilioMessage({channel,to:target,body});delivered=result.ok;reason=result.reason||"";}catch(error){console.error("verification delivery failed",error.message);reason="DELIVERY_ERROR";}}
   if(!delivered){
     if(!IS_PROD)return res.json({message:"تم إنشاء رمز التأكيد في وضع التطوير",channel,expiresIn:600,devCode:code});
-    return res.status(503).json({message:channel==="EMAIL"?"إرسال البريد غير مهيأ على الخادم":"خدمة الإرسال غير مهيأة أو تعذر الإرسال. تحقق من إعدادات Twilio.",code:reason||"DELIVERY_NOT_CONFIGURED"});
+    return res.status(503).json({message:channel==="EMAIL"?"إرسال البريد غير مهيأ على الخادم":channel==="SMS"?"تعذر إرسال SMS. تحقق من إعداد Rasel والمفتاح السري.":"خدمة واتساب غير مهيأة أو تعذر الإرسال. تحقق من إعدادات Twilio.",code:reason||"DELIVERY_NOT_CONFIGURED"});
   }
   res.json({message:`تم إرسال رمز التأكيد عبر ${channel==="EMAIL"?"البريد الإلكتروني":channel==="SMS"?"SMS":"واتساب"}`,channel,expiresIn:600,target:channel==="EMAIL"?maskEmail(target):maskPhone(target)});
 });

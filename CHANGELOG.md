@@ -1,3 +1,8 @@
+## v25.14.38 — Rasel SMS Verification
+- Added Rasel SMS provider for account verification using RASEL_API_KEY.
+- Kept WhatsApp on Twilio and email on SMTP.
+- Updated account verification provider status and settings guidance.
+
 
 ## v25.14.37 — Budget & Inventory Reference Fix
 - Fixed `customerBalanceTotals is not defined` in capital overview and monthly inventory APIs.

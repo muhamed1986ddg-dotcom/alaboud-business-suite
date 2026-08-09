@@ -331,7 +331,7 @@ function SettingsPanel({activeBranchId,onActiveBranchChange}){
     <div className="settings-launch-grid" aria-label="أقسام الإعدادات">
       {savedUser.role==="ADMIN"&&<button type="button" onClick={()=>setActivePanel("branches")}><span>🏢</span><strong>إدارة الفروع</strong><small>الفروع ومؤشراتها</small></button>}
       <button type="button" onClick={()=>setActivePanel("security")}><span>🔐</span><strong>الأمان وتسجيل الدخول</strong><small>Authenticator والبصمة أو الوجه</small></button>
-      <button type="button" onClick={()=>setActivePanel("verification")}><span>✅</span><strong>تأكيد الحساب</strong><small>SMS أو واتساب أو البريد الإلكتروني</small></button>
+      <button type="button" onClick={()=>setActivePanel("verification")}><span>✅</span><strong>تأكيد الحساب</strong><small>SMS عبر Rasel أو واتساب أو البريد الإلكتروني</small></button>
       <button type="button" onClick={()=>setActivePanel("backup")}><span>💾</span><strong>النسخ الاحتياطي</strong><small>إنشاء نسخة أو استعادتها</small></button>
       <button type="button" onClick={()=>setActivePanel("appearance")}><span>🎨</span><strong>المظهر والخط</strong><small>اللغة والحجم والتباين</small></button>
       <button type="button" onClick={()=>setActivePanel("notifications")}><span>🔔</span><strong>الإشعارات وواتساب</strong><small>التأخير وقوالب الرسائل</small></button>
@@ -369,7 +369,7 @@ function SettingsPanel({activeBranchId,onActiveBranchChange}){
           <button type="button" className={accountVerification.preferredChannel==="EMAIL"?"selected":""} onClick={()=>sendVerificationCode("EMAIL")} disabled={verificationBusy||!accountVerification.email}>✉️ إرسال عبر البريد</button>
         </div>
         <div className="verification-code-row"><input inputMode="numeric" maxLength="6" value={verificationCode} onChange={e=>setVerificationCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="رمز التأكيد 6 أرقام"/><button type="button" disabled={verificationBusy||verificationCode.length!==6} onClick={confirmVerificationCode}>تأكيد الرمز</button></div>
-        <small className="settings-help">الرمز صالح لمدة 10 دقائق. خدمات SMS وواتساب تحتاج إعداد Twilio على الخادم، والبريد يحتاج إعداد SMTP.</small>
+        <small className="settings-help">الرمز صالح لمدة 10 دقائق. SMS يستخدم Rasel عند توفر RASEL_API_KEY، وواتساب يستخدم Twilio، والبريد يحتاج إعداد SMTP.</small>
       </article>
 
 
