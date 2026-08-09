@@ -34,7 +34,7 @@ function ReportsProfits(){
 
   async function loadInventory(){
     setInventoryBusy(true);setError("");
-    try{const response=await cachedGet("/monthly-inventory");setInventory(response.data);setInventoryDay(response.data?.scheduleDay||20);}
+    try{const response=await api.get("/monthly-inventory");setInventory(response.data);setInventoryDay(response.data?.scheduleDay||20);}
     catch(requestError){setError(requestError.response?.data?.message||"تعذر تحميل الجرد الشهري");}
     finally{setInventoryBusy(false);}
   }
@@ -154,6 +154,7 @@ function ReportsProfits(){
       </AppCard>}
 
       <AppCard className="no-print" title="موعد الجرد الشهري">
+        <div className="inventory-refresh-row"><span>يعتمد الجرد مباشرة على صافي رأس المال الحالي في صفحة الميزانية.</span><AppButton variant="secondary" busy={inventoryBusy} onClick={loadInventory}>↻ تحديث الجرد</AppButton></div>
         <div className="ui-form-grid inventory-settings-grid">
           <AppInput label="يوم الجرد" type="number" min="1" max="28" value={inventoryDay} onChange={event=>setInventoryDay(event.target.value)}/>
           <AppButton variant="secondary" busy={inventoryBusy} onClick={saveInventoryDay}>حفظ يوم الجرد</AppButton>
@@ -161,7 +162,7 @@ function ReportsProfits(){
         <small>سيظهر تنبيه قبل الموعد بيوم، ويوم الجرد، وبعد التأخير حتى يتم تثبيت جرد الشهر.</small>
       </AppCard>
 
-      {inventoryBusy&&!inventory?<AppLoader label="جاري تحميل الجرد..."/>:inventory&&<>
+      {inventoryBusy&&!inventory?<AppLoader label="جاري تحميل الجرد..."/>:!inventory?<AppCard className="customer-error"><strong>تعذر عرض الجرد الشهري.</strong><AppButton variant="secondary" onClick={loadInventory}>إعادة المحاولة</AppButton></AppCard>:<>
         <AppCard title={`جرد ${inventory.alert?.month||new Date().toISOString().slice(0,7)}`}>
           <div className="inventory-breakdown inventory-breakdown--simple">
             <div className="inventory-net-capital"><span>💎 صافي رأس المال من صفحة الميزانية</span><strong>{money(inventory.current?.netCapital)} CAD</strong></div>

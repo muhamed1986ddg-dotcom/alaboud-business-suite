@@ -22,6 +22,7 @@ const { registerHealthRoutes } = require("./routes/health");
 const { createIdempotencyMiddleware } = require("./reliability/idempotency");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
+const { normalizeChannel, normalizeEmail, normalizePhone: normalizeVerificationPhone, maskEmail, maskPhone, codeHash, safeEqualHex: safeEqualVerificationHex } = require("./account-verification");
 const { generateApiKey, keyPrefix, normalizeScopes, apiKeyMiddleware, versionAliasMiddleware, integrationLogger, openApiDocument, docsHtml, safeEqualHex } = require("./api-platform");
 const { createBranch, resolveBranch, branchSummary } = require("./branch-manager");
 const {
@@ -118,6 +119,29 @@ async function sendEmail(to, subject, text) {
   }
   console.log(`[DEV EMAIL] To: ${to} | Subject: ${subject}\n${text}`);
   return false;
+}
+async function sendTwilioMessage({channel,to,body}){
+  const accountSid=String(process.env.TWILIO_ACCOUNT_SID||"").trim();
+  const authToken=String(process.env.TWILIO_AUTH_TOKEN||"").trim();
+  const smsFrom=String(process.env.TWILIO_SMS_FROM||"").trim();
+  const whatsappFrom=String(process.env.TWILIO_WHATSAPP_FROM||"").trim();
+  if(!accountSid||!authToken)return {ok:false,reason:"TWILIO_NOT_CONFIGURED"};
+  const from=channel==="WHATSAPP"?whatsappFrom:smsFrom;
+  if(!from)return {ok:false,reason:channel==="WHATSAPP"?"WHATSAPP_SENDER_NOT_CONFIGURED":"SMS_SENDER_NOT_CONFIGURED"};
+  const payload=new URLSearchParams();
+  payload.set("From",channel==="WHATSAPP"?(from.startsWith("whatsapp:")?from:`whatsapp:${from}`):from);
+  payload.set("To",channel==="WHATSAPP"?(to.startsWith("whatsapp:")?to:`whatsapp:${to}`):to);
+  payload.set("Body",body);
+  const response=await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`,{
+    method:"POST",
+    headers:{"Authorization":`Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,"Content-Type":"application/x-www-form-urlencoded"},
+    body:payload.toString(),
+    signal:AbortSignal.timeout(10000)
+  });
+  if(response.ok)return {ok:true};
+  let detail="";try{detail=(await response.json())?.message||""}catch{}
+  console.error(`Twilio ${channel} failed:`,response.status,detail);
+  return {ok:false,reason:"TWILIO_SEND_FAILED",status:response.status};
 }
 const app = express();
 let serviceReady = false;
@@ -718,6 +742,90 @@ app.post("/api/auth/2fa/disable",auth,async (req,res)=>{
     if(error.message==="REAUTH_REQUIRED")return res.status(401).json({code:"REAUTH_REQUIRED",message:"يلزم إدخال كلمة المرور الحالية أو رمز التحقق الحالي لتعطيل التحقق بخطوتين"});
     res.status(400).json({message:error.message||"تعذر تعطيل التحقق بخطوتين"});
   }
+});
+
+app.get("/api/auth/account-verification",auth,(req,res)=>{
+  const user=(readStore().users||[]).find(item=>item.id===req.user.id);
+  if(!user)return res.status(404).json({message:"الحساب غير موجود"});
+  const email=normalizeEmail(user.verificationEmail||user.email);
+  const phone=normalizeVerificationPhone(user.verificationPhone||user.phone);
+  res.json({
+    email,phone,
+    emailVerified:Boolean(user.emailVerifiedAt),phoneVerified:Boolean(user.phoneVerifiedAt),
+    emailVerifiedAt:user.emailVerifiedAt||null,phoneVerifiedAt:user.phoneVerifiedAt||null,
+    preferredChannel:normalizeChannel(user.preferredVerificationChannel)||"EMAIL",
+    maskedEmail:maskEmail(email),maskedPhone:maskPhone(phone),
+    providers:{email:Boolean(mailTransport),sms:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_SMS_FROM),whatsapp:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_WHATSAPP_FROM)}
+  });
+});
+
+app.patch("/api/auth/account-verification",auth,async(req,res)=>{
+  const email=normalizeEmail(req.body?.email);
+  const phone=normalizeVerificationPhone(req.body?.phone);
+  const preferredChannel=normalizeChannel(req.body?.preferredChannel)||"EMAIL";
+  if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({message:"البريد الإلكتروني غير صالح"});
+  if(phone&&!(phone.startsWith("+")&&/^\+\d{8,17}$/.test(phone)))return res.status(400).json({message:"اكتب رقم الهاتف بصيغة دولية مثل +15195551234"});
+  await mutateDurable(store=>{
+    const user=store.users.find(item=>item.id===req.user.id);if(!user)throw new Error("الحساب غير موجود");
+    const previousEmail=normalizeEmail(user.verificationEmail||user.email),previousPhone=normalizeVerificationPhone(user.verificationPhone||user.phone);
+    user.verificationEmail=email;user.verificationPhone=phone;user.preferredVerificationChannel=preferredChannel;
+    if(email!==previousEmail)user.emailVerifiedAt=null;
+    if(phone!==previousPhone)user.phoneVerifiedAt=null;
+    delete user.accountVerificationChallenge;
+    audit(store,user.id,"UPDATE","ACCOUNT_VERIFICATION_CONTACT",user.id,{preferredChannel,emailChanged:email!==previousEmail,phoneChanged:phone!==previousPhone});
+  });
+  res.json({message:"تم حفظ بيانات تأكيد الحساب"});
+});
+
+app.post("/api/auth/account-verification/send",auth,rateLimit("account-verification-send",8,15*60*1000),async(req,res)=>{
+  const channel=normalizeChannel(req.body?.channel);
+  if(!channel)return res.status(400).json({message:"اختر طريقة إرسال رمز التأكيد"});
+  const store=readStore();const user=(store.users||[]).find(item=>item.id===req.user.id);
+  if(!user)return res.status(404).json({message:"الحساب غير موجود"});
+  const email=normalizeEmail(user.verificationEmail||user.email),phone=normalizeVerificationPhone(user.verificationPhone||user.phone);
+  const target=channel==="EMAIL"?email:phone;
+  if(!target)return res.status(400).json({message:channel==="EMAIL"?"أضف البريد الإلكتروني أولًا":"أضف رقم الهاتف أولًا"});
+  if(channel!=="EMAIL"&&!(phone.startsWith("+")&&/^\+\d{8,17}$/.test(phone)))return res.status(400).json({message:"رقم الهاتف يجب أن يكون بالصيغة الدولية مثل +15195551234"});
+  const code=String(crypto.randomInt(100000,1000000));
+  const challenge={channel,targetHash:sha256(target),codeHash:codeHash({userId:user.id,channel,target,code,secret:JWT_SECRET}),expiresAt:new Date(Date.now()+10*60*1000).toISOString(),attempts:0,createdAt:now()};
+  await mutateDurable(root=>{const u=root.users.find(item=>item.id===user.id);u.accountVerificationChallenge=challenge;u.preferredVerificationChannel=channel;audit(root,u.id,"SEND","ACCOUNT_VERIFICATION",u.id,{channel,target:channel==="EMAIL"?maskEmail(target):maskPhone(target)});});
+  const body=`رمز تأكيد حساب العبود هو: ${code}\nينتهي الرمز خلال 10 دقائق. لا تشارك هذا الرمز مع أي شخص.`;
+  let delivered=false,reason="";
+  if(channel==="EMAIL")delivered=await sendEmail(target,"رمز تأكيد حساب العبود",body);
+  else {try{const result=await sendTwilioMessage({channel,to:target,body});delivered=result.ok;reason=result.reason||"";}catch(error){console.error("verification delivery failed",error.message);reason="DELIVERY_ERROR";}}
+  if(!delivered){
+    if(!IS_PROD)return res.json({message:"تم إنشاء رمز التأكيد في وضع التطوير",channel,expiresIn:600,devCode:code});
+    return res.status(503).json({message:channel==="EMAIL"?"إرسال البريد غير مهيأ على الخادم":"خدمة الإرسال غير مهيأة أو تعذر الإرسال. تحقق من إعدادات Twilio.",code:reason||"DELIVERY_NOT_CONFIGURED"});
+  }
+  res.json({message:`تم إرسال رمز التأكيد عبر ${channel==="EMAIL"?"البريد الإلكتروني":channel==="SMS"?"SMS":"واتساب"}`,channel,expiresIn:600,target:channel==="EMAIL"?maskEmail(target):maskPhone(target)});
+});
+
+app.post("/api/auth/account-verification/verify",auth,rateLimit("account-verification-verify",20,15*60*1000),async(req,res)=>{
+  const code=String(req.body?.code||"").replace(/\D/g,"").slice(0,6);
+  if(code.length!==6)return res.status(400).json({message:"أدخل رمز التأكيد المكون من 6 أرقام"});
+  const outcome=await mutateDurable(store=>{
+    const user=store.users.find(item=>item.id===req.user.id);
+    if(!user)return {ok:false,reason:"ACCOUNT_NOT_FOUND"};
+    const challenge=user.accountVerificationChallenge;
+    if(!challenge)return {ok:false,reason:"NO_CHALLENGE"};
+    if(new Date(challenge.expiresAt).getTime()<Date.now()){delete user.accountVerificationChallenge;return {ok:false,reason:"EXPIRED"};}
+    if(Number(challenge.attempts||0)>=5){delete user.accountVerificationChallenge;return {ok:false,reason:"TOO_MANY_ATTEMPTS"};}
+    const channel=normalizeChannel(challenge.channel),target=channel==="EMAIL"?normalizeEmail(user.verificationEmail||user.email):normalizeVerificationPhone(user.verificationPhone||user.phone);
+    const expected=codeHash({userId:user.id,channel,target,code,secret:JWT_SECRET});
+    if(challenge.targetHash!==sha256(target)||!safeEqualVerificationHex(challenge.codeHash,expected)){
+      challenge.attempts=Number(challenge.attempts||0)+1;
+      audit(store,user.id,"VERIFY_FAILED","ACCOUNT_VERIFICATION",user.id,{channel,attempts:challenge.attempts});
+      return {ok:false,reason:"INVALID_CODE"};
+    }
+    const verifiedAt=now();if(channel==="EMAIL")user.emailVerifiedAt=verifiedAt;else user.phoneVerifiedAt=verifiedAt;
+    delete user.accountVerificationChallenge;audit(store,user.id,"VERIFY_SUCCESS","ACCOUNT_VERIFICATION",user.id,{channel});
+    return {ok:true,channel};
+  });
+  if(!outcome?.ok){
+    const messages={ACCOUNT_NOT_FOUND:"الحساب غير موجود",NO_CHALLENGE:"اطلب رمز تأكيد جديد أولًا",EXPIRED:"انتهت صلاحية الرمز. اطلب رمزًا جديدًا",TOO_MANY_ATTEMPTS:"تم تجاوز عدد المحاولات. اطلب رمزًا جديدًا",INVALID_CODE:"رمز التأكيد غير صحيح"};
+    return res.status(outcome?.reason==="ACCOUNT_NOT_FOUND"?404:400).json({message:messages[outcome?.reason]||"تعذر تأكيد الحساب"});
+  }
+  res.json({message:"تم تأكيد الحساب بنجاح",channel:outcome.channel});
 });
 
 function biometricDeviceId(req){
