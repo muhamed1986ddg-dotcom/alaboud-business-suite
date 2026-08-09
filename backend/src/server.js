@@ -1295,9 +1295,9 @@ app.get("/api/capital-overview", auth, (req,res)=>{
     .filter(item=>String(item.date||item.createdAt||"").slice(0,7)===requestedMonth)
     .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
-  const receivables=customers.reduce(
-    (sum,customer)=>sum+safeNumber(customerSummary(store,customer).finalBalance),0
-  );
+  const customerBalances=customerBalanceTotals(store);
+  const receivables=safeNumber(customerBalances.receivable);
+  const customerPayable=safeNumber(customerBalances.payable);
 
   const debtPaidById=new Map();
   for(const payment of debtPayments){
@@ -1376,7 +1376,7 @@ app.get("/api/capital-overview", auth, (req,res)=>{
   // Business rule: "debt for us" is exactly customer balances + company balances.
   // Manual general-debt records remain visible in the debt register but do not alter this KPI.
   const totalReceivables=receivables+partnerReceivable;
-  const totalPayables=generalPayable+partnerPayable;
+  const totalPayables=customerPayable+generalPayable+partnerPayable;
   const totalMoney=capitalBalance+accumulatedProfit+totalReceivables;
   const totalLiabilities=accumulatedExpenses+totalPayables;
   const netCapital=totalMoney-totalLiabilities;
@@ -1397,6 +1397,8 @@ app.get("/api/capital-overview", auth, (req,res)=>{
     netCapital:+netCapital.toFixed(2),
     totalReceivables:+totalReceivables.toFixed(2),
     totalPayables:+totalPayables.toFixed(2),
+    customerReceivable:+receivables.toFixed(2),
+    customerPayable:+customerPayable.toFixed(2),
     partnerReceivable:+partnerReceivable.toFixed(2),
     partnerPayable:+partnerPayable.toFixed(2),
     missingDebtRates:[...missingDebtRates],
@@ -1443,9 +1445,9 @@ function calculateInventoryNetCapital(store){
   const capitalBalance=capitalMovements.reduce(
     (sum,item)=>sum+(item.type==="IN"?capitalCadAmount(store,item):-capitalCadAmount(store,item)),0
   );
-  const customerReceivable=customers.reduce(
-    (sum,customer)=>sum+safeNumber(customerSummary(store,customer).finalBalance),0
-  );
+  const customerBalances=customerBalanceTotals(store);
+  const customerReceivable=safeNumber(customerBalances.receivable);
+  const customerPayable=safeNumber(customerBalances.payable);
   const debtPaidById=new Map();
   for(const payment of debtPayments){
     debtPaidById.set(payment.debtId,safeNumber(debtPaidById.get(payment.debtId))+safeNumber(payment.amount));
@@ -1509,7 +1511,7 @@ function calculateInventoryNetCapital(store){
   const accumulatedProfit=transactions.reduce((sum,item)=>sum+transactionFinancials(item).totalProfit,0);
   const accumulatedExpenses=expenses.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
   const totalReceivables=customerReceivable+partnerReceivable;
-  const totalPayables=generalPayable+partnerPayable;
+  const totalPayables=customerPayable+generalPayable+partnerPayable;
   const totalMoney=capitalBalance+accumulatedProfit+totalReceivables;
   const totalLiabilities=accumulatedExpenses+totalPayables;
   return {netCapital:totalMoney-totalLiabilities,missingRates:[...missingRates]};
@@ -2982,14 +2984,13 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   // Use one authoritative customer-balance calculation everywhere. customerSummary
   // already includes the customer's opening balance, transfers and payments, so
   // summing CUSTOMER_OLD_BALANCE and TRANSFER rows again would double-count debt.
-  const authoritativeCustomerDebtCad = customers
-    .filter((customer)=>customer && !customer.isDeleted)
-    .map((customer)=>customerSummary(store,customer))
-    .filter((customer)=>safeNumber(customer.finalBalance)>0)
-    .reduce((sum,customer)=>sum+safeNumber(customer.finalBalance),0);
+  const authoritativeCustomerBalancesCad=customerBalanceTotals(store);
   const customerConversion=findConversion("CAD",summaryCurrency);
   const authoritativeCustomerReceivable=customerConversion
-    ? authoritativeCustomerDebtCad*customerConversion.factor
+    ? safeNumber(authoritativeCustomerBalancesCad.receivable)*customerConversion.factor
+    : 0;
+  const authoritativeCustomerPayable=customerConversion
+    ? safeNumber(authoritativeCustomerBalancesCad.payable)*customerConversion.factor
     : 0;
 
   // Company debt comes only from partner/company rows. It is kept separate from
@@ -3025,6 +3026,7 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   // Manual records are reported separately to avoid silently inflating the authoritative KPI.
   const authoritativeSummary=calculateReceivableSummary({
     customerReceivable:authoritativeCustomerReceivable,
+    customerPayable:authoritativeCustomerPayable,
     companyReceivable,
     companyPayable,
     manualReceivable,

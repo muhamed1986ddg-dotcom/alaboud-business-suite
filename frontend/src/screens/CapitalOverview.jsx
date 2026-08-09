@@ -172,7 +172,7 @@ function CapitalOverview(){
   const expenseChange=previousData&&Number(previousData.monthlyExpenses||0)!==0?((Number(data.monthlyExpenses||0)-Number(previousData.monthlyExpenses||0))/Math.abs(Number(previousData.monthlyExpenses||0)))*100:null;
   const netPrevious=Number(previousData?.monthlyProfit||0)-Number(previousData?.monthlyExpenses||0);
   const netChange=netPrevious!==0?((monthlyNet-netPrevious)/Math.abs(netPrevious))*100:null;
-  const liquidityRatio=Number(data.generalPayable||0)>0?(Number(data.receivables||0)+Number(data.generalReceivable||0))/Number(data.generalPayable||0):3;
+  const liquidityRatio=debtOnUs>0?debtForUs/debtOnUs:3;
   const profitMargin=Number(data.monthlyTransferValue||0)>0?monthlyNet/Number(data.monthlyTransferValue||0):0;
   const healthScore=Math.max(0,Math.min(100,Math.round(
     (monthlyNet>=0?30:8)+

@@ -1,0 +1,11 @@
+const assert=require("assert");
+const fs=require("fs");
+const path=require("path");
+const root=path.resolve(__dirname,"../..");
+const debts=fs.readFileSync(path.join(root,"frontend/src/screens/GeneralDebts.jsx"),"utf8");
+const capital=fs.readFileSync(path.join(root,"frontend/src/screens/CapitalOverview.jsx"),"utf8");
+assert(debts.includes("دين العملاء علينا"));
+assert(debts.includes("receivableBreakdown?.customerPayable"));
+assert(debts.includes("receivableBreakdown?.companyPayable"));
+assert(capital.includes("const liquidityRatio=debtOnUs>0?debtForUs/debtOnUs:3;"));
+console.log("v25.14.35 customer debt UI classification tests passed");

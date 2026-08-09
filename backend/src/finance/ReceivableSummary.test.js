@@ -8,3 +8,8 @@ const cases=[
 ];
 for(const [input,expected] of cases)assert.equal(calculateReceivableSummary(input).receivable,expected);
 console.log("ReceivableSummary numeric tests passed");
+
+const payableCase=calculateReceivableSummary({customerReceivable:100,customerPayable:35,companyPayable:15,manualPayable:5});
+assert.equal(payableCase.payable,55);
+assert.equal(payableCase.net,45);
+assert.equal(payableCase.breakdown.customerPayable,35);

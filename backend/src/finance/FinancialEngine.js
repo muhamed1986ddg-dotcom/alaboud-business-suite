@@ -137,9 +137,31 @@ function customerDebtSummary(store, options = {}) {
   };
 }
 
+// Gross customer balances must be classified by direction instead of being
+// netted inside the receivables bucket. A positive final balance means the
+// customer owes the company (receivable); a negative final balance means the
+// company owes the customer (payable). Net is preserved exactly.
+function customerBalanceTotals(store, options = {}) {
+  const customers = (Array.isArray(store?.customers) ? store.customers : []).filter(customer => customer && !customer.isDeleted);
+  let receivable = 0n;
+  let payable = 0n;
+  for (const customer of customers) {
+    const balance = moneySafe(customerSummary(store, customer, options).finalBalance);
+    if (balance > 0n) receivable += balance;
+    else if (balance < 0n) payable += -balance;
+  }
+  return Object.freeze({
+    currency: "CAD",
+    receivable: moneyToNumber(receivable),
+    payable: moneyToNumber(payable),
+    net: moneyToNumber(receivable - payable),
+  });
+}
+
 module.exports = {
   customerSummary,
   customerDebtSummary,
+  customerBalanceTotals,
   customerReceipts,
   customerReceiptsScaled,
   number,

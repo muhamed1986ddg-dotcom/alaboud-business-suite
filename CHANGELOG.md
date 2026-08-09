@@ -1,3 +1,12 @@
+## v25.14.35 — Customer receivable/payable classification
+
+- Fixed customer balances in capital calculations so positive customer balances are gross receivables and negative balances are gross payables.
+- Customer old account marked "له" now appears explicitly under debt/payables and reduces net capital through liabilities, not by making receivables negative.
+- Customer old account marked "عليه" remains an explicit receivable.
+- Kept net capital mathematically unchanged while making Debt For Us / Debt On Us / budget / monthly inventory classifications consistent.
+- Added explicit customer/company payable breakdown in the Debt On Us view and aligned the capital liquidity ratio with gross Debt For Us / Debt On Us totals.
+- Added regression coverage for customer receivable/payable split.
+
 ## v25.14.34 — Settings layout + customer old account direction
 - Fixed the settings header/version overflow on mobile.
 - Added customer old-account direction: عليه (receivable) or له (payable).
