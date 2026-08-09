@@ -1,4 +1,4 @@
-## v25.14.38 — Rasel SMS Verification
+## v25.14.39 — Rasel SMS Verification
 - Added Rasel SMS provider for account verification using RASEL_API_KEY.
 - Kept WhatsApp on Twilio and email on SMTP.
 - Updated account verification provider status and settings guidance.

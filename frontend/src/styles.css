@@ -4971,6 +4971,7 @@ body.app-language-en aside{
 .settings-modal-shell .settings-grid>[data-panel]{display:none!important}
 .settings-modal-shell[data-active-panel="branches"] [data-panel="branches"],
 .settings-modal-shell[data-active-panel="security"] [data-panel="security"],
+.settings-modal-shell[data-active-panel="verification"] [data-panel="verification"],
 .settings-modal-shell[data-active-panel="backup"] [data-panel="backup"],
 .settings-modal-shell[data-active-panel="appearance"] [data-panel="appearance"],
 .settings-modal-shell[data-active-panel="notifications"] [data-panel="notifications"],
