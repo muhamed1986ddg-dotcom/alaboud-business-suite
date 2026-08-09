@@ -1,3 +1,10 @@
+# v25.14.30
+
+- Fixed PAID transfer creation sending a duplicate payment request after the backend had already recorded the initial full payment.
+- Prevents `Payment exceeds remaining balance` and the misleading internal-server-error toast after a successful transfer creation.
+- Transaction payment endpoint now returns 400/404 for business-rule errors instead of surfacing them as generic 500 errors.
+- Health/readiness version synchronized to 25.14.30.
+
 # v25.14.29
 
 - Fixed PostgreSQL PoolClient leak caused by a missing `isConnectionError()` helper in release paths.

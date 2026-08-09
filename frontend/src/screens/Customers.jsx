@@ -315,15 +315,9 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         rateUpdatedAt:transferForm.rateUpdatedAt||selectedRateMeta?.createdAt||null
       });
 
+      // The backend creates the initial full payment atomically when paymentStatus=PAID.
+      // Do not POST a second payment here; doing so exceeds the already-zero remaining balance.
       const createdTransaction=transactionResponse.data;
-      if(transferForm.paymentStatus==="PAID"&&createdTransaction?.id&&Number(createdTransaction.totalCustomerDue)>0){
-        await api.post(`/transactions/${createdTransaction.id}/payments`,{
-          amount:Number(createdTransaction.totalCustomerDue),
-          paymentDate:transferForm.transferDate||new Date().toISOString().slice(0,10),
-          method:"CASH",
-          notes:"تم تسجيل الحوالة كمدفوعة عند الإنشاء"
-        });
-      }
 
       setTransferForm({
         customerId:"",

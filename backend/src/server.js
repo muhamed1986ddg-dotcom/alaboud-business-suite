@@ -2195,21 +2195,40 @@ app.post("/api/customers/:id/payments", auth, async (req,res)=>{
 });
 
 app.post("/api/transactions/:id/payments", auth, async (req,res)=>{
-  const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{}; const n=Number(amount); if(!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid amount"});
-  const payment=await mutateDurable((s)=>{const t=s.transactions.find(x=>x.id===req.params.id);if(!t)throw new Error("Transaction not found");const already=s.payments.filter(p=>p.transactionId===t.id).reduce((a,p)=>a+Number(p.amount),0);if(already+n>Number(t.totalCustomerDue)+0.001)throw new Error("Payment exceeds remaining balance");const p={
-      id:id(),
-      transactionId:t.id,
-      amount:+n.toFixed(2),
-      method,
-      notes,
-      reference,
-      paymentDate:paymentDate||new Date().toISOString().slice(0,10),
-      date:now(),
-      receivedBy:req.user.id,
-      isDeleted:false
-    };s.payments.push(p);audit(s,req.user.id,"PAYMENT","TRANSACTION",t.id,{amount:n});return p;});
+  try{
+    const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{};
+    const n=Number(amount);
+    if(!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid amount"});
 
-  res.status(201).json(payment);
+    const payment=await mutateDurable((s)=>{
+      const t=s.transactions.find(x=>x.id===req.params.id);
+      if(!t)throw new Error("Transaction not found");
+      const already=s.payments.filter(p=>p.transactionId===t.id&&!p.isDeleted).reduce((a,p)=>a+Number(p.amount),0);
+      const remaining=Math.max(Number(t.totalCustomerDue)-already,0);
+      if(n>remaining+0.001)throw new Error("Payment exceeds remaining balance");
+      const p={
+        id:id(),
+        transactionId:t.id,
+        amount:+n.toFixed(2),
+        method,
+        notes,
+        reference,
+        paymentDate:paymentDate||new Date().toISOString().slice(0,10),
+        date:now(),
+        receivedBy:req.user.id,
+        isDeleted:false
+      };
+      s.payments.push(p);
+      audit(s,req.user.id,"PAYMENT","TRANSACTION",t.id,{amount:n,remainingBefore:+remaining.toFixed(2)});
+      return p;
+    });
+
+    res.status(201).json(payment);
+  }catch(error){
+    const message=String(error?.message||"تعذر إضافة الدفعة");
+    const status=(message==="Transaction not found")?404:400;
+    res.status(status).json({message});
+  }
 });
 
 app.patch("/api/transactions/:id", auth, async (req,res)=>{
