@@ -207,6 +207,14 @@ export default function App(){
   const [branches,setBranches]=useState([]);
   const [activeBranchId,setActiveBranchId]=useState(localStorage.getItem("alaboud_branch_id")||"");
 
+  function changeActiveBranch(branchId){
+    const next=String(branchId||"").trim();
+    if(!next)return;
+    localStorage.setItem("alaboud_branch_id",next);
+    setActiveBranchId(next);
+    window.dispatchEvent(new CustomEvent("alaboud-branch-changed",{detail:{branchId:next}}));
+  }
+
   useEffect(()=>{
     if(!token)return;
 
@@ -370,9 +378,9 @@ export default function App(){
   }else if(page==="capital-overview"||page==="capital"){
     content=<CapitalOverview/>;
   }else if(page==="notification-settings"){
-    content=<SettingsPanel/>;
+    content=<SettingsPanel activeBranchId={activeBranchId} onActiveBranchChange={changeActiveBranch}/>;
   }else if(page==="settings"){
-    content=<SettingsPanel/>;
+    content=<SettingsPanel activeBranchId={activeBranchId} onActiveBranchChange={changeActiveBranch}/>;
   }else if(page==="ai-center"){
     content=<AICommandCenter navigate={navigate}/>;
   }else if(page==="expenses"){
@@ -431,7 +439,6 @@ export default function App(){
           <small>{APP_VERSION}</small>
         </div>
       </div>
-      {branches.length>0&&<label className="branch-switcher no-print"><span>🏢 الفرع النشط</span><select value={activeBranchId} onChange={event=>{localStorage.setItem("alaboud_branch_id",event.target.value);setActiveBranchId(event.target.value);window.dispatchEvent(new CustomEvent("alaboud-branch-changed",{detail:{branchId:event.target.value}}))}}>{branches.map(branch=><option key={branch.id} value={branch.id}>{branch.name} ({branch.code})</option>)}</select></label>}
       {menu.map(([key,label])=><button
         key={key}
         className={page===key&&!customerId&&!invoiceId&&!statementCustomerId&&!partnerId?"active":""}

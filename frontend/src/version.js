@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.32 Mobile Responsive Cards";
+export const APP_VERSION="v25.14.33 Branch Settings";

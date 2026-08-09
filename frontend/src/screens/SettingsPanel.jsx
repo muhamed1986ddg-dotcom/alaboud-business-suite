@@ -48,14 +48,27 @@ function NotificationSettings({embedded=false}){
 
 
 
-function BranchManagement(){
+function BranchManagement({activeBranchId,onActiveBranchChange}){
   const [branches,setBranches]=useState([]),[form,setForm]=useState({name:"",code:"",address:"",phone:"",currency:"CAD"}),[message,setMessage]=useState("");
-  const load=()=>cachedGet("/branches").then(r=>setBranches(r.data)).catch(()=>{});useEffect(()=>{load()},[]);
+  const load=()=>cachedGet("/branches",{ttl:0}).then(r=>setBranches(r.data)).catch(()=>{});useEffect(()=>{load()},[]);
   async function create(event){event.preventDefault();setMessage("");try{await api.post("/branches",form);setForm({name:"",code:"",address:"",phone:"",currency:"CAD"});setMessage("تم إنشاء الفرع بنجاح");load()}catch(error){setMessage(error.response?.data?.message||"تعذر إنشاء الفرع")}}
-  return <article data-panel="branches" className="settings-card settings-wide-card"><div className="settings-card-title"><span>🏢</span><h3>إدارة الفروع</h3></div><p className="settings-help">أنشئ الفروع واعرض مؤشرات كل فرع. يمكن تغيير الفرع النشط من القائمة الجانبية.</p>{message&&<div className="settings-message">{message}</div>}<form className="branch-create-form" onSubmit={create}><input placeholder="اسم الفرع" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required/><input placeholder="الرمز مثل WINDSOR" value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})} required/><input placeholder="العنوان" value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/><input placeholder="الهاتف" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/><button className="settings-primary-button">إضافة فرع</button></form><div className="branch-grid">{branches.map(branch=><div className="branch-card" key={branch.id}><div><strong>{branch.name}</strong><small>{branch.code}{branch.isMain?" • الفرع الرئيسي":""}</small></div><div className="branch-metrics"><span>العملاء <b>{branch.metrics?.customers||0}</b></span><span>الحوالات <b>{branch.metrics?.transactions||0}</b></span><span>المصروفات <b>{money(branch.metrics?.expensesCad||0)} CAD</b></span></div></div>)}</div></article>
+  const selectedBranch=branches.find(branch=>branch.id===activeBranchId)||branches.find(branch=>branch.isMain)||branches[0]||null;
+  return <article data-panel="branches" className="settings-card settings-wide-card">
+    <div className="settings-card-title"><span>🏢</span><h3>إدارة الفروع</h3></div>
+    <p className="settings-help">اختيار الفرع النشط وإدارة الفروع من مكان واحد داخل الإعدادات.</p>
+    {branches.length>0&&<div className="settings-active-branch">
+      <div className="settings-active-branch-head"><div><strong>🏢 الفرع النشط</strong><small>يُطبق الفرع المختار على الصفحات والعمليات والتقارير.</small></div>{selectedBranch&&<span className="settings-active-branch-badge">{selectedBranch.code||"MAIN"}</span>}</div>
+      <select value={activeBranchId||selectedBranch?.id||""} onChange={event=>{onActiveBranchChange?.(event.target.value);setMessage("تم تغيير الفرع النشط")}}>
+        {branches.map(branch=><option key={branch.id} value={branch.id}>{branch.name} ({branch.code}){branch.isMain?" — الرئيسي":""}</option>)}
+      </select>
+    </div>}
+    {message&&<div className="settings-message">{message}</div>}
+    <form className="branch-create-form" onSubmit={create}><input placeholder="اسم الفرع" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required/><input placeholder="الرمز مثل WINDSOR" value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})} required/><input placeholder="العنوان" value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/><input placeholder="الهاتف" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/><button className="settings-primary-button">إضافة فرع</button></form>
+    <div className="branch-grid">{branches.map(branch=><div className={`branch-card ${branch.id===activeBranchId?"branch-card-active":""}`} key={branch.id}><div><strong>{branch.name}</strong><small>{branch.code}{branch.isMain?" • الفرع الرئيسي":""}</small></div><div className="branch-metrics"><span>العملاء <b>{branch.metrics?.customers||0}</b></span><span>الحوالات <b>{branch.metrics?.transactions||0}</b></span><span>المصروفات <b>{money(branch.metrics?.expensesCad||0)} CAD</b></span></div></div>)}</div>
+  </article>
 }
 
-function SettingsPanel(){
+function SettingsPanel({activeBranchId,onActiveBranchChange}){
   const savedUser=(()=>{
     try{return JSON.parse(localStorage.getItem("afs_user")||"{}")}catch{return {}}
   })();
@@ -313,7 +326,7 @@ function SettingsPanel(){
     <AppModal open={Boolean(activePanel)} title="الإعدادات" size="xl" onClose={()=>setActivePanel("")}>
       <div className="settings-modal-shell" data-active-panel={activePanel}>
         <div className="settings-grid">
-    {savedUser.role==="ADMIN"&&<BranchManagement/>}
+    {savedUser.role==="ADMIN"&&<BranchManagement activeBranchId={activeBranchId} onActiveBranchChange={onActiveBranchChange}/>}
     <article data-panel="security" className="settings-card security-access-card"><div className="settings-card-title"><span>🔐</span><h3>حماية تسجيل الدخول</h3></div><p className="settings-help">التحقق بخطوتين بواسطة Google Authenticator أو Microsoft Authenticator.</p>{twoFactorInfo.enabled?<button type="button" className="danger" onClick={disableTwoFactor}>تعطيل التحقق بخطوتين</button>:<>{!twoFactorInfo.secret?<button type="button" className="settings-primary-button" onClick={beginTwoFactor}>بدء التفعيل</button>:<div className="two-factor-setup"><label>المفتاح السري<input readOnly value={twoFactorInfo.secret}/></label><small>انسخ المفتاح إلى تطبيق Authenticator.</small><label>رمز التحقق<input inputMode="numeric" maxLength="6" value={twoFactorInfo.code} onChange={e=>setTwoFactorInfo({...twoFactorInfo,code:e.target.value.replace(/\D/g,"").slice(0,6)})}/></label><button type="button" disabled={twoFactorInfo.code.length!==6} onClick={enableTwoFactor}>تأكيد التفعيل</button></div>}</>}<div className="biometric-settings-block"><div><strong>👆 الدخول بالبصمة أو الوجه</strong><small>{biometricAvailable?(biometricEnabled?"مفعّل على هذا الهاتف":"غير مفعّل على هذا الهاتف"):"متاح داخل تطبيق الهاتف فقط"}</small></div>{biometricAvailable&&(biometricEnabled?<button type="button" className="danger" onClick={disableBiometric}>تعطيل البصمة أو الوجه</button>:<button type="button" className="settings-primary-button" onClick={enableBiometric}>تفعيل البصمة أو الوجه</button>)}</div><p className="security-note">بعد التفعيل، سيظهر زر الدخول بالبصمة أو الوجه في شاشة تسجيل الدخول.</p></article>
 
 
