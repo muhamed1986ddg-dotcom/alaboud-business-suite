@@ -1,3 +1,9 @@
+
+## v25.14.37 — Budget & Inventory Reference Fix
+- Fixed `customerBalanceTotals is not defined` in capital overview and monthly inventory APIs.
+- Restored budget and monthly inventory pages while preserving v25.14.35 customer receivable/payable classification.
+- Added regression coverage for the FinancialEngine binding.
+
 ## v25.14.35 — Customer receivable/payable classification
 
 - Fixed customer balances in capital calculations so positive customer balances are gross receivables and negative balances are gross payables.

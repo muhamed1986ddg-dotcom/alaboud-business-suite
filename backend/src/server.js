@@ -14,6 +14,7 @@ const https = require("https");
 const { readStore, readRootStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const FinancialEngine = require("./finance/FinancialEngine");
+const { customerBalanceTotals } = FinancialEngine;
 const { transactionFinancials } = require("./finance/TransactionFinancials");
 const { calculateReceivableSummary } = require("./finance/ReceivableSummary");
 const { calculateInventoryPayables, calculateInventoryMonthProfit } = require("./finance/MonthlyInventoryFinancials");
