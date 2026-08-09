@@ -375,8 +375,8 @@ function verifyTotp(secret,code,lastUsedStep=null){
 }
 function issueSession(user,company,context={}){
   const jti=crypto.randomUUID();
-  const expiresAt=new Date(Date.now()+12*60*60*1000).toISOString();
-  const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId,jti},JWT_SECRET,{expiresIn:"12h",issuer:"alaboud-business-suite",audience:"alaboud-client"});
+  const expiresAt=new Date(Date.now()+30*24*60*60*1000).toISOString();
+  const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId,jti},JWT_SECRET,{expiresIn:"30d",issuer:"alaboud-business-suite",audience:"alaboud-client"});
   mutate(store=>createSession(store,{userId:user.id,companyId:user.companyId,jti,ip:context.ip,userAgent:context.userAgent,expiresAt}));
   return {token,user:{id:user.id,name:user.name,email:user.email,role:user.role,permissions:permissionsFor(user.role,user.permissions),companyId:user.companyId,companyName:company.name,mustChangePassword:Boolean(user.mustChangePassword),twoFactorEnabled:Boolean(user.twoFactorEnabled)}};
 }
@@ -734,7 +734,7 @@ app.post("/api/auth/biometric-token",auth,async (req,res)=>{
     device.active=true;device.biometricActive=true;device.biometricJti=jti;device.lastSeenAt=now();device.revokedAt=null;
     audit(store,req.user.id,"BIOMETRIC_ENABLED","DEVICE",deviceId,{ip:req.ip,requestId:req.requestId});
   });
-  const token=jwt.sign({id:req.user.id,companyId:req.user.companyId,purpose:"biometric",deviceId,jti},JWT_SECRET,{expiresIn:"30d",issuer:"alaboud-business-suite",audience:"alaboud-biometric"});
+  const token=jwt.sign({id:req.user.id,companyId:req.user.companyId,purpose:"biometric",deviceId,jti},JWT_SECRET,{expiresIn:"90d",issuer:"alaboud-business-suite",audience:"alaboud-biometric"});
   res.json({token,deviceId});
 });
 app.post("/api/auth/biometric/revoke",auth,async (req,res)=>{

@@ -13,3 +13,9 @@ data/*.json
 postgresql-18.4-2-windows-x64.exe
 postgresql-18.4-2-windows-x64.exe
 alaboud-business-suite-*.json
+
+# Local/Android build caches
+muhamed1986ddg/
+.gradle/
+**/.gradle/
+Android/Sdk/

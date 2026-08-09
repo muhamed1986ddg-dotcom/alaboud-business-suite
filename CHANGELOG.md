@@ -1,3 +1,11 @@
+# v25.14.31
+
+- Keep authenticated sessions for up to 30 days (instead of 12 hours / 30-minute idle timeout).
+- Persist session registry in the application state so remembered sessions survive state replacement/restarts.
+- Android now points to the Google Cloud Run production service.
+- Android biometric/face/device-credential login is offered after the first successful password + 2FA login and auto-prompts on later launches when enabled.
+- Biometric device token lifetime increased to 90 days; passwords are never stored for biometric login.
+
 # v25.14.30
 
 - Fixed PAID transfer creation sending a duplicate payment request after the backend had already recorded the initial full payment.

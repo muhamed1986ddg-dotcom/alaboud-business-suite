@@ -1,0 +1,11 @@
+const assert=require("assert");
+const fs=require("fs");
+const path=require("path");
+const root=path.join(__dirname,"../..");
+const partners=fs.readFileSync(path.join(root,"frontend/src/screens/Partners.jsx"),"utf8");
+const css=fs.readFileSync(path.join(root,"frontend/src/styles.css"),"utf8");
+assert(partners.includes('className="partner-mobile-cards"'));
+assert(partners.includes('className="partner-mobile-card"'));
+assert(css.includes('.partner-desktop-table{display:none!important}'));
+assert(css.includes('.transaction-ledger-summary{grid-template-columns:repeat(3,minmax(0,1fr))!important'));
+console.log("mobile responsive cards v25.14.32: OK");

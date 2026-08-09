@@ -6695,3 +6695,113 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
   .capital-formula p:last-child{color:#aeb8c8!important}
   .capital-formula p:last-child strong{display:inline!important;color:#4ade80!important;font-size:1.12rem!important}
 }
+
+
+/* v25.14.32 — compact mobile companies + transfers */
+.partner-mobile-cards{display:none}
+@media (max-width:760px){
+  .partner-desktop-table{display:none!important}
+  .partner-mobile-cards{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:11px!important;
+    width:100%!important;
+    min-width:0!important;
+    margin:0!important;
+    padding:2px 0 125px!important;
+  }
+  .partner-mobile-card{
+    min-width:0!important;
+    width:100%!important;
+    overflow:hidden!important;
+    box-sizing:border-box!important;
+    padding:13px!important;
+    border-radius:17px!important;
+    border:1px solid rgba(214,170,56,.34)!important;
+    background:linear-gradient(155deg,#07111f,#0d1b2d)!important;
+    color:#f8fafc!important;
+    box-shadow:0 9px 24px rgba(0,0,0,.20)!important;
+  }
+  .partner-mobile-card__head{
+    display:flex!important;
+    align-items:flex-start!important;
+    justify-content:space-between!important;
+    gap:9px!important;
+    margin:0 0 10px!important;
+    padding:0 0 10px!important;
+    border-bottom:1px solid rgba(148,163,184,.16)!important;
+  }
+  .partner-mobile-card__title{min-width:0!important;display:grid!important;gap:3px!important}
+  .partner-mobile-card__title strong{font-size:1.08rem!important;color:#f5d36f!important;overflow-wrap:anywhere!important}
+  .partner-mobile-card__title small{font-size:.75rem!important;color:#94a3b8!important;overflow-wrap:anywhere!important}
+  .partner-mobile-card__head .integration-status{flex:0 0 auto!important;white-space:nowrap!important;font-size:.7rem!important;padding:5px 8px!important}
+  .partner-mobile-card__meta{
+    display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:6px!important;
+    margin-bottom:10px!important;
+  }
+  .partner-mobile-card__connector{
+    display:inline-flex!important;align-items:center!important;min-height:28px!important;padding:4px 8px!important;
+    border-radius:999px!important;background:#0b2238!important;border:1px solid rgba(96,165,250,.25)!important;
+    color:#93c5fd!important;font-size:.72rem!important;font-weight:800!important;
+  }
+  .partner-mobile-card .partner-primary-currency{margin-inline-start:auto!important;color:#fff!important;font-size:.86rem!important}
+  .partner-mobile-card__balances{width:100%!important;min-width:0!important;margin:0 0 9px!important}
+  .partner-mobile-card .partner-currency-balances{width:100%!important;min-width:0!important;display:grid!important;gap:7px!important}
+  .partner-mobile-card .partner-currency-balance{
+    width:100%!important;min-width:0!important;box-sizing:border-box!important;
+    grid-template-columns:64px minmax(0,1fr) minmax(0,1fr)!important;
+    gap:6px!important;padding:8px!important;border-radius:11px!important;
+    background:#091525!important;border-color:rgba(148,163,184,.18)!important;
+  }
+  .partner-mobile-card .partner-currency-balance>div:nth-child(4){grid-column:2/-1!important}
+  .partner-mobile-card .partner-currency-balance span{font-size:.65rem!important;color:#94a3b8!important}
+  .partner-mobile-card .partner-currency-balance b{font-size:.79rem!important;white-space:normal!important;overflow-wrap:anywhere!important}
+  .partner-mobile-card .partner-currency-code{display:flex!important;gap:4px!important}
+  .partner-mobile-card__sync{
+    display:flex!important;justify-content:space-between!important;align-items:center!important;gap:8px!important;
+    padding:8px 0!important;border-top:1px solid rgba(148,163,184,.12)!important;
+    color:#94a3b8!important;font-size:.75rem!important;
+  }
+  .partner-mobile-card__sync strong{color:#86efac!important;font-size:.79rem!important}
+  .partner-mobile-card__link{display:block!important;margin:3px 0 9px!important;color:#93c5fd!important;font-weight:800!important;font-size:.8rem!important}
+  .partner-mobile-card__otp{width:100%!important;min-height:45px!important;margin:3px 0 9px!important}
+  .partner-mobile-card__actions{
+    display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:7px!important;margin-top:8px!important;
+  }
+  .partner-mobile-card__actions button{
+    width:100%!important;min-width:0!important;min-height:42px!important;margin:0!important;padding:7px 5px!important;
+    border-radius:11px!important;font-size:.8rem!important;white-space:normal!important;line-height:1.2!important;
+  }
+  .partner-mobile-empty{padding:24px 12px!important;text-align:center!important;color:#cbd5e1!important;border:1px dashed rgba(214,170,56,.3)!important;border-radius:14px!important}
+
+  /* Transfers: compact dashboard-like mobile layout instead of tall blocks. */
+  .transactions-page-heading{margin-bottom:8px!important}
+  .transactions-page-heading p{display:none!important}
+  .transaction-ledger-summary{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important;margin-bottom:9px!important}
+  .transaction-ledger-summary .transaction-summary-card{min-height:88px!important;padding:9px 6px!important;border-radius:13px!important}
+  .transaction-ledger-summary .transaction-summary-card span{font-size:.68rem!important;line-height:1.25!important}
+  .transaction-ledger-summary .transaction-summary-card strong{font-size:1rem!important;line-height:1.15!important;overflow-wrap:anywhere!important}
+  .transaction-ledger-summary .transaction-summary-card small{display:none!important}
+  .transaction-mode-tabs{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:6px!important;padding:7px!important;margin-bottom:9px!important}
+  .transaction-mode-tabs button{min-width:0!important;min-height:40px!important;padding:5px 3px!important;font-size:.68rem!important;white-space:normal!important;line-height:1.2!important}
+  .transaction-ledger-controls{padding:9px!important;margin:0 0 9px!important;gap:8px!important}
+  .transaction-ledger-actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:7px!important}
+  .transaction-ledger-actions button{min-width:0!important;min-height:40px!important;padding:6px!important;font-size:.78rem!important}
+  .transaction-ledger-filters{grid-template-columns:1fr 1fr!important;gap:7px!important}
+  .transaction-ledger-filters input,.transaction-ledger-filters select{min-width:0!important;min-height:43px!important;font-size:.78rem!important;padding:7px 8px!important}
+  .transaction-mobile-cards{gap:9px!important;padding:1px 0 115px!important}
+  .transaction-mobile-card{padding:11px!important;border-radius:15px!important}
+  .transaction-mobile-card__head{padding-bottom:8px!important;margin-bottom:8px!important}
+  .transaction-mobile-card__customer{padding-bottom:7px!important;font-size:.92rem!important}
+  .transaction-mobile-card__grid>div{padding:7px 0!important;grid-template-columns:minmax(88px,38%) minmax(0,1fr)!important;gap:7px!important}
+  .transaction-mobile-card__grid span{font-size:.72rem!important}
+  .transaction-mobile-card__grid strong{font-size:.88rem!important}
+  .transaction-mobile-card__actions{gap:6px!important;margin-top:9px!important}
+  .transaction-mobile-card__actions button{min-height:40px!important;padding:6px 4px!important;font-size:.76rem!important}
+  .transaction-ledger-formula{display:none!important}
+}
+@media (max-width:390px){
+  .transaction-ledger-summary{grid-template-columns:1fr 1fr!important}
+  .transaction-ledger-summary .transaction-summary-card:last-child{grid-column:1/-1!important}
+  .partner-mobile-card__actions{grid-template-columns:1fr 1fr!important}
+}
