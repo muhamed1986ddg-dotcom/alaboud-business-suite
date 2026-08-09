@@ -1,3 +1,9 @@
+# v25.14.29
+
+- Fixed PostgreSQL PoolClient leak caused by a missing `isConnectionError()` helper in release paths.
+- Added regression coverage for successful client release and broken-client destruction.
+- Added Arabic root-cause and deployment verification notes.
+
 ## v25.14.28 — Isolated Durable Writes
 - عزل اتصالات إضافة/تعديل/حذف في PostgreSQL write pool مستقل عن health والتقارير والتحديثات الخلفية.
 - إيقاف relational mirror افتراضيًا لتقليل الضغط على PostgreSQL؛ يمكن تفعيله صراحةً عبر RELATIONAL_MIRROR_ENABLED=true.

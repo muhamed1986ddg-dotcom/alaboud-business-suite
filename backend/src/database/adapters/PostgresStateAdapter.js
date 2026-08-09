@@ -15,6 +15,37 @@ const TRANSIENT_CODES = new Set([
   "08000", "08001", "08003", "08004", "08006", "08007", "08P01"
 ]);
 
+function isConnectionError(error) {
+  if (!error) return false;
+  const code = String(error?.code || "").toUpperCase();
+  const syscall = String(error?.syscall || "").toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+
+  // Only destroy a checked-out PoolClient when the underlying connection is
+  // unusable. SQL-level timeouts such as 57014/55P03 are intentionally NOT
+  // classified here: node-postgres can safely return those clients after the
+  // transaction has been rolled back/ended.
+  if (code === "PG_CLIENT_HARD_TIMEOUT" || code.startsWith("08")) return true;
+  if (["57P01", "57P02", "57P03", "57P04"].includes(code)) return true;
+  if (["ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "EPIPE"].includes(code)) return true;
+  if (syscall === "getaddrinfo" && ["ENOTFOUND", "EAI_AGAIN"].includes(code)) return true;
+
+  return [
+    "connection terminated",
+    "connection reset",
+    "connection refused",
+    "connection closed",
+    "terminating connection",
+    "server closed the connection",
+    "socket hang up",
+    "not queryable",
+    "econnreset",
+    "econnrefused",
+    "etimedout",
+    "broken pipe"
+  ].some((part) => message.includes(part));
+}
+
 function isTransientPostgresError(error) {
   const code = String(error?.code || "").toUpperCase();
   const syscall = String(error?.syscall || "").toLowerCase();
@@ -818,6 +849,7 @@ class PostgresStateAdapter {
   }
 }
 
+PostgresStateAdapter.isConnectionError = isConnectionError;
 PostgresStateAdapter.isTransientPostgresError = isTransientPostgresError;
 PostgresStateAdapter.retryDelay = retryDelay;
 module.exports = PostgresStateAdapter;
