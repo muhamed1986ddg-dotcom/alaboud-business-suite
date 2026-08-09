@@ -1774,7 +1774,7 @@ app.get("/api/customers/options",auth,async(req,res)=>{
 });
 app.post("/api/customers", auth, async (req,res)=>{
   try{
-  const {name,phone="",email="",identityNumber="",customerNumber="",notes="",oldBalance=0}=req.body||{};
+  const {name,phone="",email="",identityNumber="",customerNumber="",notes="",oldBalance=0,oldBalanceType="RECEIVABLE"}=req.body||{};
   if(!String(name).trim()) return res.status(400).json({message:"Customer name is required"});
   const customer=await mutateDurable((s)=>{
     const requested=String(customerNumber||identityNumber||"").trim();
@@ -1788,7 +1788,8 @@ app.post("/api/customers", auth, async (req,res)=>{
     }
     const nextNumber=requested||String(Math.max(0,...s.customers.map(item=>Number(item.customerNumber)||0))+1);
     const openingBalance=+Math.max(safeNumber(oldBalance),0).toFixed(2);
-    const c={id:id(),customerNumber:nextNumber,name:String(name).trim(),phone:String(phone||"").trim(),phoneNormalized:normalizedPhone,email,identityNumber,notes,oldBalance:openingBalance,openingBalanceInitial:openingBalance,oldBalancePaid:0,createdAt:now()};
+    const normalizedOldBalanceType=String(oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE";
+    const c={id:id(),customerNumber:nextNumber,name:String(name).trim(),phone:String(phone||"").trim(),phoneNormalized:normalizedPhone,email,identityNumber,notes,oldBalance:openingBalance,oldBalanceType:normalizedOldBalanceType,openingBalanceInitial:openingBalance,oldBalancePaid:0,createdAt:now()};
     s.customers.push(c);
     audit(s,req.user.id,"CREATE","CUSTOMER",c.id,{after:{...c},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
     return c;
@@ -1814,7 +1815,7 @@ app.patch("/api/customers/:id", auth, async (req,res)=>{
           throw error;
         }
       }
-      const allowed=["name","phone","email","address","notes","oldBalance"];
+      const allowed=["name","phone","email","address","notes","oldBalance","oldBalanceType"];
       for(const key of allowed){
         if(req.body[key]!==undefined)customer[key]=req.body[key];
       }
@@ -1824,7 +1825,8 @@ app.patch("/api/customers/:id", auth, async (req,res)=>{
       customer.phone=String(customer.phone||"").trim();
       customer.phoneNormalized=normalizePhone(customer.phone);
       customer.oldBalance=+Math.max(safeNumber(customer.oldBalance),0).toFixed(2);
-      if(req.body.oldBalance!==undefined){
+      customer.oldBalanceType=String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE";
+      if(req.body.oldBalance!==undefined||req.body.oldBalanceType!==undefined){
         customer.openingBalanceInitial=customer.oldBalance;
         customer.oldBalancePaid=0;
       }
@@ -2103,12 +2105,14 @@ app.post("/api/customers/:id/payments", auth, async (req,res)=>{
       const totalRemaining=rows.reduce((sum,row)=>sum+row.remaining,0);
       const storedOldBalance=Math.max(safeNumber(customer.oldBalance),0);
       const legacyOldBalancePaid=Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),storedOldBalance);
-      const oldBalanceRemaining=Math.max(storedOldBalance-legacyOldBalancePaid,0);
+      const oldBalanceType=String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE";
+      const oldBalanceRemaining=oldBalanceType==="RECEIVABLE"?Math.max(storedOldBalance-legacyOldBalancePaid,0):0;
       // توحيد السجلات القديمة: نخزن من الآن فصاعدًا الرصيد الافتتاحي المتبقي مباشرة.
       if(!Number.isFinite(Number(customer.openingBalanceInitial))){
         customer.openingBalanceInitial=+storedOldBalance.toFixed(2);
       }
-      customer.oldBalance=+oldBalanceRemaining.toFixed(2);
+      if(oldBalanceType==="RECEIVABLE") customer.oldBalance=+oldBalanceRemaining.toFixed(2);
+      else customer.oldBalance=+storedOldBalance.toFixed(2);
       customer.oldBalancePaid=0;
       const grandRemaining=totalRemaining+oldBalanceRemaining;
 
@@ -2708,13 +2712,13 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     if (remaining <= 0.001) return null;
     return {
       id:`CUSTOMER_OLD_BALANCE:${customer.id}`,
-      type:"RECEIVABLE",
+      type:String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE",
       partyName:String(customer.name || "عميل بدون اسم"),
       amount:+amount.toFixed(2),
       currency:"CAD",
       dueDate:String(customer.createdAt || "").slice(0,10),
-      description:"الحساب القديم للعميل",
-      reference:"حساب قديم",
+      description:String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"الحساب القديم — له":"الحساب القديم — عليه",
+      reference:String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"حساب قديم له":"حساب قديم عليه",
       status:paid>0?"PARTIAL":"OPEN",
       source:"CUSTOMER_OLD_BALANCE",
       customerId:customer.id,
@@ -3323,6 +3327,9 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
     const storedOldBalance=accountWasReset?0:Math.max(safeNumber(customer.oldBalance),0);
     const legacyOldBalancePaid=accountWasReset?0:Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),storedOldBalance);
     const oldBalance=Math.max(storedOldBalance-legacyOldBalancePaid,0);
+    const oldBalanceType=String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE";
+    const oldBalanceSign=oldBalanceType==="PAYABLE"?-1:1;
+    const signedOldBalance=oldBalanceSign*oldBalance;
     const openingBalanceInitial=accountWasReset?0:Math.max(safeNumber(customer.openingBalanceInitial,storedOldBalance),oldBalance);
     const oldBalancePaid=0;
     const oldBalanceRemaining=oldBalance;
@@ -3353,9 +3360,11 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
         openingBalanceInitial:+openingBalanceInitial.toFixed(2),
         oldBalancePaid:+oldBalancePaid.toFixed(2),
         oldBalanceRemaining:+oldBalanceRemaining.toFixed(2),
-        totalTransactions:+(totals.totalCad+openingBalanceInitial).toFixed(2),
+        oldBalanceType,
+        oldBalanceLabel:oldBalanceType==="PAYABLE"?"له":"عليه",
+        totalTransactions:+(totals.totalCad+(oldBalanceType==="RECEIVABLE"?openingBalanceInitial:0)).toFixed(2),
         totalPaid:+actualPaid.toFixed(2),
-        finalBalance:+(totals.remaining+oldBalanceRemaining).toFixed(2)
+        finalBalance:+(totals.remaining+signedOldBalance).toFixed(2)
       },
       from:from||null,
       to:to||null,
@@ -3372,8 +3381,11 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
         openingBalanceInitial:+openingBalanceInitial.toFixed(2),
         oldBalancePaid:0,
         oldBalanceRemaining:+oldBalanceRemaining.toFixed(2),
+        oldBalanceType,
+        oldBalanceLabel:oldBalanceType==="PAYABLE"?"له":"عليه",
+        signedOldBalance:+signedOldBalance.toFixed(2),
         paid:+actualPaid.toFixed(2),
-        remaining:+(totals.remaining+oldBalanceRemaining).toFixed(2)
+        remaining:+(totals.remaining+signedOldBalance).toFixed(2)
       }
     });
   }catch(error){

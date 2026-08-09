@@ -6810,3 +6810,20 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 .settings-active-branch{display:grid;gap:12px;margin:14px 0 18px;padding:16px;border:1px solid rgba(65,105,225,.28);border-radius:16px;background:linear-gradient(145deg,rgba(13,27,49,.98),rgba(7,20,39,.98));color:#fff;box-shadow:0 10px 24px rgba(2,12,27,.14)}
 .settings-active-branch-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.settings-active-branch-head>div{display:grid;gap:4px}.settings-active-branch-head strong{font-size:15px}.settings-active-branch-head small{color:#aebbd0;line-height:1.55}.settings-active-branch-badge{display:inline-flex;align-items:center;justify-content:center;min-width:58px;padding:6px 10px;border-radius:999px;background:#d4af37;color:#101010;font-weight:900;font-size:12px}.settings-active-branch select{width:100%;min-height:48px;padding:10px 14px!important;border-radius:12px!important;background:#07172b!important;color:#fff!important;border:1px solid rgba(117,168,255,.35)!important;font-weight:800}.branch-card-active{border-color:#d4af37!important;box-shadow:0 0 0 2px rgba(212,175,55,.16),0 10px 24px rgba(0,0,0,.08)!important}.branch-card-active:after{content:"الفرع النشط";display:inline-flex;margin-top:10px;padding:4px 9px;border-radius:999px;background:rgba(212,175,55,.16);color:#a77f00;font-size:11px;font-weight:900}
 @media(max-width:700px){.settings-active-branch{padding:13px;margin:10px 0 14px}.settings-active-branch-head{align-items:flex-start}.settings-active-branch-head small{font-size:12px}.settings-active-branch select{font-size:16px;min-height:52px}}
+
+
+/* v25.14.34 — settings mobile fix + customer old-account direction */
+@media(max-width:700px){
+  .settings-page{width:100%;max-width:100%;overflow-x:hidden}
+  .settings-hero{display:grid!important;grid-template-columns:1fr!important;gap:12px!important;padding:16px!important;overflow:hidden}
+  .settings-hero>div{min-width:0;align-items:flex-start!important}
+  .settings-hero h2{font-size:1.55rem!important;line-height:1.25}
+  .settings-hero p{font-size:.94rem!important;line-height:1.65;overflow-wrap:anywhere}
+  .settings-version{justify-self:stretch;max-width:100%;white-space:normal!important;overflow-wrap:anywhere;text-align:center;font-size:.82rem!important;padding:8px 10px!important}
+}
+.old-balance-direction,.old-balance-inline-picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%}
+.old-balance-inline-picker{grid-template-columns:auto 1fr 1fr;align-items:center}
+.old-balance-direction button,.old-balance-inline-picker button{min-height:42px;border-radius:12px;border:1px solid rgba(216,163,63,.45);background:#15181d;color:#e8edf4;font-weight:800}
+.old-balance-direction button.active,.old-balance-inline-picker button.active{background:linear-gradient(135deg,#9b741e,#d8a33f);color:#111;border-color:#f0c85b}
+.old-balance-direction button.payable.active,.old-balance-inline-picker button.payable.active{background:linear-gradient(135deg,#145a7a,#2a9bc7);color:#fff;border-color:#60c9f2}
+@media(max-width:700px){.old-balance-inline-picker{grid-template-columns:1fr 1fr}.old-balance-inline-picker>span{grid-column:1/-1}.old-balance-direction button,.old-balance-inline-picker button{font-size:.95rem}}

@@ -1,0 +1,17 @@
+const assert=require("assert");
+const fs=require("fs");
+const path=require("path");
+const root=path.resolve(__dirname,"../..");
+const server=fs.readFileSync(path.join(root,"backend/src/server.js"),"utf8");
+const details=fs.readFileSync(path.join(root,"frontend/src/screens/CustomerDetails.jsx"),"utf8");
+const customers=fs.readFileSync(path.join(root,"frontend/src/screens/Customers.jsx"),"utf8");
+const styles=fs.readFileSync(path.join(root,"frontend/src/styles.css"),"utf8");
+assert(server.includes('oldBalanceType="RECEIVABLE"'));
+assert(server.includes('?"PAYABLE":"RECEIVABLE"'));
+assert(server.includes('"حساب قديم له":"حساب قديم عليه"'));
+assert(details.includes('له — دين له'));
+assert(details.includes('عليه — دين لنا'));
+assert(details.includes('المجموع النهائي ${finalBalance<0?"له":"عليه"}'));
+assert(customers.includes('oldBalanceType:"RECEIVABLE"'));
+assert(styles.includes('settings-version{justify-self:stretch'));
+console.log("v25.14.34 customer old account direction regression test passed");

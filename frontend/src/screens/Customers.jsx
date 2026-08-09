@@ -23,7 +23,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
   const retryTimerRef=useRef(null);
   const retryAttemptRef=useRef(0);
 
-  const [customerForm,setCustomerForm]=useState({customerNumber:"",name:"",phone:"",email:"",oldBalance:""});
+  const [customerForm,setCustomerForm]=useState({customerNumber:"",name:"",phone:"",email:"",oldBalance:"",oldBalanceType:"RECEIVABLE"});
   const [editingCustomer,setEditingCustomer]=useState(null);
   const [duplicateCustomer,setDuplicateCustomer]=useState(null);
 
@@ -217,7 +217,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     try{
       const response=await api.post("/customers",customerForm);
       const created=response.data;
-      setCustomerForm({customerNumber:"",name:"",phone:"",email:"",oldBalance:""});
+      setCustomerForm({customerNumber:"",name:"",phone:"",email:"",oldBalance:"",oldBalanceType:"RECEIVABLE"});
       setError("✅ تم حفظ العميل بنجاح");
       setActivePanel("");
       setServerTotal(total=>total+1);
@@ -552,7 +552,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         <input value={customerForm.name} onChange={e=>setCustomerForm({...customerForm,name:e.target.value})} placeholder="اسم العميل" required/>
         <input value={customerForm.phone} onChange={e=>setCustomerForm({...customerForm,phone:e.target.value})} placeholder="رقم الهاتف / واتساب"/>
         <input type="email" value={customerForm.email} onChange={e=>setCustomerForm({...customerForm,email:e.target.value})} placeholder="البريد الإلكتروني"/>
-        <input type="number" min="0" step=".01" value={customerForm.oldBalance} onChange={e=>setCustomerForm({...customerForm,oldBalance:e.target.value})} placeholder="الحساب القديم (CAD)"/>
+        <div className="old-balance-inline-picker"><span>الحساب القديم:</span><button type="button" className={customerForm.oldBalanceType!=="PAYABLE"?"active":""} onClick={()=>setCustomerForm({...customerForm,oldBalanceType:"RECEIVABLE"})}>عليه</button><button type="button" className={customerForm.oldBalanceType==="PAYABLE"?"active payable":""} onClick={()=>setCustomerForm({...customerForm,oldBalanceType:"PAYABLE"})}>له</button></div>
+        <input type="number" min="0" step=".01" value={customerForm.oldBalance} onChange={e=>setCustomerForm({...customerForm,oldBalance:e.target.value})} placeholder="قيمة الحساب القديم (CAD)"/>
         <button>حفظ العميل</button>
         <button type="button" onClick={()=>setActivePanel("")}>إلغاء</button>
       </form>
@@ -564,7 +565,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         <input value={editingCustomer.name||""} onChange={e=>setEditingCustomer({...editingCustomer,name:e.target.value})} placeholder="اسم العميل" required/>
         <input value={editingCustomer.phone||""} onChange={e=>setEditingCustomer({...editingCustomer,phone:e.target.value})} placeholder="رقم الهاتف / واتساب"/>
         <input type="email" value={editingCustomer.email||""} onChange={e=>setEditingCustomer({...editingCustomer,email:e.target.value})} placeholder="البريد الإلكتروني"/>
-        <input type="number" min="0" step=".01" value={editingCustomer.oldBalance||""} onChange={e=>setEditingCustomer({...editingCustomer,oldBalance:e.target.value})} placeholder="الحساب القديم (CAD)"/>
+        <div className="old-balance-inline-picker"><span>الحساب القديم:</span><button type="button" className={editingCustomer.oldBalanceType!=="PAYABLE"?"active":""} onClick={()=>setEditingCustomer({...editingCustomer,oldBalanceType:"RECEIVABLE"})}>عليه</button><button type="button" className={editingCustomer.oldBalanceType==="PAYABLE"?"active payable":""} onClick={()=>setEditingCustomer({...editingCustomer,oldBalanceType:"PAYABLE"})}>له</button></div>
+        <input type="number" min="0" step=".01" value={editingCustomer.oldBalance||""} onChange={e=>setEditingCustomer({...editingCustomer,oldBalance:e.target.value})} placeholder="قيمة الحساب القديم (CAD)"/>
         <button>حفظ التعديل</button>
         <button type="button" onClick={()=>setEditingCustomer(null)}>إلغاء</button>
       </form>

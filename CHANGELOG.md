@@ -1,3 +1,9 @@
+## v25.14.34 — Settings layout + customer old account direction
+- Fixed the settings header/version overflow on mobile.
+- Added customer old-account direction: عليه (receivable) or له (payable).
+- Customer statements now show whether the old account and final balance are له or عليه.
+- Old-account payable values enter general debt as PAYABLE instead of receivable.
+
 # v25.14.33
 
 - نقل اختيار الفرع النشط من القائمة الجانبية إلى صفحة الإعدادات > إدارة الفروع.
