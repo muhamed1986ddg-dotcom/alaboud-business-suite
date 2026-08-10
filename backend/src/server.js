@@ -954,7 +954,10 @@ app.post("/api/auth/change-password", auth, async (req,res)=>{
     await mutateDurable((store)=>{
       const user=store.users.find(item=>item.id===req.user.id&&item.active);
       if(!user)throw new Error("الحساب غير موجود");
-      if(!bcrypt.compareSync(currentPassword,user.passwordHash)){
+      const currentPasswordOk = isScryptHash(user.passwordHash)
+        ? verifyPassword(currentPassword,user.passwordHash)
+        : bcrypt.compareSync(currentPassword,user.passwordHash);
+      if(!currentPasswordOk){
         throw new Error("كلمة المرور الحالية غير صحيحة");
       }
       user.passwordHash=hashPassword(newPassword);

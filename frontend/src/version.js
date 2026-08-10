@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.41 Password Settings Modal Fix";
+export const APP_VERSION="v25.14.42 Password Settings Modal Fix";

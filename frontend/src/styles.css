@@ -6835,7 +6835,7 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 .verification-inline-message{padding:10px 12px;border-radius:10px;background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.35);color:inherit;font-weight:700;text-align:center}
 
 
-/* v25.14.41: make the password panel reliably visible inside the mobile settings modal. */
+/* v25.14.42: make the password panel reliably visible inside the mobile settings modal. */
 .settings-modal-shell .settings-panel-force-visible[data-panel="password"]{
   display:block!important;
   width:100%!important;
