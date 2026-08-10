@@ -30,8 +30,7 @@
     "test:transaction-write-timeout": "node src/database/TransactionWriteTimeoutRecovery-v251418.test.js",
     "test:write-readiness": "node src/database/WriteReadinessGate-v251419.test.js",
     "test:pool-leaks": "node src/postgres-pool-acquire-leak-regression.test.js",
-    "test:write-reliability": "node src/write-reliability-v251451.test.js",
-    "test:security-tenant": "node src/security-tenant-hardening-v251455.test.js"
+    "test:write-reliability": "node src/write-reliability-v251451.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

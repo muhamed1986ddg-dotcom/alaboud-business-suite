@@ -68,6 +68,7 @@ function makeRes(){
 
   const apiSource=fs.readFileSync(path.join(__dirname,"../../../frontend/src/api.js"),"utf8");
   assert(apiSource.includes("verifyCommittedOperation"));
+  assert(apiSource.includes("جارٍ التحقق من نتيجة العملية"));
   assert(apiSource.includes("/api/operations/"));
 
   console.log("Commit confirmation & idempotency tests passed");

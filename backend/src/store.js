@@ -160,7 +160,6 @@ function mutateDurable(fn){
       ...requestOperation,
       companyId,
       branchId,
-      scopeKey:`${companyId||"public"}:${branchId||"*"}`,
       result
     } : null;
     await database.saveDurable(normalizedDraft,{operationReceipt,ownedSnapshot:true});

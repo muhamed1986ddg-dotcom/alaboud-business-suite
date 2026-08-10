@@ -353,21 +353,16 @@ class PostgresStateAdapter {
     )`, [], { operation: "initialization" });
     await this.queryWithRetry("ALTER TABLE app_state ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0", [], { operation: "initialization-revision" });
     await this.queryWithRetry(`CREATE TABLE IF NOT EXISTS operation_receipts (
-      operation_key TEXT NOT NULL,
+      operation_key TEXT PRIMARY KEY,
       method TEXT NOT NULL,
       path TEXT NOT NULL,
       company_id TEXT,
       branch_id TEXT,
-      scope_key TEXT NOT NULL DEFAULT 'public:*',
       status TEXT NOT NULL DEFAULT 'COMMITTED',
       response_body JSONB,
       app_revision BIGINT,
       committed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`, [], { operation: "initialization-operation-receipts" });
-    await this.queryWithRetry("ALTER TABLE operation_receipts ADD COLUMN IF NOT EXISTS scope_key TEXT NOT NULL DEFAULT 'public:*'", [], { operation: "initialization-operation-receipts-scope" });
-    await this.queryWithRetry("UPDATE operation_receipts SET scope_key=COALESCE(company_id,'public')||':'||COALESCE(branch_id,'*') WHERE scope_key='public:*' AND company_id IS NOT NULL", [], { operation: "initialization-operation-receipts-backfill" });
-    await this.queryWithRetry("ALTER TABLE operation_receipts DROP CONSTRAINT IF EXISTS operation_receipts_pkey", [], { operation: "initialization-operation-receipts-drop-legacy-pk" });
-    await this.queryWithRetry("CREATE UNIQUE INDEX IF NOT EXISTS uq_operation_receipts_scope_key ON operation_receipts(scope_key,operation_key,method,path)", [], { operation: "initialization-operation-receipts-scope-index" });
     await this.queryWithRetry("CREATE INDEX IF NOT EXISTS idx_operation_receipts_committed_at ON operation_receipts(committed_at)", [], { operation: "initialization-operation-receipts-index" });
   }
 
@@ -660,9 +655,9 @@ class PostgresStateAdapter {
                  RETURNING revision
                ), receipt AS (
                  INSERT INTO operation_receipts
-                   (scope_key,operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at)
-                 SELECT $2,$3,$4,$5,$6,$7,'COMMITTED',$8::jsonb,revision,NOW() FROM saved
-                 ON CONFLICT (scope_key,operation_key,method,path)
+                   (operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at)
+                 SELECT $2,$3,$4,$5,$6,'COMMITTED',$7::jsonb,revision,NOW() FROM saved
+                 ON CONFLICT (operation_key)
                  DO UPDATE SET status='COMMITTED',
                                response_body=EXCLUDED.response_body,
                                app_revision=EXCLUDED.app_revision,
@@ -672,7 +667,6 @@ class PostgresStateAdapter {
                SELECT revision FROM saved`,
               values: [
                 payload,
-                String(operationReceipt.scopeKey || `${operationReceipt.companyId || "public"}:${operationReceipt.branchId || "*"}`),
                 String(operationReceipt.key),
                 String(operationReceipt.method || "POST"),
                 String(operationReceipt.path || "/"),
@@ -730,7 +724,7 @@ class PostgresStateAdapter {
             let receipt;
             try {
               receipt = await runClientStep(receiptClient, { text:
-              `SELECT app_revision FROM operation_receipts WHERE scope_key=$1 AND operation_key=$2 AND method=$3 AND path=$4 AND status='COMMITTED' LIMIT 1`, values: [String(options.operationReceipt.scopeKey || `${options.operationReceipt.companyId || "public"}:${options.operationReceipt.branchId || "*"}`),String(options.operationReceipt.key),String(options.operationReceipt.method || "POST"),String(options.operationReceipt.path || "/")], query_timeout: 2000 }, 2500, "ambiguous-commit-receipt");
+              `SELECT app_revision FROM operation_receipts WHERE operation_key=$1 AND status='COMMITTED' LIMIT 1`, values: [String(options.operationReceipt.key)], query_timeout: 2000 }, 2500, "ambiguous-commit-receipt");
             } finally { try { receiptClient.release(); } catch {} }
             if (receipt.rows?.[0]) {
               this.lastCommittedRevision = Number(receipt.rows[0].app_revision || 0);
