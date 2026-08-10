@@ -52,10 +52,17 @@ export function Customer({id,back,onStatement,onAddTransfer}){
     setSavingOldBalance(true);
     setError("");
     try{
-      await api.patch(`/customers/${id}`,{
+      const response=await api.patch(`/customers/${id}`,{
         oldBalance:Number(oldBalanceForm||0),
         oldBalanceType
       });
+      const updatedCustomer=response?.data||null;
+      clearApiGetCache();
+      if(updatedCustomer){
+        setData(current=>current?{...current,customer:{...current.customer,...updatedCustomer}}:current);
+        setOldBalanceForm(String(updatedCustomer.oldBalance??oldBalanceForm));
+        setOldBalanceType(String(updatedCustomer.oldBalanceType||oldBalanceType).toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE");
+      }
       setError(`✅ تم حفظ الحساب القديم ${oldBalanceType==="PAYABLE"?"له":"عليه"} بنجاح`);
       await load();
     }catch(requestError){

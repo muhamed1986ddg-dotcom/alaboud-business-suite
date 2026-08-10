@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
-import api,{cachedGet,isTransientReadFailure} from "../api";
+import api,{cachedGet,clearApiGetCache,isTransientReadFailure} from "../api";
 import {APP_VERSION} from "../version";
 import {AppPagination} from "../components/ui";
 import {CustomerToolbar,CustomerListControls} from "../components/customers/CustomerToolbar";
@@ -217,6 +217,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     try{
       const response=await api.post("/customers",customerForm);
       const created=response.data;
+      clearApiGetCache();
       setCustomerForm({customerNumber:"",name:"",phone:"",email:"",oldBalance:"",oldBalanceType:"RECEIVABLE"});
       setError("✅ تم حفظ العميل بنجاح");
       setActivePanel("");
@@ -245,6 +246,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     try{
       const response=await api.patch(`/customers/${editingCustomer.id}`,editingCustomer);
       const updated=response.data;
+      clearApiGetCache();
       setList(current=>current.map(item=>item.id===updated.id?{...item,...updated}:item));
       setEditingCustomer(null);
       setActivePanel("");
@@ -263,6 +265,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     setError("");
     try{
       await api.delete(`/customers/${customer.id}`);
+      clearApiGetCache();
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
       void Promise.allSettled([load(),loadDebtSummary()]);
     }catch(requestError){
@@ -277,6 +280,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     setError("");
     try{
       await api.post(`/customers/${customer.id}/reset-account`,{});
+      clearApiGetCache();
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
       void Promise.allSettled([load(),loadDebtSummary()]);
       window.alert("تم تصفير الحساب وبدء حساب جديد بنجاح. الحساب السابق محفوظ في الأرشيف.");
