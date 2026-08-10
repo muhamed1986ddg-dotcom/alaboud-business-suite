@@ -1,3 +1,8 @@
+## v25.14.51
+- Added mandatory idempotency keys to sensitive financial writes after authentication.
+- Added CI pool-leak, timeout-recovery, duplicate-write, and durable-write serialization checks.
+- No financial formula or database schema changes.
+
 ## v25.14.50
 - نقل جلسة الويب إلى HttpOnly + Secure + SameSite cookie مع توافق انتقالي للجلسات القديمة.
 - إزالة تخزين JWT الجديد في localStorage، مع ترقية تلقائية للجلسات القديمة عند أول طلب ناجح.

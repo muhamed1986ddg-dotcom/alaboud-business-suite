@@ -7,6 +7,26 @@ function normalizeReceiptBody(value) {
   try { return JSON.parse(JSON.stringify(value)); } catch { return null; }
 }
 
+
+function requireIdempotencyKey(req, res, next) {
+  const supplied = String(req.get("Idempotency-Key") || "").trim();
+  if (!supplied) {
+    return res.status(428).json({
+      code: "IDEMPOTENCY_KEY_REQUIRED",
+      retryable: false,
+      message: "هذه العملية المالية تتطلب مفتاح منع تكرار. حدّث التطبيق ثم أعد المحاولة."
+    });
+  }
+  if (supplied.length > 200) {
+    return res.status(400).json({
+      code: "INVALID_IDEMPOTENCY_KEY",
+      retryable: false,
+      message: "مفتاح منع التكرار غير صالح."
+    });
+  }
+  return next();
+}
+
 function createIdempotencyMiddleware({ ttlMs = 5 * 60 * 1000, maxEntries = 5000, getQuery = null } = {}) {
   const entries = new Map();
   const cleanup = setInterval(() => {
@@ -95,4 +115,4 @@ function createIdempotencyMiddleware({ ttlMs = 5 * 60 * 1000, maxEntries = 5000,
   };
 }
 
-module.exports = { createIdempotencyMiddleware };
+module.exports = { createIdempotencyMiddleware, requireIdempotencyKey };

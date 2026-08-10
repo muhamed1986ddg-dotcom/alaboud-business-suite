@@ -1,6 +1,6 @@
 {
   "name": "alaboud-stable-backend",
-  "version": "25.14.50",
+  "version": "25.14.51",
   "private": true,
   "type": "commonjs",
   "scripts": {
@@ -28,7 +28,9 @@
     "test:commit-confirmation": "node src/reliability/CommitConfirmationIdempotency.test.js",
     "test:monthly-inventory": "node src/finance/MonthlyInventory.test.js",
     "test:transaction-write-timeout": "node src/database/TransactionWriteTimeoutRecovery-v251418.test.js",
-    "test:write-readiness": "node src/database/WriteReadinessGate-v251419.test.js"
+    "test:write-readiness": "node src/database/WriteReadinessGate-v251419.test.js",
+    "test:pool-leaks": "node src/postgres-pool-acquire-leak-regression.test.js",
+    "test:write-reliability": "node src/write-reliability-v251451.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

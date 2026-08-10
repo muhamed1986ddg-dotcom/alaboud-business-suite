@@ -20,7 +20,7 @@ const { calculateReceivableSummary } = require("./finance/ReceivableSummary");
 const { calculateInventoryPayables, calculateInventoryMonthProfit } = require("./finance/MonthlyInventoryFinancials");
 const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
 const { registerHealthRoutes } = require("./routes/health");
-const { createIdempotencyMiddleware } = require("./reliability/idempotency");
+const { createIdempotencyMiddleware, requireIdempotencyKey } = require("./reliability/idempotency");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
 const { normalizeChannel, normalizeEmail, normalizePhone: normalizeVerificationPhone, maskEmail, maskPhone, codeHash, safeEqualHex: safeEqualVerificationHex } = require("./account-verification");
@@ -2215,7 +2215,7 @@ app.get("/api/transactions/unpaid-summary", auth, async (req,res)=>{
   }
 });
 
-app.post("/api/transactions", auth, async (req,res)=>{
+app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
   const {
     customerId,
     currency="USD",
@@ -2309,7 +2309,7 @@ app.post("/api/transactions", auth, async (req,res)=>{
   res.status(201).json(tx);
 });
 
-app.post("/api/customers/:id/payments", auth, async (req,res)=>{
+app.post("/api/customers/:id/payments", auth, requireIdempotencyKey, async (req,res)=>{
   try{
     const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{};
     const requested=Number(amount);
@@ -2436,7 +2436,7 @@ app.post("/api/customers/:id/payments", auth, async (req,res)=>{
   }
 });
 
-app.post("/api/transactions/:id/payments", auth, async (req,res)=>{
+app.post("/api/transactions/:id/payments", auth, requireIdempotencyKey, async (req,res)=>{
   try{
     const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{};
     const n=Number(amount);
@@ -2473,7 +2473,7 @@ app.post("/api/transactions/:id/payments", auth, async (req,res)=>{
   }
 });
 
-app.patch("/api/transactions/:id", auth, async (req,res)=>{
+app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=>{
   try{
     // Soft-delete uses PATCH intentionally. In production the normal PATCH
     // durable-write path is stable, while some proxies/connections were
@@ -2561,7 +2561,7 @@ app.patch("/api/transactions/:id", auth, async (req,res)=>{
   }
 });
 
-app.delete("/api/transactions/:id", auth, async (req,res)=>{
+app.delete("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=>{
   try{
     const deleted=await mutateDurable((s)=>{
       const transaction=s.transactions.find(item=>item.id===req.params.id&&!item.isDeleted);
@@ -2597,7 +2597,7 @@ app.delete("/api/transactions/:id", auth, async (req,res)=>{
   }
 });
 
-app.patch("/api/payments/:id", auth, async (req,res)=>{
+app.patch("/api/payments/:id", auth, requireIdempotencyKey, async (req,res)=>{
   try{
     const updated=await mutateDurable((s)=>{
       const payment=s.payments.find(item=>item.id===req.params.id&&!item.isDeleted);
@@ -2649,7 +2649,7 @@ app.patch("/api/payments/:id", auth, async (req,res)=>{
   }
 });
 
-app.delete("/api/payments/:id", auth, async (req,res)=>{
+app.delete("/api/payments/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const deleted=await mutateDurable((s)=>{
     const payment=s.payments.find(item=>item.id===req.params.id&&!item.isDeleted);
     if(!payment)return null;
@@ -3323,7 +3323,7 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   });
 });
 
-app.post("/api/general-debts", auth, async (req,res)=>{
+app.post("/api/general-debts", auth, requireIdempotencyKey, async (req,res)=>{
   const {
     type,
     partyName,
@@ -3387,7 +3387,7 @@ app.get("/api/general-debts/:id/payments", auth, (req,res)=>{
   res.json(list);
 });
 
-app.post("/api/general-debts/:id/payments", auth, async (req,res)=>{
+app.post("/api/general-debts/:id/payments", auth, requireIdempotencyKey, async (req,res)=>{
   const numericAmount = Number(req.body?.amount);
   const paymentDate = req.body?.paymentDate || new Date().toISOString().slice(0,10);
   const notes = req.body?.notes || "";
@@ -3450,7 +3450,7 @@ app.post("/api/general-debts/:id/payments", auth, async (req,res)=>{
   res.status(201).json(payment);
 });
 
-app.patch("/api/general-debts/:id", auth, async (req,res)=>{
+app.patch("/api/general-debts/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const updated = await mutateDurable((store)=>{
     const debt = store.generalDebts.find((item)=>item.id===req.params.id);
     if (!debt) return null;
@@ -3479,7 +3479,7 @@ app.patch("/api/general-debts/:id", auth, async (req,res)=>{
   res.json(updated);
 });
 
-app.delete("/api/general-debts/:id", auth, async (req,res)=>{
+app.delete("/api/general-debts/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const result=await mutateDurable((store)=>{
     const index=(store.generalDebts||[]).findIndex(item=>item.id===req.params.id);
     if(index<0)return {notFound:true};
@@ -5602,7 +5602,7 @@ app.get("/api/partners/:id", auth, (req,res)=>{
   });
 });
 
-app.post("/api/partners/:id/transactions", auth, async (req,res)=>{
+app.post("/api/partners/:id/transactions", auth, requireIdempotencyKey, async (req,res)=>{
   const {type,amount,currency="CAD",date="",dueDate="",reference="",description=""}=req.body||{};
   const numericAmount=Number(amount);
 
@@ -5648,7 +5648,7 @@ app.post("/api/partners/:id/transactions", auth, async (req,res)=>{
   res.status(201).json(transaction);
 });
 
-app.patch("/api/partners/:id/transactions/:transactionId", auth, async (req,res)=>{
+app.patch("/api/partners/:id/transactions/:transactionId", auth, requireIdempotencyKey, async (req,res)=>{
   const {type,amount,currency,date,dueDate,reference,description}=req.body||{};
   let updated=null;
   await mutateDurable(store=>{
@@ -5672,7 +5672,7 @@ app.patch("/api/partners/:id/transactions/:transactionId", auth, async (req,res)
   res.json(updated);
 });
 
-app.delete("/api/partners/:id/transactions/:transactionId", auth, async (req,res)=>{
+app.delete("/api/partners/:id/transactions/:transactionId", auth, requireIdempotencyKey, async (req,res)=>{
   let deleted=null;
   await mutateDurable(store=>{
     const index=(store.partnerTransactions||[]).findIndex(row=>row.id===req.params.transactionId&&row.partnerId===req.params.id);
@@ -5685,7 +5685,7 @@ app.delete("/api/partners/:id/transactions/:transactionId", auth, async (req,res
   res.json({ok:true,message:"تم حذف العملية"});
 });
 
-app.post("/api/partners/:id/payments", auth, async (req,res)=>{
+app.post("/api/partners/:id/payments", auth, requireIdempotencyKey, async (req,res)=>{
   const {direction,amount,currency="CAD",date="",reference="",notes=""}=req.body||{};
   const numericAmount=Number(amount);
 
@@ -5730,7 +5730,7 @@ app.post("/api/partners/:id/payments", auth, async (req,res)=>{
   res.status(201).json(payment);
 });
 
-app.patch("/api/partners/:id/payments/:paymentId", auth, async (req,res)=>{
+app.patch("/api/partners/:id/payments/:paymentId", auth, requireIdempotencyKey, async (req,res)=>{
   const {direction,amount,currency,date,reference,notes}=req.body||{};
   let updated=null;
   await mutateDurable(store=>{
@@ -5754,7 +5754,7 @@ app.patch("/api/partners/:id/payments/:paymentId", auth, async (req,res)=>{
   res.json(updated);
 });
 
-app.delete("/api/partners/:id/payments/:paymentId", auth, async (req,res)=>{
+app.delete("/api/partners/:id/payments/:paymentId", auth, requireIdempotencyKey, async (req,res)=>{
   let deleted=null;
   await mutateDurable(store=>{
     const index=(store.partnerPayments||[]).findIndex(row=>row.id===req.params.paymentId&&row.partnerId===req.params.id);
@@ -5901,8 +5901,8 @@ app.post("/api/ai/assistant",auth,(req,res)=>{
 });
 
 app.get("/api/expenses", auth, async (req,res)=>{const store=readStore();const rows=await branchSafeRead(req,"expenses",()=>nativeRepositories.expenses.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.expenses).reverse());res.json(paginate(req,rows));});
-app.post("/api/expenses", auth, async (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=await mutateDurable(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};assertBalancedEntry([{account:"EXPENSE_CAD",debit:x.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*rate).toFixed(2)}]);s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
-app.put("/api/expenses/:id", auth, async (req,res)=>{
+app.post("/api/expenses", auth, requireIdempotencyKey, async (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=await mutateDurable(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};assertBalancedEntry([{account:"EXPENSE_CAD",debit:x.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*rate).toFixed(2)}]);s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
+app.put("/api/expenses/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const {title,amount,currency="CAD",exchangeRate=1,category="Other",date}=req.body||{};
   const n=Number(amount),rate=Number(exchangeRate),normalizedCurrency=String(currency||"CAD").toUpperCase();
   if(!title||!date||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"بيانات المصروف غير صحيحة"});
@@ -5921,7 +5921,7 @@ app.put("/api/expenses/:id", auth, async (req,res)=>{
   if(!updated)return res.status(404).json({message:"المصروف غير موجود"});
   res.json(updated);
 });
-app.delete("/api/expenses/:id", auth, async (req,res)=>{
+app.delete("/api/expenses/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const removed=await mutateDurable(s=>{
     const rows=Array.from(s.expenses||[]);
     const index=rows.findIndex(x=>String(x.id)===String(req.params.id));
@@ -5946,7 +5946,7 @@ app.get("/api/capital", auth, async (req,res)=>{
   });
   res.json(rows);
 });
-app.post("/api/capital", auth, async (req,res)=>{
+app.post("/api/capital", auth, requireIdempotencyKey, async (req,res)=>{
   const {type="IN",amount,currency="CAD",description="",date=new Date().toISOString().slice(0,10)}=req.body||{};
   const n=Number(amount), normalizedCurrency=String(currency||"CAD").toUpperCase();
   if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0)return res.status(400).json({message:"بيانات حركة رأس المال غير صحيحة"});
@@ -5962,7 +5962,7 @@ app.post("/api/capital", auth, async (req,res)=>{
   res.status(201).json(m);
 });
 
-app.patch("/api/capital/:id", auth, async (req,res)=>{
+app.patch("/api/capital/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const {type,amount,currency,description,date}=req.body||{};
   const n=Number(amount);
   if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0){
@@ -5995,7 +5995,7 @@ app.patch("/api/capital/:id", auth, async (req,res)=>{
   res.json(updated);
 });
 
-app.delete("/api/capital/:id", auth, async (req,res)=>{
+app.delete("/api/capital/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const removed=await mutateDurable(store=>{
     const rows=Array.from(store.capitalMovements||[]);
     const item=rows.find(entry=>entry.id===req.params.id);
