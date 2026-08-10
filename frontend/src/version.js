@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.52 Rasel SMS v1 API Fix";
+export const APP_VERSION="v25.14.53 Rasel SMS Runtime Version Fix";

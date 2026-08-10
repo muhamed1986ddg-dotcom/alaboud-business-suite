@@ -1,9 +1,10 @@
-## v25.14.52 - Rasel SMS v1 API Fix
-- Updated Rasel SMS integration to the current documented endpoint `POST /api/v1/messages/send`.
-- Updated payload to `{ phoneNumber, message }` with `X-API-Key` authentication.
-- No database schema or financial calculation changes.
+## v25.14.53
+- Corrected runtime APP_VERSION and all release-version surfaces so /api/health reports the deployed release accurately.
+- Preserved Write Reliability Guard and Secure HttpOnly Sessions.
+- Preserved Rasel SMS v1 API contract.
+- Added runtime-version regression guard.
 
-## v25.14.52
+## v25.14.51
 - Added mandatory idempotency keys to sensitive financial writes after authentication.
 - Added CI pool-leak, timeout-recovery, duplicate-write, and durable-write serialization checks.
 - No financial formula or database schema changes.
