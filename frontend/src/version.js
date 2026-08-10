@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.56 Operation Receipt Conflict Fix";
+export const APP_VERSION="v25.14.57 Multi-Instance & Idempotency Safety";

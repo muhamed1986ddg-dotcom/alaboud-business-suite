@@ -11,7 +11,7 @@ const dns = require("dns").promises;
 const net = require("net");
 const http = require("http");
 const https = require("https");
-const { readStore, readRootStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
+const { readStore, readRootStore, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const FinancialEngine = require("./finance/FinancialEngine");
 const { customerBalanceTotals } = FinancialEngine;
@@ -20,7 +20,7 @@ const { calculateReceivableSummary } = require("./finance/ReceivableSummary");
 const { calculateInventoryPayables, calculateInventoryMonthProfit } = require("./finance/MonthlyInventoryFinancials");
 const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
 const { registerHealthRoutes } = require("./routes/health");
-const { createIdempotencyMiddleware, requireIdempotencyKey } = require("./reliability/idempotency");
+const { createIdempotencyMiddleware, createRequireIdempotencyKey, operationScopeKey } = require("./reliability/idempotency");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
 const { normalizeChannel, normalizeEmail, normalizePhone: normalizeVerificationPhone, maskEmail, maskPhone, codeHash, safeEqualHex: safeEqualVerificationHex } = require("./account-verification");
@@ -256,9 +256,9 @@ app.use(express.json({ limit: "2mb", strict:true }));
 app.use(express.urlencoded({extended:false,limit:"256kb"}));
 app.use("/api", createIdempotencyMiddleware({
   ttlMs: Number(process.env.IDEMPOTENCY_TTL_MS || 5 * 60 * 1000),
-  maxEntries: Number(process.env.IDEMPOTENCY_MAX_ENTRIES || 5000),
-  getQuery: getDatabaseQuery
+  maxEntries: Number(process.env.IDEMPOTENCY_MAX_ENTRIES || 5000)
 }));
+const requireIdempotencyKey = createRequireIdempotencyKey({ getQuery: getDatabaseQuery });
 // Start the HTTP listener even when PostgreSQL private DNS is temporarily
 // unavailable. API writes/reads stay gated with 503 until initialization
 // succeeds, allowing Render to keep the deployment alive and the service to
@@ -380,9 +380,10 @@ app.get("/api/operations/:key/status", auth, async (req,res)=>{
     const result=await query(
       `SELECT operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at
          FROM operation_receipts
-        WHERE operation_key=$1
+        WHERE scope_key=$1 AND operation_key=$2
+        ORDER BY committed_at DESC
         LIMIT 1`,
-      [operationKey],
+      [operationScopeKey(req.user.companyId),operationKey],
       { operation:"operation-status",attempts:1,queryTimeoutMs:1200,recoveryBudgetMs:1200 }
     );
     const receipt=result.rows?.[0];
@@ -488,11 +489,11 @@ function verifyTotp(secret,code,lastUsedStep=null){
   }
   return null;
 }
-function issueSession(user,company,context={}){
+async function issueSession(user,company,context={}){
   const jti=crypto.randomUUID();
   const expiresAt=new Date(Date.now()+30*24*60*60*1000).toISOString();
   const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId,jti},JWT_SECRET,{expiresIn:"30d",issuer:"alaboud-business-suite",audience:"alaboud-client"});
-  mutate(store=>createSession(store,{userId:user.id,companyId:user.companyId,jti,ip:context.ip,userAgent:context.userAgent,expiresAt}));
+  await mutateDurable(store=>createSession(store,{userId:user.id,companyId:user.companyId,jti,ip:context.ip,userAgent:context.userAgent,expiresAt}));
   return {token,user:{id:user.id,name:user.name,email:user.email,role:user.role,permissions:permissionsFor(user.role,user.permissions),companyId:user.companyId,companyName:company.name,mustChangePassword:Boolean(user.mustChangePassword),twoFactorEnabled:Boolean(user.twoFactorEnabled)}};
 }
 
@@ -779,7 +780,7 @@ app.post("/api/auth/login", rateLimit("login",10,15*60*1000),async (req,res)=>{
     return res.json({twoFactorRequired:true,challenge,challengeExpiresIn:challengeTtlSeconds});
   }
   await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;if(!isScryptHash(u.passwordHash))u.passwordHash=hashPassword(password);u.lastLoginAt=now();audit(root,u.id,"LOGIN_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
-  const session=issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")});
+  const session=await issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")});
   setSessionCookie(res,session.token);
   res.json(sessionResponseBody(req,session));
 });
@@ -803,7 +804,7 @@ app.post("/api/auth/2fa/verify",rateLimit("2fa",20,10*60*1000),async (req,res)=>
     return res.status(401).json({code:"TWO_FACTOR_CODE_INVALID",message:"رمز التحقق غير صحيح أو مستخدم من قبل أو انتهت مدته. انتظر الرمز الجديد في Authenticator ثم حاول مرة أخرى."});
   }
   await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;u.lastLoginAt=now();u.twoFactorLastStep=acceptedStep;audit(root,u.id,"LOGIN_2FA_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
-  const session=issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")});
+  const session=await issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")});
   setSessionCookie(res,session.token);
   return res.json(sessionResponseBody(req,session));
 });
@@ -956,7 +957,7 @@ app.post("/api/auth/biometric/revoke",auth,async (req,res)=>{
   });
   res.json({message:"تم إبطال الدخول بالبصمة أو الوجه على هذا الجهاز"});
 });
-app.post("/api/auth/biometric-login",rateLimit("biometric",20,15*60*1000),(req,res)=>{
+app.post("/api/auth/biometric-login",rateLimit("biometric",20,15*60*1000),async (req,res)=>{
   try{
     const p=jwt.verify(String(req.body?.token||""),JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-biometric",algorithms:["HS256"]});
     if(p.purpose!=="biometric"||!p.deviceId||!p.jti)throw new Error();
@@ -968,7 +969,7 @@ app.post("/api/auth/biometric-login",rateLimit("biometric",20,15*60*1000),(req,r
     const device=(store.devices||[]).find(d=>d.id===p.deviceId&&d.userId===p.id&&d.companyId===p.companyId&&d.active!==false&&d.biometricActive===true&&d.biometricJti===p.jti);
     if(!user||!company||!device)throw new Error();
     device.lastSeenAt=now();
-    const session=issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")});
+    const session=await issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")});
     setSessionCookie(res,session.token);
     res.json(sessionResponseBody(req,session));
   }catch{return res.status(401).json({message:"تم إبطال أو انتهاء صلاحية الدخول بالبصمة أو الوجه"});}
@@ -1022,7 +1023,7 @@ app.post("/api/auth/register-company",async (req,res)=>{
       store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
       return {company,user};
     });
-    const session=issueSession(result.user,result.company,{ip:req.ip,userAgent:req.get("user-agent")});
+    const session=await issueSession(result.user,result.company,{ip:req.ip,userAgent:req.get("user-agent")});
     setSessionCookie(res,session.token);
     res.status(201).json(sessionResponseBody(req,session));
   }catch(error){
@@ -6062,9 +6063,9 @@ app.get("/api/security/status", auth, (req,res)=>{
   res.json({version:"18.0.0",passwordHashing:"scrypt",sessionHours:12,httpsRequired:IS_PROD,auditIntegrity:chainValid,activeDevices:(store.devices||[]).filter(x=>x.active!==false).length,failedLogins24h:logs.filter(x=>x.action==="LOGIN_FAILED"&&Date.now()-new Date(x.createdAt).getTime()<86400000).length,securityScore:[IS_PROD,JWT_SECRET!=="LOCAL_TRIAL_CHANGE_ME_6_0",chainValid].filter(Boolean).length===3?95:78});
 });
 
-app.post("/api/backup/encrypted", auth, requirePermission("admin.only"), rateLimit("backup",10,60*60*1000),(req,res)=>{ const password=String(req.body?.password||""); const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message});
+app.post("/api/backup/encrypted", auth, requirePermission("admin.only"), rateLimit("backup",10,60*60*1000),async (req,res)=>{ const password=String(req.body?.password||""); const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message});
   const store=readStore(),data={};for(const key of BACKUP_ARRAYS)data[key]=Array.from(store[key]||[]).map(item=>({...item})); const payload=createBackupEnvelope({company:{id:req.user.companyId},data,createdAt:now()}); const encrypted=encryptJson(payload,password);
-  mutate(root=>audit(root,req.user.id,"EXPORT_ENCRYPTED","BACKUP",id(),{ip:req.ip})); res.setHeader("Content-Disposition",`attachment; filename="alaboud-secure-backup-${Date.now()}.abs"`);res.json(encrypted);
+  await mutateDurable(root=>audit(root,req.user.id,"EXPORT_ENCRYPTED","BACKUP",id(),{ip:req.ip})); res.setHeader("Content-Disposition",`attachment; filename="alaboud-secure-backup-${Date.now()}.abs"`);res.json(encrypted);
 });
 
 app.post("/api/backup/restore", auth, requirePermission("admin.only"), async (req,res)=>{
@@ -6139,7 +6140,7 @@ app.use((err,req,res,_next)=>{
   res.status(status>=400&&status<600?status:500).json({
     message,
     code:isDatabaseTemporary?"DATABASE_TEMPORARILY_UNAVAILABLE":(err?.code||undefined),
-    retryable:Boolean(isDatabaseTemporary),
+    retryable:Boolean(err?.retryable || isDatabaseTemporary),
     requestId
   });
 });

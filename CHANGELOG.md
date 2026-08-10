@@ -1,3 +1,12 @@
+## v25.14.57
+
+- Tenant-scoped durable idempotency receipts; database replay now happens only after authentication.
+- Explicit `scope_key` persistence and migration for `operation_receipts`.
+- Optimistic `app_state.revision` guard prevents stale full-state snapshots from overwriting a newer commit.
+- Ambiguous-commit verification and operation status are tenant-scoped.
+- CI build now gates the main financial/session/JAD/SMS regression tests in addition to pool/write reliability checks.
+- No financial formulas, customer balances, or JAD parsing logic changed.
+
 ## v25.14.56
 
 - Fixed PostgreSQL operation receipt UPSERT to match the live composite unique constraint `(scope_key, operation_key, method, path)`.

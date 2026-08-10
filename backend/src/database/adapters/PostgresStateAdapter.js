@@ -191,6 +191,9 @@ class PostgresStateAdapter {
     this.lastDisconnectedAt = null;
     this.lastConnectionError = null;
     this.consecutiveConnectionFailures = 0;
+    // Revision loaded from PostgreSQL and advanced only after a confirmed COMMIT.
+    // It is used for optimistic protection against a stale full-state snapshot.
+    this.lastCommittedRevision = 0;
     this.pool = this.createPool("general");
     // Financial mutations use a physically separate pool. Background health,
     // exchange-rate refreshes, reporting and relational projection can no
@@ -353,7 +356,7 @@ class PostgresStateAdapter {
     )`, [], { operation: "initialization" });
     await this.queryWithRetry("ALTER TABLE app_state ADD COLUMN IF NOT EXISTS revision BIGINT NOT NULL DEFAULT 0", [], { operation: "initialization-revision" });
     await this.queryWithRetry(`CREATE TABLE IF NOT EXISTS operation_receipts (
-      operation_key TEXT PRIMARY KEY,
+      operation_key TEXT NOT NULL,
       method TEXT NOT NULL,
       path TEXT NOT NULL,
       company_id TEXT,
@@ -361,14 +364,19 @@ class PostgresStateAdapter {
       status TEXT NOT NULL DEFAULT 'COMMITTED',
       response_body JSONB,
       app_revision BIGINT,
-      committed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      committed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      scope_key TEXT NOT NULL DEFAULT 'public:*'
     )`, [], { operation: "initialization-operation-receipts" });
+    await this.queryWithRetry("ALTER TABLE operation_receipts ADD COLUMN IF NOT EXISTS scope_key TEXT", [], { operation: "initialization-operation-receipts-scope" });
+    await this.queryWithRetry("CREATE UNIQUE INDEX IF NOT EXISTS uq_operation_receipts_scope_key ON operation_receipts(scope_key,operation_key,method,path)", [], { operation: "initialization-operation-receipts-unique" });
     await this.queryWithRetry("CREATE INDEX IF NOT EXISTS idx_operation_receipts_committed_at ON operation_receipts(committed_at)", [], { operation: "initialization-operation-receipts-index" });
   }
 
   async load() {
-    const result = await this.queryWithRetry("SELECT payload FROM app_state WHERE state_key='main'", [], { operation: "load" });
-    return result.rows.length ? this.normalize(result.rows[0].payload) : null;
+    const result = await this.queryWithRetry("SELECT payload,revision FROM app_state WHERE state_key='main'", [], { operation: "load" });
+    if (!result.rows.length) { this.lastCommittedRevision = 0; return null; }
+    this.lastCommittedRevision = Number(result.rows[0].revision || 0);
+    return this.normalize(result.rows[0].payload);
   }
 
   async queryWithRetry(text, params = [], { operation = "query", attempts, queryTimeoutMs, recoveryBudgetMs } = {}) {
@@ -652,11 +660,12 @@ class PostgresStateAdapter {
                  DO UPDATE SET payload=EXCLUDED.payload,
                                revision=app_state.revision+1,
                                updated_at=NOW()
+                         WHERE app_state.revision=$9
                  RETURNING revision
                ), receipt AS (
                  INSERT INTO operation_receipts
-                   (operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at)
-                 SELECT $2,$3,$4,$5,$6,'COMMITTED',$7::jsonb,revision,NOW() FROM saved
+                   (scope_key,operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at)
+                 SELECT $7,$2,$3,$4,$5,$6,'COMMITTED',$8::jsonb,revision,NOW() FROM saved
                  ON CONFLICT (scope_key,operation_key,method,path)
                  DO UPDATE SET status='COMMITTED',
                                response_body=EXCLUDED.response_body,
@@ -672,7 +681,9 @@ class PostgresStateAdapter {
                 String(operationReceipt.path || "/"),
                 operationReceipt.companyId ? String(operationReceipt.companyId) : null,
                 operationReceipt.branchId ? String(operationReceipt.branchId) : null,
-                responseJson
+                `company:${String(operationReceipt.companyId || "public")}`,
+                responseJson,
+                Number(this.lastCommittedRevision || 0)
               ],
               query_timeout: clientQueryTimeoutMs
             }, hardStepTimeoutMs, "state-write-with-receipt")
@@ -684,12 +695,21 @@ class PostgresStateAdapter {
                  DO UPDATE SET payload=EXCLUDED.payload,
                                revision=app_state.revision+1,
                                updated_at=NOW()
+                         WHERE app_state.revision=$2
                  RETURNING revision
                )
                SELECT revision FROM saved`,
-              values: [payload],
+              values: [payload, Number(this.lastCommittedRevision || 0)],
               query_timeout: clientQueryTimeoutMs
             }, hardStepTimeoutMs, "state-write");
+        if (!result.rows?.[0]) {
+          const conflict = new Error("Application state changed before this write could commit");
+          conflict.code = "STALE_STATE_REVISION";
+          conflict.status = 409;
+          conflict.publicMessage = "تم تحديث البيانات من جلسة أخرى قبل حفظ هذه العملية. لم يتم اعتماد التغيير؛ حدّث الصفحة ثم أعد المحاولة.";
+          conflict.retryable = true;
+          throw conflict;
+        }
         await runClientStep(client, { text: "COMMIT", query_timeout: clientQueryTimeoutMs }, hardStepTimeoutMs, "commit");
         this.lastCommittedRevision = Number(result.rows?.[0]?.revision || 0);
         this.connectionState = "connected";
@@ -724,7 +744,9 @@ class PostgresStateAdapter {
             let receipt;
             try {
               receipt = await runClientStep(receiptClient, { text:
-              `SELECT app_revision FROM operation_receipts WHERE operation_key=$1 AND status='COMMITTED' LIMIT 1`, values: [String(options.operationReceipt.key)], query_timeout: 2000 }, 2500, "ambiguous-commit-receipt");
+              `SELECT app_revision FROM operation_receipts
+                 WHERE scope_key=$1 AND operation_key=$2 AND method=$3 AND path=$4 AND status='COMMITTED' LIMIT 1`,
+                values: [`company:${String(options.operationReceipt.companyId || "public")}`, String(options.operationReceipt.key), String(options.operationReceipt.method || "POST"), String(options.operationReceipt.path || "/")], query_timeout: 2000 }, 2500, "ambiguous-commit-receipt");
             } finally { try { receiptClient.release(); } catch {} }
             if (receipt.rows?.[0]) {
               this.lastCommittedRevision = Number(receipt.rows[0].app_revision || 0);

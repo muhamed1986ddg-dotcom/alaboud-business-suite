@@ -1,0 +1,16 @@
+const assert=require('assert');
+const fs=require('fs');
+const idem=fs.readFileSync(require.resolve('./reliability/idempotency'),'utf8');
+const server=fs.readFileSync(require.resolve('./server'),'utf8');
+const adapter=fs.readFileSync(require.resolve('./database/adapters/PostgresStateAdapter'),'utf8');
+assert(idem.includes('function operationScopeKey(companyId)'), 'tenant scope helper is required');
+assert(idem.includes('function operationPath(req)'), 'canonical operation path helper is required');
+assert(idem.includes('original.startsWith("/api/") ? original.slice(4)'), 'operation path must be stable inside and outside the /api mount');
+assert(idem.includes('WHERE scope_key=$1 AND operation_key=$2 AND method=$3 AND path=$4'), 'durable preflight must use tenant-scoped composite identity');
+assert(idem.includes('createRequireIdempotencyKey'), 'durable replay must run in authenticated route middleware');
+assert(!idem.includes('req.get("X-Company-ID")'), 'tenant scope must not trust a caller-supplied company header');
+assert(server.includes('const requireIdempotencyKey = createRequireIdempotencyKey({ getQuery: getDatabaseQuery });'), 'server must bind authenticated durable replay');
+assert(adapter.includes('(scope_key,operation_key,method,path)'), 'receipt write must target composite unique key');
+assert(adapter.includes('`company:${String(operationReceipt.companyId || "public")}`'), 'receipt write must persist authenticated company scope');
+assert(adapter.includes('WHERE scope_key=$1 AND operation_key=$2 AND method=$3 AND path=$4 AND status=\'COMMITTED\''), 'ambiguous commit recovery must be tenant scoped');
+console.log('v25.14.57 idempotency tenant scope: OK');
