@@ -1961,12 +1961,16 @@ app.patch("/api/customers/:id", auth, async (req,res)=>{
       customer.phoneNormalized=normalizePhone(customer.phone);
       customer.oldBalance=+Math.max(safeNumber(customer.oldBalance),0).toFixed(2);
       customer.oldBalanceType=String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE";
+      const updateTime=now();
       if(req.body.oldBalance!==undefined||req.body.oldBalanceType!==undefined){
         customer.openingBalanceInitial=customer.oldBalance;
         customer.oldBalancePaid=0;
+        // A new opening balance entered after an account reset belongs to the NEW account.
+        // Keep the reset marker so historical transactions stay archived, but mark this opening balance as post-reset.
+        customer.openingBalanceUpdatedAt=updateTime;
       }
       else customer.oldBalancePaid=+Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),customer.oldBalance).toFixed(2);
-      customer.updatedAt=now();
+      customer.updatedAt=updateTime;
       customer.updatedBy=req.user.id;
       audit(store,req.user.id,"UPDATE","CUSTOMER",customer.id,{before:oldData,after:{...customer},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
       return customer;
@@ -2838,7 +2842,10 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   // أرصدة الحساب القديم للعملاء تُعد دينًا لنا وتدخل في مجموع الدين العام.
   // لا ننشئ سجلاً دائمًا جديدًا حتى لا يحدث تكرار؛ بل نشتق الرصيد مباشرة من بيانات العميل.
   const customerOldBalanceRows = customers.map((customer)=>{
-    if (!customer || customer.isDeleted || customer.accountResetAt) return null;
+    if (!customer || customer.isDeleted) return null;
+    const resetTime=recordTime(customer.accountResetAt);
+    const openingUpdatedTime=recordTime(customer.openingBalanceUpdatedAt);
+    if(resetTime && openingUpdatedTime < resetTime) return null;
     const storedAmount = Math.max(safeNumber(customer.oldBalance), 0);
     const legacyPaid = Math.min(Math.max(safeNumber(customer.oldBalancePaid), 0), storedAmount);
     const remaining = Math.max(storedAmount-legacyPaid, 0);
@@ -3458,14 +3465,16 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
       })
       .sort((a,b)=>String(a.paymentDate||a.date||"").localeCompare(String(b.paymentDate||b.date||"")));
 
-    const accountWasReset=Boolean(customer.accountResetAt);
-    const storedOldBalance=accountWasReset?0:Math.max(safeNumber(customer.oldBalance),0);
-    const legacyOldBalancePaid=accountWasReset?0:Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),storedOldBalance);
+    const resetTime=recordTime(customer.accountResetAt);
+    const openingUpdatedTime=recordTime(customer.openingBalanceUpdatedAt);
+    const activeOpeningBalance=!resetTime || openingUpdatedTime>=resetTime;
+    const storedOldBalance=activeOpeningBalance?Math.max(safeNumber(customer.oldBalance),0):0;
+    const legacyOldBalancePaid=activeOpeningBalance?Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),storedOldBalance):0;
     const oldBalance=Math.max(storedOldBalance-legacyOldBalancePaid,0);
     const oldBalanceType=String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE";
     const oldBalanceSign=oldBalanceType==="PAYABLE"?-1:1;
     const signedOldBalance=oldBalanceSign*oldBalance;
-    const openingBalanceInitial=accountWasReset?0:Math.max(safeNumber(customer.openingBalanceInitial,storedOldBalance),oldBalance);
+    const openingBalanceInitial=activeOpeningBalance?Math.max(safeNumber(customer.openingBalanceInitial,storedOldBalance),oldBalance):0;
     const oldBalancePaid=0;
     const oldBalanceRemaining=oldBalance;
     const actualPaid=paymentRecords.reduce((sum,payment)=>sum+safeNumber(payment.amount),0);

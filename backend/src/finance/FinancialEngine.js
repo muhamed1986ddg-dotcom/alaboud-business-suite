@@ -61,14 +61,16 @@ function customerSummary(store, customer, { overdueDays = 7 } = {}) {
     paymentByTransaction.set(payment.transactionId, current + moneySafe(payment.amount));
   }
 
-  const reset = Boolean(customer.accountResetAt);
-  const storedOpening = reset ? 0n : (moneySafe(customer.oldBalance) > 0n ? moneySafe(customer.oldBalance) : 0n);
-  const rawLegacyPaid = reset ? 0n : moneySafe(customer.oldBalancePaid);
+  const resetTime = recordTime(customer.accountResetAt);
+  const openingUpdatedTime = recordTime(customer.openingBalanceUpdatedAt);
+  const activeOpeningBalance = !resetTime || openingUpdatedTime >= resetTime;
+  const storedOpening = activeOpeningBalance ? (moneySafe(customer.oldBalance) > 0n ? moneySafe(customer.oldBalance) : 0n) : 0n;
+  const rawLegacyPaid = activeOpeningBalance ? moneySafe(customer.oldBalancePaid) : 0n;
   const legacyPaid = rawLegacyPaid > storedOpening ? storedOpening : (rawLegacyPaid > 0n ? rawLegacyPaid : 0n);
   const openingOutstanding = storedOpening > legacyPaid ? storedOpening - legacyPaid : 0n;
   const oldBalanceType = String(customer.oldBalanceType || "RECEIVABLE").toUpperCase() === "PAYABLE" ? "PAYABLE" : "RECEIVABLE";
   const signedOpeningOutstanding = oldBalanceType === "PAYABLE" ? -openingOutstanding : openingOutstanding;
-  const rawOpeningInitial = reset ? 0n : moneySafe(customer.openingBalanceInitial ?? customer.oldBalance);
+  const rawOpeningInitial = activeOpeningBalance ? moneySafe(customer.openingBalanceInitial ?? customer.oldBalance) : 0n;
   const openingInitial = rawOpeningInitial > openingOutstanding ? rawOpeningInitial : openingOutstanding;
   const actualPayments = customerReceiptsScaled(payments.filter(payment => isAfterReset(payment, customer, "paymentDate")), customer.id);
 
