@@ -84,6 +84,6 @@ assert(store.includes("let durableMutationChain=Promise.resolve()"));
 assert(store.includes("const task=durableMutationChain.then(execute,execute)"));
 assert(store.includes("durableMutationChain=task.catch(()=>undefined)"));
 
-console.log("v25.14.51 write reliability guard: OK");
+console.log("v25.14.52 write reliability guard: OK");
 
 })().catch(error=>{console.error(error);process.exit(1);});
