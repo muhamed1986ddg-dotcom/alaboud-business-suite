@@ -1,3 +1,6 @@
+## v25.14.43
+- Show settings action success/error messages inside the active modal, including password change confirmation on mobile.
+
 ## v25.14.42 - Password change hash compatibility fix
 
 - إصلاح تغيير كلمة المرور للحسابات التي تستخدم scrypt بدل bcrypt.

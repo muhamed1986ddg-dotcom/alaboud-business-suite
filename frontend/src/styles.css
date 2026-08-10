@@ -6851,3 +6851,17 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
   visibility:visible!important;
   opacity:1!important;
 }
+
+/* v25.14.43 - keep settings action feedback visible inside the open modal */
+.settings-modal-message{
+  position:sticky;
+  top:0;
+  z-index:6;
+  margin:0 0 14px;
+  background:linear-gradient(145deg,#2b230f,#17130b)!important;
+  box-shadow:0 8px 22px rgba(0,0,0,.32);
+}
+.settings-modal-shell[data-active-panel="password"] .settings-modal-message{
+  color:#7ef0a5!important;
+  border-color:rgba(65,190,112,.6)!important;
+}
