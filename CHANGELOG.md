@@ -1,3 +1,7 @@
+## v25.14.41
+- إصلاح ظهور لوحة تغيير كلمة السر داخل نافذة الإعدادات على الهاتف.
+- ضمان ظهور حقول كلمة المرور الحالية والجديدة والتأكيد وزر الحفظ.
+
 ## v25.14.40 — Account Verification Confirm Fix
 
 - Keep an active OTP challenge when verification contact data is saved without changing the target.

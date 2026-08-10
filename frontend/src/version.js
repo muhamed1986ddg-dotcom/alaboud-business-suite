@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.40 Account Verification Confirm Fix";
+export const APP_VERSION="v25.14.41 Password Settings Modal Fix";

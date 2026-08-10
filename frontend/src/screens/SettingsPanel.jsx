@@ -464,7 +464,7 @@ function SettingsPanel({activeBranchId,onActiveBranchChange}){
         <small>آخر تحديث: 18 يوليو 2026 — الإصدار القانوني 1.0</small>
       </article>
 
-      <article data-panel="password" className="settings-card">
+      <article data-panel="password" className={`settings-card password-settings-card ${activePanel==="password"?"settings-panel-force-visible":""}`}>
         <div className="settings-card-title"><span>🔐</span><h3>تغيير كلمة السر</h3></div>
         <form className="settings-form-modern" onSubmit={changePassword}>
           <input type="password" value={passwordForm.currentPassword} onChange={e=>setPasswordForm({...passwordForm,currentPassword:e.target.value})} placeholder="كلمة المرور الحالية" required/>
