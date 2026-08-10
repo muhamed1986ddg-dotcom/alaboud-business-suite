@@ -1,3 +1,8 @@
+## v25.14.56
+
+- Fixed PostgreSQL operation receipt UPSERT to match the live composite unique constraint `(scope_key, operation_key, method, path)`.
+- No database data migration or destructive schema change.
+
 ## v25.14.55
 
 - إصلاح قارئ أرصدة شركة جاد فقط بدون تغيير موصلات بقية الشركات.

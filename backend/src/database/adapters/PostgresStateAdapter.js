@@ -657,7 +657,7 @@ class PostgresStateAdapter {
                  INSERT INTO operation_receipts
                    (operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at)
                  SELECT $2,$3,$4,$5,$6,'COMMITTED',$7::jsonb,revision,NOW() FROM saved
-                 ON CONFLICT (operation_key)
+                 ON CONFLICT (scope_key,operation_key,method,path)
                  DO UPDATE SET status='COMMITTED',
                                response_body=EXCLUDED.response_body,
                                app_revision=EXCLUDED.app_revision,
