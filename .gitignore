@@ -1,21 +1,117 @@
+# AlAboud Business Suite — repository safety guard
+# Keep secrets, local databases, backups and generated artifacts out of Git.
+
+# Dependencies / build output
 node_modules/
+**/node_modules/
+frontend/dist/
+backend/public/
+dist/
+build/
+app/build/
+.gradle/
+coverage/
+.vite/
+
+# Local Android / IDE files
+local.properties
+.idea/
+.vscode/
+*.iml
+*.apk
+*.aab
+
+# Environment files and local secrets
 .env
 .env.*
 !.env.example
-dist/
-build/
-coverage/
-*.log
-backups/
-data/*.json
-*.zip
-.DS_Store
-postgresql-18.4-2-windows-x64.exe
-postgresql-18.4-2-windows-x64.exe
-alaboud-business-suite-*.json
+*.local.env
+*.secret
+*.secrets
+secrets/
+credentials/
 
-# Local/Android build caches
-muhamed1986ddg/
-.gradle/
-**/.gradle/
-Android/Sdk/
+# Private keys / certificates / signing material
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.cer
+*.der
+*.mobileprovision
+service-account*.json
+*service-account*.json
+*credentials*.json
+*secret*.json
+
+# Database files / dumps
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.backup
+*.bak
+*.sql.gz
+*.dump.gz
+pg_dump*.sql
+postgres*.sql
+*_dump.sql
+*_backup.sql
+
+# Application data / backups
+store.json
+data/store*.json
+backend/data/store*.json
+backup/
+backups/
+**/backup/
+**/backups/
+alaboud-backup-*
+*customer-backup*
+*customers-backup*
+*database-backup*
+
+# Spreadsheets / exports that may contain customer data
+*.csv
+*.xls
+*.xlsx
+*.ods
+*.tsv
+
+# Logs / runtime files
+*.log
+logs/
+*.pid
+*.pid.lock
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Shell / OS history and metadata
+.bash_history
+.zsh_history
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary/editor files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.cache/
+tmp/
+temp/
+
+# Playwright / test artifacts
+playwright-report/
+test-results/
+blob-report/
+
+# Keep source-controlled SQL migrations even though SQL dumps are ignored above.
+!backend/migrations/*.sql

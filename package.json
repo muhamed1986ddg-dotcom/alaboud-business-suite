@@ -1,10 +1,10 @@
 {
   "name": "alaboud-business-suite-cloud",
-  "version": "25.14.47",
+  "version": "25.14.48",
   "private": true,
   "scripts": {
     "install:all": "npm ci --prefix backend --include=dev --ignore-scripts --no-audit --no-fund && npm ci --prefix frontend --include=dev --ignore-scripts --no-audit --no-fund",
-    "build": "npm run build --prefix frontend && node scripts/copy-frontend.js",
+    "build": "npm run check:sensitive && npm run build --prefix frontend && node scripts/copy-frontend.js",
     "start": "node backend/src/server.js",
     "render-build": "npm run install:all && npm run install:chromium && npm run build",
     "selftest": "node backend/src/selftest_v8.js",
@@ -15,7 +15,8 @@
     "check:ui": "node scripts/check-ui-foundation.js",
     "test:ui": "npm run test:ui --prefix frontend",
     "test:e2e": "npm run test:e2e --prefix backend",
-    "test:receivables": "npm run test:receivables --prefix backend"
+    "test:receivables": "npm run test:receivables --prefix backend",
+    "check:sensitive": "node scripts/check-sensitive-files.js"
   },
   "engines": {
     "node": ">=22 <23"

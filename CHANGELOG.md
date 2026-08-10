@@ -1,3 +1,9 @@
+## v25.14.48
+- Added a repository-wide `.gitignore` safety policy for secrets, credentials, local databases, backups, exports and generated artifacts.
+- Expanded sensitive-file detection and added `npm run check:sensitive`.
+- Normal production builds now run the sensitive-file check before frontend bundling.
+- No financial or database calculation logic changed in this release.
+
 ## v25.14.47
 - إصلاح خصم دفعات العميل بعد تصفير الحساب: الدفعة الجديدة لا تُوزع على حوالات مؤرشفة قبل التصفير.
 - احتساب دفعات نفس يوم التصفير بالاعتماد على وقت الإنشاء الفعلي (`date`) حتى تظهر في المدفوع وتخفض الرصيد النهائي.
