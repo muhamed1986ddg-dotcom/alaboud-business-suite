@@ -27,7 +27,7 @@ function requireIdempotencyKey(req, res, next) {
   return next();
 }
 
-function createIdempotencyMiddleware({ ttlMs = 5 * 60 * 1000, maxEntries = 5000, getQuery = null } = {}) {
+function createIdempotencyMiddleware({ ttlMs = 5 * 60 * 1000, maxEntries = 5000, getQuery = null, getScope = null } = {}) {
   const entries = new Map();
   const cleanup = setInterval(() => {
     const now = Date.now();
@@ -36,16 +36,16 @@ function createIdempotencyMiddleware({ ttlMs = 5 * 60 * 1000, maxEntries = 5000,
   }, Math.min(ttlMs, 60_000));
   cleanup.unref?.();
 
-  async function findCommittedReceipt(supplied, method, path) {
+  async function findCommittedReceipt(supplied, method, path, scopeKey) {
     const query = typeof getQuery === "function" ? getQuery() : null;
-    if (!query) return null;
+    if (!query || !scopeKey) return null;
     try {
       const result = await query(
         `SELECT response_body, app_revision, committed_at
            FROM operation_receipts
-          WHERE operation_key=$1 AND method=$2 AND path=$3 AND status='COMMITTED'
+          WHERE scope_key=$1 AND operation_key=$2 AND method=$3 AND path=$4 AND status='COMMITTED'
           LIMIT 1`,
-        [supplied, method, path],
+        [scopeKey, supplied, method, path],
         {
           operation: "idempotency-receipt-preflight",
           attempts: 1,
@@ -67,8 +67,16 @@ function createIdempotencyMiddleware({ ttlMs = 5 * 60 * 1000, maxEntries = 5000,
     const supplied = String(req.get("Idempotency-Key") || "").trim();
     if (!supplied) return next();
     const path = String(req.path || "/");
-    const scope = req.user?.companyId || req.get("X-Company-ID") || "public";
-    const memoryKey = `${scope}:${method}:${path}:${supplied}`;
+    const resolvedScope = typeof getScope === "function"
+      ? getScope(req)
+      : (req.user?.companyId ? {scopeKey:`${req.user.companyId}:${req.user.branchId || req.get("X-Branch-ID") || "*"}`,fallbackScope:req.user.companyId} : null);
+    const scopeKey = String(resolvedScope?.scopeKey || "").trim();
+    // Never use a shared "public" namespace for authenticated financial writes.
+    // If a tenant cannot be resolved yet, isolate the in-memory key by the token/header fingerprint
+    // and skip durable receipt replay until authentication establishes the tenant.
+    const fallbackScope = String(resolvedScope?.fallbackScope || req.get("X-Installation-ID") || "anonymous");
+    const memoryScope = scopeKey || `preauth:${fallbackScope}`;
+    const memoryKey = `${memoryScope}:${method}:${path}:${supplied}`;
     const current = entries.get(memoryKey);
     if (current?.state === "done" && current.expiresAt > Date.now()) {
       res.setHeader("Idempotency-Replayed", "true");
@@ -102,7 +110,9 @@ function createIdempotencyMiddleware({ ttlMs = 5 * 60 * 1000, maxEntries = 5000,
       return runWithOperationContext({ key: supplied, method, path }, next);
     };
 
-    void findCommittedReceipt(supplied, method, path)
+    const durableQuery = typeof getQuery === "function" ? getQuery() : null;
+    if (!scopeKey || !durableQuery) return proceed();
+    void findCommittedReceipt(supplied, method, path, scopeKey)
       .then((receipt) => {
         if (!receipt) return proceed();
         const body = normalizeReceiptBody(receipt.response_body) || { committed: true };

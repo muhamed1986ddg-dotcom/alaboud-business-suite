@@ -139,6 +139,13 @@ async function assertSafeWebhookUrl(rawUrl){
   return {url:parsed.toString(),protocol:parsed.protocol,hostname:host,address:addresses[0].address,path:`${parsed.pathname}${parsed.search}`};
 }
 
+
+async function assertSafePartnerUrl(rawUrl){
+  const safe=await assertSafeWebhookUrl(rawUrl);
+  if(IS_PROD&&safe.protocol!=="https:")throw Object.assign(new Error("يجب استخدام HTTPS لروابط الشركات الخارجية في بيئة الإنتاج"),{code:"PARTNER_HTTPS_REQUIRED"});
+  return safe;
+}
+
 // Sends a webhook request while pinning the TCP connection to the IP address
 // that was already validated by assertSafeWebhookUrl, instead of letting a
 // generic HTTP client re-resolve DNS for the same hostname. Without this, an
@@ -254,10 +261,31 @@ app.use((req,res,next)=>{ req.requestId=crypto.randomUUID(); res.setHeader("X-Re
 app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:","blob:"], connectSrc:["'self'","https:"], objectSrc:["'none'"], baseUri:["'self'"], frameAncestors:["'none'"] } }, crossOriginEmbedderPolicy:false, hsts: IS_PROD ? {maxAge:31536000,includeSubDomains:true,preload:true}:false }));
 app.use(express.json({ limit: "2mb", strict:true }));
 app.use(express.urlencoded({extended:false,limit:"256kb"}));
+function idempotencyTenantScope(req){
+  const bearer=String(req.headers.authorization||"").startsWith("Bearer ")?String(req.headers.authorization).slice(7):"";
+  const cookie=readCookie(req,SESSION_COOKIE_NAME);
+  const token=bearer||cookie;
+  let decoded=null;
+  try{decoded=token?jwt.decode(token):null;}catch{}
+  const companyId=String(decoded?.companyId||"").trim();
+  const userId=String(decoded?.id||"").trim();
+  let branchId="";
+  if(companyId&&userId){
+    try{
+      const root=readRootStore();
+      const user=(root.users||[]).find(item=>item.id===userId&&item.companyId===companyId&&item.active!==false);
+      const branch=user?resolveBranch(root,{companyId,requestedBranchId:req.headers["x-branch-id"],user}):null;
+      branchId=String(branch?.id||"").trim();
+    }catch{}
+  }
+  const fingerprint=sha256(`${token||"no-token"}|${req.get("X-Installation-ID")||""}`).slice(0,24);
+  return {scopeKey:companyId&&branchId?`${companyId}:${branchId}`:"",fallbackScope:fingerprint};
+}
 app.use("/api", createIdempotencyMiddleware({
   ttlMs: Number(process.env.IDEMPOTENCY_TTL_MS || 5 * 60 * 1000),
   maxEntries: Number(process.env.IDEMPOTENCY_MAX_ENTRIES || 5000),
-  getQuery: getDatabaseQuery
+  getQuery: getDatabaseQuery,
+  getScope: idempotencyTenantScope
 }));
 // Start the HTTP listener even when PostgreSQL private DNS is temporarily
 // unavailable. API writes/reads stay gated with 503 until initialization
@@ -380,9 +408,9 @@ app.get("/api/operations/:key/status", auth, async (req,res)=>{
     const result=await query(
       `SELECT operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at
          FROM operation_receipts
-        WHERE operation_key=$1
+        WHERE scope_key=$1 AND operation_key=$2
         LIMIT 1`,
-      [operationKey],
+      [`${req.user.companyId}:${req.user.branchId||"*"}`,operationKey],
       { operation:"operation-status",attempts:1,queryTimeoutMs:1200,recoveryBudgetMs:1200 }
     );
     const receipt=result.rows?.[0];
@@ -1030,6 +1058,20 @@ app.post("/api/auth/register-company",async (req,res)=>{
   }
 });
 
+
+function revokeBiometricForUser(store,userId,revokedAt=now()){
+  let count=0;
+  for(const device of (store.devices||[])){
+    if(device.userId!==userId||device.biometricActive!==true)continue;
+    device.biometricActive=false;
+    device.biometricJti=null;
+    device.revokedAt=revokedAt;
+    device.updatedAt=revokedAt;
+    count+=1;
+  }
+  return count;
+}
+
 app.post("/api/auth/change-password", auth, async (req,res)=>{
   const currentPassword=String(req.body?.currentPassword||"");
   const newPassword=String(req.body?.newPassword||"");
@@ -1049,7 +1091,9 @@ app.post("/api/auth/change-password", auth, async (req,res)=>{
       user.passwordHash=hashPassword(newPassword);
       user.mustChangePassword=false;
       user.updatedAt=now();
-      audit(store,req.user.id,"UPDATE","USER_PASSWORD",user.id,{});
+      const revokedSessions=revokeUserSessions(store,user.id,user.id,req.user.jti);
+      const revokedBiometric=revokeBiometricForUser(store,user.id);
+      audit(store,req.user.id,"UPDATE","USER_PASSWORD",user.id,{revokedSessions,revokedBiometric});
     });
     res.json({message:"تم تغيير كلمة المرور بنجاح"});
   }catch(error){
@@ -1110,7 +1154,9 @@ app.post("/api/auth/reset-password", rateLimit("reset-password",10,15*60*1000), 
       user.resetPasswordTokenHash=null;
       user.resetPasswordExpiresAt=null;
       user.updatedAt=now();
-      audit(root,user.id,"PASSWORD_RESET_COMPLETED","AUTH",user.id,{ip:req.ip,requestId:req.requestId});
+      const revokedSessions=revokeUserSessions(root,user.id,user.id,null);
+      const revokedBiometric=revokeBiometricForUser(root,user.id);
+      audit(root,user.id,"PASSWORD_RESET_COMPLETED","AUTH",user.id,{ip:req.ip,requestId:req.requestId,revokedSessions,revokedBiometric});
     });
     res.json({message:"تم تعيين كلمة المرور الجديدة بنجاح، يمكنك تسجيل الدخول الآن"});
   }catch(error){
@@ -3753,6 +3799,8 @@ function normalizeBaseUrl(value){
   if(!/^https?:\/\//i.test(raw))raw=`https://${raw.replace(/^\/+/,"")}`;
   const parsed=new URL(raw);
   if(!["http:","https:"].includes(parsed.protocol))throw new Error("رابط شركة جاد يجب أن يبدأ بـ http أو https");
+  if(IS_PROD&&parsed.protocol!=="https:")throw new Error("يجب استخدام HTTPS لروابط الشركات الخارجية");
+  if(["localhost","127.0.0.1","::1"].includes(String(parsed.hostname).toLowerCase()))throw new Error("لا يمكن استخدام عنوان داخلي للشركة الخارجية");
   return `${parsed.protocol}//${parsed.host}`;
 }
 function resolveJadConnection(partner={}){
@@ -3761,6 +3809,7 @@ function resolveJadConnection(partner={}){
   if(!/^https?:\/\//i.test(raw))raw=`https://${raw.replace(/^\/+/,"")}`;
   const parsed=new URL(raw);
   if(!["http:","https:"].includes(parsed.protocol))throw new Error("رابط شركة جاد غير صالح");
+  if(IS_PROD&&parsed.protocol!=="https:")throw new Error("يجب استخدام HTTPS لروابط الشركات الخارجية");
 
   const base=`${parsed.protocol}//${parsed.host}`;
   const configured=String(partner.pathPrefix||"").trim();
@@ -3848,6 +3897,7 @@ async function fetchWithCookies(url,options={},cookie="",settings={}){
   let currentOptions={...options};
   const redirects=[];
   for(let index=0;index<=maxRedirects;index+=1){
+    await assertSafePartnerUrl(currentUrl);
     const headers={...(currentOptions.headers||{})};
     if(currentCookie)headers.Cookie=currentCookie;
     const response=await fetch(currentUrl,{...currentOptions,headers,redirect:"manual",signal:AbortSignal.timeout(20000)});
@@ -3859,6 +3909,7 @@ async function fetchWithCookies(url,options={},cookie="",settings={}){
     }
     if(index===maxRedirects)throw new Error("تجاوز موقع الشركة الحد المسموح لإعادة التوجيه");
     const nextUrl=new URL(location,currentUrl).toString();
+    await assertSafePartnerUrl(nextUrl);
     redirects.push({status,from:currentUrl,to:nextUrl});
     const method=String(currentOptions.method||"GET").toUpperCase();
     const shouldSwitchToGet=status===303||((status===301||status===302)&&method!=="GET"&&method!=="HEAD");
@@ -4373,9 +4424,15 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
         if(parsed&&Array.isArray(parsed.cookies))savedStorageState=parsed;
       }
     }catch(error){console.warn("[JAD][SESSION][STATE_INVALID]",String(error?.message||error));}
-    const contextOptions={locale:"ar",timezoneId:"America/Toronto",userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",viewport:{width:1365,height:900},extraHTTPHeaders:{"Accept-Language":"ar,en-US;q=0.9,en;q=0.8"},ignoreHTTPSErrors:true};
+    const contextOptions={locale:"ar",timezoneId:"America/Toronto",userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",viewport:{width:1365,height:900},extraHTTPHeaders:{"Accept-Language":"ar,en-US;q=0.9,en;q=0.8"},ignoreHTTPSErrors:false};
     if(savedStorageState)contextOptions.storageState=savedStorageState;
     const context=await browser.newContext(contextOptions);
+    await context.route("**/*",async route=>{
+      const request=route.request();
+      if(request.resourceType()!=="document")return route.continue();
+      try{await assertSafePartnerUrl(request.url());return route.continue();}
+      catch{return route.abort("blockedbyclient");}
+    });
     page=await context.newPage();
     page.setDefaultTimeout(25000); page.setDefaultNavigationTimeout(45000);
 
@@ -4927,6 +4984,7 @@ function kontorunBaseUrl(partner={}){
   const raw=String(partner.systemUrl||"https://www.krs47n92t.com").trim()||"https://www.krs47n92t.com";
   const withProtocol=/^https?:\/\//i.test(raw)?raw:`https://${raw}`;
   const parsed=new URL(withProtocol);
+  if(IS_PROD&&parsed.protocol!=="https:")throw new Error("يجب استخدام HTTPS لروابط الشركات الخارجية");
   const segments=parsed.pathname.split("/").filter(Boolean);
   const scriptIndex=segments.findIndex(part=>/^(?:index\.php|api)$/i.test(part));
   const prefix=(scriptIndex>=0?segments.slice(0,scriptIndex):segments).join("/");
@@ -5103,6 +5161,7 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
 function dahabUrls(partner={}){
   const raw=String(partner.systemUrl||"https://endulusmt2.com/branch/index.php?p=l&f=i").trim();
   const parsed=new URL(/^https?:\/\//i.test(raw)?raw:`https://${raw}`);
+  if(IS_PROD&&parsed.protocol!=="https:")throw new Error("يجب استخدام HTTPS لروابط الشركات الخارجية");
   const loginPath=parsed.pathname&&/index\.php$/i.test(parsed.pathname)?parsed.pathname:"/branch/index.php";
   return {origin:parsed.origin,login:`${parsed.origin}${loginPath}?p=l&f=i`,report:`${parsed.origin}/clman/index.php`};
 }
@@ -5273,6 +5332,7 @@ app.post("/api/partners", auth, async (req,res)=>{
   }=req.body||{};
 
   if(!name)return res.status(400).json({message:"اسم المورد أو الشركة مطلوب"});
+  if(String(systemUrl||"").trim()){try{await assertSafePartnerUrl(systemUrl);}catch(error){return res.status(400).json({message:error.message||"رابط الشركة الخارجية غير آمن",code:error.code||"PARTNER_URL_REJECTED"});}}
   const normalizedCompanyMode=String(companyMode||"CONNECTED").toUpperCase()==="MANUAL"?"MANUAL":"CONNECTED";
   const numericOpeningBalance=Number(openingBalance||0);
   if(!Number.isFinite(numericOpeningBalance)||numericOpeningBalance<0)return res.status(400).json({message:"الرصيد الافتتاحي غير صحيح"});
@@ -5330,6 +5390,7 @@ app.post("/api/partners", auth, async (req,res)=>{
 });
 
 app.patch("/api/partners/:id", auth, async (req,res)=>{
+  if(req.body?.systemUrl!==undefined&&String(req.body.systemUrl||"").trim()){try{await assertSafePartnerUrl(req.body.systemUrl);}catch(error){return res.status(400).json({message:error.message||"رابط الشركة الخارجية غير آمن",code:error.code||"PARTNER_URL_REJECTED"});}}
   const allowed=["name","contactName","phone","whatsapp","email","country","city","address","notes","systemUrl","connectionType","accountCurrency","integrationName","username","externalAccountId","connectorType","companyMode","pathPrefix","syncFromDate","syncEnabled","syncIntervalMinutes","syncMode"];
   let updated=null;
   await mutateDurable(store=>{
@@ -5461,6 +5522,7 @@ async function executePartnerSync({partnerId,body,user,companyId,branchId,onProg
     const snapshot=readStore();const partner=(snapshot.partners||[]).find(item=>item.id===partnerId);
     if(!partner){const error=new Error("الشركة غير موجودة");error.code="PARTNER_NOT_FOUND";throw error;}
     const connector=resolvePartnerConnector(partner);
+    if(partner.systemUrl)await assertSafePartnerUrl(partner.systemUrl);
     if(!["JAD","TAWASUL","DAHAB","SURYANA"].includes(connector)){const error=new Error("لا يوجد موصل فعلي محدد لهذه الشركة");error.code="CONNECTOR_NOT_CONFIGURED";throw error;}
     if(syncTrigger==="AUTO"&&["JAD","DAHAB","SURYANA"].includes(connector)){const error=new Error("تم تعطيل المزامنة التلقائية لهذه الشركة لحماية استقرار الخادم؛ استخدم زر جلب الرصيد يدويًا");error.code="AUTO_SYNC_DISABLED";throw error;}
     try{

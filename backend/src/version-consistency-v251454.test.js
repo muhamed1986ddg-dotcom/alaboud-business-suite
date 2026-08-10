@@ -2,7 +2,7 @@ const assert=require("assert");
 const path=require("path");
 const fs=require("fs");
 const root=path.resolve(__dirname,"../..");
-const expected="25.14.54";
+const expected="25.14.55";
 const {APP_VERSION}=require("./production-readiness");
 assert.strictEqual(APP_VERSION,expected,"runtime APP_VERSION must match release");
 assert.strictEqual(require(path.join(root,"package.json")).version,expected);

@@ -8,4 +8,4 @@ assert.match(server,/content:\{text:message\}/);
 assert.match(server,/"X-API-Key":apiKey/);
 assert.doesNotMatch(server,/api\/v1\/messages\/send/);
 assert.doesNotMatch(server,/sessionName/);
-console.log("v25.14.54 Rasel local SMS v2 contract: OK");
+console.log("v25.14.55 Rasel local SMS v2 contract: OK");

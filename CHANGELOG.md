@@ -1,13 +1,21 @@
+## v25.14.55
+
+- Tenant-scoped idempotency receipts now use company + resolved branch scope, preventing cross-tenant replay/collision of identical operation keys.
+- External partner connectors now enforce safe public HTTPS URLs in production, revalidate redirects, and block unsafe browser document navigations; Chromium TLS verification is enabled.
+- Password changes revoke every other active session and all biometric tokens; password reset revokes all sessions and biometric tokens.
+- No financial formulas, customer balances, transfer calculations, inventory calculations, or debt formulas were changed.
+- Added regression coverage for tenant isolation, connector SSRF/TLS hardening, and credential-change session revocation.
+
 ## v25.14.54
 - Fixed Rasel Syria local SMS integration to use the account-documented `/api/v2/messages/send` contract.
 - Sends verification messages with `channel: local_sms`, `messageType: free_text`, and `content.text`.
 - Keeps `X-API-Key` authentication and does not use WhatsApp `sessionName`.
 - Added regression coverage for the Rasel local SMS v2 contract and synchronized runtime/client version to 25.14.54.
 
-## v25.14.54
+## v25.14.53
 - Corrected runtime APP_VERSION and all release-version surfaces so /api/health reports the deployed release accurately.
 - Preserved Write Reliability Guard and Secure HttpOnly Sessions.
-- Preserved Rasel SMS v1 API contract.
+- Preserved Rasel SMS integration fixes.
 - Added runtime-version regression guard.
 
 ## v25.14.51
