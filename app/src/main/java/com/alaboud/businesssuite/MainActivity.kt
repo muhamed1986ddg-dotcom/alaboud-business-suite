@@ -103,7 +103,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/25.14.49"
+            userAgentString = "$userAgentString AlAboudMobile/25.14.50"
         }
 
         CookieManager.getInstance().apply {
@@ -427,10 +427,9 @@ class MainActivity : AppCompatActivity() {
         val script = """
             (function() {
               try {
-                var token = localStorage.getItem('afs_token');
-                if (!token) return;
                 fetch('/api/customer-alerts', {
-                  headers: { Authorization: 'Bearer ' + token }
+                  credentials: 'same-origin',
+                  headers: { 'X-Installation-ID': localStorage.getItem('alaboud_installation_id') || 'android-webview' }
                 })
                 .then(function(response) { return response.json(); })
                 .then(function(data) {

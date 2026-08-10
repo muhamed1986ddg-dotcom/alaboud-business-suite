@@ -1,4 +1,4 @@
-import React,{useEffect,useState}from"react";import LoginShell from"./LoginShell";import DatabaseStatus from"./components/system/DatabaseStatus";import api,{cachedGet} from"./api";import {APP_VERSION} from"./version";import {Dashboard} from"./screens/Dashboard";
+import React,{useEffect,useState}from"react";import DatabaseStatus from"./components/system/DatabaseStatus";import api,{cachedGet} from"./api";import {APP_VERSION} from"./version";import {Dashboard} from"./screens/Dashboard";
 import{money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction}from"./shared";
 
 // شاشات مؤجّلة التحميل: تُحمَّل فقط عند فتحها فعليًا، لا مع كل شاشة أساسية.
@@ -191,17 +191,11 @@ function AppLanguageBridge(){
   return null;
 }
 
-export default function App(){
-  const sessionFixVersion="16.0.0";
-  const savedSessionFix=localStorage.getItem("alaboud_session_fix_version");
-
-  if(savedSessionFix!==sessionFixVersion){
-    localStorage.removeItem("afs_token");
-    localStorage.removeItem("afs_user");
-    localStorage.setItem("alaboud_session_fix_version",sessionFixVersion);
-  }
-
-  const [token,setToken]=useState(localStorage.getItem("afs_token"));
+export default function App({onAuthExpired=()=>{}}){
+  // Authentication is owned by AppShell and backed by an HttpOnly cookie.
+  // Keep this constant only to preserve existing effect dependencies while
+  // avoiding any JavaScript access to the session JWT.
+  const token=true;
   const savedCompanyUser=(()=>{try{return JSON.parse(localStorage.getItem("afs_user")||"{}")}catch{return {}}})();
   const [companyBrand,setCompanyBrand]=useState({name:savedCompanyUser.companyName||"شركة العبود التجارية",logoDataUrl:""});
   const [branches,setBranches]=useState([]);
@@ -242,10 +236,10 @@ export default function App(){
   },[token,activeBranchId]);
 
   useEffect(()=>{
-    const handleAuthExpired=()=>setToken(null);
+    const handleAuthExpired=()=>onAuthExpired();
     window.addEventListener("alaboud-auth-expired",handleAuthExpired);
     return()=>window.removeEventListener("alaboud-auth-expired",handleAuthExpired);
-  },[]);
+  },[onAuthExpired]);
   const [page,setPage]=useState("dashboard");
   const [customerId,setCustomerId]=useState(null);
   const [customerTransferRequest,setCustomerTransferRequest]=useState(null);
@@ -309,10 +303,6 @@ export default function App(){
     window.addEventListener("popstate",onBack);
     return()=>window.removeEventListener("popstate",onBack);
   },[mobileMenuOpen]);
-
-  if(!token){
-    return <LoginShell onLogin={()=>setToken(localStorage.getItem("afs_token"))}/>;
-  }
 
   function navigate(nextPage){
     setPage(nextPage);
@@ -450,10 +440,13 @@ export default function App(){
           <h3>تسجيل الخروج</h3>
           <p>هل تريد تسجيل الخروج من البرنامج؟</p>
           <div>
-            <button className="danger-button" onClick={()=>{
-              localStorage.clear();
-              setToken(null);
+            <button className="danger-button" onClick={async()=>{
+              try{await api.post("/auth/logout",{}, {suppressToast:true});}catch{}
+              localStorage.removeItem("afs_token");
+              localStorage.removeItem("afs_session_active");
+              localStorage.removeItem("afs_user");
               setLogoutConfirm(false);
+              onAuthExpired();
             }}>نعم، تسجيل الخروج</button>
             <button onClick={()=>setLogoutConfirm(false)}>إلغاء</button>
           </div>

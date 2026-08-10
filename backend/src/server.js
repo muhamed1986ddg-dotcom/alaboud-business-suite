@@ -38,6 +38,67 @@ const IS_PROD = process.env.NODE_ENV === "production";
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
 if (IS_PROD && JWT_SECRET === "LOCAL_TRIAL_CHANGE_ME_6_0") { throw new Error("JWT_SECRET قوي ومخصص مطلوب في الإنتاج"); }
 
+const SESSION_COOKIE_NAME = "alaboud_session";
+const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+function readCookie(req,name){
+  const raw=String(req.headers?.cookie||"");
+  for(const part of raw.split(";")){
+    const index=part.indexOf("=");
+    if(index<0)continue;
+    const key=part.slice(0,index).trim();
+    if(key!==name)continue;
+    try{return decodeURIComponent(part.slice(index+1).trim());}catch{return part.slice(index+1).trim();}
+  }
+  return "";
+}
+function sessionCookieOptions(){
+  return {
+    httpOnly:true,
+    secure:IS_PROD,
+    sameSite:"lax",
+    path:"/",
+    maxAge:SESSION_MAX_AGE_MS
+  };
+}
+function setSessionCookie(res,token){
+  res.cookie(SESSION_COOKIE_NAME,token,sessionCookieOptions());
+  res.setHeader("X-Auth-Transport","cookie");
+}
+function clearSessionCookie(res){
+  res.clearCookie(SESSION_COOKIE_NAME,{httpOnly:true,secure:IS_PROD,sameSite:"lax",path:"/"});
+}
+function clientSupportsCookieOnlySession(req){
+  const raw=String(req.get("X-Alaboud-Client-Version")||"").trim();
+  const match=raw.match(/^(\d+)\.(\d+)\.(\d+)/);
+  if(!match)return false;
+  const current=[Number(match[1]),Number(match[2]),Number(match[3])];
+  const minimum=[25,14,50];
+  for(let i=0;i<3;i++){if(current[i]>minimum[i])return true;if(current[i]<minimum[i])return false;}
+  return true;
+}
+function sessionResponseBody(req,session){
+  // v25.14.50+ web/Android frontend authenticates exclusively with the
+  // HttpOnly cookie, so the JWT never enters JavaScript memory. Older clients
+  // and API/self-test callers still receive the token during the transition.
+  if(clientSupportsCookieOnlySession(req))return {user:session.user,authTransport:"cookie"};
+  return session;
+}
+function requestOriginMatchesHost(req){
+  const origin=String(req.get("origin")||"").trim();
+  if(!origin)return false;
+  try{
+    const parsed=new URL(origin);
+    return String(parsed.host||"").toLowerCase()===String(req.get("host")||"").toLowerCase();
+  }catch{return false;}
+}
+function cookieWriteRequestAllowed(req){
+  if(["GET","HEAD","OPTIONS"].includes(String(req.method||"").toUpperCase()))return true;
+  // Same-origin browser requests include Origin. The installation header is a
+  // second safe path for Android WebView/same-origin XHR; a cross-site HTML
+  // form cannot add this custom header without a CORS preflight.
+  return requestOriginMatchesHost(req)||Boolean(String(req.get("X-Installation-ID")||"").trim());
+}
+
 // إرسال بريد إلكتروني اختياري (يُستخدم في "نسيت كلمة المرور").
 // إن لم يتم ضبط SMTP_HOST أو لم تكن مكتبة nodemailer مثبّتة، تُطبع الرسالة في
 // السجلات بدلاً من الإرسال الفعلي (وضع تطوير) بدل تعطيل الميزة بالكامل.
@@ -273,7 +334,13 @@ function auth(req,res,next){
     return runWithTenant(req.user.companyId,branch.id,()=>next());
   }
   const h=req.headers.authorization||"";
-  const token=h.startsWith("Bearer ")?h.slice(7):"";
+  const bearerToken=h.startsWith("Bearer ")?h.slice(7):"";
+  const cookieToken=readCookie(req,SESSION_COOKIE_NAME);
+  const token=bearerToken||cookieToken;
+  const authTransport=bearerToken?"bearer":cookieToken?"cookie":"none";
+  if(authTransport==="cookie"&&!cookieWriteRequestAllowed(req)){
+    return res.status(403).json({message:"تم رفض طلب غير موثوق به",code:"CSRF_ORIGIN_REJECTED"});
+  }
   try{
     req.user=jwt.verify(token,JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-client",algorithms:["HS256"]});
     if(!req.user.companyId)return res.status(401).json({message:"Company account required"});
@@ -290,6 +357,11 @@ function auth(req,res,next){
     const branch=resolveBranch(readRootStore(),{companyId:req.user.companyId,requestedBranchId:req.headers["x-branch-id"],user});
     if(!branch)return res.status(403).json({message:"لا يوجد فرع متاح لهذا المستخدم"});
     req.branch=branch;req.user.branchId=branch.id;req.user.branchName=branch.name;
+    req.authTransport=authTransport;
+    // Seamless migration for already-signed-in web clients: the first valid
+    // Bearer request also receives the HttpOnly cookie, then the frontend can
+    // safely erase the JWT from localStorage without forcing a logout.
+    if(authTransport==="bearer"&&!cookieToken)setSessionCookie(res,token);
     runWithTenant(req.user.companyId,branch.id,()=>next());
   }catch{
     res.status(401).json({message:"Authentication required"});
@@ -704,7 +776,9 @@ app.post("/api/auth/login", rateLimit("login",10,15*60*1000),async (req,res)=>{
     return res.json({twoFactorRequired:true,challenge,challengeExpiresIn:challengeTtlSeconds});
   }
   await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;if(!isScryptHash(u.passwordHash))u.passwordHash=hashPassword(password);u.lastLoginAt=now();audit(root,u.id,"LOGIN_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
-  res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
+  const session=issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")});
+  setSessionCookie(res,session.token);
+  res.json(sessionResponseBody(req,session));
 });
 
 app.post("/api/auth/2fa/verify",rateLimit("2fa",20,10*60*1000),async (req,res)=>{
@@ -726,7 +800,9 @@ app.post("/api/auth/2fa/verify",rateLimit("2fa",20,10*60*1000),async (req,res)=>
     return res.status(401).json({code:"TWO_FACTOR_CODE_INVALID",message:"رمز التحقق غير صحيح أو مستخدم من قبل أو انتهت مدته. انتظر الرمز الجديد في Authenticator ثم حاول مرة أخرى."});
   }
   await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;u.lastLoginAt=now();u.twoFactorLastStep=acceptedStep;audit(root,u.id,"LOGIN_2FA_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
-  return res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
+  const session=issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")});
+  setSessionCookie(res,session.token);
+  return res.json(sessionResponseBody(req,session));
 });
 
 app.post("/api/auth/2fa/setup",auth,async (req,res)=>{
@@ -889,7 +965,9 @@ app.post("/api/auth/biometric-login",rateLimit("biometric",20,15*60*1000),(req,r
     const device=(store.devices||[]).find(d=>d.id===p.deviceId&&d.userId===p.id&&d.companyId===p.companyId&&d.active!==false&&d.biometricActive===true&&d.biometricJti===p.jti);
     if(!user||!company||!device)throw new Error();
     device.lastSeenAt=now();
-    res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
+    const session=issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")});
+    setSessionCookie(res,session.token);
+    res.json(sessionResponseBody(req,session));
   }catch{return res.status(401).json({message:"تم إبطال أو انتهاء صلاحية الدخول بالبصمة أو الوجه"});}
 });
 
@@ -941,7 +1019,9 @@ app.post("/api/auth/register-company",async (req,res)=>{
       store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
       return {company,user};
     });
-    res.status(201).json(issueSession(result.user,result.company,{ip:req.ip,userAgent:req.get("user-agent")}));
+    const session=issueSession(result.user,result.company,{ip:req.ip,userAgent:req.get("user-agent")});
+    setSessionCookie(res,session.token);
+    res.status(201).json(sessionResponseBody(req,session));
   }catch(error){
     res.status(400).json({message:error.message||"تعذر إنشاء حساب الشركة"});
   }
@@ -1042,12 +1122,14 @@ app.get("/api/auth/sessions", auth, (req,res)=>{
 
 app.post("/api/auth/logout", auth, async (req,res)=>{
   await mutateDurable(store=>{revokeSession(store,req.user.jti,req.user.id);audit(store,req.user.id,"LOGOUT","AUTH_SESSION",req.user.jti,{ip:req.ip,requestId:req.requestId});});
+  clearSessionCookie(res);
   res.json({message:"تم تسجيل الخروج بنجاح"});
 });
 
 app.post("/api/auth/logout-all", auth, async (req,res)=>{
   const includeCurrent=Boolean(req.body?.includeCurrent);
   const count=await mutateDurable(store=>{const total=revokeUserSessions(store,req.user.id,req.user.id,includeCurrent?null:req.user.jti);audit(store,req.user.id,"REVOKE_ALL","AUTH_SESSION",req.user.id,{count:total,includeCurrent});return total;});
+  if(includeCurrent)clearSessionCookie(res);
   res.json({message:"تم إنهاء الجلسات",revoked:count});
 });
 

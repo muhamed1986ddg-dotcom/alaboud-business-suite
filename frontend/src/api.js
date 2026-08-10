@@ -9,10 +9,10 @@ function persistedSet(key,response,expiresAt){try{sessionStorage.setItem(PERSIST
 
 function cacheKey(url,config={}){
   const branchId=localStorage.getItem("alaboud_branch_id")||"main";
-  const token=localStorage.getItem("afs_token")||"";
-  const tokenScope=token.slice(-16);
+  let sessionScope="anonymous";
+  try{const user=JSON.parse(localStorage.getItem("afs_user")||"{}");sessionScope=`${user.companyId||""}:${user.id||""}`||"anonymous";}catch{}
   const params=Object.entries(config.params||{}).sort(([a],[b])=>a.localeCompare(b));
-  return JSON.stringify([branchId,tokenScope,url,params]);
+  return JSON.stringify([branchId,sessionScope,url,params]);
 }
 
 export function clearApiGetCache(){
@@ -30,6 +30,7 @@ if(typeof document!=="undefined"){
 const api=axios.create({
   baseURL:"/api",
   timeout:30000,
+  withCredentials:true,
   headers:{
     "Cache-Control":"no-cache, no-store, must-revalidate",
     "Pragma":"no-cache",
@@ -38,8 +39,11 @@ const api=axios.create({
 });
 
 api.interceptors.request.use(config=>{
-  const token=localStorage.getItem("afs_token");
-  if(token)config.headers.Authorization=`Bearer ${token}`;
+  // Temporary bearer compatibility only for sessions created before v25.14.50.
+  // The backend upgrades that request to an HttpOnly cookie. New logins never
+  // persist their JWT in localStorage.
+  const legacyToken=localStorage.getItem("afs_token");
+  if(legacyToken)config.headers.Authorization=`Bearer ${legacyToken}`;
   const branchId=localStorage.getItem("alaboud_branch_id");
   if(branchId)config.headers["X-Branch-ID"]=branchId;
 
@@ -48,7 +52,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.14.49";
+  config.headers["X-Alaboud-Client-Version"]="25.14.50";
   // Durable writes have a bounded interactive recovery budget. If PostgreSQL
   // is temporarily unavailable, start commit verification promptly instead of
   // leaving add/edit/delete buttons spinning for more than a minute.
@@ -162,7 +166,7 @@ async function verifyCommittedOperation(error){
   try{
     const response=await axios.get(
       `/api/operations/${encodeURIComponent(operationKey)}/status`,
-      {headers,timeout:2500}
+      {headers,timeout:2500,withCredentials:true}
     );
     if(response?.data?.committed===true){
       clearApiGetCache();
@@ -201,6 +205,7 @@ api.interceptors.response.use(
     if(error.response?.status===401){
       clearApiGetCache();
       localStorage.removeItem("afs_token");
+      localStorage.removeItem("afs_session_active");
       localStorage.removeItem("afs_user");
       window.dispatchEvent(new Event("alaboud-auth-expired"));
       return Promise.reject(error);

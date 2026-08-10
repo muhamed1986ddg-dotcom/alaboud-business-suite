@@ -16,7 +16,12 @@ export default function LoginShell({onLogin}){
   const biometricEnabled=Boolean(nativeBiometric&&window.AlAboudNative?.isBiometricEnabled?.());
   const biometricPrompted=useRef(false);
   async function saveSession(data){
-    localStorage.setItem("afs_token",data.token); localStorage.setItem("afs_user",JSON.stringify(data.user));
+    // The web session is held by an HttpOnly cookie. Never persist the JWT in
+    // JavaScript-readable storage. The lightweight marker contains no secret
+    // and is only used to avoid flashing the login screen during reloads.
+    localStorage.removeItem("afs_token");
+    localStorage.setItem("afs_session_active","1");
+    localStorage.setItem("afs_user",JSON.stringify(data.user));
     // On Android, bind this account to the device biometric vault. First login
     // asks for biometric/face/device confirmation; later logins refresh the
     // server token without storing the account password.
