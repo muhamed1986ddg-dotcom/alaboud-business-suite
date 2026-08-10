@@ -1,4 +1,10 @@
-## v25.14.53
+## v25.14.54
+- Fixed Rasel Syria local SMS integration to use the account-documented `/api/v2/messages/send` contract.
+- Sends verification messages with `channel: local_sms`, `messageType: free_text`, and `content.text`.
+- Keeps `X-API-Key` authentication and does not use WhatsApp `sessionName`.
+- Added regression coverage for the Rasel local SMS v2 contract and synchronized runtime/client version to 25.14.54.
+
+## v25.14.54
 - Corrected runtime APP_VERSION and all release-version surfaces so /api/health reports the deployed release accurately.
 - Preserved Write Reliability Guard and Secure HttpOnly Sessions.
 - Preserved Rasel SMS v1 API contract.

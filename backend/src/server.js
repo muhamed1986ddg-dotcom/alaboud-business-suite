@@ -188,10 +188,10 @@ async function sendRaselSms({to,body}){
   const phoneNumber=String(to||"").trim();
   const message=String(body||"").trim();
   if(!phoneNumber||!message)return {ok:false,reason:"RASEL_INVALID_PAYLOAD"};
-  const response=await fetch("https://raselsms.com/api/v1/messages/send",{
+  const response=await fetch("https://raselsms.com/api/v2/messages/send",{
     method:"POST",
     headers:{"X-API-Key":apiKey,"Content-Type":"application/json","Accept":"application/json"},
-    body:JSON.stringify({phoneNumber,message}),
+    body:JSON.stringify({to:phoneNumber,channel:"local_sms",messageType:"free_text",content:{text:message}}),
     signal:AbortSignal.timeout(10000)
   });
   if(response.ok)return {ok:true,provider:"rasel"};
