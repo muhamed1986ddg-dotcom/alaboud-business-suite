@@ -369,6 +369,7 @@ function SettingsPanel({activeBranchId,onActiveBranchChange}){
           <button type="button" className={accountVerification.preferredChannel==="EMAIL"?"selected":""} onClick={()=>sendVerificationCode("EMAIL")} disabled={verificationBusy||!accountVerification.email}>✉️ إرسال عبر البريد</button>
         </div>
         <div className="verification-code-row"><input inputMode="numeric" maxLength="6" value={verificationCode} onChange={e=>setVerificationCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="رمز التأكيد 6 أرقام"/><button type="button" disabled={verificationBusy||verificationCode.length!==6} onClick={confirmVerificationCode}>تأكيد الرمز</button></div>
+        {message&&<div className="verification-inline-message" role="status">{message}</div>}
         <small className="settings-help">الرمز صالح لمدة 10 دقائق. SMS يستخدم Rasel عند توفر RASEL_API_KEY، وواتساب يستخدم Twilio، والبريد يحتاج إعداد SMTP.</small>
       </article>
 

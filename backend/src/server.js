@@ -785,10 +785,13 @@ app.patch("/api/auth/account-verification",auth,async(req,res)=>{
     const user=store.users.find(item=>item.id===req.user.id);if(!user)throw new Error("الحساب غير موجود");
     const previousEmail=normalizeEmail(user.verificationEmail||user.email),previousPhone=normalizeVerificationPhone(user.verificationPhone||user.phone);
     user.verificationEmail=email;user.verificationPhone=phone;user.preferredVerificationChannel=preferredChannel;
-    if(email!==previousEmail)user.emailVerifiedAt=null;
-    if(phone!==previousPhone)user.phoneVerifiedAt=null;
-    delete user.accountVerificationChallenge;
-    audit(store,user.id,"UPDATE","ACCOUNT_VERIFICATION_CONTACT",user.id,{preferredChannel,emailChanged:email!==previousEmail,phoneChanged:phone!==previousPhone});
+    const emailChanged=email!==previousEmail,phoneChanged=phone!==previousPhone;
+    if(emailChanged)user.emailVerifiedAt=null;
+    if(phoneChanged)user.phoneVerifiedAt=null;
+    const challengeChannel=normalizeChannel(user.accountVerificationChallenge?.channel);
+    const challengeTargetChanged=(challengeChannel==="EMAIL"&&emailChanged)||((challengeChannel==="SMS"||challengeChannel==="WHATSAPP")&&phoneChanged);
+    if(challengeTargetChanged)delete user.accountVerificationChallenge;
+    audit(store,user.id,"UPDATE","ACCOUNT_VERIFICATION_CONTACT",user.id,{preferredChannel,emailChanged,phoneChanged,challengePreserved:Boolean(user.accountVerificationChallenge)});
   });
   res.json({message:"تم حفظ بيانات تأكيد الحساب"});
 });

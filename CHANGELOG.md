@@ -1,4 +1,10 @@
-## v25.14.39 — Rasel SMS Verification
+## v25.14.40 — Account Verification Confirm Fix
+
+- Keep an active OTP challenge when verification contact data is saved without changing the target.
+- Invalidate only challenges whose email/phone destination actually changed.
+- Show verification success/error feedback directly beside the OTP controls.
+
+## v25.14.40 — Rasel SMS Verification
 - Added Rasel SMS provider for account verification using RASEL_API_KEY.
 - Kept WhatsApp on Twilio and email on SMTP.
 - Updated account verification provider status and settings guidance.
