@@ -1,3 +1,10 @@
+## v25.14.49
+
+- ربط `assertBalancedEntry` بمسارات الحوالات ودفعات العملاء والديون والمصروفات ورأس المال كحارس توازن قبل الكتابة.
+- إضافة تحقق فعلي من أن دفعة العميل موزعة بالكامل بين الحوالات والحساب القديم.
+- تشديد `FinancialIntegrity` لرفض القيم السالبة وغير الرقمية والسطر المدين/الدائن في الوقت نفسه.
+- لا تغيير على معادلات الأعمال أو بيانات قاعدة البيانات.
+
 ## v25.14.48
 - Added a repository-wide `.gitignore` safety policy for secrets, credentials, local databases, backups, exports and generated artifacts.
 - Expanded sensitive-file detection and added `npm run check:sensitive`.

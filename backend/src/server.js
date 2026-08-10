@@ -18,7 +18,7 @@ const { customerBalanceTotals } = FinancialEngine;
 const { transactionFinancials } = require("./finance/TransactionFinancials");
 const { calculateReceivableSummary } = require("./finance/ReceivableSummary");
 const { calculateInventoryPayables, calculateInventoryMonthProfit } = require("./finance/MonthlyInventoryFinancials");
-const { markSoftDeleted } = require("./finance/FinancialIntegrity");
+const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
 const { registerHealthRoutes } = require("./routes/health");
 const { createIdempotencyMiddleware } = require("./reliability/idempotency");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
@@ -2158,6 +2158,12 @@ app.post("/api/transactions", auth, async (req,res)=>{
   const normalizedCurrency=String(currency||"USD").toUpperCase();
   const baseCustomerDue=a*clientRate;
   const totalCustomerDue=feeMethod==="ADD"?baseCustomerDue+fee:baseCustomerDue;
+  // Financial integrity: customer charge must equal base due plus any added fee.
+  assertBalancedEntry([
+    {account:"CUSTOMER_RECEIVABLE",debit:+totalCustomerDue.toFixed(2)},
+    {account:"TRANSFER_BASE_DUE",credit:+baseCustomerDue.toFixed(2)},
+    {account:"TRANSFER_FEE_ADDED",credit:feeMethod==="ADD"?+fee.toFixed(2):0}
+  ]);
   const beneficiaryReceives=feeMethod==="DEDUCT"?Math.max(a-fee,0):a;
   const exchangeProfit=a*(clientRate-cost);
   const totalProfit=exchangeProfit+fee;
@@ -2301,6 +2307,14 @@ app.post("/api/customers/:id/payments", auth, async (req,res)=>{
         left-=oldBalanceAllocation;
       }
 
+      const allocatedToTransactions=allocations.reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      // Financial integrity: the receipt must be fully allocated between transfers and old balance.
+      assertBalancedEntry([
+        {account:"CUSTOMER_PAYMENT_RECEIPT",debit:+requested.toFixed(2)},
+        {account:"TRANSFER_ALLOCATIONS",credit:+allocatedToTransactions.toFixed(2)},
+        {account:"OLD_BALANCE_ALLOCATION",credit:+oldBalanceAllocation.toFixed(2)}
+      ]);
+
       const receipt={
         id:id(),
         transactionId:null,
@@ -2432,6 +2446,11 @@ app.patch("/api/transactions/:id", auth, async (req,res)=>{
       transaction.exchangeProfit=+exchangeProfit.toFixed(2);
       transaction.totalProfit=+(exchangeProfit+fee).toFixed(2);
       transaction.totalCustomerDue=+(transaction.feeMethod==="ADD"?baseCustomerDue+fee:baseCustomerDue).toFixed(2);
+      assertBalancedEntry([
+        {account:"CUSTOMER_RECEIVABLE",debit:transaction.totalCustomerDue},
+        {account:"TRANSFER_BASE_DUE",credit:+baseCustomerDue.toFixed(2)},
+        {account:"TRANSFER_FEE_ADDED",credit:transaction.feeMethod==="ADD"?+fee.toFixed(2):0}
+      ]);
       transaction.updatedAt=now();
       transaction.updatedBy=req.user.id;
 
@@ -3317,6 +3336,12 @@ app.post("/api/general-debts/:id/payments", auth, async (req,res)=>{
     const currentDebt=(currentStore.generalDebts||[]).find(item=>item.id===debt.id);
     const remainingBefore=Math.max(safeNumber(currentDebt?.amount)-previousPaid,0);
     const remainingAfter=Math.max(remainingBefore-numericAmount,0);
+    // Financial integrity: opening debt balance = payment + remaining debt.
+    assertBalancedEntry([
+      {account:"DEBT_REMAINING_BEFORE",debit:+remainingBefore.toFixed(2)},
+      {account:"DEBT_PAYMENT",credit:+numericAmount.toFixed(2)},
+      {account:"DEBT_REMAINING_AFTER",credit:+remainingAfter.toFixed(2)}
+    ]);
     const item = {
       id:id(), debtId:debt.id, amount:+numericAmount.toFixed(2), paymentDate,
       method:String(req.body?.method||"CASH").toUpperCase(), notes,
@@ -5794,7 +5819,7 @@ app.post("/api/ai/assistant",auth,(req,res)=>{
 });
 
 app.get("/api/expenses", auth, async (req,res)=>{const store=readStore();const rows=await branchSafeRead(req,"expenses",()=>nativeRepositories.expenses.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.expenses).reverse());res.json(paginate(req,rows));});
-app.post("/api/expenses", auth, async (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=await mutateDurable(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
+app.post("/api/expenses", auth, async (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=await mutateDurable(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};assertBalancedEntry([{account:"EXPENSE_CAD",debit:x.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*rate).toFixed(2)}]);s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
 app.put("/api/expenses/:id", auth, async (req,res)=>{
   const {title,amount,currency="CAD",exchangeRate=1,category="Other",date}=req.body||{};
   const n=Number(amount),rate=Number(exchangeRate),normalizedCurrency=String(currency||"CAD").toUpperCase();
@@ -5805,6 +5830,7 @@ app.put("/api/expenses/:id", auth, async (req,res)=>{
     if(index<0)return null;
     const previous=rows[index];
     const next={...previous,title:String(title).trim(),amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,updatedAt:now(),updatedBy:req.user.id};
+    assertBalancedEntry([{account:"EXPENSE_CAD",debit:next.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*rate).toFixed(2)}]);
     rows[index]=next;
     s.expenses=rows;
     audit(s,req.user.id,"UPDATE","EXPENSE",next.id,{before:{title:previous.title,amount:previous.amount,currency:previous.currency},after:{title:next.title,amount:next.amount,currency:next.currency}});
@@ -5847,6 +5873,7 @@ app.post("/api/capital", auth, async (req,res)=>{
     if(!conversion)return {error:"لا يوجد سعر صرف لهذه العملة إلى CAD. يرجى تحديث أسعار الصرف أولًا."};
     const exchangeRate=conversion.factor;
     const x={id:id(),type,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+exchangeRate.toFixed(6),baseCurrency:"CAD",cadAmount:+(n*exchangeRate).toFixed(2),conversionPath:conversion.path,rateUpdatedAt:conversion.updatedAt||null,description:String(description||""),date,createdAt:now(),createdBy:req.user.id};
+    assertBalancedEntry([{account:"CAPITAL_CAD",debit:x.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*exchangeRate).toFixed(2)}]);
     s.capitalMovements.push(x);audit(s,req.user.id,"CREATE","CAPITAL",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;
   });
   if(m?.error)return res.status(400).json({message:m.error});
@@ -5871,6 +5898,7 @@ app.patch("/api/capital/:id", auth, async (req,res)=>{
     item.exchangeRate=+conversion.factor.toFixed(6);
     item.baseCurrency="CAD";
     item.cadAmount=+(n*conversion.factor).toFixed(2);
+    assertBalancedEntry([{account:"CAPITAL_CAD",debit:item.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*conversion.factor).toFixed(2)}]);
     item.conversionPath=conversion.path;
     item.rateUpdatedAt=conversion.updatedAt||null;
     item.description=String(description||"");
