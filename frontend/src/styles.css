@@ -6865,3 +6865,10 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
   color:#7ef0a5!important;
   border-color:rgba(65,190,112,.6)!important;
 }
+
+
+/* v25.14.44 - make old-account direction and final balance visible in customer data */
+.customer-old-balance-badge,.customer-final-balance-badge{display:inline-flex;align-items:center;gap:.35rem;width:max-content;max-width:100%;padding:.22rem .55rem;border-radius:999px;font-weight:800;margin-top:.25rem}
+.customer-old-balance-badge.receivable,.customer-final-balance-badge.receivable{color:#7f1d1d;background:rgba(248,113,113,.14);border:1px solid rgba(248,113,113,.3)}
+.customer-old-balance-badge.payable,.customer-final-balance-badge.payable{color:#14532d;background:rgba(74,222,128,.14);border:1px solid rgba(74,222,128,.3)}
+.customer-final-balance-badge.settled{color:#334155;background:rgba(148,163,184,.14);border:1px solid rgba(148,163,184,.3)}

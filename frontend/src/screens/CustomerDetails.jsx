@@ -56,7 +56,8 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         oldBalance:Number(oldBalanceForm||0),
         oldBalanceType
       });
-      void load();
+      setError(`✅ تم حفظ الحساب القديم ${oldBalanceType==="PAYABLE"?"له":"عليه"} بنجاح`);
+      await load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر حفظ الحساب القديم");
     }finally{

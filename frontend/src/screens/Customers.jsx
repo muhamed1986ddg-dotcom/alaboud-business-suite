@@ -225,8 +225,10 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         const rows=[created,...current.filter(item=>item.id!==created.id)];
         return rows.slice(0,pageSize);
       });
-      if(Number(created?.finalBalance||created?.oldBalance||0)>0){
-        setTotalCustomerDebt(total=>+(total+Number(created.finalBalance||created.oldBalance||0)).toFixed(2));
+      const createdOpening=Number(created?.oldBalance||0);
+      const createdDirection=String(created?.oldBalanceType||"RECEIVABLE").toUpperCase();
+      if(createdDirection!=="PAYABLE"&&createdOpening>0){
+        setTotalCustomerDebt(total=>+(total+createdOpening).toFixed(2));
       }
       void load(sortMode,search,page);
       void loadDebtSummary();
@@ -241,10 +243,13 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     event.preventDefault();
     setDuplicateCustomer(null);
     try{
-      await api.patch(`/customers/${editingCustomer.id}`,editingCustomer);
+      const response=await api.patch(`/customers/${editingCustomer.id}`,editingCustomer);
+      const updated=response.data;
+      setList(current=>current.map(item=>item.id===updated.id?{...item,...updated}:item));
       setEditingCustomer(null);
       setActivePanel("");
-      void Promise.allSettled([load(),loadDebtSummary()]);
+      setError(`✅ تم حفظ بيانات ${updated?.name||"العميل"} والحساب القديم بنجاح`);
+      void Promise.allSettled([load(sortMode,search,page),loadDebtSummary()]);
     }catch(requestError){
       const existing=requestError.response?.data?.existingCustomer||null;
       setDuplicateCustomer(existing);
@@ -489,7 +494,10 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
 
       const statementTotal=Number(data.totals?.formulaResultCad||0);
       const statementPaid=Number(data.totals?.paid||0);
-      const finalStatementBalance=Math.max(statementTotal-statementPaid,0);
+      const opening=Number(data.totals?.oldBalance||customer.oldBalance||0);
+      const openingType=String(data.totals?.oldBalanceType||customer.oldBalanceType||"RECEIVABLE").toUpperCase();
+      const finalStatementBalance=statementTotal-statementPaid+(openingType==="PAYABLE"?-opening:opening);
+      const finalStatementLabel=finalStatementBalance<0?"الرصيد النهائي له":"الرصيد النهائي عليه";
 
       const message=[
         data.company?.name||"شركة العبود التجارية",
@@ -497,12 +505,12 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         "كشف حساب العميل",
         customer.name,
         "",
-        ...(Number(customer.oldBalance||0)>0?[`الحساب القديم: ${money(customer.oldBalance)} 🇨🇦`,""]:[]),
+        ...(Number(customer.oldBalance||0)>0?[`الحساب القديم ${String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"له":"عليه"}: ${money(customer.oldBalance)} 🇨🇦`,""]:[]),
         ...lines,
         "",
         "--------------------",
         `الدفعات: ${money(statementPaid)} 🇨🇦`,
-        `المجموع النهائي: ${money(finalStatementBalance)} 🇨🇦`
+        `${finalStatementLabel}: ${money(Math.abs(finalStatementBalance))} 🇨🇦`
       ].join("\n");
 
       openRegularWhatsApp(phone,message);
@@ -716,6 +724,12 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           <div className="customer-simple-main customer-name-only">
             <strong>{customer.name}</strong>
             <small>{customer.phone||"بدون رقم هاتف"}</small>
+            {Number(customer.oldBalance||0)>0&&<small className={`customer-old-balance-badge ${customer.oldBalanceType==="PAYABLE"?"payable":"receivable"}`}>
+              الحساب القديم {customer.oldBalanceType==="PAYABLE"?"له":"عليه"}: {money(customer.oldBalance)} CAD
+            </small>}
+            <small className={`customer-final-balance-badge ${Number(customer.finalBalance||0)<0?"payable":Number(customer.finalBalance||0)>0?"receivable":"settled"}`}>
+              {Number(customer.finalBalance||0)<0?"الرصيد النهائي له":Number(customer.finalBalance||0)>0?"الرصيد النهائي عليه":"الرصيد النهائي"}: {money(Math.abs(Number(customer.finalBalance||0)))} CAD
+            </small>
             {customer.accountResetAt&&<small className="customer-reset-date">حساب جديد منذ {new Date(customer.accountResetAt).toLocaleDateString("ar-CA")}</small>}
           </div>
         </button>

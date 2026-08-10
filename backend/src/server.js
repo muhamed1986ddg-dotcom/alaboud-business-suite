@@ -1207,9 +1207,12 @@ app.get("/api/dashboard", auth, (req,res)=>{
   const todayTx = activeTransactions.filter((t)=>String(t.createdAt||t.transferDate||"").slice(0,10)===today);
   const todayExpenses = (s.expenses||[]).filter((e)=>e.date===today&&!e.isDeleted).reduce((a,e)=>a+Number(e.cadAmount??e.amount),0);
   const totalProfit = todayTx.reduce((a,t)=>a+transactionFinancials(t).totalProfit,0)-todayExpenses;
-  const receivables = (s.customers||[]).filter(c=>!c.isDeleted).reduce((a,c)=>a+customerSummary(s,c).finalBalance,0);
+  const customerBalances = customerBalanceTotals(s);
+  const receivables = safeNumber(customerBalances.receivable);
+  const customerPayables = safeNumber(customerBalances.payable);
+  const customerNetBalance = safeNumber(customerBalances.net);
   const capital = (s.capitalMovements||[]).filter(m=>!m.isDeleted).reduce((a,m)=>a+(m.type==="IN"?capitalCadAmount(s,m):-capitalCadAmount(s,m)),0);
-  const value={customers:(s.customers||[]).filter(c=>!c.isDeleted).length,todayTransactions:todayTx.length,todayProfit:+totalProfit.toFixed(2),receivables:+receivables.toFixed(2),capital:+capital.toFixed(2),recent:todayTx.slice(-8).reverse()};
+  const value={customers:(s.customers||[]).filter(c=>!c.isDeleted).length,todayTransactions:todayTx.length,todayProfit:+totalProfit.toFixed(2),receivables:+receivables.toFixed(2),customerPayables:+customerPayables.toFixed(2),customerNetBalance:+customerNetBalance.toFixed(2),capital:+capital.toFixed(2),recent:todayTx.slice(-8).reverse()};
   dashboardSummaryCache.set(cacheKey,{value,expiresAt:Date.now()+15000});
   res.set("Cache-Control","private, max-age=15");
   res.json(value);

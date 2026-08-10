@@ -1,0 +1,14 @@
+const assert=require("assert");
+const path=require("path");
+const fs=require("fs");
+const root=path.resolve(__dirname,"../..");
+const expected="25.14.44";
+assert.strictEqual(require(path.join(root,"package.json")).version,expected);
+assert.strictEqual(require(path.join(root,"frontend/package.json")).version,expected);
+assert.strictEqual(require(path.join(root,"backend/package.json")).version,expected);
+assert(fs.readFileSync(path.join(root,"frontend/src/version.js"),"utf8").includes(expected));
+assert(fs.readFileSync(path.join(root,"backend/src/production-readiness.js"),"utf8").includes(expected));
+assert(fs.readFileSync(path.join(root,"app/build.gradle.kts"),"utf8").includes(expected));
+assert(fs.readFileSync(path.join(root,"app/src/main/java/com/alaboud/businesssuite/MainActivity.kt"),"utf8").includes(expected));
+assert(fs.readFileSync(path.join(root,"frontend/src/api.js"),"utf8").includes(expected));
+console.log("version consistency v25.14.44: OK");
