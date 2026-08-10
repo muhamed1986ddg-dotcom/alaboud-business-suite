@@ -24,7 +24,16 @@ function recordTime(value) {
 function isAfterReset(record, customer, preferredDateKey = "") {
   const resetTime = recordTime(customer?.accountResetAt);
   if (!resetTime) return true;
-  return Math.max(recordTime(preferredDateKey ? record?.[preferredDateKey] : ""), recordTime(record?.createdAt || record?.updatedAt)) >= resetTime;
+  // Payments created on the same calendar day as a reset carry paymentDate as
+  // YYYY-MM-DD (midnight), while the real creation timestamp is stored in `date`.
+  // Always consider every available activity timestamp so a payment made after
+  // the reset is not incorrectly filtered out as pre-reset activity.
+  return Math.max(
+    recordTime(preferredDateKey ? record?.[preferredDateKey] : ""),
+    recordTime(record?.createdAt),
+    recordTime(record?.updatedAt),
+    recordTime(record?.date)
+  ) >= resetTime;
 }
 
 function customerReceiptsScaled(payments, customerId) {

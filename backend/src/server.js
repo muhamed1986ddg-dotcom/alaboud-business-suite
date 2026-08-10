@@ -617,9 +617,12 @@ function recordTime(value, fallback = "") {
 function isAfterCustomerReset(record, customer, preferredDateKey = "") {
   const resetTime = recordTime(customer?.accountResetAt);
   if (!resetTime) return true;
-  const preferredTime = preferredDateKey ? recordTime(record?.[preferredDateKey]) : 0;
-  const createdTime = recordTime(record?.createdAt || record?.updatedAt);
-  const activityTime = Math.max(preferredTime, createdTime);
+  const activityTime = Math.max(
+    preferredDateKey ? recordTime(record?.[preferredDateKey]) : 0,
+    recordTime(record?.createdAt),
+    recordTime(record?.updatedAt),
+    recordTime(record?.date)
+  );
   return activityTime >= resetTime;
 }
 
@@ -2231,11 +2234,11 @@ app.post("/api/customers/:id/payments", auth, async (req,res)=>{
       if(!customer)throw new Error("العميل غير موجود");
 
       const rows=store.transactions
-        .filter(item=>item.customerId===customer.id&&!item.isDeleted&&item.status!=="CANCELLED")
+        .filter(item=>item.customerId===customer.id&&!item.isDeleted&&item.status!=="CANCELLED"&&isAfterCustomerReset(item,customer,"transferDate"))
         .sort((a,b)=>String(a.transferDate||a.createdAt||"").localeCompare(String(b.transferDate||b.createdAt||"")))
         .map(transaction=>{
           const paid=store.payments
-            .filter(payment=>payment.transactionId===transaction.id&&!payment.isDeleted)
+            .filter(payment=>payment.transactionId===transaction.id&&!payment.isDeleted&&isAfterCustomerReset(payment,customer,"paymentDate"))
             .reduce((sum,payment)=>sum+Number(payment.amount||0),0);
           return {transaction,remaining:Math.max(Number(transaction.totalCustomerDue||0)-paid,0)};
         })

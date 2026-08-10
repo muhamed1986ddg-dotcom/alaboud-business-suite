@@ -1,7 +1,7 @@
 const assert=require('assert');
 const fs=require('fs');
 const path=require('path');
-const expected='25.14.46';
+const expected='25.14.47';
 const root=path.resolve(__dirname,'../..');
 for(const file of ['package.json','backend/package.json','frontend/package.json']){
   const pkg=JSON.parse(fs.readFileSync(path.join(root,file),'utf8'));
@@ -9,4 +9,4 @@ for(const file of ['package.json','backend/package.json','frontend/package.json'
 }
 assert(fs.readFileSync(path.join(root,'frontend/src/version.js'),'utf8').includes(expected));
 assert(fs.readFileSync(path.join(root,'backend/src/production-readiness.js'),'utf8').includes(expected));
-console.log('version consistency v25.14.46: OK');
+console.log('version consistency v25.14.47: OK');

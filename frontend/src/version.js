@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.46 Post-Reset Old Account Fix";
+export const APP_VERSION="v25.14.47 Customer Payment Deduction Fix";
