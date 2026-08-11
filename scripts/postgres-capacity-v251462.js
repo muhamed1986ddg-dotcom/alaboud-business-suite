@@ -1,0 +1,11 @@
+"use strict";
+const read=Number(process.argv[2]||process.env.PG_POOL_MAX||3);
+const write=Number(process.argv[3]||process.env.PG_WRITE_POOL_MAX||2);
+const max=Number(process.argv[4]||process.env.PG_MAX_CONNECTIONS||0);
+const margin=Number(process.argv[5]||process.env.PG_SAFETY_MARGIN||0.70);
+const maintenance=Number(process.argv[6]||process.env.PG_MAINTENANCE_CONNECTIONS||5);
+if(!Number.isFinite(read)||!Number.isFinite(write)||read<0||write<0)throw new Error("invalid pool sizes");
+const perInstance=read+write;
+const out={readPoolMax:read,writePoolMax:write,perInstance,maxConnections:max||null,safetyMargin:margin,maintenanceConnections:maintenance,safeInstances:max?Math.max(0,Math.floor((max*margin-maintenance)/Math.max(1,perInstance))):null};
+console.log(JSON.stringify(out,null,2));
+if(!max)console.log("Provide SHOW max_connections result as arg 4 or PG_MAX_CONNECTIONS to calculate safeInstances.");
