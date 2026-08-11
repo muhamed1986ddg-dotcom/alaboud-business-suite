@@ -21,7 +21,7 @@ function verifyApiKey(store, rawKey){
   if(record.expiresAt&&new Date(record.expiresAt).getTime()<=Date.now())return null;
   return record;
 }
-function apiKeyMiddleware({readStore,mutate,now}){
+function apiKeyMiddleware({readStore,telemetry,now,id}){
   return (req,res,next)=>{
     const raw=String(req.get('x-api-key')||'').trim();
     if(!raw)return next();
@@ -36,7 +36,7 @@ function apiKeyMiddleware({readStore,mutate,now}){
     if(segment&& !['health','openapi.json','docs'].includes(segment) && !allowed)return res.status(403).json({message:`API key لا يملك صلاحية ${resource}.${isRead?'read':'write'}`});
     req.apiKeyRecord=record;
     req.apiKeyUser={id:`api-key:${record.id}`,name:record.name||'API Key',role:'API_KEY',companyId:record.companyId,permissions:scopes};
-    mutate(store=>{const item=(store.apiKeys||[]).find(x=>x.id===record.id);if(item){item.lastUsedAt=now();item.lastUsedIp=req.ip;item.usageCount=(item.usageCount||0)+1;}});
+    try{telemetry?.enqueue('api_key_activity',{id:id(),companyId:record.companyId,apiKeyId:record.id,ip:req.ip,userAgent:req.get('user-agent')||'',usedAt:now(),usageDelta:1});}catch(_error){}
     next();
   };
 }
@@ -52,18 +52,14 @@ function versionAliasMiddleware(req,_res,next){
   else if(req.url.startsWith('/api/v1/'))req.url=`/api/${req.url.slice('/api/v1/'.length)}`;
   next();
 }
-function integrationLogger({mutate,now,id}){
+function integrationLogger({telemetry,now,id}){
   return (req,res,next)=>{
     if(!req.path.startsWith('/api'))return next();
     const started=Date.now();
     res.on('finish',()=>{
       const companyId=req.user?.companyId||req.apiKeyRecord?.companyId||null;
       if(!companyId)return;
-      mutate(store=>{
-        if(!Array.isArray(store.integrationLogs))store.integrationLogs=[];
-        store.integrationLogs.push({id:id(),companyId,requestId:req.requestId,method:req.method,path:req.originalUrl,statusCode:res.statusCode,durationMs:Date.now()-started,authType:req.apiKeyRecord?'API_KEY':(req.user?'SESSION':'ANONYMOUS'),actorId:req.apiKeyRecord?.id||req.user?.id||null,ip:req.ip,userAgent:req.get('user-agent')||'',createdAt:now()});
-        if(store.integrationLogs.length>5000)store.integrationLogs.splice(0,store.integrationLogs.length-5000);
-      });
+      try{telemetry?.enqueue('integration_log',{id:id(),companyId,requestId:req.requestId,method:req.method,path:req.originalUrl,statusCode:res.statusCode,durationMs:Date.now()-started,authType:req.apiKeyRecord?'API_KEY':(req.user?'SESSION':'ANONYMOUS'),actorId:req.apiKeyRecord?.id||req.user?.id||null,ip:req.ip,userAgent:req.get('user-agent')||'',createdAt:now()});}catch(_error){}
     });
     next();
   };

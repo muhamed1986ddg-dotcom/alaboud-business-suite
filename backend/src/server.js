@@ -12,6 +12,7 @@ const net = require("net");
 const http = require("http");
 const https = require("https");
 const { readStore, readRootStore, mutate, mutateVolatile, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
+const { createTelemetryWriter } = require("./telemetry-writer");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const FinancialEngine = require("./finance/FinancialEngine");
 const { customerBalanceTotals } = FinancialEngine;
@@ -273,9 +274,10 @@ app.use((req,res,next)=>{
     startupAttempt
   });
 });
+const telemetryWriter=createTelemetryWriter({getQuery:getDatabaseQuery});
 app.use(versionAliasMiddleware);
-app.use(apiKeyMiddleware({readStore,mutate:mutateVolatile,now}));
-app.use(integrationLogger({mutate:mutateVolatile,now,id}));
+app.use(apiKeyMiddleware({readStore,telemetry:telemetryWriter,now,id}));
+app.use(integrationLogger({telemetry:telemetryWriter,now,id}));
 const requestBuckets=new Map();
 const requestBucketCleanup=setInterval(()=>{const t=Date.now();for(const [key,bucket] of requestBuckets){if(!bucket||t>bucket.reset)requestBuckets.delete(key)}},10*60*1000);
 requestBucketCleanup.unref?.();
@@ -710,7 +712,7 @@ function customerSummary(store, customer) {
 
 registerHealthRoutes(app,{
   databaseHealth,productionReadiness,nativeRepositories,now,
-  version:APP_VERSION,openApiDocument,docsHtml,
+  version:APP_VERSION,openApiDocument,docsHtml,telemetryHealth:()=>telemetryWriter.health(),
   getServiceState:()=>({serviceReady,startupAttempt,startupError:serviceStartupError?.message||null})
 });
 
@@ -762,9 +764,10 @@ app.delete("/api/developer/webhooks/:id", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
   let found=false;await mutateDurable(store=>{const item=store.webhooks.find(x=>x.id===req.params.id);if(item){item.active=false;item.updatedAt=now();found=true;audit(store,req.user.id,"DISABLE","WEBHOOK",item.id,{url:item.url});}});if(!found)return res.status(404).json({message:"Webhook غير موجود"});res.json({message:"تم تعطيل Webhook"});
 });
-app.get("/api/developer/integration-logs", auth, (req,res)=>{
+app.get("/api/developer/integration-logs", auth, async (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"هذه الصفحة للمسؤول فقط"});
-  const limit=Math.min(500,Math.max(1,Number(req.query.limit)||100));res.json((readStore().integrationLogs||[]).slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,limit));
+  const limit=Math.min(500,Math.max(1,Number(req.query.limit)||100));
+  try{const query=getDatabaseQuery();if(!query)throw new Error("DATABASE_QUERY_UNAVAILABLE");const result=await query("SELECT id,company_id AS \"companyId\",request_id AS \"requestId\",method,path,status_code AS \"statusCode\",duration_ms AS \"durationMs\",auth_type AS \"authType\",actor_id AS \"actorId\",ip,created_at AS \"createdAt\" FROM integration_logs WHERE company_id=$1 ORDER BY created_at DESC LIMIT $2",[req.user.companyId,limit]);return res.json(result.rows||[]);}catch(error){console.warn("Integration log query failed:",error.message);return res.status(503).json({message:"سجل التكامل غير متاح مؤقتًا",retryable:true});}
 });
 
 app.post("/api/auth/login", rateLimit("login",10,15*60*1000),async (req,res)=>{
@@ -6154,6 +6157,9 @@ async function initializeApplicationWithRetry(){
     try{
       await initStore();
       nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
+      telemetryWriter.start();
+      setTimeout(()=>{telemetryWriter.cleanupRetention({days:90}).catch(error=>console.warn("Telemetry retention cleanup failed:",error.message));},30*1000).unref?.();
+      setInterval(()=>{telemetryWriter.cleanupRetention({days:90}).catch(error=>console.warn("Telemetry retention cleanup failed:",error.message));},24*60*60*1000).unref?.();
       await seedAdmin();
       serviceReady=true;
       serviceStartupError=null;
@@ -6204,6 +6210,7 @@ async function shutdown(signal){
   console.log(`${signal} received: flushing database writes`);
   try{
     if(serverInstance) await new Promise(resolve=>serverInstance.close(resolve));
+    try{await telemetryWriter.stop({timeoutMs:4000});}catch(error){console.warn("Final telemetry flush failed:",error.message);}
     await closeStore();
     process.exit(0);
   }catch(error){console.error("Graceful shutdown failed:",error);process.exit(1)}
