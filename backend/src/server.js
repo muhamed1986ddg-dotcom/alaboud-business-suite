@@ -21,6 +21,9 @@ const { calculateReceivableSummary } = require("./finance/ReceivableSummary");
 const { calculateInventoryPayables, calculateInventoryMonthProfit } = require("./finance/MonthlyInventoryFinancials");
 const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
 const { registerHealthRoutes } = require("./routes/health");
+const { createServiceReadinessGate } = require("./middleware/service-readiness");
+const { createInMemoryRateLimiter } = require("./middleware/rate-limit");
+const { createTelemetryLifecycle } = require("./services/telemetry-lifecycle");
 const { createIdempotencyMiddleware, createRequireIdempotencyKey, operationScopeKey } = require("./reliability/idempotency");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
@@ -264,24 +267,15 @@ const requireIdempotencyKey = createRequireIdempotencyKey({ getQuery: getDatabas
 // unavailable. API writes/reads stay gated with 503 until initialization
 // succeeds, allowing Render to keep the deployment alive and the service to
 // recover automatically without an exit/redeploy loop.
-app.use((req,res,next)=>{
-  if(serviceReady || !String(req.path||"").startsWith("/api/") ||
-     ["/api/health","/api/openapi.json","/api/docs"].includes(req.path)) return next();
-  return res.status(503).json({
-    message:"الخدمة تعيد الاتصال بقاعدة البيانات حاليًا. يرجى المحاولة بعد لحظات.",
-    code:"SERVICE_STARTING_DATABASE_RETRY",
-    retryable:true,
-    startupAttempt
-  });
-});
+app.use(createServiceReadinessGate({
+  getServiceState:()=>({serviceReady,startupAttempt})
+}));
 const telemetryWriter=createTelemetryWriter({getQuery:getDatabaseQuery});
+const telemetryLifecycle=createTelemetryLifecycle({writer:telemetryWriter});
 app.use(versionAliasMiddleware);
 app.use(apiKeyMiddleware({readStore,telemetry:telemetryWriter,now,id}));
 app.use(integrationLogger({telemetry:telemetryWriter,now,id}));
-const requestBuckets=new Map();
-const requestBucketCleanup=setInterval(()=>{const t=Date.now();for(const [key,bucket] of requestBuckets){if(!bucket||t>bucket.reset)requestBuckets.delete(key)}},10*60*1000);
-requestBucketCleanup.unref?.();
-function rateLimit(name,limit,windowMs){return (req,res,next)=>{const key=`${name}:${req.ip}`;const t=Date.now();let b=requestBuckets.get(key);if(!b||t>b.reset){b={count:0,reset:t+windowMs};requestBuckets.set(key,b)}b.count++;res.setHeader("RateLimit-Limit",limit);res.setHeader("RateLimit-Remaining",Math.max(0,limit-b.count));if(b.count>limit)return res.status(429).json({message:"طلبات كثيرة جدًا، حاول لاحقًا"});next()}}
+const {rateLimit}=createInMemoryRateLimiter();
 app.use("/api",rateLimit("api",600,15*60*1000));
 
 app.use("/api",(_req,res,next)=>{
@@ -6157,9 +6151,7 @@ async function initializeApplicationWithRetry(){
     try{
       await initStore();
       nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
-      telemetryWriter.start();
-      setTimeout(()=>{telemetryWriter.cleanupRetention({days:90}).catch(error=>console.warn("Telemetry retention cleanup failed:",error.message));},30*1000).unref?.();
-      setInterval(()=>{telemetryWriter.cleanupRetention({days:90}).catch(error=>console.warn("Telemetry retention cleanup failed:",error.message));},24*60*60*1000).unref?.();
+      telemetryLifecycle.start();
       await seedAdmin();
       serviceReady=true;
       serviceStartupError=null;
@@ -6210,7 +6202,7 @@ async function shutdown(signal){
   console.log(`${signal} received: flushing database writes`);
   try{
     if(serverInstance) await new Promise(resolve=>serverInstance.close(resolve));
-    try{await telemetryWriter.stop({timeoutMs:4000});}catch(error){console.warn("Final telemetry flush failed:",error.message);}
+    try{await telemetryLifecycle.stop({timeoutMs:4000});}catch(error){console.warn("Final telemetry flush failed:",error.message);}
     await closeStore();
     process.exit(0);
   }catch(error){console.error("Graceful shutdown failed:",error);process.exit(1)}

@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.62 Production E2E & Resilience Tests";
+export const APP_VERSION="v25.14.63 Architecture & Maintainability";
