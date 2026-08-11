@@ -92,7 +92,9 @@ class PostgresEntityRepository {
       ) fm ON TRUE`;
     const result = await this.query(
       `SELECT c.*,
-        (GREATEST(COALESCE(c.opening_balance_cad,0)-COALESCE((c.raw_payload->>'oldBalancePaid')::numeric,0),0)+COALESCE(fm.transaction_balance,0)) AS customer_balance_cad,
+        ((CASE WHEN UPPER(COALESCE(c.raw_payload->>'oldBalanceType','RECEIVABLE'))='PAYABLE' THEN -1 ELSE 1 END)
+          * GREATEST(COALESCE(c.opening_balance_cad,0)-COALESCE((c.raw_payload->>'oldBalancePaid')::numeric,0),0)
+          + COALESCE(fm.transaction_balance,0)) AS customer_balance_cad,
         fm.last_transaction_at,
         CASE WHEN fm.oldest_unpaid_at IS NULL THEN 0 ELSE GREATEST(0,(CURRENT_DATE-fm.oldest_unpaid_at::date)) END AS overdue_days
        FROM ${quote(this.table)} c ${metrics}

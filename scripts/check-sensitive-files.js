@@ -32,6 +32,9 @@ const forbiddenName = [
   /\.(?:pem|key|p12|pfx|jks|dump|sqlite3?|db|sql|xlsx?|csv)$/i,
   /(^|\/)store\.json$/i,
   /(^|\/)data\/store.*\.json$/i,
+  /(^|\/)(?:service-account|google-credentials|credentials|secrets?)[^/]*\.json$/i,
+  /(^|\/)local\.properties$/i,
+  /(^|\/)\.(?:bash|zsh)_history$/i,
 ];
 
 const violations = tracked.filter(file => {

@@ -1,0 +1,15 @@
+const assert=require("assert");
+const path=require("path");
+const fs=require("fs");
+const root=path.resolve(__dirname,"../..");
+const expected="25.14.54";
+const {APP_VERSION}=require("./production-readiness");
+assert.strictEqual(APP_VERSION,expected,"runtime APP_VERSION must match release");
+assert.strictEqual(require(path.join(root,"package.json")).version,expected);
+assert.strictEqual(require(path.join(root,"backend/package.json")).version,expected);
+assert.strictEqual(require(path.join(root,"frontend/package.json")).version,expected);
+assert(fs.readFileSync(path.join(root,"frontend/src/version.js"),"utf8").includes(`v${expected}`));
+assert(fs.readFileSync(path.join(root,"frontend/src/api.js"),"utf8").includes(`X-Alaboud-Client-Version"]="${expected}"`));
+assert(fs.readFileSync(path.join(root,"app/build.gradle.kts"),"utf8").includes(`versionName = "${expected}"`));
+assert(fs.readFileSync(path.join(root,"backend/src/server.js"),"utf8").includes("https://raselsms.com/api/v2/messages/send"));
+console.log(`version consistency ${expected}: OK`);

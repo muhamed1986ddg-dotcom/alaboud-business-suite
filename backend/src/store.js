@@ -19,13 +19,13 @@ if(isProduction && !databaseUrl){
   throw new Error("DATABASE_URL is required in production; JSON fallback is disabled to protect persistent data");
 }
 
-const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","apiKeys","webhooks","integrationLogs","monthlyInventories"];
+const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","apiKeys","webhooks","integrationLogs","monthlyInventories","sessions"];
 const emptyStore = () => ({
   companies: [], branches: [], users: [], customers: [], transactions: [], payments: [], expenses: [],
   capitalMovements: [], exchangeRates: [], generalDebts: [], generalDebtPayments: [],
   partners: [], partnerTransactions: [], partnerPayments: [], partnerSyncLogs: [],
   notificationSettings: { overdueDays: 7, lowCashLimit: 5000, whatsappTemplate: "" },
-  companySettings: {}, notificationActions: [], auditLogs: [], devices: [], apiKeys: [], webhooks: [], integrationLogs: [], monthlyInventories: []
+  companySettings: {}, notificationActions: [], auditLogs: [], devices: [], apiKeys: [], webhooks: [], integrationLogs: [], monthlyInventories: [], sessions: []
 });
 
 function normalizeStore(store){
@@ -141,6 +141,19 @@ function mutate(fn){
   writeStore(rootStore);
   return result;
 }
+// Telemetry-only mutation path. This intentionally updates the live in-memory
+// store without starting a PostgreSQL app_state write. Request/API telemetry
+// must never race a financial durable commit and advance the optimistic
+// revision underneath it. The next durable financial/state commit naturally
+// carries the latest telemetry snapshot; losing a lastUsed/log update on a
+// restart is preferable to rejecting or endangering a financial write.
+function mutateVolatile(fn){
+  const context=tenantContext.getStore();
+  const view=context?.companyId?tenantView(rootStore,context.companyId,context.branchId):rootStore;
+  const result=fn(view);
+  database.replaceStore(rootStore);
+  return result;
+}
 let durableMutationChain=Promise.resolve();
 function mutateDurable(fn){
   const context=tenantContext.getStore();
@@ -179,4 +192,4 @@ function now(){return new Date().toISOString()}
 async function databaseHealth(){return database.health()}
 async function closeStore(){return database.close()}
 function getDatabaseQuery(){return database.getQueryFunction()}
-module.exports={readStore,writeStore,writeStoreDurable,mutate,mutateDurable,id,now,dataFile,runWithTenant,readRootStore,initStore,databaseHealth,closeStore,getDatabaseQuery};
+module.exports={readStore,writeStore,writeStoreDurable,mutate,mutateVolatile,mutateDurable,id,now,dataFile,runWithTenant,readRootStore,initStore,databaseHealth,closeStore,getDatabaseQuery};

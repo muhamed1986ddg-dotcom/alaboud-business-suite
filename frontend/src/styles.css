@@ -4971,6 +4971,7 @@ body.app-language-en aside{
 .settings-modal-shell .settings-grid>[data-panel]{display:none!important}
 .settings-modal-shell[data-active-panel="branches"] [data-panel="branches"],
 .settings-modal-shell[data-active-panel="security"] [data-panel="security"],
+.settings-modal-shell[data-active-panel="verification"] [data-panel="verification"],
 .settings-modal-shell[data-active-panel="backup"] [data-panel="backup"],
 .settings-modal-shell[data-active-panel="appearance"] [data-panel="appearance"],
 .settings-modal-shell[data-active-panel="notifications"] [data-panel="notifications"],
@@ -6695,3 +6696,179 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
   .capital-formula p:last-child{color:#aeb8c8!important}
   .capital-formula p:last-child strong{display:inline!important;color:#4ade80!important;font-size:1.12rem!important}
 }
+
+
+/* v25.14.32 — compact mobile companies + transfers */
+.partner-mobile-cards{display:none}
+@media (max-width:760px){
+  .partner-desktop-table{display:none!important}
+  .partner-mobile-cards{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:11px!important;
+    width:100%!important;
+    min-width:0!important;
+    margin:0!important;
+    padding:2px 0 125px!important;
+  }
+  .partner-mobile-card{
+    min-width:0!important;
+    width:100%!important;
+    overflow:hidden!important;
+    box-sizing:border-box!important;
+    padding:13px!important;
+    border-radius:17px!important;
+    border:1px solid rgba(214,170,56,.34)!important;
+    background:linear-gradient(155deg,#07111f,#0d1b2d)!important;
+    color:#f8fafc!important;
+    box-shadow:0 9px 24px rgba(0,0,0,.20)!important;
+  }
+  .partner-mobile-card__head{
+    display:flex!important;
+    align-items:flex-start!important;
+    justify-content:space-between!important;
+    gap:9px!important;
+    margin:0 0 10px!important;
+    padding:0 0 10px!important;
+    border-bottom:1px solid rgba(148,163,184,.16)!important;
+  }
+  .partner-mobile-card__title{min-width:0!important;display:grid!important;gap:3px!important}
+  .partner-mobile-card__title strong{font-size:1.08rem!important;color:#f5d36f!important;overflow-wrap:anywhere!important}
+  .partner-mobile-card__title small{font-size:.75rem!important;color:#94a3b8!important;overflow-wrap:anywhere!important}
+  .partner-mobile-card__head .integration-status{flex:0 0 auto!important;white-space:nowrap!important;font-size:.7rem!important;padding:5px 8px!important}
+  .partner-mobile-card__meta{
+    display:flex!important;flex-wrap:wrap!important;align-items:center!important;gap:6px!important;
+    margin-bottom:10px!important;
+  }
+  .partner-mobile-card__connector{
+    display:inline-flex!important;align-items:center!important;min-height:28px!important;padding:4px 8px!important;
+    border-radius:999px!important;background:#0b2238!important;border:1px solid rgba(96,165,250,.25)!important;
+    color:#93c5fd!important;font-size:.72rem!important;font-weight:800!important;
+  }
+  .partner-mobile-card .partner-primary-currency{margin-inline-start:auto!important;color:#fff!important;font-size:.86rem!important}
+  .partner-mobile-card__balances{width:100%!important;min-width:0!important;margin:0 0 9px!important}
+  .partner-mobile-card .partner-currency-balances{width:100%!important;min-width:0!important;display:grid!important;gap:7px!important}
+  .partner-mobile-card .partner-currency-balance{
+    width:100%!important;min-width:0!important;box-sizing:border-box!important;
+    grid-template-columns:64px minmax(0,1fr) minmax(0,1fr)!important;
+    gap:6px!important;padding:8px!important;border-radius:11px!important;
+    background:#091525!important;border-color:rgba(148,163,184,.18)!important;
+  }
+  .partner-mobile-card .partner-currency-balance>div:nth-child(4){grid-column:2/-1!important}
+  .partner-mobile-card .partner-currency-balance span{font-size:.65rem!important;color:#94a3b8!important}
+  .partner-mobile-card .partner-currency-balance b{font-size:.79rem!important;white-space:normal!important;overflow-wrap:anywhere!important}
+  .partner-mobile-card .partner-currency-code{display:flex!important;gap:4px!important}
+  .partner-mobile-card__sync{
+    display:flex!important;justify-content:space-between!important;align-items:center!important;gap:8px!important;
+    padding:8px 0!important;border-top:1px solid rgba(148,163,184,.12)!important;
+    color:#94a3b8!important;font-size:.75rem!important;
+  }
+  .partner-mobile-card__sync strong{color:#86efac!important;font-size:.79rem!important}
+  .partner-mobile-card__link{display:block!important;margin:3px 0 9px!important;color:#93c5fd!important;font-weight:800!important;font-size:.8rem!important}
+  .partner-mobile-card__otp{width:100%!important;min-height:45px!important;margin:3px 0 9px!important}
+  .partner-mobile-card__actions{
+    display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:7px!important;margin-top:8px!important;
+  }
+  .partner-mobile-card__actions button{
+    width:100%!important;min-width:0!important;min-height:42px!important;margin:0!important;padding:7px 5px!important;
+    border-radius:11px!important;font-size:.8rem!important;white-space:normal!important;line-height:1.2!important;
+  }
+  .partner-mobile-empty{padding:24px 12px!important;text-align:center!important;color:#cbd5e1!important;border:1px dashed rgba(214,170,56,.3)!important;border-radius:14px!important}
+
+  /* Transfers: compact dashboard-like mobile layout instead of tall blocks. */
+  .transactions-page-heading{margin-bottom:8px!important}
+  .transactions-page-heading p{display:none!important}
+  .transaction-ledger-summary{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:7px!important;margin-bottom:9px!important}
+  .transaction-ledger-summary .transaction-summary-card{min-height:88px!important;padding:9px 6px!important;border-radius:13px!important}
+  .transaction-ledger-summary .transaction-summary-card span{font-size:.68rem!important;line-height:1.25!important}
+  .transaction-ledger-summary .transaction-summary-card strong{font-size:1rem!important;line-height:1.15!important;overflow-wrap:anywhere!important}
+  .transaction-ledger-summary .transaction-summary-card small{display:none!important}
+  .transaction-mode-tabs{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:6px!important;padding:7px!important;margin-bottom:9px!important}
+  .transaction-mode-tabs button{min-width:0!important;min-height:40px!important;padding:5px 3px!important;font-size:.68rem!important;white-space:normal!important;line-height:1.2!important}
+  .transaction-ledger-controls{padding:9px!important;margin:0 0 9px!important;gap:8px!important}
+  .transaction-ledger-actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:7px!important}
+  .transaction-ledger-actions button{min-width:0!important;min-height:40px!important;padding:6px!important;font-size:.78rem!important}
+  .transaction-ledger-filters{grid-template-columns:1fr 1fr!important;gap:7px!important}
+  .transaction-ledger-filters input,.transaction-ledger-filters select{min-width:0!important;min-height:43px!important;font-size:.78rem!important;padding:7px 8px!important}
+  .transaction-mobile-cards{gap:9px!important;padding:1px 0 115px!important}
+  .transaction-mobile-card{padding:11px!important;border-radius:15px!important}
+  .transaction-mobile-card__head{padding-bottom:8px!important;margin-bottom:8px!important}
+  .transaction-mobile-card__customer{padding-bottom:7px!important;font-size:.92rem!important}
+  .transaction-mobile-card__grid>div{padding:7px 0!important;grid-template-columns:minmax(88px,38%) minmax(0,1fr)!important;gap:7px!important}
+  .transaction-mobile-card__grid span{font-size:.72rem!important}
+  .transaction-mobile-card__grid strong{font-size:.88rem!important}
+  .transaction-mobile-card__actions{gap:6px!important;margin-top:9px!important}
+  .transaction-mobile-card__actions button{min-height:40px!important;padding:6px 4px!important;font-size:.76rem!important}
+  .transaction-ledger-formula{display:none!important}
+}
+@media (max-width:390px){
+  .transaction-ledger-summary{grid-template-columns:1fr 1fr!important}
+  .transaction-ledger-summary .transaction-summary-card:last-child{grid-column:1/-1!important}
+  .partner-mobile-card__actions{grid-template-columns:1fr 1fr!important}
+}
+
+/* v25.14.33 — Active branch moved into Settings */
+.settings-active-branch{display:grid;gap:12px;margin:14px 0 18px;padding:16px;border:1px solid rgba(65,105,225,.28);border-radius:16px;background:linear-gradient(145deg,rgba(13,27,49,.98),rgba(7,20,39,.98));color:#fff;box-shadow:0 10px 24px rgba(2,12,27,.14)}
+.settings-active-branch-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.settings-active-branch-head>div{display:grid;gap:4px}.settings-active-branch-head strong{font-size:15px}.settings-active-branch-head small{color:#aebbd0;line-height:1.55}.settings-active-branch-badge{display:inline-flex;align-items:center;justify-content:center;min-width:58px;padding:6px 10px;border-radius:999px;background:#d4af37;color:#101010;font-weight:900;font-size:12px}.settings-active-branch select{width:100%;min-height:48px;padding:10px 14px!important;border-radius:12px!important;background:#07172b!important;color:#fff!important;border:1px solid rgba(117,168,255,.35)!important;font-weight:800}.branch-card-active{border-color:#d4af37!important;box-shadow:0 0 0 2px rgba(212,175,55,.16),0 10px 24px rgba(0,0,0,.08)!important}.branch-card-active:after{content:"الفرع النشط";display:inline-flex;margin-top:10px;padding:4px 9px;border-radius:999px;background:rgba(212,175,55,.16);color:#a77f00;font-size:11px;font-weight:900}
+@media(max-width:700px){.settings-active-branch{padding:13px;margin:10px 0 14px}.settings-active-branch-head{align-items:flex-start}.settings-active-branch-head small{font-size:12px}.settings-active-branch select{font-size:16px;min-height:52px}}
+
+
+/* v25.14.34 — settings mobile fix + customer old-account direction */
+@media(max-width:700px){
+  .settings-page{width:100%;max-width:100%;overflow-x:hidden}
+  .settings-hero{display:grid!important;grid-template-columns:1fr!important;gap:12px!important;padding:16px!important;overflow:hidden}
+  .settings-hero>div{min-width:0;align-items:flex-start!important}
+  .settings-hero h2{font-size:1.55rem!important;line-height:1.25}
+  .settings-hero p{font-size:.94rem!important;line-height:1.65;overflow-wrap:anywhere}
+  .settings-version{justify-self:stretch;max-width:100%;white-space:normal!important;overflow-wrap:anywhere;text-align:center;font-size:.82rem!important;padding:8px 10px!important}
+}
+.old-balance-direction,.old-balance-inline-picker{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%}
+.old-balance-inline-picker{grid-template-columns:auto 1fr 1fr;align-items:center}
+.old-balance-direction button,.old-balance-inline-picker button{min-height:42px;border-radius:12px;border:1px solid rgba(216,163,63,.45);background:#15181d;color:#e8edf4;font-weight:800}
+.old-balance-direction button.active,.old-balance-inline-picker button.active{background:linear-gradient(135deg,#9b741e,#d8a33f);color:#111;border-color:#f0c85b}
+.old-balance-direction button.payable.active,.old-balance-inline-picker button.payable.active{background:linear-gradient(135deg,#145a7a,#2a9bc7);color:#fff;border-color:#60c9f2}
+@media(max-width:700px){.old-balance-inline-picker{grid-template-columns:1fr 1fr}.old-balance-inline-picker>span{grid-column:1/-1}.old-balance-direction button,.old-balance-inline-picker button{font-size:.95rem}}
+
+/* v25.14.36 — budget/inventory recovery + account verification */
+.budget-recovery-state{display:grid;gap:14px}.budget-loading-card{display:grid;gap:8px;min-height:120px;align-content:center}.budget-loading-card small,.budget-recovery-state .customer-error small{display:block;color:#94a3b8}.budget-recovery-state button{justify-self:start;margin-top:8px}.inventory-refresh-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;color:#64748b}.account-verification-card{gap:16px}.verification-status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.verification-status-grid>div{display:grid;gap:4px;padding:14px;border-radius:14px;border:1px solid rgba(148,163,184,.25);background:rgba(15,23,42,.04)}.verification-status-grid>div.verified{border-color:rgba(34,197,94,.38);background:rgba(34,197,94,.08)}.verification-status-grid>div.pending{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.07)}.verification-status-grid strong{font-size:.95rem}.verification-status-grid small{color:#64748b;overflow-wrap:anywhere}.verification-contact-form label{display:grid;gap:6px}.verification-channel-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.verification-channel-grid button{min-height:48px;border-radius:12px}.verification-channel-grid button.selected{box-shadow:0 0 0 2px rgba(212,175,55,.28);border-color:#d4af37}.verification-code-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.verification-code-row input{min-height:48px;font-size:1.1rem;letter-spacing:.18em;text-align:center}.verification-code-row button{min-width:130px}
+@media(max-width:700px){.inventory-refresh-row{align-items:stretch;flex-direction:column}.verification-status-grid,.verification-channel-grid{grid-template-columns:1fr}.verification-code-row{grid-template-columns:1fr}.verification-code-row button{width:100%}.account-verification-card{padding:14px!important}}
+.verification-inline-message{padding:10px 12px;border-radius:10px;background:rgba(212,175,55,.12);border:1px solid rgba(212,175,55,.35);color:inherit;font-weight:700;text-align:center}
+
+
+/* v25.14.42: make the password panel reliably visible inside the mobile settings modal. */
+.settings-modal-shell .settings-panel-force-visible[data-panel="password"]{
+  display:block!important;
+  width:100%!important;
+  visibility:visible!important;
+  opacity:1!important;
+}
+.settings-modal-shell .password-settings-card .settings-form-modern{
+  display:grid!important;
+  gap:12px!important;
+}
+.settings-modal-shell .password-settings-card input,
+.settings-modal-shell .password-settings-card button{
+  visibility:visible!important;
+  opacity:1!important;
+}
+
+/* v25.14.43 - keep settings action feedback visible inside the open modal */
+.settings-modal-message{
+  position:sticky;
+  top:0;
+  z-index:6;
+  margin:0 0 14px;
+  background:linear-gradient(145deg,#2b230f,#17130b)!important;
+  box-shadow:0 8px 22px rgba(0,0,0,.32);
+}
+.settings-modal-shell[data-active-panel="password"] .settings-modal-message{
+  color:#7ef0a5!important;
+  border-color:rgba(65,190,112,.6)!important;
+}
+
+
+/* v25.14.44 - make old-account direction and final balance visible in customer data */
+.customer-old-balance-badge,.customer-final-balance-badge{display:inline-flex;align-items:center;gap:.35rem;width:max-content;max-width:100%;padding:.22rem .55rem;border-radius:999px;font-weight:800;margin-top:.25rem}
+.customer-old-balance-badge.receivable,.customer-final-balance-badge.receivable{color:#7f1d1d;background:rgba(248,113,113,.14);border:1px solid rgba(248,113,113,.3)}
+.customer-old-balance-badge.payable,.customer-final-balance-badge.payable{color:#14532d;background:rgba(74,222,128,.14);border:1px solid rgba(74,222,128,.3)}
+.customer-final-balance-badge.settled{color:#334155;background:rgba(148,163,184,.14);border:1px solid rgba(148,163,184,.3)}

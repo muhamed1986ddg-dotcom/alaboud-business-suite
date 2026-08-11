@@ -7,6 +7,7 @@ import {AppModal,AppButton,AppTable} from "../components/ui";
 function CapitalOverview(){
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
   const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(true);
   const [previousData,setPreviousData]=useState(null);
   const [movements,setMovements]=useState([]);
   const [exchangeRates,setExchangeRates]=useState([]);
@@ -31,24 +32,27 @@ function CapitalOverview(){
   });
 
   async function load(){
-    setError("");
+    setLoading(true);setError("");
     try{
       const selectedDate=new Date(`${month}-01T00:00:00`);
       selectedDate.setMonth(selectedDate.getMonth()-1);
       const previousMonth=selectedDate.toISOString().slice(0,7);
-      const [overviewResponse,previousResponse,movementsResponse,ratesResponse]=await Promise.all([
-        cachedGet("/capital-overview",{params:{month}}),
-        cachedGet("/capital-overview",{params:{month:previousMonth}}),
-        cachedGet("/capital"),
-        cachedGet("/exchange-rates")
-      ]);
+      // الميزانية لا يجب أن تبقى فارغة بسبب فشل طلب ثانوي مثل الأسعار أو الشهر السابق.
+      // حمّل المؤشرات الأساسية أولًا وبشكل مباشر، ثم حدّث البيانات المساعدة كلٌ على حدة.
+      const overviewResponse=await api.get("/capital-overview",{params:{month}});
       setData(overviewResponse.data);
-      setPreviousData(previousResponse.data);
-      setMovements(Array.isArray(movementsResponse.data)?movementsResponse.data:[]);
-      setExchangeRates(Array.isArray(ratesResponse.data)?ratesResponse.data:[]);
+      const [previousResult,movementsResult,ratesResult]=await Promise.allSettled([
+        api.get("/capital-overview",{params:{month:previousMonth}}),
+        api.get("/capital"),
+        api.get("/exchange-rates")
+      ]);
+      if(previousResult.status==="fulfilled")setPreviousData(previousResult.value.data);
+      if(movementsResult.status==="fulfilled")setMovements(Array.isArray(movementsResult.value.data)?movementsResult.value.data:[]);
+      if(ratesResult.status==="fulfilled")setExchangeRates(Array.isArray(ratesResult.value.data)?ratesResult.value.data:[]);
     }catch(requestError){
-      setError(requestError.response?.data?.message||"تعذر تحميل رأس المال");
-    }
+      setData(null);
+      setError(requestError.response?.data?.message||"تعذر تحميل الميزانية. اضغط إعادة المحاولة.");
+    }finally{setLoading(false);}
   }
 
   useEffect(()=>{load();},[month]);
@@ -127,7 +131,7 @@ function CapitalOverview(){
   const formCadRate=cadRateFor(form.currency);
   const formCadAmount=formCadRate&&Number(form.amount)>0?Number(form.amount)*formCadRate:null;
 
-  if(!data)return <><h2>رأس المال الكلي</h2>{error?<div className="card customer-error">{error}</div>:<p>جاري التحميل...</p>}</>;
+  if(!data)return <div className="budget-recovery-state"><div className="page-title-row"><div><h2>⚖️ الميزانية</h2><p>تحميل المؤشرات المالية وصافي رأس المال.</p></div></div><div className={`card ${error?"customer-error":"budget-loading-card"}`}><strong>{error||"جاري تحميل الميزانية..."}</strong><small>{loading?"يتم الاتصال بالخادم الآن":"يمكن إعادة المحاولة بدون مغادرة الصفحة"}</small>{!loading&&<button type="button" onClick={load}>↻ إعادة المحاولة</button>}</div></div>;
 
   const efficiency=data.turnoverRate>=3?"ممتاز":data.turnoverRate>=2?"جيد جداً":data.turnoverRate>=1?"جيد":"منخفض";
   const selectedMonthMovements=movements.filter(item=>String(item.date||item.createdAt||"").slice(0,7)===month);
@@ -172,7 +176,7 @@ function CapitalOverview(){
   const expenseChange=previousData&&Number(previousData.monthlyExpenses||0)!==0?((Number(data.monthlyExpenses||0)-Number(previousData.monthlyExpenses||0))/Math.abs(Number(previousData.monthlyExpenses||0)))*100:null;
   const netPrevious=Number(previousData?.monthlyProfit||0)-Number(previousData?.monthlyExpenses||0);
   const netChange=netPrevious!==0?((monthlyNet-netPrevious)/Math.abs(netPrevious))*100:null;
-  const liquidityRatio=Number(data.generalPayable||0)>0?(Number(data.receivables||0)+Number(data.generalReceivable||0))/Number(data.generalPayable||0):3;
+  const liquidityRatio=debtOnUs>0?debtForUs/debtOnUs:3;
   const profitMargin=Number(data.monthlyTransferValue||0)>0?monthlyNet/Number(data.monthlyTransferValue||0):0;
   const healthScore=Math.max(0,Math.min(100,Math.round(
     (monthlyNet>=0?30:8)+

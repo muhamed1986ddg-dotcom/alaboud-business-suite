@@ -1,0 +1,11 @@
+const assert=require('assert');const fs=require('fs');const path=require('path');
+const root=path.join(__dirname,'..','..');
+const capital=fs.readFileSync(path.join(root,'frontend','src','screens','CapitalOverview.jsx'),'utf8');
+const reports=fs.readFileSync(path.join(root,'frontend','src','screens','ReportsProfits.jsx'),'utf8');
+const settings=fs.readFileSync(path.join(root,'frontend','src','screens','SettingsPanel.jsx'),'utf8');
+const server=fs.readFileSync(path.join(root,'backend','src','server.js'),'utf8');
+assert.match(capital,/await api\.get\("\/capital-overview"/);assert.match(capital,/Promise\.allSettled/);assert.match(capital,/إعادة المحاولة/);
+assert.match(reports,/await api\.get\("\/monthly-inventory"\)/);assert.match(reports,/تحديث الجرد/);
+assert.match(settings,/data-panel="verification"/);assert.match(settings,/إرسال SMS/);assert.match(settings,/إرسال عبر واتساب/);assert.match(settings,/إرسال عبر البريد/);
+assert.match(server,/\/api\/auth\/account-verification\/send/);assert.match(server,/TWILIO_ACCOUNT_SID/);assert.match(server,/SMTP_HOST/);
+console.log('budget-inventory-verification-v251436.test.js: OK');

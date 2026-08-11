@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
-import api,{cachedGet,isTransientReadFailure} from "../api";
+import api,{cachedGet,clearApiGetCache,isTransientReadFailure} from "../api";
 import {APP_VERSION} from "../version";
 import {AppPagination} from "../components/ui";
 import {CustomerToolbar,CustomerListControls} from "../components/customers/CustomerToolbar";
@@ -23,7 +23,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
   const retryTimerRef=useRef(null);
   const retryAttemptRef=useRef(0);
 
-  const [customerForm,setCustomerForm]=useState({customerNumber:"",name:"",phone:"",email:"",oldBalance:""});
+  const [customerForm,setCustomerForm]=useState({customerNumber:"",name:"",phone:"",email:"",oldBalance:"",oldBalanceType:"RECEIVABLE"});
   const [editingCustomer,setEditingCustomer]=useState(null);
   const [duplicateCustomer,setDuplicateCustomer]=useState(null);
 
@@ -217,7 +217,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     try{
       const response=await api.post("/customers",customerForm);
       const created=response.data;
-      setCustomerForm({customerNumber:"",name:"",phone:"",email:"",oldBalance:""});
+      clearApiGetCache();
+      setCustomerForm({customerNumber:"",name:"",phone:"",email:"",oldBalance:"",oldBalanceType:"RECEIVABLE"});
       setError("✅ تم حفظ العميل بنجاح");
       setActivePanel("");
       setServerTotal(total=>total+1);
@@ -225,8 +226,10 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         const rows=[created,...current.filter(item=>item.id!==created.id)];
         return rows.slice(0,pageSize);
       });
-      if(Number(created?.finalBalance||created?.oldBalance||0)>0){
-        setTotalCustomerDebt(total=>+(total+Number(created.finalBalance||created.oldBalance||0)).toFixed(2));
+      const createdOpening=Number(created?.oldBalance||0);
+      const createdDirection=String(created?.oldBalanceType||"RECEIVABLE").toUpperCase();
+      if(createdDirection!=="PAYABLE"&&createdOpening>0){
+        setTotalCustomerDebt(total=>+(total+createdOpening).toFixed(2));
       }
       void load(sortMode,search,page);
       void loadDebtSummary();
@@ -241,10 +244,14 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     event.preventDefault();
     setDuplicateCustomer(null);
     try{
-      await api.patch(`/customers/${editingCustomer.id}`,editingCustomer);
+      const response=await api.patch(`/customers/${editingCustomer.id}`,editingCustomer);
+      const updated=response.data;
+      clearApiGetCache();
+      setList(current=>current.map(item=>item.id===updated.id?{...item,...updated}:item));
       setEditingCustomer(null);
       setActivePanel("");
-      void Promise.allSettled([load(),loadDebtSummary()]);
+      setError(`✅ تم حفظ بيانات ${updated?.name||"العميل"} والحساب القديم بنجاح`);
+      void Promise.allSettled([load(sortMode,search,page),loadDebtSummary()]);
     }catch(requestError){
       const existing=requestError.response?.data?.existingCustomer||null;
       setDuplicateCustomer(existing);
@@ -258,6 +265,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     setError("");
     try{
       await api.delete(`/customers/${customer.id}`);
+      clearApiGetCache();
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
       void Promise.allSettled([load(),loadDebtSummary()]);
     }catch(requestError){
@@ -272,6 +280,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     setError("");
     try{
       await api.post(`/customers/${customer.id}/reset-account`,{});
+      clearApiGetCache();
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
       void Promise.allSettled([load(),loadDebtSummary()]);
       window.alert("تم تصفير الحساب وبدء حساب جديد بنجاح. الحساب السابق محفوظ في الأرشيف.");
@@ -315,15 +324,9 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         rateUpdatedAt:transferForm.rateUpdatedAt||selectedRateMeta?.createdAt||null
       });
 
+      // The backend creates the initial full payment atomically when paymentStatus=PAID.
+      // Do not POST a second payment here; doing so exceeds the already-zero remaining balance.
       const createdTransaction=transactionResponse.data;
-      if(transferForm.paymentStatus==="PAID"&&createdTransaction?.id&&Number(createdTransaction.totalCustomerDue)>0){
-        await api.post(`/transactions/${createdTransaction.id}/payments`,{
-          amount:Number(createdTransaction.totalCustomerDue),
-          paymentDate:transferForm.transferDate||new Date().toISOString().slice(0,10),
-          method:"CASH",
-          notes:"تم تسجيل الحوالة كمدفوعة عند الإنشاء"
-        });
-      }
 
       setTransferForm({
         customerId:"",
@@ -495,7 +498,10 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
 
       const statementTotal=Number(data.totals?.formulaResultCad||0);
       const statementPaid=Number(data.totals?.paid||0);
-      const finalStatementBalance=Math.max(statementTotal-statementPaid,0);
+      const opening=Number(data.totals?.oldBalance||customer.oldBalance||0);
+      const openingType=String(data.totals?.oldBalanceType||customer.oldBalanceType||"RECEIVABLE").toUpperCase();
+      const finalStatementBalance=statementTotal-statementPaid+(openingType==="PAYABLE"?-opening:opening);
+      const finalStatementLabel=finalStatementBalance<0?"الرصيد النهائي له":"الرصيد النهائي عليه";
 
       const message=[
         data.company?.name||"شركة العبود التجارية",
@@ -503,12 +509,12 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         "كشف حساب العميل",
         customer.name,
         "",
-        ...(Number(customer.oldBalance||0)>0?[`الحساب القديم: ${money(customer.oldBalance)} 🇨🇦`,""]:[]),
+        ...(Number(customer.oldBalance||0)>0?[`الحساب القديم ${String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"له":"عليه"}: ${money(customer.oldBalance)} 🇨🇦`,""]:[]),
         ...lines,
         "",
         "--------------------",
         `الدفعات: ${money(statementPaid)} 🇨🇦`,
-        `المجموع النهائي: ${money(finalStatementBalance)} 🇨🇦`
+        `${finalStatementLabel}: ${money(Math.abs(finalStatementBalance))} 🇨🇦`
       ].join("\n");
 
       openRegularWhatsApp(phone,message);
@@ -558,7 +564,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         <input value={customerForm.name} onChange={e=>setCustomerForm({...customerForm,name:e.target.value})} placeholder="اسم العميل" required/>
         <input value={customerForm.phone} onChange={e=>setCustomerForm({...customerForm,phone:e.target.value})} placeholder="رقم الهاتف / واتساب"/>
         <input type="email" value={customerForm.email} onChange={e=>setCustomerForm({...customerForm,email:e.target.value})} placeholder="البريد الإلكتروني"/>
-        <input type="number" min="0" step=".01" value={customerForm.oldBalance} onChange={e=>setCustomerForm({...customerForm,oldBalance:e.target.value})} placeholder="الحساب القديم (CAD)"/>
+        <div className="old-balance-inline-picker"><span>الحساب القديم:</span><button type="button" className={customerForm.oldBalanceType!=="PAYABLE"?"active":""} onClick={()=>setCustomerForm({...customerForm,oldBalanceType:"RECEIVABLE"})}>عليه</button><button type="button" className={customerForm.oldBalanceType==="PAYABLE"?"active payable":""} onClick={()=>setCustomerForm({...customerForm,oldBalanceType:"PAYABLE"})}>له</button></div>
+        <input type="number" min="0" step=".01" value={customerForm.oldBalance} onChange={e=>setCustomerForm({...customerForm,oldBalance:e.target.value})} placeholder="قيمة الحساب القديم (CAD)"/>
         <button>حفظ العميل</button>
         <button type="button" onClick={()=>setActivePanel("")}>إلغاء</button>
       </form>
@@ -570,7 +577,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         <input value={editingCustomer.name||""} onChange={e=>setEditingCustomer({...editingCustomer,name:e.target.value})} placeholder="اسم العميل" required/>
         <input value={editingCustomer.phone||""} onChange={e=>setEditingCustomer({...editingCustomer,phone:e.target.value})} placeholder="رقم الهاتف / واتساب"/>
         <input type="email" value={editingCustomer.email||""} onChange={e=>setEditingCustomer({...editingCustomer,email:e.target.value})} placeholder="البريد الإلكتروني"/>
-        <input type="number" min="0" step=".01" value={editingCustomer.oldBalance||""} onChange={e=>setEditingCustomer({...editingCustomer,oldBalance:e.target.value})} placeholder="الحساب القديم (CAD)"/>
+        <div className="old-balance-inline-picker"><span>الحساب القديم:</span><button type="button" className={editingCustomer.oldBalanceType!=="PAYABLE"?"active":""} onClick={()=>setEditingCustomer({...editingCustomer,oldBalanceType:"RECEIVABLE"})}>عليه</button><button type="button" className={editingCustomer.oldBalanceType==="PAYABLE"?"active payable":""} onClick={()=>setEditingCustomer({...editingCustomer,oldBalanceType:"PAYABLE"})}>له</button></div>
+        <input type="number" min="0" step=".01" value={editingCustomer.oldBalance||""} onChange={e=>setEditingCustomer({...editingCustomer,oldBalance:e.target.value})} placeholder="قيمة الحساب القديم (CAD)"/>
         <button>حفظ التعديل</button>
         <button type="button" onClick={()=>setEditingCustomer(null)}>إلغاء</button>
       </form>
@@ -720,6 +728,12 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           <div className="customer-simple-main customer-name-only">
             <strong>{customer.name}</strong>
             <small>{customer.phone||"بدون رقم هاتف"}</small>
+            {Number(customer.oldBalance||0)>0&&<small className={`customer-old-balance-badge ${customer.oldBalanceType==="PAYABLE"?"payable":"receivable"}`}>
+              الحساب القديم {customer.oldBalanceType==="PAYABLE"?"له":"عليه"}: {money(customer.oldBalance)} CAD
+            </small>}
+            <small className={`customer-final-balance-badge ${Number(customer.finalBalance||0)<0?"payable":Number(customer.finalBalance||0)>0?"receivable":"settled"}`}>
+              {Number(customer.finalBalance||0)<0?"الرصيد النهائي له":Number(customer.finalBalance||0)>0?"الرصيد النهائي عليه":"الرصيد النهائي"}: {money(Math.abs(Number(customer.finalBalance||0)))} CAD
+            </small>
             {customer.accountResetAt&&<small className="customer-reset-date">حساب جديد منذ {new Date(customer.accountResetAt).toLocaleDateString("ar-CA")}</small>}
           </div>
         </button>

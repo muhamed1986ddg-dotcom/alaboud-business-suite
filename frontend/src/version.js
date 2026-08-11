@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.29 PostgreSQL Pool Release Fix";
+export const APP_VERSION="v25.14.60 Startup Runtime Guard";

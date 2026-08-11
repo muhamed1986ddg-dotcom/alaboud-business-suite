@@ -24,7 +24,16 @@ function recordTime(value) {
 function isAfterReset(record, customer, preferredDateKey = "") {
   const resetTime = recordTime(customer?.accountResetAt);
   if (!resetTime) return true;
-  return Math.max(recordTime(preferredDateKey ? record?.[preferredDateKey] : ""), recordTime(record?.createdAt || record?.updatedAt)) >= resetTime;
+  // Payments created on the same calendar day as a reset carry paymentDate as
+  // YYYY-MM-DD (midnight), while the real creation timestamp is stored in `date`.
+  // Always consider every available activity timestamp so a payment made after
+  // the reset is not incorrectly filtered out as pre-reset activity.
+  return Math.max(
+    recordTime(preferredDateKey ? record?.[preferredDateKey] : ""),
+    recordTime(record?.createdAt),
+    recordTime(record?.updatedAt),
+    recordTime(record?.date)
+  ) >= resetTime;
 }
 
 function customerReceiptsScaled(payments, customerId) {
@@ -61,12 +70,16 @@ function customerSummary(store, customer, { overdueDays = 7 } = {}) {
     paymentByTransaction.set(payment.transactionId, current + moneySafe(payment.amount));
   }
 
-  const reset = Boolean(customer.accountResetAt);
-  const storedOpening = reset ? 0n : (moneySafe(customer.oldBalance) > 0n ? moneySafe(customer.oldBalance) : 0n);
-  const rawLegacyPaid = reset ? 0n : moneySafe(customer.oldBalancePaid);
+  const resetTime = recordTime(customer.accountResetAt);
+  const openingUpdatedTime = recordTime(customer.openingBalanceUpdatedAt);
+  const activeOpeningBalance = !resetTime || openingUpdatedTime >= resetTime;
+  const storedOpening = activeOpeningBalance ? (moneySafe(customer.oldBalance) > 0n ? moneySafe(customer.oldBalance) : 0n) : 0n;
+  const rawLegacyPaid = activeOpeningBalance ? moneySafe(customer.oldBalancePaid) : 0n;
   const legacyPaid = rawLegacyPaid > storedOpening ? storedOpening : (rawLegacyPaid > 0n ? rawLegacyPaid : 0n);
   const openingOutstanding = storedOpening > legacyPaid ? storedOpening - legacyPaid : 0n;
-  const rawOpeningInitial = reset ? 0n : moneySafe(customer.openingBalanceInitial ?? customer.oldBalance);
+  const oldBalanceType = String(customer.oldBalanceType || "RECEIVABLE").toUpperCase() === "PAYABLE" ? "PAYABLE" : "RECEIVABLE";
+  const signedOpeningOutstanding = oldBalanceType === "PAYABLE" ? -openingOutstanding : openingOutstanding;
+  const rawOpeningInitial = activeOpeningBalance ? moneySafe(customer.openingBalanceInitial ?? customer.oldBalance) : 0n;
   const openingInitial = rawOpeningInitial > openingOutstanding ? rawOpeningInitial : openingOutstanding;
   const actualPayments = customerReceiptsScaled(payments.filter(payment => isAfterReset(payment, customer, "paymentDate")), customer.id);
 
@@ -98,7 +111,7 @@ function customerSummary(store, customer, { overdueDays = 7 } = {}) {
     }
   }
 
-  const outstanding = transactionOutstanding + openingOutstanding;
+  const outstanding = transactionOutstanding + signedOpeningOutstanding;
   const overdueAge = oldestUnpaidDate ? Math.max(0, Math.floor((today - new Date(`${oldestUnpaidDate}T00:00:00`)) / 86400000)) : 0;
 
   return {
@@ -108,7 +121,9 @@ function customerSummary(store, customer, { overdueDays = 7 } = {}) {
     openingBalanceInitial: moneyToNumber(openingInitial),
     oldBalancePaid: 0,
     oldBalanceRemaining: moneyToNumber(openingOutstanding),
-    totalTransactions: moneyToNumber(openingInitial + transactionTotal),
+    oldBalanceType,
+    oldBalanceLabel: oldBalanceType === "PAYABLE" ? "له" : "عليه",
+    totalTransactions: moneyToNumber(transactionTotal + (oldBalanceType === "RECEIVABLE" ? openingInitial : 0n)),
     totalPaid: moneyToNumber(actualPayments),
     finalBalance: moneyToNumber(outstanding),
     overdue: outstanding > 0n && overdueAge > threshold,
@@ -133,9 +148,31 @@ function customerDebtSummary(store, options = {}) {
   };
 }
 
+// Gross customer balances must be classified by direction instead of being
+// netted inside the receivables bucket. A positive final balance means the
+// customer owes the company (receivable); a negative final balance means the
+// company owes the customer (payable). Net is preserved exactly.
+function customerBalanceTotals(store, options = {}) {
+  const customers = (Array.isArray(store?.customers) ? store.customers : []).filter(customer => customer && !customer.isDeleted);
+  let receivable = 0n;
+  let payable = 0n;
+  for (const customer of customers) {
+    const balance = moneySafe(customerSummary(store, customer, options).finalBalance);
+    if (balance > 0n) receivable += balance;
+    else if (balance < 0n) payable += -balance;
+  }
+  return Object.freeze({
+    currency: "CAD",
+    receivable: moneyToNumber(receivable),
+    payable: moneyToNumber(payable),
+    net: moneyToNumber(receivable - payable),
+  });
+}
+
 module.exports = {
   customerSummary,
   customerDebtSummary,
+  customerBalanceTotals,
   customerReceipts,
   customerReceiptsScaled,
   number,

@@ -1,0 +1,11 @@
+const assert=require('assert');
+const path=require('path');
+const fs=require('fs');
+const root=path.resolve(__dirname,'../..');
+assert.strictEqual(require(path.join(root,'package.json')).version,'25.14.39');
+assert.strictEqual(require(path.join(root,'frontend/package.json')).version,'25.14.39');
+assert.strictEqual(require(path.join(root,'backend/package.json')).version,'25.14.39');
+assert.match(fs.readFileSync(path.join(root,'frontend/src/version.js'),'utf8'),/25\.14\.39/);
+assert.match(fs.readFileSync(path.join(root,'backend/src/production-readiness.js'),'utf8'),/25\.14\.39/);
+assert.match(fs.readFileSync(path.join(root,'app/build.gradle.kts'),'utf8'),/25\.14\.39/);
+console.log('version consistency v25.14.39: OK');

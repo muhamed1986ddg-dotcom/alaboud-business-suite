@@ -48,14 +48,27 @@ function NotificationSettings({embedded=false}){
 
 
 
-function BranchManagement(){
+function BranchManagement({activeBranchId,onActiveBranchChange}){
   const [branches,setBranches]=useState([]),[form,setForm]=useState({name:"",code:"",address:"",phone:"",currency:"CAD"}),[message,setMessage]=useState("");
-  const load=()=>cachedGet("/branches").then(r=>setBranches(r.data)).catch(()=>{});useEffect(()=>{load()},[]);
+  const load=()=>cachedGet("/branches",{ttl:0}).then(r=>setBranches(r.data)).catch(()=>{});useEffect(()=>{load()},[]);
   async function create(event){event.preventDefault();setMessage("");try{await api.post("/branches",form);setForm({name:"",code:"",address:"",phone:"",currency:"CAD"});setMessage("تم إنشاء الفرع بنجاح");load()}catch(error){setMessage(error.response?.data?.message||"تعذر إنشاء الفرع")}}
-  return <article data-panel="branches" className="settings-card settings-wide-card"><div className="settings-card-title"><span>🏢</span><h3>إدارة الفروع</h3></div><p className="settings-help">أنشئ الفروع واعرض مؤشرات كل فرع. يمكن تغيير الفرع النشط من القائمة الجانبية.</p>{message&&<div className="settings-message">{message}</div>}<form className="branch-create-form" onSubmit={create}><input placeholder="اسم الفرع" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required/><input placeholder="الرمز مثل WINDSOR" value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})} required/><input placeholder="العنوان" value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/><input placeholder="الهاتف" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/><button className="settings-primary-button">إضافة فرع</button></form><div className="branch-grid">{branches.map(branch=><div className="branch-card" key={branch.id}><div><strong>{branch.name}</strong><small>{branch.code}{branch.isMain?" • الفرع الرئيسي":""}</small></div><div className="branch-metrics"><span>العملاء <b>{branch.metrics?.customers||0}</b></span><span>الحوالات <b>{branch.metrics?.transactions||0}</b></span><span>المصروفات <b>{money(branch.metrics?.expensesCad||0)} CAD</b></span></div></div>)}</div></article>
+  const selectedBranch=branches.find(branch=>branch.id===activeBranchId)||branches.find(branch=>branch.isMain)||branches[0]||null;
+  return <article data-panel="branches" className="settings-card settings-wide-card">
+    <div className="settings-card-title"><span>🏢</span><h3>إدارة الفروع</h3></div>
+    <p className="settings-help">اختيار الفرع النشط وإدارة الفروع من مكان واحد داخل الإعدادات.</p>
+    {branches.length>0&&<div className="settings-active-branch">
+      <div className="settings-active-branch-head"><div><strong>🏢 الفرع النشط</strong><small>يُطبق الفرع المختار على الصفحات والعمليات والتقارير.</small></div>{selectedBranch&&<span className="settings-active-branch-badge">{selectedBranch.code||"MAIN"}</span>}</div>
+      <select value={activeBranchId||selectedBranch?.id||""} onChange={event=>{onActiveBranchChange?.(event.target.value);setMessage("تم تغيير الفرع النشط")}}>
+        {branches.map(branch=><option key={branch.id} value={branch.id}>{branch.name} ({branch.code}){branch.isMain?" — الرئيسي":""}</option>)}
+      </select>
+    </div>}
+    {message&&<div className="settings-message">{message}</div>}
+    <form className="branch-create-form" onSubmit={create}><input placeholder="اسم الفرع" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required/><input placeholder="الرمز مثل WINDSOR" value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})} required/><input placeholder="العنوان" value={form.address} onChange={e=>setForm({...form,address:e.target.value})}/><input placeholder="الهاتف" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/><button className="settings-primary-button">إضافة فرع</button></form>
+    <div className="branch-grid">{branches.map(branch=><div className={`branch-card ${branch.id===activeBranchId?"branch-card-active":""}`} key={branch.id}><div><strong>{branch.name}</strong><small>{branch.code}{branch.isMain?" • الفرع الرئيسي":""}</small></div><div className="branch-metrics"><span>العملاء <b>{branch.metrics?.customers||0}</b></span><span>الحوالات <b>{branch.metrics?.transactions||0}</b></span><span>المصروفات <b>{money(branch.metrics?.expensesCad||0)} CAD</b></span></div></div>)}</div>
+  </article>
 }
 
-function SettingsPanel(){
+function SettingsPanel({activeBranchId,onActiveBranchChange}){
   const savedUser=(()=>{
     try{return JSON.parse(localStorage.getItem("afs_user")||"{}")}catch{return {}}
   })();
@@ -74,12 +87,16 @@ function SettingsPanel(){
   const [users,setUsers]=useState([]);
   const [devices,setDevices]=useState([]);
   const [twoFactorInfo,setTwoFactorInfo]=useState({secret:"",code:"",enabled:Boolean(savedUser.twoFactorEnabled)});
+  const [accountVerification,setAccountVerification]=useState({email:savedUser.email||"",phone:"",preferredChannel:"EMAIL",emailVerified:false,phoneVerified:false,providers:{email:false,sms:false,whatsapp:false}});
+  const [verificationCode,setVerificationCode]=useState("");
+  const [verificationBusy,setVerificationBusy]=useState(false);
   const [biometricEnabled,setBiometricEnabled]=useState(Boolean(window.AlAboudNative?.isBiometricEnabled?.()));
   const [activePanel,setActivePanel]=useState("");
   const biometricAvailable=Boolean(typeof window!=="undefined"&&(window.AlAboudNative||navigator.userAgent.includes("AlAboudMobile")));
 
   useEffect(()=>{
     cachedGet("/company-profile").then(({data})=>setCompanyProfile(data)).catch(()=>{});
+    api.get("/auth/account-verification").then(({data})=>setAccountVerification(data)).catch(()=>{});
     if(savedUser.role==="ADMIN"){cachedGet("/users").then(({data})=>setUsers(data)).catch(()=>{});cachedGet("/devices").then(({data})=>setDevices(data)).catch(()=>{})}
   },[]);
 
@@ -159,6 +176,23 @@ function SettingsPanel(){
     }catch(error){
       setMessage(error.response?.data?.message||"تعذر تغيير كلمة المرور");
     }
+  }
+
+  async function saveVerificationContacts(){
+    setVerificationBusy(true);setMessage("");
+    try{const {data}=await api.patch("/auth/account-verification",{email:accountVerification.email,phone:accountVerification.phone,preferredChannel:accountVerification.preferredChannel});setMessage(data.message);const refreshed=await api.get("/auth/account-verification");setAccountVerification(refreshed.data);}
+    catch(error){setMessage(error.response?.data?.message||"تعذر حفظ بيانات تأكيد الحساب")}finally{setVerificationBusy(false)}
+  }
+  async function sendVerificationCode(channel=accountVerification.preferredChannel){
+    setVerificationBusy(true);setMessage("");setVerificationCode("");
+    try{const {data}=await api.post("/auth/account-verification/send",{channel});setAccountVerification(current=>({...current,preferredChannel:channel}));setMessage(data.message);}
+    catch(error){setMessage(error.response?.data?.message||"تعذر إرسال رمز التأكيد")}finally{setVerificationBusy(false)}
+  }
+  async function confirmVerificationCode(){
+    if(verificationCode.length!==6){setMessage("أدخل رمز التأكيد المكون من 6 أرقام");return;}
+    setVerificationBusy(true);setMessage("");
+    try{const {data}=await api.post("/auth/account-verification/verify",{code:verificationCode});setVerificationCode("");setMessage(data.message);const refreshed=await api.get("/auth/account-verification");setAccountVerification(refreshed.data);}
+    catch(error){setMessage(error.response?.data?.message||"رمز التأكيد غير صحيح")}finally{setVerificationBusy(false)}
   }
 
   async function beginTwoFactor(){setMessage("");try{const {data}=await api.post("/auth/2fa/setup");setTwoFactorInfo(current=>({...current,...data,code:""}));setMessage("أضف المفتاح إلى تطبيق Authenticator ثم أدخل الرمز")}catch(error){setMessage(error.response?.data?.message||"تعذر بدء إعداد التحقق بخطوتين")}}
@@ -297,6 +331,7 @@ function SettingsPanel(){
     <div className="settings-launch-grid" aria-label="أقسام الإعدادات">
       {savedUser.role==="ADMIN"&&<button type="button" onClick={()=>setActivePanel("branches")}><span>🏢</span><strong>إدارة الفروع</strong><small>الفروع ومؤشراتها</small></button>}
       <button type="button" onClick={()=>setActivePanel("security")}><span>🔐</span><strong>الأمان وتسجيل الدخول</strong><small>Authenticator والبصمة أو الوجه</small></button>
+      <button type="button" onClick={()=>setActivePanel("verification")}><span>✅</span><strong>تأكيد الحساب</strong><small>SMS عبر Rasel أو واتساب أو البريد الإلكتروني</small></button>
       <button type="button" onClick={()=>setActivePanel("backup")}><span>💾</span><strong>النسخ الاحتياطي</strong><small>إنشاء نسخة أو استعادتها</small></button>
       <button type="button" onClick={()=>setActivePanel("appearance")}><span>🎨</span><strong>المظهر والخط</strong><small>اللغة والحجم والتباين</small></button>
       <button type="button" onClick={()=>setActivePanel("notifications")}><span>🔔</span><strong>الإشعارات وواتساب</strong><small>التأخير وقوالب الرسائل</small></button>
@@ -312,9 +347,32 @@ function SettingsPanel(){
 
     <AppModal open={Boolean(activePanel)} title="الإعدادات" size="xl" onClose={()=>setActivePanel("")}>
       <div className="settings-modal-shell" data-active-panel={activePanel}>
+        {message&&<div className="card settings-message settings-modal-message" role="status" aria-live="polite">{message}</div>}
         <div className="settings-grid">
-    {savedUser.role==="ADMIN"&&<BranchManagement/>}
+    {savedUser.role==="ADMIN"&&<BranchManagement activeBranchId={activeBranchId} onActiveBranchChange={onActiveBranchChange}/>}
     <article data-panel="security" className="settings-card security-access-card"><div className="settings-card-title"><span>🔐</span><h3>حماية تسجيل الدخول</h3></div><p className="settings-help">التحقق بخطوتين بواسطة Google Authenticator أو Microsoft Authenticator.</p>{twoFactorInfo.enabled?<button type="button" className="danger" onClick={disableTwoFactor}>تعطيل التحقق بخطوتين</button>:<>{!twoFactorInfo.secret?<button type="button" className="settings-primary-button" onClick={beginTwoFactor}>بدء التفعيل</button>:<div className="two-factor-setup"><label>المفتاح السري<input readOnly value={twoFactorInfo.secret}/></label><small>انسخ المفتاح إلى تطبيق Authenticator.</small><label>رمز التحقق<input inputMode="numeric" maxLength="6" value={twoFactorInfo.code} onChange={e=>setTwoFactorInfo({...twoFactorInfo,code:e.target.value.replace(/\D/g,"").slice(0,6)})}/></label><button type="button" disabled={twoFactorInfo.code.length!==6} onClick={enableTwoFactor}>تأكيد التفعيل</button></div>}</>}<div className="biometric-settings-block"><div><strong>👆 الدخول بالبصمة أو الوجه</strong><small>{biometricAvailable?(biometricEnabled?"مفعّل على هذا الهاتف":"غير مفعّل على هذا الهاتف"):"متاح داخل تطبيق الهاتف فقط"}</small></div>{biometricAvailable&&(biometricEnabled?<button type="button" className="danger" onClick={disableBiometric}>تعطيل البصمة أو الوجه</button>:<button type="button" className="settings-primary-button" onClick={enableBiometric}>تفعيل البصمة أو الوجه</button>)}</div><p className="security-note">بعد التفعيل، سيظهر زر الدخول بالبصمة أو الوجه في شاشة تسجيل الدخول.</p></article>
+
+      <article data-panel="verification" className="settings-card settings-wide-card account-verification-card">
+        <div className="settings-card-title"><span>✅</span><h3>تأكيد الحساب</h3></div>
+        <p className="settings-help">احفظ بريدك ورقم هاتفك ثم اختر أين تريد استلام رمز التأكيد. رقم الهاتف يجب أن يكون بصيغة دولية مثل +15195551234.</p>
+        <div className="verification-status-grid">
+          <div className={accountVerification.emailVerified?"verified":"pending"}><span>✉️ البريد الإلكتروني</span><strong>{accountVerification.emailVerified?"مؤكد":"غير مؤكد"}</strong><small>{accountVerification.maskedEmail||accountVerification.email||"لم يُضف"}</small></div>
+          <div className={accountVerification.phoneVerified?"verified":"pending"}><span>📱 رقم الهاتف</span><strong>{accountVerification.phoneVerified?"مؤكد":"غير مؤكد"}</strong><small>{accountVerification.maskedPhone||accountVerification.phone||"لم يُضف"}</small></div>
+        </div>
+        <div className="settings-form-modern verification-contact-form">
+          <label><span>البريد الإلكتروني للتأكيد</span><input type="email" value={accountVerification.email||""} onChange={e=>setAccountVerification({...accountVerification,email:e.target.value})} placeholder="name@example.com"/></label>
+          <label><span>رقم الهاتف</span><input inputMode="tel" value={accountVerification.phone||""} onChange={e=>setAccountVerification({...accountVerification,phone:e.target.value})} placeholder="+15195551234" dir="ltr"/></label>
+          <button type="button" className="settings-primary-button" disabled={verificationBusy} onClick={saveVerificationContacts}>حفظ بيانات التأكيد</button>
+        </div>
+        <div className="verification-channel-grid">
+          <button type="button" className={accountVerification.preferredChannel==="SMS"?"selected":""} onClick={()=>sendVerificationCode("SMS")} disabled={verificationBusy||!accountVerification.phone}>📩 إرسال SMS</button>
+          <button type="button" className={accountVerification.preferredChannel==="WHATSAPP"?"selected":""} onClick={()=>sendVerificationCode("WHATSAPP")} disabled={verificationBusy||!accountVerification.phone}>🟢 إرسال عبر واتساب</button>
+          <button type="button" className={accountVerification.preferredChannel==="EMAIL"?"selected":""} onClick={()=>sendVerificationCode("EMAIL")} disabled={verificationBusy||!accountVerification.email}>✉️ إرسال عبر البريد</button>
+        </div>
+        <div className="verification-code-row"><input inputMode="numeric" maxLength="6" value={verificationCode} onChange={e=>setVerificationCode(e.target.value.replace(/\D/g,"").slice(0,6))} placeholder="رمز التأكيد 6 أرقام"/><button type="button" disabled={verificationBusy||verificationCode.length!==6} onClick={confirmVerificationCode}>تأكيد الرمز</button></div>
+        {message&&<div className="verification-inline-message" role="status">{message}</div>}
+        <small className="settings-help">الرمز صالح لمدة 10 دقائق. SMS يستخدم Rasel عند توفر RASEL_API_KEY، وواتساب يستخدم Twilio، والبريد يحتاج إعداد SMTP.</small>
+      </article>
 
 
       <article data-panel="backup" className="settings-card settings-backup-card">
@@ -407,7 +465,7 @@ function SettingsPanel(){
         <small>آخر تحديث: 18 يوليو 2026 — الإصدار القانوني 1.0</small>
       </article>
 
-      <article data-panel="password" className="settings-card">
+      <article data-panel="password" className={`settings-card password-settings-card ${activePanel==="password"?"settings-panel-force-visible":""}`}>
         <div className="settings-card-title"><span>🔐</span><h3>تغيير كلمة السر</h3></div>
         <form className="settings-form-modern" onSubmit={changePassword}>
           <input type="password" value={passwordForm.currentPassword} onChange={e=>setPasswordForm({...passwordForm,currentPassword:e.target.value})} placeholder="كلمة المرور الحالية" required/>

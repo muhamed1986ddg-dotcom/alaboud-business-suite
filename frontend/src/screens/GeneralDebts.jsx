@@ -4,7 +4,7 @@ import {money,debtCurrencies} from"../shared";
 import {AppButton,AppModal} from"../components/ui";
 
 function GeneralDebts(){
-  const [data,setData]=useState({rows:[],payments:[],totals:{receivable:0,payable:0,net:0},receivableBreakdown:{customers:0,companies:0,total:0},totalsByCurrency:{}});
+  const [data,setData]=useState({rows:[],payments:[],totals:{receivable:0,payable:0,net:0},receivableBreakdown:{customers:0,customerPayable:0,companies:0,companyPayable:0,manualPayable:0,total:0},totalsByCurrency:{}});
   const [mode,setMode]=useState("ALL");
   const [message,setMessage]=useState("");
   const [refreshingRates,setRefreshingRates]=useState(false);
@@ -25,7 +25,7 @@ function GeneralDebts(){
         rows:Array.isArray(data?.rows)?data.rows:[],
         payments:Array.isArray(data?.payments)?data.payments:[],
         totals:data?.totals||{receivable:0,payable:0,net:0},
-        receivableBreakdown:data?.receivableBreakdown||{customers:0,companies:0,total:Number(data?.totals?.receivable||0)},
+        receivableBreakdown:data?.receivableBreakdown||{customers:0,customerPayable:0,companies:0,companyPayable:0,manualPayable:0,total:Number(data?.totals?.receivable||0)},
         summaryCurrency:data?.summaryCurrency||"CAD",
         totalsByCurrency:data?.totalsByCurrency||{},
         missingRates:Array.isArray(data?.missingRates)?data.missingRates:[],
@@ -157,7 +157,10 @@ function GeneralDebts(){
         <div className="card debt-balance-row debt-balance-total"><span>💰 المجموع الكلي</span><strong>{money(data.receivableBreakdown?.total??data.totals.receivable)} {data.summaryCurrency||"CAD"}</strong></div>
       </>}
       {mode==="PAYABLE"&&<>
-        <div className="card debt-balance-row"><span>💸 إجمالي الدين علينا</span><strong>{money(data.totals.payable)} {data.summaryCurrency||"CAD"}</strong></div>
+        <div className="card debt-balance-row"><span>👤 دين العملاء علينا</span><strong>{money(data.receivableBreakdown?.customerPayable||0)} {data.summaryCurrency||"CAD"}</strong></div>
+        <div className="card debt-balance-row"><span>🏢 دين الشركات علينا</span><strong>{money(data.receivableBreakdown?.companyPayable||0)} {data.summaryCurrency||"CAD"}</strong></div>
+        {Number(data.receivableBreakdown?.manualPayable||0)!==0&&<div className="card debt-balance-row"><span>📝 ديون يدوية علينا</span><strong>{money(data.receivableBreakdown?.manualPayable)} {data.summaryCurrency||"CAD"}</strong></div>}
+        <div className="card debt-balance-row debt-balance-total"><span>💸 إجمالي الدين علينا</span><strong>{money(data.totals.payable)} {data.summaryCurrency||"CAD"}</strong></div>
         <div className="card debt-balance-row"><span>📋 عدد الديون المفتوحة علينا</span><strong>{data.rows.filter(item=>item.type==="PAYABLE"&&Number(item.remaining||0)>0.001).length}</strong></div>
       </>}
       {mode==="OVERDUE"&&<>

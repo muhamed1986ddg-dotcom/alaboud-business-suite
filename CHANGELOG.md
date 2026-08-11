@@ -1,3 +1,164 @@
+## 25.14.60
+- عزل تحديثات telemetry (integration logs / API-key usage) عن app_state write-behind لمنع تعارض optimistic revision أثناء مزامنة جاد.
+- إضافة JAD revision-isolation regression guard.
+- استبعاد data/ من Docker build context.
+
+# v25.14.60 — Startup Runtime Guard
+- Fixed the Git-source startup regression where `apiKeyMiddleware` referenced `mutate` without importing it.
+- Added a hard Docker build guard that fails before image publication if `mutate` is missing from the `./store` import.
+
+- Fixed Cloud Run startup crash caused by `mutate` being omitted from the store import while API-key middleware and integration logging still required it.
+- Preserved v25.14.57 idempotency-scope and optimistic-revision protections.
+- Added a runtime startup regression test that launches the real server and fails CI if the process crashes before listening.
+- No financial formulas, JAD parsing, customer balances, or database data were changed.
+
+## v25.14.57
+
+- Tenant-scoped durable idempotency receipts; database replay now happens only after authentication.
+- Explicit `scope_key` persistence and migration for `operation_receipts`.
+- Optimistic `app_state.revision` guard prevents stale full-state snapshots from overwriting a newer commit.
+- Ambiguous-commit verification and operation status are tenant-scoped.
+- CI build now gates the main financial/session/JAD/SMS regression tests in addition to pool/write reliability checks.
+- No financial formulas, customer balances, or JAD parsing logic changed.
+
+## v25.14.56
+
+- Fixed PostgreSQL operation receipt UPSERT to match the live composite unique constraint `(scope_key, operation_key, method, path)`.
+- No database data migration or destructive schema change.
+
+## v25.14.55
+
+- إصلاح قارئ أرصدة شركة جاد فقط بدون تغيير موصلات بقية الشركات.
+- قراءة النص المرئي الفعلي من لوحة جاد بدل HTML المخفي الذي قد يحتوي بطاقات مكررة أو أرصدة قديمة.
+- إضافة دعم ILS/الشيكل وتوسيع قائمة العملات الشائعة مع الحفاظ على USD وEUR وTRY وبقية العملات.
+- تفضيل اسم العملة الأكثر تحديدًا عند تشابه الأسماء، لمنع خلط «دولار أسترالي» مع «دولار» الأمريكي.
+- لا تغييرات على قاعدة البيانات أو الحسابات المالية أو موصلات تواصل/دهب/سوريانا.
+
+## v25.14.54
+- Fixed Rasel Syria local SMS integration to use the account-documented `/api/v2/messages/send` contract.
+- Sends verification messages with `channel: local_sms`, `messageType: free_text`, and `content.text`.
+- Keeps `X-API-Key` authentication and does not use WhatsApp `sessionName`.
+- Added regression coverage for the Rasel local SMS v2 contract and synchronized runtime/client version to 25.14.54.
+
+## v25.14.54
+- Corrected runtime APP_VERSION and all release-version surfaces so /api/health reports the deployed release accurately.
+- Preserved Write Reliability Guard and Secure HttpOnly Sessions.
+- Preserved Rasel SMS v1 API contract.
+- Added runtime-version regression guard.
+
+## v25.14.51
+- Added mandatory idempotency keys to sensitive financial writes after authentication.
+- Added CI pool-leak, timeout-recovery, duplicate-write, and durable-write serialization checks.
+- No financial formula or database schema changes.
+
+## v25.14.50
+- نقل جلسة الويب إلى HttpOnly + Secure + SameSite cookie مع توافق انتقالي للجلسات القديمة.
+- إزالة تخزين JWT الجديد في localStorage، مع ترقية تلقائية للجلسات القديمة عند أول طلب ناجح.
+- إضافة حماية Origin/installation-header لطلبات الكتابة المعتمدة على الكوكي للحد من CSRF.
+- تسجيل الخروج أصبح يبطل جلسة الخادم ويحذف كوكي الجلسة.
+- Android WebView يستخدم كوكي الجلسة لطلبات التنبيه بدل قراءة JWT من localStorage.
+
+## v25.14.49
+
+- ربط `assertBalancedEntry` بمسارات الحوالات ودفعات العملاء والديون والمصروفات ورأس المال كحارس توازن قبل الكتابة.
+- إضافة تحقق فعلي من أن دفعة العميل موزعة بالكامل بين الحوالات والحساب القديم.
+- تشديد `FinancialIntegrity` لرفض القيم السالبة وغير الرقمية والسطر المدين/الدائن في الوقت نفسه.
+- لا تغيير على معادلات الأعمال أو بيانات قاعدة البيانات.
+
+## v25.14.48
+- Added a repository-wide `.gitignore` safety policy for secrets, credentials, local databases, backups, exports and generated artifacts.
+- Expanded sensitive-file detection and added `npm run check:sensitive`.
+- Normal production builds now run the sensitive-file check before frontend bundling.
+- No financial or database calculation logic changed in this release.
+
+## v25.14.47
+- إصلاح خصم دفعات العميل بعد تصفير الحساب: الدفعة الجديدة لا تُوزع على حوالات مؤرشفة قبل التصفير.
+- احتساب دفعات نفس يوم التصفير بالاعتماد على وقت الإنشاء الفعلي (`date`) حتى تظهر في المدفوع وتخفض الرصيد النهائي.
+- إضافة اختبار انحدار لسيناريو 9100 - 4000 = 5100.
+
+## v25.14.47
+- إصلاح الحساب القديم الذي يُضاف بعد تصفير حساب العميل؛ أصبح يدخل في الحساب الجديد ويظهر في الصفحات والحسابات المرتبطة دون إعادة الحركات المؤرشفة.
+
+## v25.14.45
+- إصلاح تحديث الحساب القديم فورًا بعد الحفظ ومنع عرض نسخة مخبأة قديمة.
+- مسح ذاكرة GET المؤقتة بعد إضافة/تعديل/حذف/تصفير العميل حتى تتحدث العملاء والدين والميزانية والجرد عند إعادة تحميلها.
+- تحديث بيانات العميل محليًا مباشرة من استجابة PATCH قبل إعادة الجلب.
+
+## v25.14.44
+
+- إظهار الحساب القديم (له/عليه) مباشرة في قائمة العملاء مع الرصيد النهائي واتجاهه.
+- تحديث بيانات العميل فور حفظ الحساب القديم بدون انتظار إعادة فتح الصفحة.
+- تصحيح إضافة الحساب القديم إلى رسالة كشف الحساب عبر واتساب مع احترام اتجاه له/عليه.
+- توحيد لوحة التحكم لتفصل ديون العملاء لنا عن ديون العملاء علينا بدل جمع الرصيد السالب داخل المستحقات.
+- تصحيح حساب الرصيد في مسار PostgreSQL الأصلي بحيث يكون الحساب القديم «له» سالبًا و«عليه» موجبًا.
+- الإبقاء على محرك FinancialEngine كمصدر موحد للميزانية والجرد الشهري والدين العام وكشوف العملاء.
+
+## v25.14.43
+- Show settings action success/error messages inside the active modal, including password change confirmation on mobile.
+
+## v25.14.42 - Password change hash compatibility fix
+
+- إصلاح تغيير كلمة المرور للحسابات التي تستخدم scrypt بدل bcrypt.
+- توحيد التحقق من كلمة المرور الحالية مع منطق المصادقة الموجود في النظام.
+- الحفاظ على رسالة نجاح واضحة عند اكتمال تغيير كلمة المرور.
+
+## v25.14.41
+- إصلاح ظهور لوحة تغيير كلمة السر داخل نافذة الإعدادات على الهاتف.
+- ضمان ظهور حقول كلمة المرور الحالية والجديدة والتأكيد وزر الحفظ.
+
+## v25.14.40 — Account Verification Confirm Fix
+
+- Keep an active OTP challenge when verification contact data is saved without changing the target.
+- Invalidate only challenges whose email/phone destination actually changed.
+- Show verification success/error feedback directly beside the OTP controls.
+
+## v25.14.40 — Rasel SMS Verification
+- Added Rasel SMS provider for account verification using RASEL_API_KEY.
+- Kept WhatsApp on Twilio and email on SMTP.
+- Updated account verification provider status and settings guidance.
+
+
+## v25.14.37 — Budget & Inventory Reference Fix
+- Fixed `customerBalanceTotals is not defined` in capital overview and monthly inventory APIs.
+- Restored budget and monthly inventory pages while preserving v25.14.35 customer receivable/payable classification.
+- Added regression coverage for the FinancialEngine binding.
+
+## v25.14.35 — Customer receivable/payable classification
+
+- Fixed customer balances in capital calculations so positive customer balances are gross receivables and negative balances are gross payables.
+- Customer old account marked "له" now appears explicitly under debt/payables and reduces net capital through liabilities, not by making receivables negative.
+- Customer old account marked "عليه" remains an explicit receivable.
+- Kept net capital mathematically unchanged while making Debt For Us / Debt On Us / budget / monthly inventory classifications consistent.
+- Added explicit customer/company payable breakdown in the Debt On Us view and aligned the capital liquidity ratio with gross Debt For Us / Debt On Us totals.
+- Added regression coverage for customer receivable/payable split.
+
+## v25.14.34 — Settings layout + customer old account direction
+- Fixed the settings header/version overflow on mobile.
+- Added customer old-account direction: عليه (receivable) or له (payable).
+- Customer statements now show whether the old account and final balance are له or عليه.
+- Old-account payable values enter general debt as PAYABLE instead of receivable.
+
+# v25.14.33
+
+- نقل اختيار الفرع النشط من القائمة الجانبية إلى صفحة الإعدادات > إدارة الفروع.
+- عرض الفرع النشط داخل بطاقة واضحة مع إمكانية تغييره مباشرة من الإعدادات.
+- تمييز بطاقة الفرع النشط بصريًا وإزالة مبدّل الفرع من القائمة الرئيسية لتقليل ازدحام الهاتف.
+
+# v25.14.31
+
+- Keep authenticated sessions for up to 30 days (instead of 12 hours / 30-minute idle timeout).
+- Persist session registry in the application state so remembered sessions survive state replacement/restarts.
+- Android now points to the Google Cloud Run production service.
+- Android biometric/face/device-credential login is offered after the first successful password + 2FA login and auto-prompts on later launches when enabled.
+- Biometric device token lifetime increased to 90 days; passwords are never stored for biometric login.
+
+# v25.14.30
+
+- Fixed PAID transfer creation sending a duplicate payment request after the backend had already recorded the initial full payment.
+- Prevents `Payment exceeds remaining balance` and the misleading internal-server-error toast after a successful transfer creation.
+- Transaction payment endpoint now returns 400/404 for business-rule errors instead of surfacing them as generic 500 errors.
+- Health/readiness version synchronized to 25.14.30.
+
 # v25.14.29
 
 - Fixed PostgreSQL PoolClient leak caused by a missing `isConnectionError()` helper in release paths.
@@ -2454,3 +2615,10 @@ git push origin main
 - إضافة اختبارات رقمية حقيقية للأرباح.
 
 - v25.14.5: جعل سجل المصروفات والأرباح الشهرية على الهاتف بنفس ترتيب بطاقات سجل الحوالات، ومنع القص والتداخل الأفقي.
+
+## v25.14.36 — Budget & Inventory Recovery + Account Verification
+- إصلاح تحميل صفحة الميزانية بحيث تظهر البيانات الأساسية حتى لو فشل طلب ثانوي، مع حالة تحميل واضحة وزر إعادة محاولة.
+- إصلاح الجرد الشهري ليستخدم قراءة مباشرة حديثة مع زر تحديث وحالة استعادة واضحة.
+- إضافة تأكيد الحساب من الإعدادات عبر البريد الإلكتروني أو SMS أو واتساب برمز 6 أرقام صالح 10 دقائق.
+- حفظ حالة تأكيد البريد/الهاتف بشكل مستقل، وإبطال التأكيد تلقائيًا عند تغيير وسيلة الاتصال.
+- دعم SMTP للبريد وTwilio Programmable Messaging لـ SMS/WhatsApp دون حفظ الرموز كنص صريح.

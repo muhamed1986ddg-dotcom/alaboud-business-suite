@@ -1,0 +1,10 @@
+const assert=require('assert');
+const fs=require('fs');
+const path=require('path');
+const root=path.resolve(__dirname,'../..');
+const migration=fs.readFileSync(path.join(root,'backend/migrations/006_operation_receipt_scope.sql'),'utf8');
+assert(migration.includes("ALTER TABLE operation_receipts ADD COLUMN IF NOT EXISTS scope_key TEXT"));
+assert(migration.includes("SET scope_key = 'company:' || company_id"));
+assert(migration.includes('CREATE UNIQUE INDEX IF NOT EXISTS uq_operation_receipts_scope_key'));
+assert(migration.includes('operation_receipts(scope_key, operation_key, method, path)'));
+console.log('v25.14.57 operation receipt scope migration: OK');

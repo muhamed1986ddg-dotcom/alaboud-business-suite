@@ -1,0 +1,15 @@
+const assert=require('assert');
+const fs=require('fs');
+const path=require('path');
+const root=path.resolve(__dirname,'../..');
+const server=fs.readFileSync(path.join(root,'backend/src/server.js'),'utf8');
+const store=fs.readFileSync(path.join(root,'backend/src/store.js'),'utf8');
+assert(/readRootStore,\s*mutate,\s*mutateVolatile,\s*mutateDurable/.test(server),'server must import mutateVolatile beside durable mutation helpers');
+assert(server.includes('apiKeyMiddleware({readStore,mutate:mutateVolatile,now})'),'API-key activity telemetry must not enqueue app_state writes');
+assert(server.includes('integrationLogger({mutate:mutateVolatile,now,id})'),'integration request logs must not enqueue app_state writes');
+const block=(store.match(/function mutateVolatile\(fn\)\{[\s\S]*?\n\}/)||[])[0]||'';
+assert(block,'mutateVolatile helper must exist');
+assert(!block.includes('writeStore('),'mutateVolatile must not invoke writeStore/queueSave');
+assert(block.includes('database.replaceStore(rootStore)'),'mutateVolatile should keep DatabaseService in-memory view aligned');
+assert(store.includes('mutate,mutateVolatile,mutateDurable'),'mutateVolatile must be exported');
+console.log('v25.14.60 JAD revision-isolation guard: OK');

@@ -11,17 +11,19 @@ const dns = require("dns").promises;
 const net = require("net");
 const http = require("http");
 const https = require("https");
-const { readStore, readRootStore, mutate, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
+const { readStore, readRootStore, mutate, mutateVolatile, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const FinancialEngine = require("./finance/FinancialEngine");
+const { customerBalanceTotals } = FinancialEngine;
 const { transactionFinancials } = require("./finance/TransactionFinancials");
 const { calculateReceivableSummary } = require("./finance/ReceivableSummary");
 const { calculateInventoryPayables, calculateInventoryMonthProfit } = require("./finance/MonthlyInventoryFinancials");
-const { markSoftDeleted } = require("./finance/FinancialIntegrity");
+const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
 const { registerHealthRoutes } = require("./routes/health");
-const { createIdempotencyMiddleware } = require("./reliability/idempotency");
+const { createIdempotencyMiddleware, createRequireIdempotencyKey, operationScopeKey } = require("./reliability/idempotency");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
+const { normalizeChannel, normalizeEmail, normalizePhone: normalizeVerificationPhone, maskEmail, maskPhone, codeHash, safeEqualHex: safeEqualVerificationHex } = require("./account-verification");
 const { generateApiKey, keyPrefix, normalizeScopes, apiKeyMiddleware, versionAliasMiddleware, integrationLogger, openApiDocument, docsHtml, safeEqualHex } = require("./api-platform");
 const { createBranch, resolveBranch, branchSummary } = require("./branch-manager");
 const {
@@ -35,6 +37,67 @@ const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === "production";
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
 if (IS_PROD && JWT_SECRET === "LOCAL_TRIAL_CHANGE_ME_6_0") { throw new Error("JWT_SECRET قوي ومخصص مطلوب في الإنتاج"); }
+
+const SESSION_COOKIE_NAME = "alaboud_session";
+const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+function readCookie(req,name){
+  const raw=String(req.headers?.cookie||"");
+  for(const part of raw.split(";")){
+    const index=part.indexOf("=");
+    if(index<0)continue;
+    const key=part.slice(0,index).trim();
+    if(key!==name)continue;
+    try{return decodeURIComponent(part.slice(index+1).trim());}catch{return part.slice(index+1).trim();}
+  }
+  return "";
+}
+function sessionCookieOptions(){
+  return {
+    httpOnly:true,
+    secure:IS_PROD,
+    sameSite:"lax",
+    path:"/",
+    maxAge:SESSION_MAX_AGE_MS
+  };
+}
+function setSessionCookie(res,token){
+  res.cookie(SESSION_COOKIE_NAME,token,sessionCookieOptions());
+  res.setHeader("X-Auth-Transport","cookie");
+}
+function clearSessionCookie(res){
+  res.clearCookie(SESSION_COOKIE_NAME,{httpOnly:true,secure:IS_PROD,sameSite:"lax",path:"/"});
+}
+function clientSupportsCookieOnlySession(req){
+  const raw=String(req.get("X-Alaboud-Client-Version")||"").trim();
+  const match=raw.match(/^(\d+)\.(\d+)\.(\d+)/);
+  if(!match)return false;
+  const current=[Number(match[1]),Number(match[2]),Number(match[3])];
+  const minimum=[25,14,50];
+  for(let i=0;i<3;i++){if(current[i]>minimum[i])return true;if(current[i]<minimum[i])return false;}
+  return true;
+}
+function sessionResponseBody(req,session){
+  // v25.14.50+ web/Android frontend authenticates exclusively with the
+  // HttpOnly cookie, so the JWT never enters JavaScript memory. Older clients
+  // and API/self-test callers still receive the token during the transition.
+  if(clientSupportsCookieOnlySession(req))return {user:session.user,authTransport:"cookie"};
+  return session;
+}
+function requestOriginMatchesHost(req){
+  const origin=String(req.get("origin")||"").trim();
+  if(!origin)return false;
+  try{
+    const parsed=new URL(origin);
+    return String(parsed.host||"").toLowerCase()===String(req.get("host")||"").toLowerCase();
+  }catch{return false;}
+}
+function cookieWriteRequestAllowed(req){
+  if(["GET","HEAD","OPTIONS"].includes(String(req.method||"").toUpperCase()))return true;
+  // Same-origin browser requests include Origin. The installation header is a
+  // second safe path for Android WebView/same-origin XHR; a cross-site HTML
+  // form cannot add this custom header without a CORS preflight.
+  return requestOriginMatchesHost(req)||Boolean(String(req.get("X-Installation-ID")||"").trim());
+}
 
 // إرسال بريد إلكتروني اختياري (يُستخدم في "نسيت كلمة المرور").
 // إن لم يتم ضبط SMTP_HOST أو لم تكن مكتبة nodemailer مثبّتة، تُطبع الرسالة في
@@ -119,6 +182,47 @@ async function sendEmail(to, subject, text) {
   console.log(`[DEV EMAIL] To: ${to} | Subject: ${subject}\n${text}`);
   return false;
 }
+async function sendRaselSms({to,body}){
+  const apiKey=String(process.env.RASEL_API_KEY||"").trim();
+  if(!apiKey)return {ok:false,reason:"RASEL_NOT_CONFIGURED"};
+  const phoneNumber=String(to||"").trim();
+  const message=String(body||"").trim();
+  if(!phoneNumber||!message)return {ok:false,reason:"RASEL_INVALID_PAYLOAD"};
+  const response=await fetch("https://raselsms.com/api/v2/messages/send",{
+    method:"POST",
+    headers:{"X-API-Key":apiKey,"Content-Type":"application/json","Accept":"application/json"},
+    body:JSON.stringify({to:phoneNumber,channel:"local_sms",messageType:"free_text",content:{text:message}}),
+    signal:AbortSignal.timeout(10000)
+  });
+  if(response.ok)return {ok:true,provider:"rasel"};
+  let detail="";try{const payload=await response.json();detail=payload?.message||payload?.error||JSON.stringify(payload).slice(0,300)}catch{}
+  console.error("Rasel SMS failed:",response.status,detail);
+  return {ok:false,reason:"RASEL_SEND_FAILED",status:response.status};
+}
+
+async function sendTwilioMessage({channel,to,body}){
+  const accountSid=String(process.env.TWILIO_ACCOUNT_SID||"").trim();
+  const authToken=String(process.env.TWILIO_AUTH_TOKEN||"").trim();
+  const smsFrom=String(process.env.TWILIO_SMS_FROM||"").trim();
+  const whatsappFrom=String(process.env.TWILIO_WHATSAPP_FROM||"").trim();
+  if(!accountSid||!authToken)return {ok:false,reason:"TWILIO_NOT_CONFIGURED"};
+  const from=channel==="WHATSAPP"?whatsappFrom:smsFrom;
+  if(!from)return {ok:false,reason:channel==="WHATSAPP"?"WHATSAPP_SENDER_NOT_CONFIGURED":"SMS_SENDER_NOT_CONFIGURED"};
+  const payload=new URLSearchParams();
+  payload.set("From",channel==="WHATSAPP"?(from.startsWith("whatsapp:")?from:`whatsapp:${from}`):from);
+  payload.set("To",channel==="WHATSAPP"?(to.startsWith("whatsapp:")?to:`whatsapp:${to}`):to);
+  payload.set("Body",body);
+  const response=await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`,{
+    method:"POST",
+    headers:{"Authorization":`Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,"Content-Type":"application/x-www-form-urlencoded"},
+    body:payload.toString(),
+    signal:AbortSignal.timeout(10000)
+  });
+  if(response.ok)return {ok:true};
+  let detail="";try{detail=(await response.json())?.message||""}catch{}
+  console.error(`Twilio ${channel} failed:`,response.status,detail);
+  return {ok:false,reason:"TWILIO_SEND_FAILED",status:response.status};
+}
 const app = express();
 let serviceReady = false;
 let serviceStartupError = null;
@@ -152,9 +256,9 @@ app.use(express.json({ limit: "2mb", strict:true }));
 app.use(express.urlencoded({extended:false,limit:"256kb"}));
 app.use("/api", createIdempotencyMiddleware({
   ttlMs: Number(process.env.IDEMPOTENCY_TTL_MS || 5 * 60 * 1000),
-  maxEntries: Number(process.env.IDEMPOTENCY_MAX_ENTRIES || 5000),
-  getQuery: getDatabaseQuery
+  maxEntries: Number(process.env.IDEMPOTENCY_MAX_ENTRIES || 5000)
 }));
+const requireIdempotencyKey = createRequireIdempotencyKey({ getQuery: getDatabaseQuery });
 // Start the HTTP listener even when PostgreSQL private DNS is temporarily
 // unavailable. API writes/reads stay gated with 503 until initialization
 // succeeds, allowing Render to keep the deployment alive and the service to
@@ -170,8 +274,8 @@ app.use((req,res,next)=>{
   });
 });
 app.use(versionAliasMiddleware);
-app.use(apiKeyMiddleware({readStore,mutate,now}));
-app.use(integrationLogger({mutate,now,id}));
+app.use(apiKeyMiddleware({readStore,mutate:mutateVolatile,now}));
+app.use(integrationLogger({mutate:mutateVolatile,now,id}));
 const requestBuckets=new Map();
 const requestBucketCleanup=setInterval(()=>{const t=Date.now();for(const [key,bucket] of requestBuckets){if(!bucket||t>bucket.reset)requestBuckets.delete(key)}},10*60*1000);
 requestBucketCleanup.unref?.();
@@ -233,7 +337,13 @@ function auth(req,res,next){
     return runWithTenant(req.user.companyId,branch.id,()=>next());
   }
   const h=req.headers.authorization||"";
-  const token=h.startsWith("Bearer ")?h.slice(7):"";
+  const bearerToken=h.startsWith("Bearer ")?h.slice(7):"";
+  const cookieToken=readCookie(req,SESSION_COOKIE_NAME);
+  const token=bearerToken||cookieToken;
+  const authTransport=bearerToken?"bearer":cookieToken?"cookie":"none";
+  if(authTransport==="cookie"&&!cookieWriteRequestAllowed(req)){
+    return res.status(403).json({message:"تم رفض طلب غير موثوق به",code:"CSRF_ORIGIN_REJECTED"});
+  }
   try{
     req.user=jwt.verify(token,JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-client",algorithms:["HS256"]});
     if(!req.user.companyId)return res.status(401).json({message:"Company account required"});
@@ -250,6 +360,11 @@ function auth(req,res,next){
     const branch=resolveBranch(readRootStore(),{companyId:req.user.companyId,requestedBranchId:req.headers["x-branch-id"],user});
     if(!branch)return res.status(403).json({message:"لا يوجد فرع متاح لهذا المستخدم"});
     req.branch=branch;req.user.branchId=branch.id;req.user.branchName=branch.name;
+    req.authTransport=authTransport;
+    // Seamless migration for already-signed-in web clients: the first valid
+    // Bearer request also receives the HttpOnly cookie, then the frontend can
+    // safely erase the JWT from localStorage without forcing a logout.
+    if(authTransport==="bearer"&&!cookieToken)setSessionCookie(res,token);
     runWithTenant(req.user.companyId,branch.id,()=>next());
   }catch{
     res.status(401).json({message:"Authentication required"});
@@ -265,9 +380,10 @@ app.get("/api/operations/:key/status", auth, async (req,res)=>{
     const result=await query(
       `SELECT operation_key,method,path,company_id,branch_id,status,response_body,app_revision,committed_at
          FROM operation_receipts
-        WHERE operation_key=$1
+        WHERE scope_key=$1 AND operation_key=$2
+        ORDER BY committed_at DESC
         LIMIT 1`,
-      [operationKey],
+      [operationScopeKey(req.user.companyId),operationKey],
       { operation:"operation-status",attempts:1,queryTimeoutMs:1200,recoveryBudgetMs:1200 }
     );
     const receipt=result.rows?.[0];
@@ -373,11 +489,11 @@ function verifyTotp(secret,code,lastUsedStep=null){
   }
   return null;
 }
-function issueSession(user,company,context={}){
+async function issueSession(user,company,context={}){
   const jti=crypto.randomUUID();
-  const expiresAt=new Date(Date.now()+12*60*60*1000).toISOString();
-  const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId,jti},JWT_SECRET,{expiresIn:"12h",issuer:"alaboud-business-suite",audience:"alaboud-client"});
-  mutate(store=>createSession(store,{userId:user.id,companyId:user.companyId,jti,ip:context.ip,userAgent:context.userAgent,expiresAt}));
+  const expiresAt=new Date(Date.now()+30*24*60*60*1000).toISOString();
+  const token=jwt.sign({id:user.id,name:user.name,role:user.role,companyId:user.companyId,jti},JWT_SECRET,{expiresIn:"30d",issuer:"alaboud-business-suite",audience:"alaboud-client"});
+  await mutateDurable(store=>createSession(store,{userId:user.id,companyId:user.companyId,jti,ip:context.ip,userAgent:context.userAgent,expiresAt}));
   return {token,user:{id:user.id,name:user.name,email:user.email,role:user.role,permissions:permissionsFor(user.role,user.permissions),companyId:user.companyId,companyName:company.name,mustChangePassword:Boolean(user.mustChangePassword),twoFactorEnabled:Boolean(user.twoFactorEnabled)}};
 }
 
@@ -577,9 +693,12 @@ function recordTime(value, fallback = "") {
 function isAfterCustomerReset(record, customer, preferredDateKey = "") {
   const resetTime = recordTime(customer?.accountResetAt);
   if (!resetTime) return true;
-  const preferredTime = preferredDateKey ? recordTime(record?.[preferredDateKey]) : 0;
-  const createdTime = recordTime(record?.createdAt || record?.updatedAt);
-  const activityTime = Math.max(preferredTime, createdTime);
+  const activityTime = Math.max(
+    preferredDateKey ? recordTime(record?.[preferredDateKey]) : 0,
+    recordTime(record?.createdAt),
+    recordTime(record?.updatedAt),
+    recordTime(record?.date)
+  );
   return activityTime >= resetTime;
 }
 
@@ -661,7 +780,9 @@ app.post("/api/auth/login", rateLimit("login",10,15*60*1000),async (req,res)=>{
     return res.json({twoFactorRequired:true,challenge,challengeExpiresIn:challengeTtlSeconds});
   }
   await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;if(!isScryptHash(u.passwordHash))u.passwordHash=hashPassword(password);u.lastLoginAt=now();audit(root,u.id,"LOGIN_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
-  res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
+  const session=await issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")});
+  setSessionCookie(res,session.token);
+  res.json(sessionResponseBody(req,session));
 });
 
 app.post("/api/auth/2fa/verify",rateLimit("2fa",20,10*60*1000),async (req,res)=>{
@@ -683,7 +804,9 @@ app.post("/api/auth/2fa/verify",rateLimit("2fa",20,10*60*1000),async (req,res)=>
     return res.status(401).json({code:"TWO_FACTOR_CODE_INVALID",message:"رمز التحقق غير صحيح أو مستخدم من قبل أو انتهت مدته. انتظر الرمز الجديد في Authenticator ثم حاول مرة أخرى."});
   }
   await mutateDurable(root=>{const u=root.users.find(x=>x.id===user.id);u.failedLoginAttempts=0;u.lockedUntil=null;u.lastLoginAt=now();u.twoFactorLastStep=acceptedStep;audit(root,u.id,"LOGIN_2FA_SUCCESS","AUTH",u.id,{ip:req.ip,requestId:req.requestId});});
-  return res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
+  const session=await issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")});
+  setSessionCookie(res,session.token);
+  return res.json(sessionResponseBody(req,session));
 });
 
 app.post("/api/auth/2fa/setup",auth,async (req,res)=>{
@@ -720,6 +843,93 @@ app.post("/api/auth/2fa/disable",auth,async (req,res)=>{
   }
 });
 
+app.get("/api/auth/account-verification",auth,(req,res)=>{
+  const user=(readStore().users||[]).find(item=>item.id===req.user.id);
+  if(!user)return res.status(404).json({message:"الحساب غير موجود"});
+  const email=normalizeEmail(user.verificationEmail||user.email);
+  const phone=normalizeVerificationPhone(user.verificationPhone||user.phone);
+  res.json({
+    email,phone,
+    emailVerified:Boolean(user.emailVerifiedAt),phoneVerified:Boolean(user.phoneVerifiedAt),
+    emailVerifiedAt:user.emailVerifiedAt||null,phoneVerifiedAt:user.phoneVerifiedAt||null,
+    preferredChannel:normalizeChannel(user.preferredVerificationChannel)||"EMAIL",
+    maskedEmail:maskEmail(email),maskedPhone:maskPhone(phone),
+    providers:{email:Boolean(mailTransport),sms:Boolean(process.env.RASEL_API_KEY||process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_SMS_FROM),whatsapp:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_WHATSAPP_FROM)}
+  });
+});
+
+app.patch("/api/auth/account-verification",auth,async(req,res)=>{
+  const email=normalizeEmail(req.body?.email);
+  const phone=normalizeVerificationPhone(req.body?.phone);
+  const preferredChannel=normalizeChannel(req.body?.preferredChannel)||"EMAIL";
+  if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return res.status(400).json({message:"البريد الإلكتروني غير صالح"});
+  if(phone&&!(phone.startsWith("+")&&/^\+\d{8,17}$/.test(phone)))return res.status(400).json({message:"اكتب رقم الهاتف بصيغة دولية مثل +15195551234"});
+  await mutateDurable(store=>{
+    const user=store.users.find(item=>item.id===req.user.id);if(!user)throw new Error("الحساب غير موجود");
+    const previousEmail=normalizeEmail(user.verificationEmail||user.email),previousPhone=normalizeVerificationPhone(user.verificationPhone||user.phone);
+    user.verificationEmail=email;user.verificationPhone=phone;user.preferredVerificationChannel=preferredChannel;
+    const emailChanged=email!==previousEmail,phoneChanged=phone!==previousPhone;
+    if(emailChanged)user.emailVerifiedAt=null;
+    if(phoneChanged)user.phoneVerifiedAt=null;
+    const challengeChannel=normalizeChannel(user.accountVerificationChallenge?.channel);
+    const challengeTargetChanged=(challengeChannel==="EMAIL"&&emailChanged)||((challengeChannel==="SMS"||challengeChannel==="WHATSAPP")&&phoneChanged);
+    if(challengeTargetChanged)delete user.accountVerificationChallenge;
+    audit(store,user.id,"UPDATE","ACCOUNT_VERIFICATION_CONTACT",user.id,{preferredChannel,emailChanged,phoneChanged,challengePreserved:Boolean(user.accountVerificationChallenge)});
+  });
+  res.json({message:"تم حفظ بيانات تأكيد الحساب"});
+});
+
+app.post("/api/auth/account-verification/send",auth,rateLimit("account-verification-send",8,15*60*1000),async(req,res)=>{
+  const channel=normalizeChannel(req.body?.channel);
+  if(!channel)return res.status(400).json({message:"اختر طريقة إرسال رمز التأكيد"});
+  const store=readStore();const user=(store.users||[]).find(item=>item.id===req.user.id);
+  if(!user)return res.status(404).json({message:"الحساب غير موجود"});
+  const email=normalizeEmail(user.verificationEmail||user.email),phone=normalizeVerificationPhone(user.verificationPhone||user.phone);
+  const target=channel==="EMAIL"?email:phone;
+  if(!target)return res.status(400).json({message:channel==="EMAIL"?"أضف البريد الإلكتروني أولًا":"أضف رقم الهاتف أولًا"});
+  if(channel!=="EMAIL"&&!(phone.startsWith("+")&&/^\+\d{8,17}$/.test(phone)))return res.status(400).json({message:"رقم الهاتف يجب أن يكون بالصيغة الدولية مثل +15195551234"});
+  const code=String(crypto.randomInt(100000,1000000));
+  const challenge={channel,targetHash:sha256(target),codeHash:codeHash({userId:user.id,channel,target,code,secret:JWT_SECRET}),expiresAt:new Date(Date.now()+10*60*1000).toISOString(),attempts:0,createdAt:now()};
+  await mutateDurable(root=>{const u=root.users.find(item=>item.id===user.id);u.accountVerificationChallenge=challenge;u.preferredVerificationChannel=channel;audit(root,u.id,"SEND","ACCOUNT_VERIFICATION",u.id,{channel,target:channel==="EMAIL"?maskEmail(target):maskPhone(target)});});
+  const body=`رمز تأكيد حساب العبود هو: ${code}\nينتهي الرمز خلال 10 دقائق. لا تشارك هذا الرمز مع أي شخص.`;
+  let delivered=false,reason="";
+  if(channel==="EMAIL")delivered=await sendEmail(target,"رمز تأكيد حساب العبود",body);
+  else {try{const result=channel==="SMS"&&process.env.RASEL_API_KEY?await sendRaselSms({to:target,body}):await sendTwilioMessage({channel,to:target,body});delivered=result.ok;reason=result.reason||"";}catch(error){console.error("verification delivery failed",error.message);reason="DELIVERY_ERROR";}}
+  if(!delivered){
+    if(!IS_PROD)return res.json({message:"تم إنشاء رمز التأكيد في وضع التطوير",channel,expiresIn:600,devCode:code});
+    return res.status(503).json({message:channel==="EMAIL"?"إرسال البريد غير مهيأ على الخادم":channel==="SMS"?"تعذر إرسال SMS. تحقق من إعداد Rasel والمفتاح السري.":"خدمة واتساب غير مهيأة أو تعذر الإرسال. تحقق من إعدادات Twilio.",code:reason||"DELIVERY_NOT_CONFIGURED"});
+  }
+  res.json({message:`تم إرسال رمز التأكيد عبر ${channel==="EMAIL"?"البريد الإلكتروني":channel==="SMS"?"SMS":"واتساب"}`,channel,expiresIn:600,target:channel==="EMAIL"?maskEmail(target):maskPhone(target)});
+});
+
+app.post("/api/auth/account-verification/verify",auth,rateLimit("account-verification-verify",20,15*60*1000),async(req,res)=>{
+  const code=String(req.body?.code||"").replace(/\D/g,"").slice(0,6);
+  if(code.length!==6)return res.status(400).json({message:"أدخل رمز التأكيد المكون من 6 أرقام"});
+  const outcome=await mutateDurable(store=>{
+    const user=store.users.find(item=>item.id===req.user.id);
+    if(!user)return {ok:false,reason:"ACCOUNT_NOT_FOUND"};
+    const challenge=user.accountVerificationChallenge;
+    if(!challenge)return {ok:false,reason:"NO_CHALLENGE"};
+    if(new Date(challenge.expiresAt).getTime()<Date.now()){delete user.accountVerificationChallenge;return {ok:false,reason:"EXPIRED"};}
+    if(Number(challenge.attempts||0)>=5){delete user.accountVerificationChallenge;return {ok:false,reason:"TOO_MANY_ATTEMPTS"};}
+    const channel=normalizeChannel(challenge.channel),target=channel==="EMAIL"?normalizeEmail(user.verificationEmail||user.email):normalizeVerificationPhone(user.verificationPhone||user.phone);
+    const expected=codeHash({userId:user.id,channel,target,code,secret:JWT_SECRET});
+    if(challenge.targetHash!==sha256(target)||!safeEqualVerificationHex(challenge.codeHash,expected)){
+      challenge.attempts=Number(challenge.attempts||0)+1;
+      audit(store,user.id,"VERIFY_FAILED","ACCOUNT_VERIFICATION",user.id,{channel,attempts:challenge.attempts});
+      return {ok:false,reason:"INVALID_CODE"};
+    }
+    const verifiedAt=now();if(channel==="EMAIL")user.emailVerifiedAt=verifiedAt;else user.phoneVerifiedAt=verifiedAt;
+    delete user.accountVerificationChallenge;audit(store,user.id,"VERIFY_SUCCESS","ACCOUNT_VERIFICATION",user.id,{channel});
+    return {ok:true,channel};
+  });
+  if(!outcome?.ok){
+    const messages={ACCOUNT_NOT_FOUND:"الحساب غير موجود",NO_CHALLENGE:"اطلب رمز تأكيد جديد أولًا",EXPIRED:"انتهت صلاحية الرمز. اطلب رمزًا جديدًا",TOO_MANY_ATTEMPTS:"تم تجاوز عدد المحاولات. اطلب رمزًا جديدًا",INVALID_CODE:"رمز التأكيد غير صحيح"};
+    return res.status(outcome?.reason==="ACCOUNT_NOT_FOUND"?404:400).json({message:messages[outcome?.reason]||"تعذر تأكيد الحساب"});
+  }
+  res.json({message:"تم تأكيد الحساب بنجاح",channel:outcome.channel});
+});
+
 function biometricDeviceId(req){
   return String(req.get("X-Installation-ID")||req.body?.deviceId||"").trim().slice(0,160);
 }
@@ -734,7 +944,7 @@ app.post("/api/auth/biometric-token",auth,async (req,res)=>{
     device.active=true;device.biometricActive=true;device.biometricJti=jti;device.lastSeenAt=now();device.revokedAt=null;
     audit(store,req.user.id,"BIOMETRIC_ENABLED","DEVICE",deviceId,{ip:req.ip,requestId:req.requestId});
   });
-  const token=jwt.sign({id:req.user.id,companyId:req.user.companyId,purpose:"biometric",deviceId,jti},JWT_SECRET,{expiresIn:"30d",issuer:"alaboud-business-suite",audience:"alaboud-biometric"});
+  const token=jwt.sign({id:req.user.id,companyId:req.user.companyId,purpose:"biometric",deviceId,jti},JWT_SECRET,{expiresIn:"90d",issuer:"alaboud-business-suite",audience:"alaboud-biometric"});
   res.json({token,deviceId});
 });
 app.post("/api/auth/biometric/revoke",auth,async (req,res)=>{
@@ -747,7 +957,7 @@ app.post("/api/auth/biometric/revoke",auth,async (req,res)=>{
   });
   res.json({message:"تم إبطال الدخول بالبصمة أو الوجه على هذا الجهاز"});
 });
-app.post("/api/auth/biometric-login",rateLimit("biometric",20,15*60*1000),(req,res)=>{
+app.post("/api/auth/biometric-login",rateLimit("biometric",20,15*60*1000),async (req,res)=>{
   try{
     const p=jwt.verify(String(req.body?.token||""),JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-biometric",algorithms:["HS256"]});
     if(p.purpose!=="biometric"||!p.deviceId||!p.jti)throw new Error();
@@ -759,7 +969,9 @@ app.post("/api/auth/biometric-login",rateLimit("biometric",20,15*60*1000),(req,r
     const device=(store.devices||[]).find(d=>d.id===p.deviceId&&d.userId===p.id&&d.companyId===p.companyId&&d.active!==false&&d.biometricActive===true&&d.biometricJti===p.jti);
     if(!user||!company||!device)throw new Error();
     device.lastSeenAt=now();
-    res.json(issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")}));
+    const session=await issueSession(user,company,{ip:req.ip,userAgent:req.get("user-agent")});
+    setSessionCookie(res,session.token);
+    res.json(sessionResponseBody(req,session));
   }catch{return res.status(401).json({message:"تم إبطال أو انتهاء صلاحية الدخول بالبصمة أو الوجه"});}
 });
 
@@ -811,7 +1023,9 @@ app.post("/api/auth/register-company",async (req,res)=>{
       store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
       return {company,user};
     });
-    res.status(201).json(issueSession(result.user,result.company,{ip:req.ip,userAgent:req.get("user-agent")}));
+    const session=await issueSession(result.user,result.company,{ip:req.ip,userAgent:req.get("user-agent")});
+    setSessionCookie(res,session.token);
+    res.status(201).json(sessionResponseBody(req,session));
   }catch(error){
     res.status(400).json({message:error.message||"تعذر إنشاء حساب الشركة"});
   }
@@ -827,7 +1041,10 @@ app.post("/api/auth/change-password", auth, async (req,res)=>{
     await mutateDurable((store)=>{
       const user=store.users.find(item=>item.id===req.user.id&&item.active);
       if(!user)throw new Error("الحساب غير موجود");
-      if(!bcrypt.compareSync(currentPassword,user.passwordHash)){
+      const currentPasswordOk = isScryptHash(user.passwordHash)
+        ? verifyPassword(currentPassword,user.passwordHash)
+        : bcrypt.compareSync(currentPassword,user.passwordHash);
+      if(!currentPasswordOk){
         throw new Error("كلمة المرور الحالية غير صحيحة");
       }
       user.passwordHash=hashPassword(newPassword);
@@ -909,12 +1126,14 @@ app.get("/api/auth/sessions", auth, (req,res)=>{
 
 app.post("/api/auth/logout", auth, async (req,res)=>{
   await mutateDurable(store=>{revokeSession(store,req.user.jti,req.user.id);audit(store,req.user.id,"LOGOUT","AUTH_SESSION",req.user.jti,{ip:req.ip,requestId:req.requestId});});
+  clearSessionCookie(res);
   res.json({message:"تم تسجيل الخروج بنجاح"});
 });
 
 app.post("/api/auth/logout-all", auth, async (req,res)=>{
   const includeCurrent=Boolean(req.body?.includeCurrent);
   const count=await mutateDurable(store=>{const total=revokeUserSessions(store,req.user.id,req.user.id,includeCurrent?null:req.user.jti);audit(store,req.user.id,"REVOKE_ALL","AUTH_SESSION",req.user.id,{count:total,includeCurrent});return total;});
+  if(includeCurrent)clearSessionCookie(res);
   res.json({message:"تم إنهاء الجلسات",revoked:count});
 });
 
@@ -1077,9 +1296,12 @@ app.get("/api/dashboard", auth, (req,res)=>{
   const todayTx = activeTransactions.filter((t)=>String(t.createdAt||t.transferDate||"").slice(0,10)===today);
   const todayExpenses = (s.expenses||[]).filter((e)=>e.date===today&&!e.isDeleted).reduce((a,e)=>a+Number(e.cadAmount??e.amount),0);
   const totalProfit = todayTx.reduce((a,t)=>a+transactionFinancials(t).totalProfit,0)-todayExpenses;
-  const receivables = (s.customers||[]).filter(c=>!c.isDeleted).reduce((a,c)=>a+customerSummary(s,c).finalBalance,0);
+  const customerBalances = customerBalanceTotals(s);
+  const receivables = safeNumber(customerBalances.receivable);
+  const customerPayables = safeNumber(customerBalances.payable);
+  const customerNetBalance = safeNumber(customerBalances.net);
   const capital = (s.capitalMovements||[]).filter(m=>!m.isDeleted).reduce((a,m)=>a+(m.type==="IN"?capitalCadAmount(s,m):-capitalCadAmount(s,m)),0);
-  const value={customers:(s.customers||[]).filter(c=>!c.isDeleted).length,todayTransactions:todayTx.length,todayProfit:+totalProfit.toFixed(2),receivables:+receivables.toFixed(2),capital:+capital.toFixed(2),recent:todayTx.slice(-8).reverse()};
+  const value={customers:(s.customers||[]).filter(c=>!c.isDeleted).length,todayTransactions:todayTx.length,todayProfit:+totalProfit.toFixed(2),receivables:+receivables.toFixed(2),customerPayables:+customerPayables.toFixed(2),customerNetBalance:+customerNetBalance.toFixed(2),capital:+capital.toFixed(2),recent:todayTx.slice(-8).reverse()};
   dashboardSummaryCache.set(cacheKey,{value,expiresAt:Date.now()+15000});
   res.set("Cache-Control","private, max-age=15");
   res.json(value);
@@ -1295,9 +1517,9 @@ app.get("/api/capital-overview", auth, (req,res)=>{
     .filter(item=>String(item.date||item.createdAt||"").slice(0,7)===requestedMonth)
     .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
 
-  const receivables=customers.reduce(
-    (sum,customer)=>sum+safeNumber(customerSummary(store,customer).finalBalance),0
-  );
+  const customerBalances=customerBalanceTotals(store);
+  const receivables=safeNumber(customerBalances.receivable);
+  const customerPayable=safeNumber(customerBalances.payable);
 
   const debtPaidById=new Map();
   for(const payment of debtPayments){
@@ -1376,7 +1598,7 @@ app.get("/api/capital-overview", auth, (req,res)=>{
   // Business rule: "debt for us" is exactly customer balances + company balances.
   // Manual general-debt records remain visible in the debt register but do not alter this KPI.
   const totalReceivables=receivables+partnerReceivable;
-  const totalPayables=generalPayable+partnerPayable;
+  const totalPayables=customerPayable+generalPayable+partnerPayable;
   const totalMoney=capitalBalance+accumulatedProfit+totalReceivables;
   const totalLiabilities=accumulatedExpenses+totalPayables;
   const netCapital=totalMoney-totalLiabilities;
@@ -1397,6 +1619,8 @@ app.get("/api/capital-overview", auth, (req,res)=>{
     netCapital:+netCapital.toFixed(2),
     totalReceivables:+totalReceivables.toFixed(2),
     totalPayables:+totalPayables.toFixed(2),
+    customerReceivable:+receivables.toFixed(2),
+    customerPayable:+customerPayable.toFixed(2),
     partnerReceivable:+partnerReceivable.toFixed(2),
     partnerPayable:+partnerPayable.toFixed(2),
     missingDebtRates:[...missingDebtRates],
@@ -1443,9 +1667,9 @@ function calculateInventoryNetCapital(store){
   const capitalBalance=capitalMovements.reduce(
     (sum,item)=>sum+(item.type==="IN"?capitalCadAmount(store,item):-capitalCadAmount(store,item)),0
   );
-  const customerReceivable=customers.reduce(
-    (sum,customer)=>sum+safeNumber(customerSummary(store,customer).finalBalance),0
-  );
+  const customerBalances=customerBalanceTotals(store);
+  const customerReceivable=safeNumber(customerBalances.receivable);
+  const customerPayable=safeNumber(customerBalances.payable);
   const debtPaidById=new Map();
   for(const payment of debtPayments){
     debtPaidById.set(payment.debtId,safeNumber(debtPaidById.get(payment.debtId))+safeNumber(payment.amount));
@@ -1509,7 +1733,7 @@ function calculateInventoryNetCapital(store){
   const accumulatedProfit=transactions.reduce((sum,item)=>sum+transactionFinancials(item).totalProfit,0);
   const accumulatedExpenses=expenses.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
   const totalReceivables=customerReceivable+partnerReceivable;
-  const totalPayables=generalPayable+partnerPayable;
+  const totalPayables=customerPayable+generalPayable+partnerPayable;
   const totalMoney=capitalBalance+accumulatedProfit+totalReceivables;
   const totalLiabilities=accumulatedExpenses+totalPayables;
   return {netCapital:totalMoney-totalLiabilities,missingRates:[...missingRates]};
@@ -1774,7 +1998,7 @@ app.get("/api/customers/options",auth,async(req,res)=>{
 });
 app.post("/api/customers", auth, async (req,res)=>{
   try{
-  const {name,phone="",email="",identityNumber="",customerNumber="",notes="",oldBalance=0}=req.body||{};
+  const {name,phone="",email="",identityNumber="",customerNumber="",notes="",oldBalance=0,oldBalanceType="RECEIVABLE"}=req.body||{};
   if(!String(name).trim()) return res.status(400).json({message:"Customer name is required"});
   const customer=await mutateDurable((s)=>{
     const requested=String(customerNumber||identityNumber||"").trim();
@@ -1788,7 +2012,8 @@ app.post("/api/customers", auth, async (req,res)=>{
     }
     const nextNumber=requested||String(Math.max(0,...s.customers.map(item=>Number(item.customerNumber)||0))+1);
     const openingBalance=+Math.max(safeNumber(oldBalance),0).toFixed(2);
-    const c={id:id(),customerNumber:nextNumber,name:String(name).trim(),phone:String(phone||"").trim(),phoneNormalized:normalizedPhone,email,identityNumber,notes,oldBalance:openingBalance,openingBalanceInitial:openingBalance,oldBalancePaid:0,createdAt:now()};
+    const normalizedOldBalanceType=String(oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE";
+    const c={id:id(),customerNumber:nextNumber,name:String(name).trim(),phone:String(phone||"").trim(),phoneNormalized:normalizedPhone,email,identityNumber,notes,oldBalance:openingBalance,oldBalanceType:normalizedOldBalanceType,openingBalanceInitial:openingBalance,oldBalancePaid:0,createdAt:now()};
     s.customers.push(c);
     audit(s,req.user.id,"CREATE","CUSTOMER",c.id,{after:{...c},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
     return c;
@@ -1814,7 +2039,7 @@ app.patch("/api/customers/:id", auth, async (req,res)=>{
           throw error;
         }
       }
-      const allowed=["name","phone","email","address","notes","oldBalance"];
+      const allowed=["name","phone","email","address","notes","oldBalance","oldBalanceType"];
       for(const key of allowed){
         if(req.body[key]!==undefined)customer[key]=req.body[key];
       }
@@ -1824,12 +2049,17 @@ app.patch("/api/customers/:id", auth, async (req,res)=>{
       customer.phone=String(customer.phone||"").trim();
       customer.phoneNormalized=normalizePhone(customer.phone);
       customer.oldBalance=+Math.max(safeNumber(customer.oldBalance),0).toFixed(2);
-      if(req.body.oldBalance!==undefined){
+      customer.oldBalanceType=String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE";
+      const updateTime=now();
+      if(req.body.oldBalance!==undefined||req.body.oldBalanceType!==undefined){
         customer.openingBalanceInitial=customer.oldBalance;
         customer.oldBalancePaid=0;
+        // A new opening balance entered after an account reset belongs to the NEW account.
+        // Keep the reset marker so historical transactions stay archived, but mark this opening balance as post-reset.
+        customer.openingBalanceUpdatedAt=updateTime;
       }
       else customer.oldBalancePaid=+Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),customer.oldBalance).toFixed(2);
-      customer.updatedAt=now();
+      customer.updatedAt=updateTime;
       customer.updatedBy=req.user.id;
       audit(store,req.user.id,"UPDATE","CUSTOMER",customer.id,{before:oldData,after:{...customer},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
       return customer;
@@ -1989,7 +2219,7 @@ app.get("/api/transactions/unpaid-summary", auth, async (req,res)=>{
   }
 });
 
-app.post("/api/transactions", auth, async (req,res)=>{
+app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
   const {
     customerId,
     currency="USD",
@@ -2014,6 +2244,12 @@ app.post("/api/transactions", auth, async (req,res)=>{
   const normalizedCurrency=String(currency||"USD").toUpperCase();
   const baseCustomerDue=a*clientRate;
   const totalCustomerDue=feeMethod==="ADD"?baseCustomerDue+fee:baseCustomerDue;
+  // Financial integrity: customer charge must equal base due plus any added fee.
+  assertBalancedEntry([
+    {account:"CUSTOMER_RECEIVABLE",debit:+totalCustomerDue.toFixed(2)},
+    {account:"TRANSFER_BASE_DUE",credit:+baseCustomerDue.toFixed(2)},
+    {account:"TRANSFER_FEE_ADDED",credit:feeMethod==="ADD"?+fee.toFixed(2):0}
+  ]);
   const beneficiaryReceives=feeMethod==="DEDUCT"?Math.max(a-fee,0):a;
   const exchangeProfit=a*(clientRate-cost);
   const totalProfit=exchangeProfit+fee;
@@ -2077,7 +2313,7 @@ app.post("/api/transactions", auth, async (req,res)=>{
   res.status(201).json(tx);
 });
 
-app.post("/api/customers/:id/payments", auth, async (req,res)=>{
+app.post("/api/customers/:id/payments", auth, requireIdempotencyKey, async (req,res)=>{
   try{
     const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{};
     const requested=Number(amount);
@@ -2090,11 +2326,11 @@ app.post("/api/customers/:id/payments", auth, async (req,res)=>{
       if(!customer)throw new Error("العميل غير موجود");
 
       const rows=store.transactions
-        .filter(item=>item.customerId===customer.id&&!item.isDeleted&&item.status!=="CANCELLED")
+        .filter(item=>item.customerId===customer.id&&!item.isDeleted&&item.status!=="CANCELLED"&&isAfterCustomerReset(item,customer,"transferDate"))
         .sort((a,b)=>String(a.transferDate||a.createdAt||"").localeCompare(String(b.transferDate||b.createdAt||"")))
         .map(transaction=>{
           const paid=store.payments
-            .filter(payment=>payment.transactionId===transaction.id&&!payment.isDeleted)
+            .filter(payment=>payment.transactionId===transaction.id&&!payment.isDeleted&&isAfterCustomerReset(payment,customer,"paymentDate"))
             .reduce((sum,payment)=>sum+Number(payment.amount||0),0);
           return {transaction,remaining:Math.max(Number(transaction.totalCustomerDue||0)-paid,0)};
         })
@@ -2103,12 +2339,14 @@ app.post("/api/customers/:id/payments", auth, async (req,res)=>{
       const totalRemaining=rows.reduce((sum,row)=>sum+row.remaining,0);
       const storedOldBalance=Math.max(safeNumber(customer.oldBalance),0);
       const legacyOldBalancePaid=Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),storedOldBalance);
-      const oldBalanceRemaining=Math.max(storedOldBalance-legacyOldBalancePaid,0);
+      const oldBalanceType=String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE";
+      const oldBalanceRemaining=oldBalanceType==="RECEIVABLE"?Math.max(storedOldBalance-legacyOldBalancePaid,0):0;
       // توحيد السجلات القديمة: نخزن من الآن فصاعدًا الرصيد الافتتاحي المتبقي مباشرة.
       if(!Number.isFinite(Number(customer.openingBalanceInitial))){
         customer.openingBalanceInitial=+storedOldBalance.toFixed(2);
       }
-      customer.oldBalance=+oldBalanceRemaining.toFixed(2);
+      if(oldBalanceType==="RECEIVABLE") customer.oldBalance=+oldBalanceRemaining.toFixed(2);
+      else customer.oldBalance=+storedOldBalance.toFixed(2);
       customer.oldBalancePaid=0;
       const grandRemaining=totalRemaining+oldBalanceRemaining;
 
@@ -2155,6 +2393,14 @@ app.post("/api/customers/:id/payments", auth, async (req,res)=>{
         left-=oldBalanceAllocation;
       }
 
+      const allocatedToTransactions=allocations.reduce((sum,item)=>sum+safeNumber(item.amount),0);
+      // Financial integrity: the receipt must be fully allocated between transfers and old balance.
+      assertBalancedEntry([
+        {account:"CUSTOMER_PAYMENT_RECEIPT",debit:+requested.toFixed(2)},
+        {account:"TRANSFER_ALLOCATIONS",credit:+allocatedToTransactions.toFixed(2)},
+        {account:"OLD_BALANCE_ALLOCATION",credit:+oldBalanceAllocation.toFixed(2)}
+      ]);
+
       const receipt={
         id:id(),
         transactionId:null,
@@ -2194,25 +2440,44 @@ app.post("/api/customers/:id/payments", auth, async (req,res)=>{
   }
 });
 
-app.post("/api/transactions/:id/payments", auth, async (req,res)=>{
-  const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{}; const n=Number(amount); if(!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid amount"});
-  const payment=await mutateDurable((s)=>{const t=s.transactions.find(x=>x.id===req.params.id);if(!t)throw new Error("Transaction not found");const already=s.payments.filter(p=>p.transactionId===t.id).reduce((a,p)=>a+Number(p.amount),0);if(already+n>Number(t.totalCustomerDue)+0.001)throw new Error("Payment exceeds remaining balance");const p={
-      id:id(),
-      transactionId:t.id,
-      amount:+n.toFixed(2),
-      method,
-      notes,
-      reference,
-      paymentDate:paymentDate||new Date().toISOString().slice(0,10),
-      date:now(),
-      receivedBy:req.user.id,
-      isDeleted:false
-    };s.payments.push(p);audit(s,req.user.id,"PAYMENT","TRANSACTION",t.id,{amount:n});return p;});
+app.post("/api/transactions/:id/payments", auth, requireIdempotencyKey, async (req,res)=>{
+  try{
+    const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{};
+    const n=Number(amount);
+    if(!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid amount"});
 
-  res.status(201).json(payment);
+    const payment=await mutateDurable((s)=>{
+      const t=s.transactions.find(x=>x.id===req.params.id);
+      if(!t)throw new Error("Transaction not found");
+      const already=s.payments.filter(p=>p.transactionId===t.id&&!p.isDeleted).reduce((a,p)=>a+Number(p.amount),0);
+      const remaining=Math.max(Number(t.totalCustomerDue)-already,0);
+      if(n>remaining+0.001)throw new Error("Payment exceeds remaining balance");
+      const p={
+        id:id(),
+        transactionId:t.id,
+        amount:+n.toFixed(2),
+        method,
+        notes,
+        reference,
+        paymentDate:paymentDate||new Date().toISOString().slice(0,10),
+        date:now(),
+        receivedBy:req.user.id,
+        isDeleted:false
+      };
+      s.payments.push(p);
+      audit(s,req.user.id,"PAYMENT","TRANSACTION",t.id,{amount:n,remainingBefore:+remaining.toFixed(2)});
+      return p;
+    });
+
+    res.status(201).json(payment);
+  }catch(error){
+    const message=String(error?.message||"تعذر إضافة الدفعة");
+    const status=(message==="Transaction not found")?404:400;
+    res.status(status).json({message});
+  }
 });
 
-app.patch("/api/transactions/:id", auth, async (req,res)=>{
+app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=>{
   try{
     // Soft-delete uses PATCH intentionally. In production the normal PATCH
     // durable-write path is stable, while some proxies/connections were
@@ -2267,6 +2532,11 @@ app.patch("/api/transactions/:id", auth, async (req,res)=>{
       transaction.exchangeProfit=+exchangeProfit.toFixed(2);
       transaction.totalProfit=+(exchangeProfit+fee).toFixed(2);
       transaction.totalCustomerDue=+(transaction.feeMethod==="ADD"?baseCustomerDue+fee:baseCustomerDue).toFixed(2);
+      assertBalancedEntry([
+        {account:"CUSTOMER_RECEIVABLE",debit:transaction.totalCustomerDue},
+        {account:"TRANSFER_BASE_DUE",credit:+baseCustomerDue.toFixed(2)},
+        {account:"TRANSFER_FEE_ADDED",credit:transaction.feeMethod==="ADD"?+fee.toFixed(2):0}
+      ]);
       transaction.updatedAt=now();
       transaction.updatedBy=req.user.id;
 
@@ -2295,7 +2565,7 @@ app.patch("/api/transactions/:id", auth, async (req,res)=>{
   }
 });
 
-app.delete("/api/transactions/:id", auth, async (req,res)=>{
+app.delete("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=>{
   try{
     const deleted=await mutateDurable((s)=>{
       const transaction=s.transactions.find(item=>item.id===req.params.id&&!item.isDeleted);
@@ -2331,7 +2601,7 @@ app.delete("/api/transactions/:id", auth, async (req,res)=>{
   }
 });
 
-app.patch("/api/payments/:id", auth, async (req,res)=>{
+app.patch("/api/payments/:id", auth, requireIdempotencyKey, async (req,res)=>{
   try{
     const updated=await mutateDurable((s)=>{
       const payment=s.payments.find(item=>item.id===req.params.id&&!item.isDeleted);
@@ -2383,7 +2653,7 @@ app.patch("/api/payments/:id", auth, async (req,res)=>{
   }
 });
 
-app.delete("/api/payments/:id", auth, async (req,res)=>{
+app.delete("/api/payments/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const deleted=await mutateDurable((s)=>{
     const payment=s.payments.find(item=>item.id===req.params.id&&!item.isDeleted);
     if(!payment)return null;
@@ -2680,7 +2950,10 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   // أرصدة الحساب القديم للعملاء تُعد دينًا لنا وتدخل في مجموع الدين العام.
   // لا ننشئ سجلاً دائمًا جديدًا حتى لا يحدث تكرار؛ بل نشتق الرصيد مباشرة من بيانات العميل.
   const customerOldBalanceRows = customers.map((customer)=>{
-    if (!customer || customer.isDeleted || customer.accountResetAt) return null;
+    if (!customer || customer.isDeleted) return null;
+    const resetTime=recordTime(customer.accountResetAt);
+    const openingUpdatedTime=recordTime(customer.openingBalanceUpdatedAt);
+    if(resetTime && openingUpdatedTime < resetTime) return null;
     const storedAmount = Math.max(safeNumber(customer.oldBalance), 0);
     const legacyPaid = Math.min(Math.max(safeNumber(customer.oldBalancePaid), 0), storedAmount);
     const remaining = Math.max(storedAmount-legacyPaid, 0);
@@ -2689,13 +2962,13 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     if (remaining <= 0.001) return null;
     return {
       id:`CUSTOMER_OLD_BALANCE:${customer.id}`,
-      type:"RECEIVABLE",
+      type:String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE",
       partyName:String(customer.name || "عميل بدون اسم"),
       amount:+amount.toFixed(2),
       currency:"CAD",
       dueDate:String(customer.createdAt || "").slice(0,10),
-      description:"الحساب القديم للعميل",
-      reference:"حساب قديم",
+      description:String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"الحساب القديم — له":"الحساب القديم — عليه",
+      reference:String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"حساب قديم له":"حساب قديم عليه",
       status:paid>0?"PARTIAL":"OPEN",
       source:"CUSTOMER_OLD_BALANCE",
       customerId:customer.id,
@@ -2959,14 +3232,13 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   // Use one authoritative customer-balance calculation everywhere. customerSummary
   // already includes the customer's opening balance, transfers and payments, so
   // summing CUSTOMER_OLD_BALANCE and TRANSFER rows again would double-count debt.
-  const authoritativeCustomerDebtCad = customers
-    .filter((customer)=>customer && !customer.isDeleted)
-    .map((customer)=>customerSummary(store,customer))
-    .filter((customer)=>safeNumber(customer.finalBalance)>0)
-    .reduce((sum,customer)=>sum+safeNumber(customer.finalBalance),0);
+  const authoritativeCustomerBalancesCad=customerBalanceTotals(store);
   const customerConversion=findConversion("CAD",summaryCurrency);
   const authoritativeCustomerReceivable=customerConversion
-    ? authoritativeCustomerDebtCad*customerConversion.factor
+    ? safeNumber(authoritativeCustomerBalancesCad.receivable)*customerConversion.factor
+    : 0;
+  const authoritativeCustomerPayable=customerConversion
+    ? safeNumber(authoritativeCustomerBalancesCad.payable)*customerConversion.factor
     : 0;
 
   // Company debt comes only from partner/company rows. It is kept separate from
@@ -3002,6 +3274,7 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   // Manual records are reported separately to avoid silently inflating the authoritative KPI.
   const authoritativeSummary=calculateReceivableSummary({
     customerReceivable:authoritativeCustomerReceivable,
+    customerPayable:authoritativeCustomerPayable,
     companyReceivable,
     companyPayable,
     manualReceivable,
@@ -3054,7 +3327,7 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   });
 });
 
-app.post("/api/general-debts", auth, async (req,res)=>{
+app.post("/api/general-debts", auth, requireIdempotencyKey, async (req,res)=>{
   const {
     type,
     partyName,
@@ -3118,7 +3391,7 @@ app.get("/api/general-debts/:id/payments", auth, (req,res)=>{
   res.json(list);
 });
 
-app.post("/api/general-debts/:id/payments", auth, async (req,res)=>{
+app.post("/api/general-debts/:id/payments", auth, requireIdempotencyKey, async (req,res)=>{
   const numericAmount = Number(req.body?.amount);
   const paymentDate = req.body?.paymentDate || new Date().toISOString().slice(0,10);
   const notes = req.body?.notes || "";
@@ -3149,6 +3422,12 @@ app.post("/api/general-debts/:id/payments", auth, async (req,res)=>{
     const currentDebt=(currentStore.generalDebts||[]).find(item=>item.id===debt.id);
     const remainingBefore=Math.max(safeNumber(currentDebt?.amount)-previousPaid,0);
     const remainingAfter=Math.max(remainingBefore-numericAmount,0);
+    // Financial integrity: opening debt balance = payment + remaining debt.
+    assertBalancedEntry([
+      {account:"DEBT_REMAINING_BEFORE",debit:+remainingBefore.toFixed(2)},
+      {account:"DEBT_PAYMENT",credit:+numericAmount.toFixed(2)},
+      {account:"DEBT_REMAINING_AFTER",credit:+remainingAfter.toFixed(2)}
+    ]);
     const item = {
       id:id(), debtId:debt.id, amount:+numericAmount.toFixed(2), paymentDate,
       method:String(req.body?.method||"CASH").toUpperCase(), notes,
@@ -3175,7 +3454,7 @@ app.post("/api/general-debts/:id/payments", auth, async (req,res)=>{
   res.status(201).json(payment);
 });
 
-app.patch("/api/general-debts/:id", auth, async (req,res)=>{
+app.patch("/api/general-debts/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const updated = await mutateDurable((store)=>{
     const debt = store.generalDebts.find((item)=>item.id===req.params.id);
     if (!debt) return null;
@@ -3204,7 +3483,7 @@ app.patch("/api/general-debts/:id", auth, async (req,res)=>{
   res.json(updated);
 });
 
-app.delete("/api/general-debts/:id", auth, async (req,res)=>{
+app.delete("/api/general-debts/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const result=await mutateDurable((store)=>{
     const index=(store.generalDebts||[]).findIndex(item=>item.id===req.params.id);
     if(index<0)return {notFound:true};
@@ -3300,11 +3579,16 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
       })
       .sort((a,b)=>String(a.paymentDate||a.date||"").localeCompare(String(b.paymentDate||b.date||"")));
 
-    const accountWasReset=Boolean(customer.accountResetAt);
-    const storedOldBalance=accountWasReset?0:Math.max(safeNumber(customer.oldBalance),0);
-    const legacyOldBalancePaid=accountWasReset?0:Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),storedOldBalance);
+    const resetTime=recordTime(customer.accountResetAt);
+    const openingUpdatedTime=recordTime(customer.openingBalanceUpdatedAt);
+    const activeOpeningBalance=!resetTime || openingUpdatedTime>=resetTime;
+    const storedOldBalance=activeOpeningBalance?Math.max(safeNumber(customer.oldBalance),0):0;
+    const legacyOldBalancePaid=activeOpeningBalance?Math.min(Math.max(safeNumber(customer.oldBalancePaid),0),storedOldBalance):0;
     const oldBalance=Math.max(storedOldBalance-legacyOldBalancePaid,0);
-    const openingBalanceInitial=accountWasReset?0:Math.max(safeNumber(customer.openingBalanceInitial,storedOldBalance),oldBalance);
+    const oldBalanceType=String(customer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE";
+    const oldBalanceSign=oldBalanceType==="PAYABLE"?-1:1;
+    const signedOldBalance=oldBalanceSign*oldBalance;
+    const openingBalanceInitial=activeOpeningBalance?Math.max(safeNumber(customer.openingBalanceInitial,storedOldBalance),oldBalance):0;
     const oldBalancePaid=0;
     const oldBalanceRemaining=oldBalance;
     const actualPaid=paymentRecords.reduce((sum,payment)=>sum+safeNumber(payment.amount),0);
@@ -3334,9 +3618,11 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
         openingBalanceInitial:+openingBalanceInitial.toFixed(2),
         oldBalancePaid:+oldBalancePaid.toFixed(2),
         oldBalanceRemaining:+oldBalanceRemaining.toFixed(2),
-        totalTransactions:+(totals.totalCad+openingBalanceInitial).toFixed(2),
+        oldBalanceType,
+        oldBalanceLabel:oldBalanceType==="PAYABLE"?"له":"عليه",
+        totalTransactions:+(totals.totalCad+(oldBalanceType==="RECEIVABLE"?openingBalanceInitial:0)).toFixed(2),
         totalPaid:+actualPaid.toFixed(2),
-        finalBalance:+(totals.remaining+oldBalanceRemaining).toFixed(2)
+        finalBalance:+(totals.remaining+signedOldBalance).toFixed(2)
       },
       from:from||null,
       to:to||null,
@@ -3353,8 +3639,11 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
         openingBalanceInitial:+openingBalanceInitial.toFixed(2),
         oldBalancePaid:0,
         oldBalanceRemaining:+oldBalanceRemaining.toFixed(2),
+        oldBalanceType,
+        oldBalanceLabel:oldBalanceType==="PAYABLE"?"له":"عليه",
+        signedOldBalance:+signedOldBalance.toFixed(2),
         paid:+actualPaid.toFixed(2),
-        remaining:+(totals.remaining+oldBalanceRemaining).toFixed(2)
+        remaining:+(totals.remaining+signedOldBalance).toFixed(2)
       }
     });
   }catch(error){
@@ -3715,14 +4004,30 @@ function parseJadCurrencyBalances(html){
     .trim();
   const aliases=[
     {code:"CAD",patterns:["دولار كندي","كندي","CAD"]},
+    {code:"AUD",patterns:["دولار أسترالي","دولار استرالي","أسترالي","استرالي","AUD"]},
+    {code:"NZD",patterns:["دولار نيوزيلندي","نيوزيلندي","NZD"]},
     {code:"USD",patterns:["دولار أمريكي","دولار امريكي","دولار","USD"]},
     {code:"EUR",patterns:["يورو","EUR"]},
     {code:"TRY",patterns:["ليرة تركية","تركي","TRY"]},
     {code:"SYP",patterns:["ليرة سورية","سوري","SYP"]},
+    {code:"ILS",patterns:["شيكل إسرائيلي","شيكل اسرائيلي","شيقل إسرائيلي","شيقل اسرائيلي","شيكل","شيقل","ILS","NIS"]},
     {code:"SAR",patterns:["ريال سعودي","سعودي","SAR"]},
+    {code:"QAR",patterns:["ريال قطري","قطري","QAR"]},
+    {code:"OMR",patterns:["ريال عماني","ريال عُماني","عماني","عُماني","OMR"]},
     {code:"JOD",patterns:["دينار أردني","دينار اردني","أردني","اردني","JOD"]},
+    {code:"KWD",patterns:["دينار كويتي","كويتي","KWD"]},
+    {code:"BHD",patterns:["دينار بحريني","بحريني","BHD"]},
+    {code:"IQD",patterns:["دينار عراقي","عراقي","IQD"]},
     {code:"AED",patterns:["درهم إماراتي","درهم اماراتي","إماراتي","اماراتي","AED"]},
-    {code:"GBP",patterns:["جنيه إسترليني","جنيه استرليني","إسترليني","استرليني","GBP"]}
+    {code:"EGP",patterns:["جنيه مصري","مصري","EGP"]},
+    {code:"GBP",patterns:["جنيه إسترليني","جنيه استرليني","إسترليني","استرليني","GBP"]},
+    {code:"CHF",patterns:["فرنك سويسري","سويسري","CHF"]},
+    {code:"SEK",patterns:["كرون سويدي","سويدي","SEK"]},
+    {code:"NOK",patterns:["كرون نرويجي","نرويجي","NOK"]},
+    {code:"DKK",patterns:["كرون دنماركي","دنماركي","DKK"]},
+    {code:"RUB",patterns:["روبل روسي","روبل","RUB"]},
+    {code:"CNY",patterns:["يوان صيني","يوان","رنمينبي","CNY"]},
+    {code:"JPY",patterns:["ين ياباني","ين","JPY"]}
   ];
   const out={};
   const esc=value=>String(value).replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
@@ -3759,8 +4064,8 @@ function parseJadCurrencyBalances(html){
         if(!valueMatch)continue;
         const distance=before.length-(valueMatch.index+valueMatch[0].length);
         if(distance>90)continue;
-        if(!selected||distance<selected.distance){
-          selected={code:item.code,amount:Math.abs(numberFromText(valueMatch[1])),distance};
+        if(!selected||distance<selected.distance||(distance===selected.distance&&alias.length>selected.aliasLength)){
+          selected={code:item.code,amount:Math.abs(numberFromText(valueMatch[1])),distance,aliasLength:alias.length};
         }
       }
     }
@@ -4178,10 +4483,11 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
     const collectDashboardCurrencySource=async()=>{
       const chunks=[];
       for(const frame of page.frames()){
+        // Use rendered text only. frame.content() also contains hidden/responsive clones
+        // and stale account widgets; those previously caused Jad to pick a larger
+        // hidden USD amount instead of the visible dashboard balance.
         const text=await frame.locator("body").innerText().catch(()=>"");
-        const html=await frame.content().catch(()=>"");
         if(text)chunks.push(text);
-        if(html)chunks.push(html);
       }
       return chunks.join(" ");
     };
@@ -5317,7 +5623,7 @@ app.get("/api/partners/:id", auth, (req,res)=>{
   });
 });
 
-app.post("/api/partners/:id/transactions", auth, async (req,res)=>{
+app.post("/api/partners/:id/transactions", auth, requireIdempotencyKey, async (req,res)=>{
   const {type,amount,currency="CAD",date="",dueDate="",reference="",description=""}=req.body||{};
   const numericAmount=Number(amount);
 
@@ -5363,7 +5669,7 @@ app.post("/api/partners/:id/transactions", auth, async (req,res)=>{
   res.status(201).json(transaction);
 });
 
-app.patch("/api/partners/:id/transactions/:transactionId", auth, async (req,res)=>{
+app.patch("/api/partners/:id/transactions/:transactionId", auth, requireIdempotencyKey, async (req,res)=>{
   const {type,amount,currency,date,dueDate,reference,description}=req.body||{};
   let updated=null;
   await mutateDurable(store=>{
@@ -5387,7 +5693,7 @@ app.patch("/api/partners/:id/transactions/:transactionId", auth, async (req,res)
   res.json(updated);
 });
 
-app.delete("/api/partners/:id/transactions/:transactionId", auth, async (req,res)=>{
+app.delete("/api/partners/:id/transactions/:transactionId", auth, requireIdempotencyKey, async (req,res)=>{
   let deleted=null;
   await mutateDurable(store=>{
     const index=(store.partnerTransactions||[]).findIndex(row=>row.id===req.params.transactionId&&row.partnerId===req.params.id);
@@ -5400,7 +5706,7 @@ app.delete("/api/partners/:id/transactions/:transactionId", auth, async (req,res
   res.json({ok:true,message:"تم حذف العملية"});
 });
 
-app.post("/api/partners/:id/payments", auth, async (req,res)=>{
+app.post("/api/partners/:id/payments", auth, requireIdempotencyKey, async (req,res)=>{
   const {direction,amount,currency="CAD",date="",reference="",notes=""}=req.body||{};
   const numericAmount=Number(amount);
 
@@ -5445,7 +5751,7 @@ app.post("/api/partners/:id/payments", auth, async (req,res)=>{
   res.status(201).json(payment);
 });
 
-app.patch("/api/partners/:id/payments/:paymentId", auth, async (req,res)=>{
+app.patch("/api/partners/:id/payments/:paymentId", auth, requireIdempotencyKey, async (req,res)=>{
   const {direction,amount,currency,date,reference,notes}=req.body||{};
   let updated=null;
   await mutateDurable(store=>{
@@ -5469,7 +5775,7 @@ app.patch("/api/partners/:id/payments/:paymentId", auth, async (req,res)=>{
   res.json(updated);
 });
 
-app.delete("/api/partners/:id/payments/:paymentId", auth, async (req,res)=>{
+app.delete("/api/partners/:id/payments/:paymentId", auth, requireIdempotencyKey, async (req,res)=>{
   let deleted=null;
   await mutateDurable(store=>{
     const index=(store.partnerPayments||[]).findIndex(row=>row.id===req.params.paymentId&&row.partnerId===req.params.id);
@@ -5616,8 +5922,8 @@ app.post("/api/ai/assistant",auth,(req,res)=>{
 });
 
 app.get("/api/expenses", auth, async (req,res)=>{const store=readStore();const rows=await branchSafeRead(req,"expenses",()=>nativeRepositories.expenses.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.expenses).reverse());res.json(paginate(req,rows));});
-app.post("/api/expenses", auth, async (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=await mutateDurable(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
-app.put("/api/expenses/:id", auth, async (req,res)=>{
+app.post("/api/expenses", auth, requireIdempotencyKey, async (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=await mutateDurable(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};assertBalancedEntry([{account:"EXPENSE_CAD",debit:x.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*rate).toFixed(2)}]);s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
+app.put("/api/expenses/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const {title,amount,currency="CAD",exchangeRate=1,category="Other",date}=req.body||{};
   const n=Number(amount),rate=Number(exchangeRate),normalizedCurrency=String(currency||"CAD").toUpperCase();
   if(!title||!date||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"بيانات المصروف غير صحيحة"});
@@ -5627,6 +5933,7 @@ app.put("/api/expenses/:id", auth, async (req,res)=>{
     if(index<0)return null;
     const previous=rows[index];
     const next={...previous,title:String(title).trim(),amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,updatedAt:now(),updatedBy:req.user.id};
+    assertBalancedEntry([{account:"EXPENSE_CAD",debit:next.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*rate).toFixed(2)}]);
     rows[index]=next;
     s.expenses=rows;
     audit(s,req.user.id,"UPDATE","EXPENSE",next.id,{before:{title:previous.title,amount:previous.amount,currency:previous.currency},after:{title:next.title,amount:next.amount,currency:next.currency}});
@@ -5635,7 +5942,7 @@ app.put("/api/expenses/:id", auth, async (req,res)=>{
   if(!updated)return res.status(404).json({message:"المصروف غير موجود"});
   res.json(updated);
 });
-app.delete("/api/expenses/:id", auth, async (req,res)=>{
+app.delete("/api/expenses/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const removed=await mutateDurable(s=>{
     const rows=Array.from(s.expenses||[]);
     const index=rows.findIndex(x=>String(x.id)===String(req.params.id));
@@ -5660,7 +5967,7 @@ app.get("/api/capital", auth, async (req,res)=>{
   });
   res.json(rows);
 });
-app.post("/api/capital", auth, async (req,res)=>{
+app.post("/api/capital", auth, requireIdempotencyKey, async (req,res)=>{
   const {type="IN",amount,currency="CAD",description="",date=new Date().toISOString().slice(0,10)}=req.body||{};
   const n=Number(amount), normalizedCurrency=String(currency||"CAD").toUpperCase();
   if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0)return res.status(400).json({message:"بيانات حركة رأس المال غير صحيحة"});
@@ -5669,13 +5976,14 @@ app.post("/api/capital", auth, async (req,res)=>{
     if(!conversion)return {error:"لا يوجد سعر صرف لهذه العملة إلى CAD. يرجى تحديث أسعار الصرف أولًا."};
     const exchangeRate=conversion.factor;
     const x={id:id(),type,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+exchangeRate.toFixed(6),baseCurrency:"CAD",cadAmount:+(n*exchangeRate).toFixed(2),conversionPath:conversion.path,rateUpdatedAt:conversion.updatedAt||null,description:String(description||""),date,createdAt:now(),createdBy:req.user.id};
+    assertBalancedEntry([{account:"CAPITAL_CAD",debit:x.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*exchangeRate).toFixed(2)}]);
     s.capitalMovements.push(x);audit(s,req.user.id,"CREATE","CAPITAL",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;
   });
   if(m?.error)return res.status(400).json({message:m.error});
   res.status(201).json(m);
 });
 
-app.patch("/api/capital/:id", auth, async (req,res)=>{
+app.patch("/api/capital/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const {type,amount,currency,description,date}=req.body||{};
   const n=Number(amount);
   if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0){
@@ -5693,6 +6001,7 @@ app.patch("/api/capital/:id", auth, async (req,res)=>{
     item.exchangeRate=+conversion.factor.toFixed(6);
     item.baseCurrency="CAD";
     item.cadAmount=+(n*conversion.factor).toFixed(2);
+    assertBalancedEntry([{account:"CAPITAL_CAD",debit:item.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*conversion.factor).toFixed(2)}]);
     item.conversionPath=conversion.path;
     item.rateUpdatedAt=conversion.updatedAt||null;
     item.description=String(description||"");
@@ -5707,7 +6016,7 @@ app.patch("/api/capital/:id", auth, async (req,res)=>{
   res.json(updated);
 });
 
-app.delete("/api/capital/:id", auth, async (req,res)=>{
+app.delete("/api/capital/:id", auth, requireIdempotencyKey, async (req,res)=>{
   const removed=await mutateDurable(store=>{
     const rows=Array.from(store.capitalMovements||[]);
     const item=rows.find(entry=>entry.id===req.params.id);
@@ -5754,9 +6063,9 @@ app.get("/api/security/status", auth, (req,res)=>{
   res.json({version:"18.0.0",passwordHashing:"scrypt",sessionHours:12,httpsRequired:IS_PROD,auditIntegrity:chainValid,activeDevices:(store.devices||[]).filter(x=>x.active!==false).length,failedLogins24h:logs.filter(x=>x.action==="LOGIN_FAILED"&&Date.now()-new Date(x.createdAt).getTime()<86400000).length,securityScore:[IS_PROD,JWT_SECRET!=="LOCAL_TRIAL_CHANGE_ME_6_0",chainValid].filter(Boolean).length===3?95:78});
 });
 
-app.post("/api/backup/encrypted", auth, requirePermission("admin.only"), rateLimit("backup",10,60*60*1000),(req,res)=>{ const password=String(req.body?.password||""); const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message});
+app.post("/api/backup/encrypted", auth, requirePermission("admin.only"), rateLimit("backup",10,60*60*1000),async (req,res)=>{ const password=String(req.body?.password||""); const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message});
   const store=readStore(),data={};for(const key of BACKUP_ARRAYS)data[key]=Array.from(store[key]||[]).map(item=>({...item})); const payload=createBackupEnvelope({company:{id:req.user.companyId},data,createdAt:now()}); const encrypted=encryptJson(payload,password);
-  mutate(root=>audit(root,req.user.id,"EXPORT_ENCRYPTED","BACKUP",id(),{ip:req.ip})); res.setHeader("Content-Disposition",`attachment; filename="alaboud-secure-backup-${Date.now()}.abs"`);res.json(encrypted);
+  await mutateDurable(root=>audit(root,req.user.id,"EXPORT_ENCRYPTED","BACKUP",id(),{ip:req.ip})); res.setHeader("Content-Disposition",`attachment; filename="alaboud-secure-backup-${Date.now()}.abs"`);res.json(encrypted);
 });
 
 app.post("/api/backup/restore", auth, requirePermission("admin.only"), async (req,res)=>{
@@ -5831,7 +6140,7 @@ app.use((err,req,res,_next)=>{
   res.status(status>=400&&status<600?status:500).json({
     message,
     code:isDatabaseTemporary?"DATABASE_TEMPORARILY_UNAVAILABLE":(err?.code||undefined),
-    retryable:Boolean(isDatabaseTemporary),
+    retryable:Boolean(err?.retryable || isDatabaseTemporary),
     requestId
   });
 });

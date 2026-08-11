@@ -20,6 +20,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
   const [editingTransaction,setEditingTransaction]=useState(null);
   const [editingPayment,setEditingPayment]=useState(null);
   const [oldBalanceForm,setOldBalanceForm]=useState("");
+  const [oldBalanceType,setOldBalanceType]=useState("RECEIVABLE");
   const [savingOldBalance,setSavingOldBalance]=useState(false);
 
   async function load(){
@@ -35,6 +36,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         payments:Array.isArray(result.payments)?result.payments:[],
       });
       setOldBalanceForm(String(loadedCustomer.oldBalance??""));
+      setOldBalanceType(String(loadedCustomer.oldBalanceType||"RECEIVABLE").toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE");
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تحميل ملف العميل");
       setData(null);
@@ -50,10 +52,19 @@ export function Customer({id,back,onStatement,onAddTransfer}){
     setSavingOldBalance(true);
     setError("");
     try{
-      await api.patch(`/customers/${id}`,{
-        oldBalance:Number(oldBalanceForm||0)
+      const response=await api.patch(`/customers/${id}`,{
+        oldBalance:Number(oldBalanceForm||0),
+        oldBalanceType
       });
-      void load();
+      const updatedCustomer=response?.data||null;
+      clearApiGetCache();
+      if(updatedCustomer){
+        setData(current=>current?{...current,customer:{...current.customer,...updatedCustomer}}:current);
+        setOldBalanceForm(String(updatedCustomer.oldBalance??oldBalanceForm));
+        setOldBalanceType(String(updatedCustomer.oldBalanceType||oldBalanceType).toUpperCase()==="PAYABLE"?"PAYABLE":"RECEIVABLE");
+      }
+      setError(`✅ تم حفظ الحساب القديم ${oldBalanceType==="PAYABLE"?"له":"عليه"} بنجاح`);
+      await load();
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر حفظ الحساب القديم");
     }finally{
@@ -96,9 +107,12 @@ export function Customer({id,back,onStatement,onAddTransfer}){
       const statement=response.data;
       const rows=Array.isArray(statement.transactions)?statement.transactions:[];
       const oldBalance=Number(statement.totals?.oldBalance||0);
-      const total=Number(statement.totals?.formulaResultCad||0)+oldBalance;
+      const oldBalanceType=String(statement.totals?.oldBalanceType||statement.customer?.oldBalanceType||"RECEIVABLE").toUpperCase();
+      const oldBalanceLabel=oldBalanceType==="PAYABLE"?"له":"عليه";
+      const signedOldBalance=oldBalanceType==="PAYABLE"?-oldBalance:oldBalance;
+      const total=Number(statement.totals?.formulaResultCad||0)+signedOldBalance;
       const paid=Number(statement.totals?.paid||0);
-      const finalBalance=Number(statement.totals?.remaining||Math.max(total-paid,0));
+      const finalBalance=Number(statement.totals?.remaining??(total-paid));
 
       const lines=rows.map((item,index)=>{
         const amount=Number(item.usdAmount||0).toFixed(2).replace(/\.00$/,"");
@@ -115,9 +129,9 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         ...lines,
         "",
         "--------------------",
-        `الحساب القديم: ${money(oldBalance)} 🇨🇦`,
+        `الحساب القديم ${oldBalanceLabel}: ${money(oldBalance)} 🇨🇦`,
         `الدفعات: ${money(paid)} 🇨🇦`,
-        `المجموع النهائي: ${money(finalBalance)} 🇨🇦`
+        `المجموع النهائي ${finalBalance<0?"له":"عليه"}: ${money(Math.abs(finalBalance))} 🇨🇦`
       ].join("\n");
 
       openRegularWhatsApp(phone,message);
@@ -132,10 +146,12 @@ export function Customer({id,back,onStatement,onAddTransfer}){
       const statement=response.data||{};
       const rows=Array.isArray(statement.transactions)?statement.transactions:[];
       const oldBalance=Number(statement.totals?.oldBalance||0);
+      const oldBalanceType=String(statement.totals?.oldBalanceType||statement.customer?.oldBalanceType||"RECEIVABLE").toUpperCase();
+      const oldBalanceLabel=oldBalanceType==="PAYABLE"?"له":"عليه";
       const paid=Number(statement.totals?.paid||0);
       const finalBalance=Number(
         statement.totals?.remaining ??
-        Math.max(Number(statement.totals?.formulaResultCad||0)+oldBalance-paid,0)
+        (Number(statement.totals?.formulaResultCad||0)+(oldBalanceType==="PAYABLE"?-oldBalance:oldBalance)-paid)
       );
 
       const width=720;
@@ -210,7 +226,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
       drawLine(y+7,"#68747c",[10,8]);
       y+=37;
 
-      drawText("الحساب القديم",sidePadding,y,23,{align:"left"});
+      drawText(`الحساب القديم ${oldBalanceLabel}`,sidePadding,y,23,{align:"left"});
       drawText(`${money(oldBalance)} 🇨🇦`,width-sidePadding,y,24,{align:"right",color:"#d8a33f",weight:"800"});
       y+=48;
 
@@ -218,8 +234,8 @@ export function Customer({id,back,onStatement,onAddTransfer}){
       drawText(`${money(paid)} 🇨🇦`,width-sidePadding,y,24,{align:"right",color:"#ef4444",weight:"800"});
       y+=48;
 
-      drawText("المجموع النهائي",sidePadding,y,25,{align:"left",weight:"800"});
-      drawText(`${money(finalBalance)} 🇨🇦`,width-sidePadding,y,28,{align:"right",color:"#63c443",weight:"900"});
+      drawText(`المجموع النهائي ${finalBalance<0?"له":"عليه"}`,sidePadding,y,25,{align:"left",weight:"800"});
+      drawText(`${money(Math.abs(finalBalance))} 🇨🇦`,width-sidePadding,y,28,{align:"right",color:"#63c443",weight:"900"});
       y+=46;
 
       drawLine(y+4,"#68747c");
@@ -365,6 +381,10 @@ export function Customer({id,back,onStatement,onAddTransfer}){
     <div className="stats">
       <form className="card old-balance-card old-balance-edit-card" onSubmit={saveOldBalance}>
         <span>الحساب القديم</span>
+        <div className="old-balance-direction" role="group" aria-label="نوع الحساب القديم">
+          <button type="button" className={oldBalanceType==="RECEIVABLE"?"active receivable":""} onClick={()=>setOldBalanceType("RECEIVABLE")}>عليه — دين لنا</button>
+          <button type="button" className={oldBalanceType==="PAYABLE"?"active payable":""} onClick={()=>setOldBalanceType("PAYABLE")}>له — دين له</button>
+        </div>
         <input
           type="number"
           min="0"
@@ -374,7 +394,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
           onChange={event=>setOldBalanceForm(event.target.value)}
           placeholder="اكتب الحساب القديم"
         />
-        <small>المتبقي: {cad(customer.oldBalanceRemaining||0)}</small>
+        <small>ناتج الحساب القديم: <strong>{customer.oldBalanceType==="PAYABLE"?"له":"عليه"} {cad(customer.oldBalanceRemaining||0)}</strong></small>
         <button type="submit" disabled={savingOldBalance}>
           {savingOldBalance?"جاري الحفظ...":"حفظ الحساب القديم"}
         </button>
@@ -712,7 +732,7 @@ export function Statement({customerId,back}){
       </div>
 
       <div className="simple-statement-old-balance">
-        <span>الحساب القديم:</span>
+        <span>الحساب القديم {data.totals.oldBalanceType==="PAYABLE"?"له":"عليه"}:</span>
         <strong>{money(data.totals.oldBalance||0)} 🇨🇦</strong>
       </div>
       <div className="simple-statement-payments">
@@ -720,15 +740,12 @@ export function Statement({customerId,back}){
         <strong>{money(data.totals.paid||0)} 🇨🇦</strong>
       </div>
       <div className="simple-statement-total">
-        <span>المجموع النهائي:</span>
-        <strong>{money(Math.max(
-          Number(data.totals.remaining ?? (
-            Number(data.totals.formulaResultCad ?? data.transactions.reduce((sum,item)=>sum+Number(item.formulaResultCad||0),0))
-            + Number(data.totals.oldBalance||0)
-            - Number(data.totals.paid||0)
-          )),
-          0
-        ))} 🇨🇦</strong>
+        <span>المجموع النهائي {Number(data.totals.remaining||0)<0?"له":"عليه"}:</span>
+        <strong>{money(Math.abs(Number(data.totals.remaining ?? (
+          Number(data.totals.formulaResultCad ?? data.transactions.reduce((sum,item)=>sum+Number(item.formulaResultCad||0),0))
+          + (data.totals.oldBalanceType==="PAYABLE"?-Number(data.totals.oldBalance||0):Number(data.totals.oldBalance||0))
+          - Number(data.totals.paid||0)
+        ))))} 🇨🇦</strong>
       </div>
     </section>}
   </>;

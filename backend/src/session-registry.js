@@ -1,5 +1,5 @@
 const crypto=require("crypto");
-const DEFAULT_IDLE_MS=Math.max(5*60*1000,Number(process.env.SESSION_IDLE_MINUTES||30)*60*1000);
+const DEFAULT_IDLE_MS=Math.max(5*60*1000,Number(process.env.SESSION_IDLE_MINUTES||43200)*60*1000);
 
 function ensureSessionStore(store){
   if(!Array.isArray(store.sessions))store.sessions=[];

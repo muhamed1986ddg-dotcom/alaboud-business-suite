@@ -1,4 +1,4 @@
-import React,{useEffect,useState} from "react";
+import React,{useEffect,useRef,useState} from "react";
 import api from "./api";
 export default function LoginShell({onLogin}){
   const [mode,setMode]=useState("login");
@@ -14,9 +14,26 @@ export default function LoginShell({onLogin}){
   const [recovery,setRecovery]=useState({identifier:"",email:resetParams.get("email")||"",token:resetParams.get("token")||"",newPassword:"",confirmPassword:"",message:""});
   const nativeBiometric=typeof window!=="undefined"&&window.AlAboudNative?.requestBiometricLogin;
   const biometricEnabled=Boolean(nativeBiometric&&window.AlAboudNative?.isBiometricEnabled?.());
+  const biometricPrompted=useRef(false);
   async function saveSession(data){
-    localStorage.setItem("afs_token",data.token); localStorage.setItem("afs_user",JSON.stringify(data.user));
-    try{if(window.AlAboudNative?.saveBiometricToken&&window.AlAboudNative?.isBiometricEnabled?.()){const response=await api.post("/auth/biometric-token");window.AlAboudNative.saveBiometricToken(response.data.token,JSON.stringify(data.user));}}catch{}
+    // The web session is held by an HttpOnly cookie. Never persist the JWT in
+    // JavaScript-readable storage. The lightweight marker contains no secret
+    // and is only used to avoid flashing the login screen during reloads.
+    localStorage.removeItem("afs_token");
+    localStorage.setItem("afs_session_active","1");
+    localStorage.setItem("afs_user",JSON.stringify(data.user));
+    // On Android, bind this account to the device biometric vault. First login
+    // asks for biometric/face/device confirmation; later logins refresh the
+    // server token without storing the account password.
+    try{
+      const native=window.AlAboudNative;
+      if(native?.requestBiometricLogin){
+        const response=await api.post("/auth/biometric-token");
+        const userJson=JSON.stringify(data.user);
+        if(native.isBiometricEnabled?.()) native.saveBiometricToken?.(response.data.token,userJson);
+        else native.enableBiometricLogin?.(response.data.token,userJson);
+      }
+    }catch{}
     onLogin();
   }
   async function submitLogin(e){
@@ -46,6 +63,12 @@ export default function LoginShell({onLogin}){
     }catch(error){setError(error.response?.data?.message||"تعذر تجديد جلسة التحقق")}finally{setBusy(false)}
   }
   useEffect(()=>{const handler=async event=>{try{setBusy(true);const {data}=await api.post("/auth/biometric-login",{token:event.detail?.token});await saveSession(data)}catch(error){setError(error.response?.data?.message||"تعذر الدخول بالبصمة أو الوجه")}finally{setBusy(false)}};window.addEventListener("alaboud-biometric-token",handler);return()=>window.removeEventListener("alaboud-biometric-token",handler)},[]);
+  useEffect(()=>{
+    if(mode!=="login"||!biometricEnabled||biometricPrompted.current)return;
+    biometricPrompted.current=true;
+    const timer=setTimeout(()=>window.AlAboudNative?.requestBiometricLogin?.(),250);
+    return()=>clearTimeout(timer);
+  },[mode,biometricEnabled]);
   useEffect(()=>{
     if(!twoFactor.required||!twoFactor.expiresAt){setTwoFactorSeconds(0);return;}
     const update=()=>setTwoFactorSeconds(Math.max(0,Math.ceil((twoFactor.expiresAt-Date.now())/1000)));

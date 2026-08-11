@@ -1,0 +1,11 @@
+const fs=require("fs");
+const assert=require("assert");
+const server=fs.readFileSync(require.resolve("./server"),"utf8");
+assert.match(server,/https:\/\/raselsms\.com\/api\/v2\/messages\/send/);
+assert.match(server,/channel:"local_sms"/);
+assert.match(server,/messageType:"free_text"/);
+assert.match(server,/content:\{text:message\}/);
+assert.match(server,/"X-API-Key":apiKey/);
+assert.doesNotMatch(server,/api\/v1\/messages\/send/);
+assert.doesNotMatch(server,/sessionName/);
+console.log("v25.14.54 Rasel local SMS v2 contract: OK");

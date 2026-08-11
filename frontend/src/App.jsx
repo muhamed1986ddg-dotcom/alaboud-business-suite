@@ -1,4 +1,4 @@
-import React,{useEffect,useState}from"react";import LoginShell from"./LoginShell";import DatabaseStatus from"./components/system/DatabaseStatus";import api,{cachedGet} from"./api";import {APP_VERSION} from"./version";import {Dashboard} from"./screens/Dashboard";
+import React,{useEffect,useState}from"react";import DatabaseStatus from"./components/system/DatabaseStatus";import api,{cachedGet} from"./api";import {APP_VERSION} from"./version";import {Dashboard} from"./screens/Dashboard";
 import{money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction}from"./shared";
 
 // شاشات مؤجّلة التحميل: تُحمَّل فقط عند فتحها فعليًا، لا مع كل شاشة أساسية.
@@ -191,21 +191,23 @@ function AppLanguageBridge(){
   return null;
 }
 
-export default function App(){
-  const sessionFixVersion="16.0.0";
-  const savedSessionFix=localStorage.getItem("alaboud_session_fix_version");
-
-  if(savedSessionFix!==sessionFixVersion){
-    localStorage.removeItem("afs_token");
-    localStorage.removeItem("afs_user");
-    localStorage.setItem("alaboud_session_fix_version",sessionFixVersion);
-  }
-
-  const [token,setToken]=useState(localStorage.getItem("afs_token"));
+export default function App({onAuthExpired=()=>{}}){
+  // Authentication is owned by AppShell and backed by an HttpOnly cookie.
+  // Keep this constant only to preserve existing effect dependencies while
+  // avoiding any JavaScript access to the session JWT.
+  const token=true;
   const savedCompanyUser=(()=>{try{return JSON.parse(localStorage.getItem("afs_user")||"{}")}catch{return {}}})();
   const [companyBrand,setCompanyBrand]=useState({name:savedCompanyUser.companyName||"شركة العبود التجارية",logoDataUrl:""});
   const [branches,setBranches]=useState([]);
   const [activeBranchId,setActiveBranchId]=useState(localStorage.getItem("alaboud_branch_id")||"");
+
+  function changeActiveBranch(branchId){
+    const next=String(branchId||"").trim();
+    if(!next)return;
+    localStorage.setItem("alaboud_branch_id",next);
+    setActiveBranchId(next);
+    window.dispatchEvent(new CustomEvent("alaboud-branch-changed",{detail:{branchId:next}}));
+  }
 
   useEffect(()=>{
     if(!token)return;
@@ -234,10 +236,10 @@ export default function App(){
   },[token,activeBranchId]);
 
   useEffect(()=>{
-    const handleAuthExpired=()=>setToken(null);
+    const handleAuthExpired=()=>onAuthExpired();
     window.addEventListener("alaboud-auth-expired",handleAuthExpired);
     return()=>window.removeEventListener("alaboud-auth-expired",handleAuthExpired);
-  },[]);
+  },[onAuthExpired]);
   const [page,setPage]=useState("dashboard");
   const [customerId,setCustomerId]=useState(null);
   const [customerTransferRequest,setCustomerTransferRequest]=useState(null);
@@ -301,10 +303,6 @@ export default function App(){
     window.addEventListener("popstate",onBack);
     return()=>window.removeEventListener("popstate",onBack);
   },[mobileMenuOpen]);
-
-  if(!token){
-    return <LoginShell onLogin={()=>setToken(localStorage.getItem("afs_token"))}/>;
-  }
 
   function navigate(nextPage){
     setPage(nextPage);
@@ -370,9 +368,9 @@ export default function App(){
   }else if(page==="capital-overview"||page==="capital"){
     content=<CapitalOverview/>;
   }else if(page==="notification-settings"){
-    content=<SettingsPanel/>;
+    content=<SettingsPanel activeBranchId={activeBranchId} onActiveBranchChange={changeActiveBranch}/>;
   }else if(page==="settings"){
-    content=<SettingsPanel/>;
+    content=<SettingsPanel activeBranchId={activeBranchId} onActiveBranchChange={changeActiveBranch}/>;
   }else if(page==="ai-center"){
     content=<AICommandCenter navigate={navigate}/>;
   }else if(page==="expenses"){
@@ -431,7 +429,6 @@ export default function App(){
           <small>{APP_VERSION}</small>
         </div>
       </div>
-      {branches.length>0&&<label className="branch-switcher no-print"><span>🏢 الفرع النشط</span><select value={activeBranchId} onChange={event=>{localStorage.setItem("alaboud_branch_id",event.target.value);setActiveBranchId(event.target.value);window.dispatchEvent(new CustomEvent("alaboud-branch-changed",{detail:{branchId:event.target.value}}))}}>{branches.map(branch=><option key={branch.id} value={branch.id}>{branch.name} ({branch.code})</option>)}</select></label>}
       {menu.map(([key,label])=><button
         key={key}
         className={page===key&&!customerId&&!invoiceId&&!statementCustomerId&&!partnerId?"active":""}
@@ -443,10 +440,13 @@ export default function App(){
           <h3>تسجيل الخروج</h3>
           <p>هل تريد تسجيل الخروج من البرنامج؟</p>
           <div>
-            <button className="danger-button" onClick={()=>{
-              localStorage.clear();
-              setToken(null);
+            <button className="danger-button" onClick={async()=>{
+              try{await api.post("/auth/logout",{}, {suppressToast:true});}catch{}
+              localStorage.removeItem("afs_token");
+              localStorage.removeItem("afs_session_active");
+              localStorage.removeItem("afs_user");
               setLogoutConfirm(false);
+              onAuthExpired();
             }}>نعم، تسجيل الخروج</button>
             <button onClick={()=>setLogoutConfirm(false)}>إلغاء</button>
           </div>

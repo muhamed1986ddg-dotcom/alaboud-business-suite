@@ -47,7 +47,7 @@ import java.io.File
 class MainActivity : AppCompatActivity() {
 
     companion object {
-        private const val APP_URL = "https://alaboud-business-suite-2.onrender.com/"
+        private const val APP_URL = "https://alaboud-business-suite-us-763786484727.us-central1.run.app/"
         private const val FILE_CHOOSER_REQUEST = 9001
         private const val NOTIFICATION_PERMISSION_REQUEST = 9002
         private const val CHANNEL_ID = "alaboud_overdue_customers"
@@ -103,7 +103,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/25.3.8"
+            userAgentString = "$userAgentString AlAboudMobile/25.14.60"
         }
 
         CookieManager.getInstance().apply {
@@ -122,7 +122,7 @@ class MainActivity : AppCompatActivity() {
                 val scheme = uri.scheme?.lowercase()
 
                 if (scheme == "http" || scheme == "https") {
-                    if (uri.host?.contains("onrender.com") == true) return false
+                    if (uri.host?.endsWith("run.app") == true) return false
                     openExternal(uri)
                     return true
                 }
@@ -427,10 +427,9 @@ class MainActivity : AppCompatActivity() {
         val script = """
             (function() {
               try {
-                var token = localStorage.getItem('afs_token');
-                if (!token) return;
                 fetch('/api/customer-alerts', {
-                  headers: { Authorization: 'Bearer ' + token }
+                  credentials: 'same-origin',
+                  headers: { 'X-Installation-ID': localStorage.getItem('alaboud_installation_id') || 'android-webview' }
                 })
                 .then(function(response) { return response.json(); })
                 .then(function(data) {

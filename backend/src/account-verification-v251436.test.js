@@ -1,0 +1,13 @@
+const assert=require('assert');
+const {normalizeChannel,normalizeEmail,normalizePhone,maskEmail,maskPhone,codeHash,safeEqualHex}=require('./account-verification');
+assert.strictEqual(normalizeChannel('sms'),'SMS');
+assert.strictEqual(normalizeChannel('whatsapp'),'WHATSAPP');
+assert.strictEqual(normalizeEmail(' Test@Example.COM '),'test@example.com');
+assert.strictEqual(normalizePhone('+1 (519) 555-1234'),'+15195551234');
+assert.ok(maskEmail('test@example.com').includes('***'));
+assert.ok(maskPhone('+15195551234').includes('••••'));
+const a=codeHash({userId:'u1',channel:'SMS',target:'+15195551234',code:'123456',secret:'secret'});
+const b=codeHash({userId:'u1',channel:'SMS',target:'+15195551234',code:'123456',secret:'secret'});
+const c=codeHash({userId:'u1',channel:'SMS',target:'+15195551234',code:'654321',secret:'secret'});
+assert.ok(safeEqualHex(a,b));assert.ok(!safeEqualHex(a,c));
+console.log('account-verification-v251436.test.js: OK');

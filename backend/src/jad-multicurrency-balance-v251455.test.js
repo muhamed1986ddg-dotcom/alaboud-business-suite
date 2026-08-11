@@ -1,0 +1,10 @@
+const fs=require('fs');
+const path=require('path');
+const assert=require('assert');
+const source=fs.readFileSync(path.join(__dirname,'server.js'),'utf8');
+assert.match(source,/code:"ILS"[\s\S]*شيكل[\s\S]*شيقل/,'JAD parser must support ILS/شيكل');
+assert.match(source,/code:"EUR"[\s\S]*يورو/,'JAD parser must keep EUR support');
+assert.match(source,/code:"USD"[\s\S]*دولار/,'JAD parser must keep USD support');
+assert.ok(!/const html=await frame\.content\(\)[\s\S]{0,120}chunks\.push\(html\)/.test(source),'JAD dashboard balance source must not include hidden HTML clones');
+assert.match(source,/distance===selected\.distance&&alias\.length>selected\.aliasLength/,'Longer currency aliases must win ties (e.g. AUD before generic دولار)');
+console.log('v25.14.55 JAD multi-currency balance guard: OK');

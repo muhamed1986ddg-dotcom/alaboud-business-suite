@@ -642,7 +642,35 @@ function Partners({open,view="companies"}){
       <div className="partner-form-actions"><button>{editingId?"حفظ التعديلات":form.companyMode==="MANUAL"?"حفظ الشركة اليدوية":"حفظ وربط الشركة"}</button>{editingId&&<button type="button" className="danger-button" onClick={resetPartnerForm}>إلغاء التعديل</button>}</div>
     </form>}
 
-    {showCompaniesTable&&<div className="card tablewrap">
+    {showCompaniesTable&&<div className="partner-mobile-cards">
+      {data.rows.length?data.rows.map(partner=>{
+        const effectiveStatus=partner.lastSyncAt&&Number.isFinite(Number(partner.externalBalance))?"READY":partner.connectionStatus;
+        const connectorLabel=partner.connectorType==="TAWASUL"||partner.connectorType==="KONTORUN"?"تواصل":partner.connectorType==="JAD"?"جاد":partner.connectorType==="SURYANA"?"سوريانا":partner.connectorType==="DAHAB"?"دهب":"يدوي";
+        return <article className="partner-mobile-card" key={`mobile-partner-${partner.id}`}>
+          <header className="partner-mobile-card__head">
+            <div className="partner-mobile-card__title"><strong>{partner.name}</strong><small>{partner.contactName||partner.integrationName||"بدون مسؤول"}</small></div>
+            <span className={`integration-status status-${String(effectiveStatus||"MANUAL").toLowerCase()}`}>{statusLabel(effectiveStatus)}</span>
+          </header>
+          <div className="partner-mobile-card__meta">
+            <span className={`company-mode-badge ${partner.companyMode==="MANUAL"?"manual":"connected"}`}>{partner.companyMode==="MANUAL"?"يدوية":"مرتبطة"}</span>
+            <span className="partner-mobile-card__connector">{connectorLabel}</span>
+            <span className="partner-primary-currency">{flagOf(partner.accountCurrency||"USD")} {partner.accountCurrency||"USD"}</span>
+          </div>
+          <div className="partner-mobile-card__balances"><PartnerCurrencyBalances partner={partner}/></div>
+          <div className="partner-mobile-card__sync"><span>آخر مزامنة</span><strong>{relativeSyncTime(partner.lastSyncAt)}</strong></div>
+          {partner.systemUrl&&<a className="partner-mobile-card__link" href={partner.systemUrl} target="_blank" rel="noreferrer">فتح موقع الشركة ↗</a>}
+          {(view==="sync"||unified)&&["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<input className="jad-otp-input partner-mobile-card__otp" inputMode="numeric" autoComplete="one-time-code" maxLength="8" value={otpById[partner.id]||""} onChange={e=>setOtpById(current=>({...current,[partner.id]:e.target.value.replace(/\D/g,"").slice(0,8)}))} placeholder="رمز Authenticator" aria-label="رمز Google Authenticator"/>}
+          <footer className="partner-mobile-card__actions">
+            <button onClick={()=>open(partner.id)}>{partner.companyMode==="MANUAL"?"دفتر الحساب":"فتح"}</button>
+            {(view==="connections"||unified)&&<button type="button" onClick={()=>startEditPartner(partner)}>تعديل</button>}
+            {(view==="sync"||unified)&&["JAD","TAWASUL","KONTORUN","DAHAB","SURYANA"].includes(partner.connectorType)&&<button type="button" disabled={syncingId===partner.id} onClick={()=>syncPartner(partner)}>{syncingId===partner.id?"جاري الجلب...":"جلب الرصيد"}</button>}
+            {(view==="connections"||unified)&&<button type="button" className="danger-button" onClick={()=>deletePartner(partner)}>حذف</button>}
+          </footer>
+        </article>;
+      }):<div className="partner-mobile-empty">لا توجد شركات بعد.</div>}
+    </div>}
+
+    {showCompaniesTable&&<div className="card tablewrap partner-desktop-table">
       <AppTable>
         <thead><tr><th>الشركة</th><th>نوع الربط</th><th>الحالة</th><th>العملة الأساسية</th><th>أرصدة العملات</th><th>آخر مزامنة</th><th>الرابط</th><th>الإجراءات</th></tr></thead>
         <tbody>{data.rows.length?data.rows.map(partner=><tr key={partner.id}>
