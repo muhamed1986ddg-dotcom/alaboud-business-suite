@@ -1,4 +1,9 @@
-# v25.14.59 — Startup Runtime Guard
+## 25.14.60
+- عزل تحديثات telemetry (integration logs / API-key usage) عن app_state write-behind لمنع تعارض optimistic revision أثناء مزامنة جاد.
+- إضافة JAD revision-isolation regression guard.
+- استبعاد data/ من Docker build context.
+
+# v25.14.60 — Startup Runtime Guard
 - Fixed the Git-source startup regression where `apiKeyMiddleware` referenced `mutate` without importing it.
 - Added a hard Docker build guard that fails before image publication if `mutate` is missing from the `./store` import.
 

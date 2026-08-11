@@ -1,6 +1,6 @@
 {
   "name": "alaboud-business-suite-cloud",
-  "version": "25.14.59",
+  "version": "25.14.60",
   "private": true,
   "scripts": {
     "install:all": "npm ci --prefix backend --include=dev --ignore-scripts --no-audit --no-fund && npm ci --prefix frontend --include=dev --ignore-scripts --no-audit --no-fund",
@@ -17,8 +17,8 @@
     "test:e2e": "npm run test:e2e --prefix backend",
     "test:receivables": "npm run test:receivables --prefix backend",
     "check:sensitive": "node scripts/check-sensitive-files.js",
-    "check:reliability": "node backend/src/startup-runtime-v251459.test.js && node backend/src/postgres-pool-acquire-leak-regression.test.js && node backend/src/database/TransactionWriteTimeoutRecovery-v251418.test.js && node backend/src/write-reliability-v251451.test.js && node backend/src/idempotency-scope-v251457.test.js && node backend/src/optimistic-revision-v251457.test.js && node backend/src/operation-receipt-conflict-v251456.test.js && node backend/src/operation-receipt-migration-v251457.test.js",
-    "check:regressions": "node backend/src/finance/FinancialIntegrity.test.js && node backend/src/financial-balance-guard-v251449.test.js && node backend/src/customer-payment-deduction-v251447.test.js && node backend/src/old-account-cross-page-v251444.test.js && node backend/src/post-reset-old-account-v251446.test.js && node backend/src/paid-transfer-duplicate-payment-v251430.test.js && node backend/src/secure-session-v251450.test.js && node backend/src/jad-multicurrency-balance-v251455.test.js && node backend/src/rasel-sms-v2-v251454.test.js && node backend/src/idempotency-scope-v251457.test.js && node backend/src/optimistic-revision-v251457.test.js && node backend/src/version-consistency-v251457.test.js && node backend/src/operation-receipt-migration-v251457.test.js"
+    "check:reliability": "node backend/src/startup-runtime-v251459.test.js && node backend/src/postgres-pool-acquire-leak-regression.test.js && node backend/src/database/TransactionWriteTimeoutRecovery-v251418.test.js && node backend/src/write-reliability-v251451.test.js && node backend/src/idempotency-scope-v251457.test.js && node backend/src/optimistic-revision-v251457.test.js && node backend/src/jad-sync-revision-isolation-v251460.test.js && node backend/src/operation-receipt-conflict-v251456.test.js && node backend/src/operation-receipt-migration-v251457.test.js",
+    "check:regressions": "node backend/src/finance/FinancialIntegrity.test.js && node backend/src/financial-balance-guard-v251449.test.js && node backend/src/customer-payment-deduction-v251447.test.js && node backend/src/old-account-cross-page-v251444.test.js && node backend/src/post-reset-old-account-v251446.test.js && node backend/src/paid-transfer-duplicate-payment-v251430.test.js && node backend/src/secure-session-v251450.test.js && node backend/src/jad-multicurrency-balance-v251455.test.js && node backend/src/rasel-sms-v2-v251454.test.js && node backend/src/idempotency-scope-v251457.test.js && node backend/src/optimistic-revision-v251457.test.js && node backend/src/jad-sync-revision-isolation-v251460.test.js && node backend/src/version-consistency-v251457.test.js && node backend/src/operation-receipt-migration-v251457.test.js"
   },
   "engines": {
     "node": ">=22 <23"

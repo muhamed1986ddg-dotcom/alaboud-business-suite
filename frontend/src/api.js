@@ -52,7 +52,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.14.59";
+  config.headers["X-Alaboud-Client-Version"]="25.14.60";
   // Durable writes have a bounded interactive recovery budget. If PostgreSQL
   // is temporarily unavailable, start commit verification promptly instead of
   // leaving add/edit/delete buttons spinning for more than a minute.
