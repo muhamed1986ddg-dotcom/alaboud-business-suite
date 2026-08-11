@@ -7,3 +7,5 @@ build
 app/build
 frontend/dist
 backend/public
+
+data/
