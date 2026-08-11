@@ -4471,7 +4471,7 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
       const body=htmlText(html);
       const hasPassword=await page.locator('input[type="password"],input[name="pass"]').count().catch(()=>0);
       const hasLoginButton=await page.locator('button[name="btn-login"],input[name="btn-login"]').count().catch(()=>0);
-      const rejected=/(?:اسم المستخدم|كلمة المرور|بيانات الدخول).{0,35}(?:غير صحيحة|خاطئة|مرفوضة)|خطأ في تسجيل الدخول|invalid credentials|incorrect password|login failed|رمز.{0,20}(?:خاطئ|منتهي)/i.test(body);
+      const rejected=/(?:اسم المستخدم|كلمة المرور|بيانات الدخول).{0,35}(?:غير صحيحة|خاطئة|مرفوضة)|المعلومات\s+التي\s+أدخلتها\s+خاطئة|خطأ في تسجيل الدخول|invalid credentials|incorrect password|login failed|رمز.{0,20}(?:خاطئ|منتهي)/i.test(body);
       if((hasPassword&&hasLoginButton)||rejected){
         const reason=rejected?"رفض موقع جاد بيانات الدخول أو رمز التحقق":"بقيت صفحة تسجيل الدخول ظاهرة بعد الإرسال";
         throw await diagnosticError(`${reason}. استخدم اسم المستخدم وكلمة المرور الصحيحين ورمز Authenticator جديدًا`,"JAD_LOGIN_REJECTED");
