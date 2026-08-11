@@ -1,3 +1,12 @@
+# v25.14.59 — Startup Runtime Guard
+- Fixed the Git-source startup regression where `apiKeyMiddleware` referenced `mutate` without importing it.
+- Added a hard Docker build guard that fails before image publication if `mutate` is missing from the `./store` import.
+
+- Fixed Cloud Run startup crash caused by `mutate` being omitted from the store import while API-key middleware and integration logging still required it.
+- Preserved v25.14.57 idempotency-scope and optimistic-revision protections.
+- Added a runtime startup regression test that launches the real server and fails CI if the process crashes before listening.
+- No financial formulas, JAD parsing, customer balances, or database data were changed.
+
 ## v25.14.57
 
 - Tenant-scoped durable idempotency receipts; database replay now happens only after authentication.
