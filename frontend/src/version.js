@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.60 Startup Runtime Guard";
+export const APP_VERSION="v25.14.61 Durable Telemetry Isolation";
