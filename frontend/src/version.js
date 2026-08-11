@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.63 Architecture & Maintainability";
+export const APP_VERSION="v25.14.64 Navigation Performance";

@@ -1,6 +1,6 @@
 {
   "name": "alaboud-business-suite-cloud",
-  "version": "25.14.63",
+  "version": "25.14.64",
   "private": true,
   "scripts": {
     "install:all": "npm ci --prefix backend --include=dev --ignore-scripts --no-audit --no-fund && npm ci --prefix frontend --include=dev --ignore-scripts --no-audit --no-fund",
@@ -24,7 +24,8 @@
     "test:telemetry:live": "node scripts/telemetry-live-check-v251462.js",
     "check:capacity": "node scripts/postgres-capacity-v251462.js",
     "check:v251462": "node scripts/v251462-release-check.js && node backend/src/telemetry-long-outage-v251462.test.js && node backend/src/telemetry-isolation-v251461.test.js && node backend/src/telemetry-queue-v251461.test.js && node backend/src/e2e/financial-browser-v251462.e2e.js",
-    "check:v251463": "node backend/src/architecture-boundaries-v251463.test.js && node backend/src/telemetry-isolation-v251461.test.js && node backend/src/telemetry-queue-v251461.test.js && node backend/src/telemetry-long-outage-v251462.test.js"
+    "check:v251463": "node backend/src/architecture-boundaries-v251463.test.js && node backend/src/telemetry-isolation-v251461.test.js && node backend/src/telemetry-queue-v251461.test.js && node backend/src/telemetry-long-outage-v251462.test.js",
+    "check:v251464": "node backend/src/navigation-performance-v251464.test.js && node backend/src/architecture-boundaries-v251463.test.js && node backend/src/telemetry-isolation-v251461.test.js && node backend/src/telemetry-queue-v251461.test.js && node backend/src/telemetry-long-outage-v251462.test.js && node backend/src/version-consistency-v251457.test.js"
   },
   "engines": {
     "node": ">=22 <23"

@@ -33,6 +33,20 @@ const Invoice=React.lazy(()=>screenLoaders.customerDetails().then(m=>({default:m
 const Statement=React.lazy(()=>screenLoaders.customerDetails().then(m=>({default:m.Statement})));
 const Transactions=React.lazy(()=>screenLoaders.transactions().then(m=>({default:m.Transactions})));
 
+function warmScreenForPage(page){
+  const loader=
+    ["customers","overdue-customers"].includes(page)?screenLoaders.customers:
+    ["partners","company-balances","company-sync","company-connections","company-sync-logs"].includes(page)?screenLoaders.companies:
+    ["transactions","transactions-unpaid","transactions-paid","transactions-overdue","transaction-payments"].includes(page)?screenLoaders.transactions:
+    ["profits","monthly-report","reports-profits"].includes(page)?screenLoaders.reports:
+    page==="rates"?screenLoaders.exchangeRates:
+    page==="debts"?screenLoaders.debts:
+    ["capital-overview","capital"].includes(page)?screenLoaders.capital:
+    ["notification-settings","settings"].includes(page)?screenLoaders.settings:
+    page==="ai-center"?screenLoaders.ai:
+    ["expenses","capital-movement"].includes(page)?screenLoaders.simple:null;
+  if(loader)loader().catch(()=>{});
+}
 
 class AppErrorBoundary extends React.Component{
   constructor(props){
@@ -178,6 +192,9 @@ function AppLanguageBridge(){
 
     applyLanguage();
     const observer=new MutationObserver(records=>{
+      // Arabic is the normal UI. Skipping the DOM walk here avoids work after
+      // every render while preserving full translation when English is chosen.
+      if(!english)return;
       records.forEach(record=>record.addedNodes.forEach(node=>schedule(node)));
     });
     observer.observe(document.body,{childList:true,subtree:true});
@@ -254,17 +271,6 @@ export default function App({onAuthExpired=()=>{}}){
     typeof window!=="undefined" ? window.matchMedia("(max-width: 800px)").matches : false
   );
 
-  // Warm lazy chunks after the first screen is interactive. Navigation then opens without a full-page loading state.
-  useEffect(()=>{
-    const prefetch=()=>Promise.allSettled(Object.values(screenLoaders).map(load=>load()));
-    if(typeof window!=="undefined"&&"requestIdleCallback" in window){
-      const id=window.requestIdleCallback(prefetch,{timeout:3500});
-      return()=>window.cancelIdleCallback?.(id);
-    }
-    const timer=setTimeout(prefetch,1200);
-    return()=>clearTimeout(timer);
-  },[]);
-
   useEffect(()=>{
     let timer;
     const showOperationToast=event=>{
@@ -305,6 +311,7 @@ export default function App({onAuthExpired=()=>{}}){
   },[mobileMenuOpen]);
 
   function navigate(nextPage){
+    warmScreenForPage(nextPage);
     setPage(nextPage);
     setCustomerId(null);
     setInvoiceId(null);
@@ -432,6 +439,9 @@ export default function App({onAuthExpired=()=>{}}){
       {menu.map(([key,label])=><button
         key={key}
         className={page===key&&!customerId&&!invoiceId&&!statementCustomerId&&!partnerId?"active":""}
+        onPointerEnter={()=>warmScreenForPage(key)}
+        onFocus={()=>warmScreenForPage(key)}
+        onTouchStart={()=>warmScreenForPage(key)}
         onClick={()=>navigate(key)}
       >{label}</button>)}
       <button className="logout-top sidebar-logout-bottom" onClick={()=>setLogoutConfirm(true)}>🚪 تسجيل الخروج</button>
