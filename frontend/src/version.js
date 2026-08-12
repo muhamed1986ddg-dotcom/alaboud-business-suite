@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.65 Bounded Graceful Shutdown";
+export const APP_VERSION="v25.14.66 Architecture Stage 2";
