@@ -6,7 +6,7 @@ const path=require("path");
 
 const root=path.resolve(__dirname,"../..");
 const details=fs.readFileSync(path.join(root,"frontend/src/screens/CustomerDetails.jsx"),"utf8");
-const styles=fs.readFileSync(path.join(root,"frontend/src/styles.css"),"utf8");
+const styles=fs.readFileSync(path.join(root,"frontend/src/styles.css"),"utf8").replace(/\r\n?/g,"\n");
 
 assert(details.includes('className="card no-print form customer-account-actions"'),"customer-account toolbar class is required");
 assert(details.includes('role="toolbar" aria-label="إجراءات حساب العميل"'),"customer actions must remain an accessible toolbar");

@@ -1,0 +1,7 @@
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+.gcloudignore text eol=lf
+scripts/check-container-paths.js text eol=lf
+backend/src/customer-directory-actions-v251471.test.js text eol=lf
+backend/src/customer-statement-toolbar-v251470.test.js text eol=lf
+backend/src/operation-receipt-conflict-v251456.test.js text eol=lf

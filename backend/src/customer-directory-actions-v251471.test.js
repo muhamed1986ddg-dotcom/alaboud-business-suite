@@ -6,7 +6,7 @@ const path=require("path");
 
 const root=path.resolve(__dirname,"../..");
 const customers=fs.readFileSync(path.join(root,"frontend/src/screens/Customers.jsx"),"utf8");
-const styles=fs.readFileSync(path.join(root,"frontend/src/styles.css"),"utf8");
+const styles=fs.readFileSync(path.join(root,"frontend/src/styles.css"),"utf8").replace(/\r\n?/g,"\n");
 
 const actionsStart=customers.indexOf('className="customer-card-actions overdue-actions customer-directory-actions"');
 const actionsEnd=customers.indexOf("</article>",actionsStart);
