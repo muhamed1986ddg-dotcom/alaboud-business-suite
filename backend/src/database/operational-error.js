@@ -43,7 +43,11 @@ function isTransientDatabaseError(error, seen = new Set()) {
 }
 
 function isRecoverableOperationalError(error) {
-  return isTransientDatabaseError(error) ||
+  const code = String(error?.code || "").toUpperCase();
+  const status = Number(error?.status || error?.statusCode || 0);
+  const isRetryableRevisionConflict = code === "STALE_STATE_REVISION" &&
+    status === 409 && error?.retryable === true && error?.fatal !== true;
+  return isTransientDatabaseError(error) || isRetryableRevisionConflict ||
     (Number(error?.status || error?.statusCode || 0) === 503 && error?.fatal !== true);
 }
 

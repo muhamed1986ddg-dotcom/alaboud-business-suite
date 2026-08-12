@@ -6102,7 +6102,7 @@ async function initializeApplicationWithRetry(){
   while(!shuttingDown&&!serviceReady){
     startupAttempt+=1;
     try{
-      await initStore();
+      await initStore({reload:startupAttempt>1});
       nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
       telemetryLifecycle.start();
       await seedAdmin();
@@ -6126,7 +6126,7 @@ async function initializeApplicationWithRetry(){
       serviceStartupError=error;
       if(!isRecoverableOperationalError(error)) throw error;
       const delay=Math.min(maxMs,baseMs*(2**Math.min(startupAttempt-1,4)));
-      console.warn(`Database startup unavailable; retrying attempt ${startupAttempt+1} in ${delay}ms:`,error?.code||error?.message||error);
+      console.warn(`Application startup deferred; retrying attempt ${startupAttempt+1} in ${delay}ms:`,error?.code||error?.message||error);
       await startupWait(delay);
     }
   }

@@ -8,5 +8,7 @@ assert.equal(isRecoverableOperationalError({ status: 503, code: "DATABASE_TEMPOR
 assert.equal(isTransientDatabaseError({ message: "Connection terminated unexpectedly" }), true);
 assert.equal(isTransientDatabaseError({ cause: { code: "08006" } }), true);
 assert.equal(isRecoverableOperationalError({ status: 503, message: "temporary outage" }), true);
+assert.equal(isRecoverableOperationalError({ status: 409, code: "STALE_STATE_REVISION", retryable: true }), true);
+assert.equal(isRecoverableOperationalError({ status: 409, code: "STALE_STATE_REVISION", retryable: false }), false);
 assert.equal(isRecoverableOperationalError({ status: 500, code: "PROGRAMMER_ERROR" }), false);
 console.log("Operational database error classification tests passed");

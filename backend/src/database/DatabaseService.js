@@ -58,6 +58,23 @@ class DatabaseService {
     return this.store;
   }
 
+  async reload() {
+    if (!this.initialized || !this.adapter) return this.init();
+    if (this.pendingSnapshot || this.persisting) {
+      const error = new Error("Cannot reload application state while writes are pending");
+      error.code = "DATABASE_RELOAD_WRITES_PENDING";
+      error.status = 503;
+      error.retryable = true;
+      throw error;
+    }
+    await this.durableSaveChain;
+    const loaded = await this.adapter.load();
+    this.store = this.normalize(loaded || this.emptyStore());
+    this.lastPersistError = null;
+    this.logger.log(`DatabaseService reloaded (${this.adapter.mode})`);
+    return this.store;
+  }
+
   getStore() {
     return this.store;
   }

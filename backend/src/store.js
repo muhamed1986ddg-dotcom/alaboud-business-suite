@@ -53,8 +53,8 @@ const database = new DatabaseService({
 });
 
 let rootStore = emptyStore();
-async function initStore(){
-  rootStore = await database.init();
+async function initStore({reload=false}={}){
+  rootStore = reload ? await database.reload() : await database.init();
   if(!databaseUrl)console.warn("DATABASE_URL missing: JSON fallback active; Render redeploy may erase data");
 }
 function readRootStore(){return normalizeStore(rootStore)}
