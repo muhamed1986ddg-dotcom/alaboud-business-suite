@@ -16,7 +16,16 @@ export function CustomerToolbar({activePanel,onSelect,totalDebt}){
 
 export function CustomerListControls({search,onSearch,sortMode,onSort}){
   return <div className="customer-list-controls">
-    <input autoFocus className="customer-search" value={search} onChange={event=>onSearch(event.target.value)} placeholder="بحث باسم العميل أو رقم الهاتف"/>
+    <input
+      autoFocus
+      type="search"
+      inputMode="search"
+      className="customer-search"
+      value={search}
+      onChange={event=>onSearch(event.target.value)}
+      placeholder="بحث بالاسم أو رقم العميل أو رقم الهاتف"
+      aria-label="البحث في قائمة العملاء بالاسم أو رقم العميل أو رقم الهاتف"
+    />
     <label className="customer-sort-control">
       <span>ترتيب العملاء</span>
       <select value={sortMode} onChange={event=>onSort(event.target.value)} aria-label="ترتيب قائمة العملاء">

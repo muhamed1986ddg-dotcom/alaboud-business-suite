@@ -33,6 +33,7 @@ const { createSession, validateSession, revokeSession, revokeUserSessions } = re
 const { normalizeChannel, normalizeEmail, normalizePhone: normalizeVerificationPhone, maskEmail, maskPhone, codeHash, safeEqualHex: safeEqualVerificationHex } = require("./account-verification");
 const { generateApiKey, keyPrefix, normalizeScopes, apiKeyMiddleware, versionAliasMiddleware, integrationLogger, openApiDocument, docsHtml, safeEqualHex } = require("./api-platform");
 const { createBranch, resolveBranch, branchSummary } = require("./branch-manager");
+const { customerMatchesSearch } = require("./customer-search");
 const {
   APP_VERSION,
   createBackupEnvelope,
@@ -1715,10 +1716,9 @@ app.get("/api/customers", auth, async (req,res)=>{
     }
 
     const customers=Array.from(store.customers||[]);
-    const lowered=search.toLowerCase();
     const base=customers
       .filter(customer=>!customer?.isDeleted)
-      .filter(customer=>!lowered||[customer.name,customer.phone,customer.customerNumber,customer.identityNumber].some(value=>String(value||"").toLowerCase().includes(lowered)))
+      .filter(customer=>customerMatchesSearch(customer,search,["name","phone","customerNumber","identityNumber"]))
       .sort(compareCustomers(sort));
     const win=requestedWindow(req,base.length);
     const items=base.slice(win.start,win.end).map(customer=>customerSummary(store,customer));
@@ -1758,10 +1758,9 @@ app.get("/api/customers/options",auth,async(req,res)=>{
       ()=>null
     );
     const customers=nativePage&&Array.isArray(nativePage.rows)?nativePage.rows:Array.from(store.customers||[]);
-    const lowered=search.toLowerCase();
     const rows=customers
       .filter(customer=>!customer?.isDeleted)
-      .filter(customer=>!lowered||[customer.name,customer.phone,customer.customerNumber].some(value=>String(value||"").toLowerCase().includes(lowered)))
+      .filter(customer=>customerMatchesSearch(customer,search,["name","phone","customerNumber"]))
       .sort(compareCustomers("name-asc"))
       .slice(nativePage&&Array.isArray(nativePage.rows)?0:offset,nativePage&&Array.isArray(nativePage.rows)?undefined:offset+limit)
       .map(customer=>({id:customer.id,name:customer.name,phone:customer.phone||"",customerNumber:customer.customerNumber||customer.identityNumber||""}));

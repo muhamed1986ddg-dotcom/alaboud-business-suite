@@ -719,25 +719,33 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       <CustomerListControls search={search} onSearch={setSearch} sortMode={sortMode} onSort={setSortMode}/>
     </div>
 
-    <div className="customer-cards customer-list-simple">
-      {visibleCustomers.length?visibleCustomers.map(customer=><div
-        className={`customer-simple-row customer-row-with-actions ${customer.overdue?"is-overdue":customer.finalBalance>0?"has-balance":"is-paid"}`}
-        key={customer.id}
-      >
-        <button type="button" className="customer-open-button" onClick={()=>open(customer.id)}>
-          <div className="customer-simple-main customer-name-only">
-            <strong>{customer.name}</strong>
-            <small>{customer.phone||"بدون رقم هاتف"}</small>
-            {Number(customer.oldBalance||0)>0&&<small className={`customer-old-balance-badge ${customer.oldBalanceType==="PAYABLE"?"payable":"receivable"}`}>
-              الحساب القديم {customer.oldBalanceType==="PAYABLE"?"له":"عليه"}: {money(customer.oldBalance)} CAD
-            </small>}
-            <small className={`customer-final-balance-badge ${Number(customer.finalBalance||0)<0?"payable":Number(customer.finalBalance||0)>0?"receivable":"settled"}`}>
-              {Number(customer.finalBalance||0)<0?"الرصيد النهائي له":Number(customer.finalBalance||0)>0?"الرصيد النهائي عليه":"الرصيد النهائي"}: {money(Math.abs(Number(customer.finalBalance||0)))} CAD
-            </small>
-            {customer.accountResetAt&&<small className="customer-reset-date">حساب جديد منذ {new Date(customer.accountResetAt).toLocaleDateString("ar-CA")}</small>}
+    <div className="customer-cards customer-directory-grid overdue-dark-scope">
+      {visibleCustomers.length?visibleCustomers.map(customer=>{
+        const finalBalance=Number(customer.finalBalance||0);
+        const oldBalance=Number(customer.oldBalance||0);
+        const cardState=customer.overdue?"severity-danger":finalBalance!==0?"severity-warning":"severity-notice";
+        return <article
+          className={`card overdue-customer-card customer-directory-card ${cardState}`}
+          key={customer.id}
+        >
+          <div className="overdue-customer-head customer-directory-head">
+            <div>
+              <h3>{customer.name}</h3>
+              <p>{customer.phone||"لا يوجد رقم هاتف"}</p>
+            </div>
+            <span>رقم {customer.customerNumber||customer.identityNumber||"—"}</span>
           </div>
-        </button>
-        <div className="customer-row-actions">
+
+          <div className="overdue-customer-details expanded customer-directory-details">
+            <div className="overdue-metric"><span>رقم العميل</span><strong>{customer.customerNumber||customer.identityNumber||"—"}</strong></div>
+            <div className="overdue-metric"><span>{finalBalance<0?"الرصيد النهائي له":finalBalance>0?"الرصيد النهائي عليه":"الرصيد النهائي"}</span><strong>{money(Math.abs(finalBalance))} CAD</strong></div>
+            <div className="overdue-metric"><span>{oldBalance>0?`الحساب القديم ${customer.oldBalanceType==="PAYABLE"?"له":"عليه"}`:"الحساب القديم"}</span><strong className={`customer-old-balance-badge ${customer.oldBalanceType==="PAYABLE"?"payable":"receivable"}`}>{money(oldBalance)} CAD</strong></div>
+          </div>
+
+          {customer.accountResetAt&&<div className="customer-reset-banner">حساب جديد منذ {new Date(customer.accountResetAt).toLocaleDateString("ar-CA")}</div>}
+
+          <div className="customer-card-actions overdue-actions customer-directory-actions">
+            <button type="button" className="customer-open-account-button" onClick={()=>open(customer.id)}>📂 فتح الحساب</button>
           <button
             type="button"
             className="customer-reset-button"
@@ -762,8 +770,9 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           >
             🗑️ حذف
           </button>
-        </div>
-      </div>):<div className="card">لا توجد نتائج.</div>}
+          </div>
+        </article>;
+      }):<div className="card">لا توجد نتائج.</div>}
     </div>
     <AppPagination page={page} totalPages={effectiveTotalPages} onChange={setPage}/>
     </>}
@@ -977,4 +986,3 @@ export function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
     </div>
   </>;
 }
-

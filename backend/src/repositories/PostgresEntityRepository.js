@@ -1,4 +1,5 @@
 const SAFE_IDENTIFIER = /^[a-z_][a-z0-9_]*$/i;
+const { normalizeCustomerSearchDigits } = require("../customer-search");
 
 function quote(identifier) {
   if (!SAFE_IDENTIFIER.test(identifier)) throw new Error(`Unsafe SQL identifier: ${identifier}`);
@@ -68,6 +69,12 @@ class PostgresEntityRepository {
     if (term) {
       values.push(`%${term}%`);
       filter += ` AND (c.name ILIKE $2 OR COALESCE(c.phone,'') ILIKE $2 OR COALESCE(c.raw_payload->>'customerNumber','') ILIKE $2 OR COALESCE(c.raw_payload->>'identityNumber','') ILIKE $2)`;
+      const digitTerm = normalizeCustomerSearchDigits(term);
+      if (digitTerm) {
+        values.push(`%${digitTerm}%`);
+        const digitIndex = values.length;
+        filter = `${filter.slice(0,-1)} OR regexp_replace(COALESCE(c.phone,''),'[^0-9]','','g') LIKE $${digitIndex} OR regexp_replace(COALESCE(c.raw_payload->>'customerNumber',''),'[^0-9]','','g') LIKE $${digitIndex} OR regexp_replace(COALESCE(c.raw_payload->>'identityNumber',''),'[^0-9]','','g') LIKE $${digitIndex})`;
+      }
     }
     const countResult = await this.query(`SELECT COUNT(*)::int AS count FROM ${quote(this.table)} c WHERE ${filter}`, values);
     values.push(safeLimit, safeOffset);

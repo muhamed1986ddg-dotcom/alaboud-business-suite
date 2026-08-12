@@ -371,8 +371,10 @@ export function Customer({id,back,onStatement,onAddTransfer}){
       <button onClick={()=>onStatement(id)}>كشف حساب العميل</button>
       <button className="customer-add-transfer-button" onClick={()=>onAddTransfer?.(customer)}>➕ إضافة حوالة للعميل</button>
       <button className="whatsapp-text-button" onClick={shareCustomerStatementText}>💬 إرسال رسالة نصية عبر واتساب</button>
-      <button className="whatsapp-image-button" onClick={()=>shareCustomerStatement("share")}>📤 مشاركة صورة كشف الحساب</button>
-      <button className="statement-save-image-button" onClick={()=>shareCustomerStatement("save")}>💾 حفظ الصورة</button>
+      <div className="customer-statement-image-actions" role="group" aria-label="إجراءات صورة كشف الحساب">
+        <button className="whatsapp-image-button" onClick={()=>shareCustomerStatement("share")}>📤 مشاركة صورة كشف الحساب</button>
+        <button className="statement-save-image-button" onClick={()=>shareCustomerStatement("save")}>💾 حفظ الصورة</button>
+      </div>
     </div>
 
     <h2>{customer.name||"العميل"}</h2>
@@ -750,4 +752,3 @@ export function Statement({customerId,back}){
     </section>}
   </>;
 }
-
