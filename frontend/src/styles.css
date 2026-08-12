@@ -6963,3 +6963,49 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
   .customer-statement-image-actions .whatsapp-image-button{font-size:.76rem;padding-inline:8px}
   .customer-statement-image-actions .statement-save-image-button{font-size:.76rem;padding-inline:8px}
 }
+
+/* v25.14.70 — keep every customer-account action compact */
+.customer-details-page>.customer-account-actions{
+  display:flex!important;
+  flex-wrap:wrap!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  gap:8px!important;
+  padding:10px!important;
+}
+.customer-details-page>.customer-account-actions>.customer-statement-image-actions{
+  display:flex!important;
+  flex:0 1 auto!important;
+  flex-wrap:wrap!important;
+  align-items:center!important;
+  gap:8px!important;
+  width:auto!important;
+  min-width:0!important;
+}
+.customer-details-page>.customer-account-actions>button,
+.customer-details-page>.customer-account-actions .customer-statement-image-actions>button{
+  flex:0 1 auto!important;
+  width:auto!important;
+  min-width:0!important;
+  min-height:38px!important;
+  margin:0!important;
+  padding:7px 10px!important;
+  font-size:.8rem!important;
+  line-height:1.2!important;
+  white-space:normal!important;
+}
+@media(max-width:700px){
+  .customer-details-page>.customer-account-actions{
+    gap:6px!important;
+    padding:7px!important;
+  }
+  .customer-details-page>.customer-account-actions>.customer-statement-image-actions{
+    gap:6px!important;
+  }
+  .customer-details-page>.customer-account-actions>button,
+  .customer-details-page>.customer-account-actions .customer-statement-image-actions>button{
+    min-height:36px!important;
+    padding:6px 8px!important;
+    font-size:.72rem!important;
+  }
+}

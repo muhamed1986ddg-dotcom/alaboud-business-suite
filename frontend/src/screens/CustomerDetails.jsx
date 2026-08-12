@@ -366,7 +366,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
   const totalTransactionCad=transactionRows.reduce((sum,row)=>sum+row.cadValue,0);
 
   return <div className="customer-details-page">
-    <div className="card no-print form">
+    <div className="card no-print form customer-account-actions" role="toolbar" aria-label="إجراءات حساب العميل">
       <button onClick={back}>رجوع</button>
       <button onClick={()=>onStatement(id)}>كشف حساب العميل</button>
       <button className="customer-add-transfer-button" onClick={()=>onAddTransfer?.(customer)}>➕ إضافة حوالة للعميل</button>
