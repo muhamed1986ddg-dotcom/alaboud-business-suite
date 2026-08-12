@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.70 Compact Customer Actions";
+export const APP_VERSION="v25.14.71 Aligned Customer Actions";

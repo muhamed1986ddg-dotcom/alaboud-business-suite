@@ -7009,3 +7009,8 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
     font-size:.72rem!important;
   }
 }
+
+/* v25.14.71 — keep reset beside open account in the customer directory */
+.customer-directory-actions .customer-reset-button{
+  grid-column:auto!important;
+}
