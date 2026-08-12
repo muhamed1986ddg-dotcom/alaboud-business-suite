@@ -96,6 +96,10 @@ async function hungDatabaseCannotExceedGlobalBudget(){
 }
 
 async function runtimeSigtermCompletesWithPhaseLogs(){
+  if(process.platform==="win32"){
+    console.log("v25.14.65 runtime SIGTERM check skipped on Windows; Linux Cloud Build retains the runtime check");
+    return;
+  }
   const serverPath=path.join(__dirname,"server.js");
   try { require.resolve("express",{paths:[path.dirname(serverPath)]}); }
   catch {
