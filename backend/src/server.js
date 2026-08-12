@@ -11,7 +11,7 @@ const dns = require("dns").promises;
 const net = require("net");
 const http = require("http");
 const https = require("https");
-const { readStore, readRootStore, mutate, mutateVolatile, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, closeStore, getDatabaseQuery } = require("./store");
+const { readStore, readRootStore, mutate, mutateVolatile, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, flushStore, closeStore, getDatabaseQuery } = require("./store");
 const { createTelemetryWriter } = require("./telemetry-writer");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const FinancialEngine = require("./finance/FinancialEngine");
@@ -24,6 +24,7 @@ const { registerHealthRoutes } = require("./routes/health");
 const { createServiceReadinessGate } = require("./middleware/service-readiness");
 const { createInMemoryRateLimiter } = require("./middleware/rate-limit");
 const { createTelemetryLifecycle } = require("./services/telemetry-lifecycle");
+const { createGracefulShutdown } = require("./services/graceful-shutdown");
 const { createIdempotencyMiddleware, createRequireIdempotencyKey, operationScopeKey } = require("./reliability/idempotency");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
 const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
@@ -6196,17 +6197,18 @@ let shuttingDown=false;
 function isTransientConnectionError(error){
   return isRecoverableOperationalError(error);
 }
-async function shutdown(signal){
-  if(shuttingDown)return;
-  shuttingDown=true;
-  console.log(`${signal} received: flushing database writes`);
-  try{
-    if(serverInstance) await new Promise(resolve=>serverInstance.close(resolve));
-    try{await telemetryLifecycle.stop({timeoutMs:4000});}catch(error){console.warn("Final telemetry flush failed:",error.message);}
-    await closeStore();
-    process.exit(0);
-  }catch(error){console.error("Graceful shutdown failed:",error);process.exit(1)}
-}
+const gracefulShutdown=createGracefulShutdown({
+  getServer:()=>serverInstance,
+  onShutdownStart:()=>{shuttingDown=true;serviceReady=false;},
+  flushStore,
+  closeStore,
+  stopTelemetry:options=>telemetryLifecycle.stop(options),
+  totalTimeoutMs:Number(process.env.SHUTDOWN_TOTAL_TIMEOUT_MS||8000),
+  httpDrainTimeoutMs:Number(process.env.SHUTDOWN_HTTP_DRAIN_TIMEOUT_MS||1500),
+  telemetryTimeoutMs:Number(process.env.SHUTDOWN_TELEMETRY_TIMEOUT_MS||750),
+  poolCloseTimeoutMs:Number(process.env.SHUTDOWN_POOL_CLOSE_TIMEOUT_MS||750)
+});
+const shutdown=signal=>gracefulShutdown.shutdown(signal);
 process.on("SIGTERM",()=>shutdown("SIGTERM"));
 process.on("SIGINT",()=>shutdown("SIGINT"));
 process.on("unhandledRejection",error=>{

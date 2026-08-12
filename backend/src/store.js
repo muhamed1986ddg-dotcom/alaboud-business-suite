@@ -190,6 +190,7 @@ function runWithTenant(companyId,branchId,fn){
 function id(){return crypto.randomUUID()}
 function now(){return new Date().toISOString()}
 async function databaseHealth(){return database.health()}
-async function closeStore(){return database.close()}
+async function flushStore(options){return database.flush(options)}
+async function closeStore(options){return database.close(options)}
 function getDatabaseQuery(){return database.getQueryFunction()}
-module.exports={readStore,writeStore,writeStoreDurable,mutate,mutateVolatile,mutateDurable,id,now,dataFile,runWithTenant,readRootStore,initStore,databaseHealth,closeStore,getDatabaseQuery};
+module.exports={readStore,writeStore,writeStoreDurable,mutate,mutateVolatile,mutateDurable,id,now,dataFile,runWithTenant,readRootStore,initStore,databaseHealth,flushStore,closeStore,getDatabaseQuery};

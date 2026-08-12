@@ -74,11 +74,16 @@ class DatabaseService {
     const ownedSnapshot = options.ownedSnapshot === true;
     const snapshot = ownedSnapshot ? nextStore : structuredClone(this.normalize(nextStore));
     const execute = async () => {
-      await this.adapter.save(snapshot, { interactive: true, ...options, immutableSnapshot: ownedSnapshot });
-      this.store = ownedSnapshot ? snapshot : this.normalize(snapshot);
-      this.pendingSnapshot = null;
-      this.lastPersistError = null;
-      return this.store;
+      try {
+        await this.adapter.save(snapshot, { interactive: true, ...options, immutableSnapshot: ownedSnapshot });
+        this.store = ownedSnapshot ? snapshot : this.normalize(snapshot);
+        this.pendingSnapshot = null;
+        this.lastPersistError = null;
+        return this.store;
+      } catch (error) {
+        this.lastPersistError = error;
+        throw error;
+      }
     };
     const task = this.durableSaveChain.then(execute, execute);
     this.durableSaveChain = task.catch(() => undefined);
@@ -136,11 +141,18 @@ class DatabaseService {
 
   async flush({ timeoutMs = 15000 } = {}) {
     if (this.pendingSnapshot) this.startWriteBehindWorker();
+    let timer = null;
     const timeout = new Promise((_, reject) => {
-      const timer = setTimeout(() => reject(new Error("Database flush timed out")), timeoutMs);
-      timer.unref?.();
+      timer = setTimeout(() => reject(new Error("Database flush timed out")), Math.max(1, Number(timeoutMs) || 1));
     });
-    await Promise.race([this.persistChain, timeout]);
+    try {
+      // saveDurable uses a separate serialized chain from write-behind. Wait
+      // for both so SIGTERM cannot close PostgreSQL while a confirmed financial
+      // write is still in flight.
+      await Promise.race([Promise.all([this.persistChain, this.durableSaveChain]), timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     if (this.lastPersistError) throw this.lastPersistError;
     if (this.pendingSnapshot || this.persisting) throw new Error("Database still has pending writes");
   }
@@ -162,10 +174,39 @@ class DatabaseService {
     return this.adapter.query.bind(this.adapter);
   }
 
-  async close() {
+  async close({ timeoutMs = Number(process.env.SHUTDOWN_FLUSH_TIMEOUT_MS || 5000), skipFlush = false } = {}) {
+    const budget = Math.max(1, Number(timeoutMs) || 1);
+    const deadline = Date.now() + budget;
+    const remaining = () => Math.max(1, deadline - Date.now());
     clearTimeout(this.writeBehindRetryTimer);
-    try { await this.flush({ timeoutMs: Number(process.env.SHUTDOWN_FLUSH_TIMEOUT_MS || 15000) }); } catch (error) { this.logger.error("Final database flush failed:", error.message); }
-    if (this.adapter) await this.adapter.close();
+    let firstError = null;
+    if (!skipFlush) {
+      try {
+        await this.flush({ timeoutMs: remaining() });
+      } catch (error) {
+        firstError = error;
+        this.logger.error("Final database flush failed:", error.message);
+      }
+    }
+    if (this.adapter && Date.now() < deadline) {
+      let timer = null;
+      try {
+        const timeout = new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Database adapter close timed out")), remaining());
+        });
+        await Promise.race([this.adapter.close(), timeout]);
+      } catch (error) {
+        if (!firstError) firstError = error;
+        this.logger.error("Final database adapter close failed:", error.message);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    } else if (this.adapter) {
+      const error = new Error("Database adapter close skipped: shutdown budget exhausted");
+      if (!firstError) firstError = error;
+      this.logger.error("Final database adapter close failed:", error.message);
+    }
+    if (firstError) throw firstError;
   }
 }
 
