@@ -5,6 +5,7 @@ const DatabaseService = require("./database/DatabaseService");
 const JsonFileAdapter = require("./database/adapters/JsonFileAdapter");
 const PostgresStateAdapter = require("./database/adapters/PostgresStateAdapter");
 const { getOperationContext } = require("./reliability/operation-context");
+const { runWithStaleRevisionRecovery } = require("./reliability/stale-revision-recovery");
 
 const tenantContext = new AsyncLocalStorage();
 const RAW_STORE = Symbol("ALABOUD_RAW_STORE");
@@ -163,22 +164,21 @@ function mutateDurable(fn){
   // is not touched until PostgreSQL confirms COMMIT. This keeps rollback
   // semantics while avoiding multiple full-store clones/normalizations on the
   // hot add/edit/delete path.
-  const execute=async()=>{
-    const draft=structuredClone(rootStore);
-    const view=companyId?tenantView(draft,companyId,branchId):draft;
-    const result=await fn(view);
-    const normalizedDraft=normalizeStore(draft);
-    const requestOperation=getOperationContext();
-    const operationReceipt=requestOperation?.key ? {
-      ...requestOperation,
-      companyId,
-      branchId,
-      result
-    } : null;
-    await database.saveDurable(normalizedDraft,{operationReceipt,ownedSnapshot:true});
-    rootStore=database.replaceStore(normalizedDraft);
-    return result;
-  };
+  const execute=async()=>runWithStaleRevisionRecovery({
+    maxAttempts:Math.max(1,Math.min(5,Number(process.env.DURABLE_STALE_REVISION_ATTEMPTS||3))),
+    execute:async()=>{
+      const draft=structuredClone(rootStore);
+      const view=companyId?tenantView(draft,companyId,branchId):draft;
+      const result=await fn(view);
+      const normalizedDraft=normalizeStore(draft);
+      const requestOperation=getOperationContext();
+      const operationReceipt=requestOperation?.key ? {...requestOperation,companyId,branchId,result} : null;
+      await database.saveDurable(normalizedDraft,{operationReceipt,ownedSnapshot:true});
+      rootStore=database.replaceStore(normalizedDraft);
+      return result;
+    },
+    reload:async()=>{rootStore=database.replaceStore(normalizeStore(await database.reload()));}
+  });
   const task=durableMutationChain.then(execute,execute);
   durableMutationChain=task.catch(()=>undefined);
   return task;

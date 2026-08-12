@@ -2212,6 +2212,7 @@ app.post("/api/customers/:id/payments", auth, requireIdempotencyKey, async (req,
 
     res.status(201).json(result);
   }catch(error){
+    if(isRecoverableOperationalError(error))return res.status(Number(error?.status||error?.statusCode||503)).json({message:error?.publicMessage||"تم تحديث البيانات قبل اكتمال الحفظ. لم يتم اعتماد الدفعة؛ أعد المحاولة مرة واحدة.",code:error?.code||"DATABASE_TEMPORARILY_UNAVAILABLE",retryable:true});
     res.status(400).json({message:error.message||"تعذر إضافة الدفعة"});
   }
 });
@@ -2248,6 +2249,7 @@ app.post("/api/transactions/:id/payments", auth, requireIdempotencyKey, async (r
     res.status(201).json(payment);
   }catch(error){
     const message=String(error?.message||"تعذر إضافة الدفعة");
+    if(isRecoverableOperationalError(error))return res.status(Number(error?.status||error?.statusCode||503)).json({message:error?.publicMessage||"تم تحديث البيانات قبل اكتمال الحفظ. لم يتم اعتماد الدفعة؛ أعد المحاولة مرة واحدة.",code:error?.code||"DATABASE_TEMPORARILY_UNAVAILABLE",retryable:true});
     const status=(message==="Transaction not found")?404:400;
     res.status(status).json({message});
   }
@@ -5945,7 +5947,6 @@ async function initializeApplicationWithRetry(){
           console.error("Hourly exchange-rate refresh failed:",error.message);
         }
       };
-      setTimeout(runHourlyRateRefresh,60*1000);
       setInterval(runHourlyRateRefresh,60*60*1000);
       return;
     }catch(error){
