@@ -96,6 +96,11 @@ async function hungDatabaseCannotExceedGlobalBudget(){
 }
 
 async function runtimeSigtermCompletesWithPhaseLogs(){
+  // Windows terminates child processes immediately for child.kill("SIGTERM")
+  // instead of delivering a POSIX signal to Node's process handler. The
+  // platform-neutral lifecycle tests above still verify phase ordering,
+  // durability, time budgets and exit codes; Cloud Build runs this runtime
+  // signal check on Linux, matching Cloud Run production behavior.
   if(process.platform==="win32"){
     console.log("v25.14.65 runtime SIGTERM check skipped on Windows; Linux Cloud Build retains the runtime check");
     return;

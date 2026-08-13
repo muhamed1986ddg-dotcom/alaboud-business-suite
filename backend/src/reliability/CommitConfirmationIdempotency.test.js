@@ -3,7 +3,7 @@
 const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
-const { createIdempotencyMiddleware } = require("./idempotency");
+const { createIdempotencyMiddleware, createRequireIdempotencyKey } = require("./idempotency");
 const { getOperationContext } = require("./operation-context");
 
 function makeReq(key="op-1") {
@@ -33,7 +33,8 @@ function makeRes(){
   // A receipt already committed in PostgreSQL must be replayed without running
   // the mutation again, even after the Node process memory cache is empty.
   let nextCalled=false;
-  const committedMiddleware=createIdempotencyMiddleware({
+  // Durable receipt lookup deliberately runs only after authentication.
+  const committedMiddleware=createRequireIdempotencyKey({
     getQuery:()=>async()=>({rows:[{response_body:{id:"payment-1",amount:100},app_revision:9,committed_at:new Date()}]})
   });
   const replayRes=makeRes();
@@ -68,7 +69,7 @@ function makeRes(){
 
   const apiSource=fs.readFileSync(path.join(__dirname,"../../../frontend/src/api.js"),"utf8");
   assert(apiSource.includes("verifyCommittedOperation"));
-  assert(apiSource.includes("جارٍ التحقق من نتيجة العملية"));
+  assert(apiSource.includes("انقطع تأكيد العملية. يتم إجراء تحقق واحد فقط"));
   assert(apiSource.includes("/api/operations/"));
 
   console.log("Commit confirmation & idempotency tests passed");

@@ -207,9 +207,9 @@ function SettingsPanel({activeBranchId,onActiveBranchChange}){
       const {data}=await api.post("/auth/biometric-token");
       const userJson=localStorage.getItem("afs_user")||"{}";
       if(typeof native.enableBiometricLogin==="function"){
-        native.enableBiometricLogin(data.token,userJson);
+        native.enableBiometricLogin(data.token,userJson,data.deviceId);
       }else if(typeof native.enableBiometric==="function"){
-        native.saveBiometricToken?.(data.token,userJson);
+        native.saveBiometricToken?.(data.token,userJson,data.deviceId);
         native.enableBiometric();
       }else{
         throw new Error("إصدار تطبيق الهاتف لا يدعم تفعيل البصمة");

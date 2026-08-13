@@ -8,12 +8,12 @@ const api = fs.readFileSync(path.join(__dirname,"..","..","..","frontend","src",
 const status = fs.readFileSync(path.join(__dirname,"..","..","..","frontend","src","components","system","DatabaseStatus.jsx"),"utf8");
 assert.match(adapter,/async recoverConnection/);
 assert.match(adapter,/SELECT 1/);
-assert.match(adapter,/PG_WRITE_RECOVERY_BUDGET_MS/);
+assert.match(adapter,/PG_RECOVERY_BUDGET_MS/);
 assert.match(adapter,/recoveryPromise/);
-assert.match(server,/isTransientDatabaseError\(err\)/);
+assert.match(server,/isTransientDatabaseError\(error\)/);
 assert.doesNotMatch(server,/error:serviceStartupError\?\.message/);
 assert.match(api,/safeBackendMessage/);
-assert.match(api,/15000/);
+assert.match(api,/12000/);
 assert.doesNotMatch(api,/95000/);
 assert.match(status,/publicDatabaseStatusMessage/);
 console.log("Database recovery guard tests passed");

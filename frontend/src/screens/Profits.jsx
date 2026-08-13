@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend} from"../shared";
+import AppTable from"../components/ui/AppTable";
 
 function Profits(){
   const [data,setData]=useState(null);
@@ -24,19 +25,21 @@ function Profits(){
       <div className="card metric-card metric-expense"><span>المصروفات</span><strong>{money(data.expenses)}</strong></div>
       <div className={`card final metric-card metric-net ${Number(data.netProfit||0)<0?"value-negative":"value-positive"}`}><span>صافي الربح</span><strong>{money(data.netProfit)}</strong></div>
     </div>
-    <div className="card tablewrap">
+    <div className="card">
       <h3>الأرباح الشهرية</h3>
-      <table>
-        <thead><tr><th>الشهر</th><th>فرق السعر</th><th>أجور الحوالات</th><th>إجمالي الربح</th><th>المصروفات</th><th>صافي الربح</th></tr></thead>
-        <tbody>{data.monthly.map(x=><tr key={x.month}>
-          <td>{x.month}</td>
-          <td>{money(x.exchangeProfit)}</td>
-          <td>{money(x.transferFees)}</td>
-          <td>{money(x.grossProfit)}</td>
-          <td>{money(x.expenses)}</td>
-          <td className={`table-total-value ${Number(x.netProfit||0)<0?"value-negative":"value-positive"}`}><b>{money(x.netProfit)}</b></td>
-        </tr>)}</tbody>
-      </table>
+      <AppTable
+        rows={data.monthly}
+        rowKey="month"
+        emptyText="لا توجد بيانات أرباح ضمن الفترة المحددة."
+        columns={[
+          {key:"month",label:"الشهر"},
+          {key:"exchangeProfit",label:"فرق السعر",render:row=>money(row.exchangeProfit)},
+          {key:"transferFees",label:"أجور الحوالات",render:row=>money(row.transferFees)},
+          {key:"grossProfit",label:"إجمالي الربح",render:row=>money(row.grossProfit)},
+          {key:"expenses",label:"المصروفات",render:row=>money(row.expenses)},
+          {key:"netProfit",label:"صافي الربح",render:row=><b className={`table-total-value ${Number(row.netProfit||0)<0?"value-negative":"value-positive"}`}>{money(row.netProfit)}</b>},
+        ]}
+      />
     </div>
   </>;
 }

@@ -28,8 +28,9 @@ const { createInMemoryRateLimiter } = require("./middleware/rate-limit");
 const { createTelemetryLifecycle } = require("./services/telemetry-lifecycle");
 const { createGracefulShutdown } = require("./services/graceful-shutdown");
 const { createIdempotencyMiddleware, createRequireIdempotencyKey, operationScopeKey } = require("./reliability/idempotency");
+const { assertSafePartnerUrl, pinnedPartnerFetch } = require("./security/partner-network");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
-const { createSession, validateSession, revokeSession, revokeUserSessions } = require("./session-registry");
+const { DEFAULT_IDLE_MS, createSession, validateSession, revokeSession, revokeUserSessions, revokeBiometricForUser } = require("./session-registry");
 const { normalizeChannel, normalizeEmail, normalizePhone: normalizeVerificationPhone, maskEmail, maskPhone, codeHash, safeEqualHex: safeEqualVerificationHex } = require("./account-verification");
 const { generateApiKey, keyPrefix, normalizeScopes, apiKeyMiddleware, versionAliasMiddleware, integrationLogger, openApiDocument, docsHtml, safeEqualHex } = require("./api-platform");
 const { createBranch, resolveBranch, branchSummary } = require("./branch-manager");
@@ -45,6 +46,8 @@ const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === "production";
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
 if (IS_PROD && JWT_SECRET === "LOCAL_TRIAL_CHANGE_ME_6_0") { throw new Error("JWT_SECRET قوي ومخصص مطلوب في الإنتاج"); }
+const DEFAULT_INITIAL_ADMIN_PASSWORD = "Admin123!ChangeMe";
+const PUBLIC_COMPANY_REGISTRATION_ENABLED = !IS_PROD || String(process.env.PUBLIC_COMPANY_REGISTRATION||"false").toLowerCase()==="true";
 
 const SESSION_COOKIE_NAME = "alaboud_session";
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -269,7 +272,7 @@ app.use("/api", createIdempotencyMiddleware({
 const requireIdempotencyKey = createRequireIdempotencyKey({ getQuery: getDatabaseQuery });
 // Start the HTTP listener even when PostgreSQL private DNS is temporarily
 // unavailable. API writes/reads stay gated with 503 until initialization
-// succeeds, allowing Render to keep the deployment alive and the service to
+// succeeds, allowing the hosting platform to keep the deployment alive and the service to
 // recover automatically without an exit/redeploy loop.
 app.use(createServiceReadinessGate({
   getServiceState:()=>({serviceReady,startupAttempt})
@@ -305,7 +308,11 @@ async function seedAdmin(){
 
     let admin=store.users.find(user=>user.email==="admin@alaboud.local");
     if(!admin){
-      admin={id:id(),companyId:company.id,name:"System Administrator",email:"admin@alaboud.local",passwordHash:hashPassword(process.env.INITIAL_ADMIN_PASSWORD||"Admin123!ChangeMe"),role:"ADMIN",active:true,mustChangePassword:true,createdAt:now()};
+      const initialPassword=String(process.env.INITIAL_ADMIN_PASSWORD||DEFAULT_INITIAL_ADMIN_PASSWORD);
+      if(IS_PROD&&(!process.env.INITIAL_ADMIN_PASSWORD||initialPassword===DEFAULT_INITIAL_ADMIN_PASSWORD)){
+        throw new Error("INITIAL_ADMIN_PASSWORD قوي ومخصص مطلوب عند إنشاء أول مدير في الإنتاج");
+      }
+      admin={id:id(),companyId:company.id,name:"System Administrator",email:"admin@alaboud.local",passwordHash:hashPassword(initialPassword),role:"ADMIN",active:true,mustChangePassword:true,createdAt:now()};
       store.users.push(admin);
     }else if(!admin.companyId){
       admin.companyId=company.id;
@@ -352,7 +359,18 @@ function auth(req,res,next){
     if(!user)return res.status(401).json({message:"تم تعطيل الحساب أو حذفه"});
     const sessionStatus=validateSession(store,{jti:req.user.jti,userId:req.user.id,companyId:req.user.companyId});
     if(!sessionStatus.ok)return res.status(401).json({message:sessionStatus.reason==="IDLE_TIMEOUT"?"انتهت الجلسة بسبب عدم النشاط":"انتهت صلاحية الجلسة"});
-    req.user.role=user.role; req.user.permissions=permissionsFor(user.role,user.permissions);
+    req.user.role=user.role;
+    req.user.permissions=permissionsFor(user.role,user.permissions);
+    req.user.mustChangePassword=Boolean(user.mustChangePassword);
+    const passwordChangePath=String(req.path||"");
+    const passwordChangeAllowed=new Set(["/api/auth/session","/api/auth/change-password","/api/auth/logout"]);
+    if(req.user.mustChangePassword&&!passwordChangeAllowed.has(passwordChangePath)){
+      return res.status(428).json({
+        code:"PASSWORD_CHANGE_REQUIRED",
+        retryable:false,
+        message:"يجب تغيير كلمة المرور المؤقتة قبل استخدام بقية النظام"
+      });
+    }
     const requiredPermission=requiredPermissionForRequest(req.method,req.path);
     if(requiredPermission&&!hasPermission(req.user,requiredPermission)){
       return res.status(403).json({message:"ليس لديك صلاحية لتنفيذ هذه العملية",permission:requiredPermission});
@@ -883,7 +901,10 @@ app.post("/api/auth/account-verification/verify",auth,rateLimit("account-verific
 });
 
 function biometricDeviceId(req){
-  return String(req.get("X-Installation-ID")||req.body?.deviceId||"").trim().slice(0,160);
+  // The installation identity must come from the dedicated client header. Do
+  // not accept a body fallback: the device id is also visible inside the JWT
+  // claims and therefore is not proof that the request came from the app.
+  return String(req.get("X-Installation-ID")||"").trim().slice(0,160);
 }
 app.post("/api/auth/biometric-token",auth,async (req,res)=>{
   const deviceId=biometricDeviceId(req);
@@ -914,7 +935,7 @@ app.post("/api/auth/biometric-login",rateLimit("biometric",20,15*60*1000),async 
     const p=jwt.verify(String(req.body?.token||""),JWT_SECRET,{issuer:"alaboud-business-suite",audience:"alaboud-biometric",algorithms:["HS256"]});
     if(p.purpose!=="biometric"||!p.deviceId||!p.jti)throw new Error();
     const presentedDevice=biometricDeviceId(req);
-    if(presentedDevice&&presentedDevice!==p.deviceId)throw new Error();
+    if(!presentedDevice||presentedDevice!==p.deviceId)throw new Error();
     const store=readStore();
     const user=store.users.find(u=>u.id===p.id&&u.active);
     const company=store.companies.find(c=>c.id===p.companyId&&c.active);
@@ -937,14 +958,16 @@ app.get("/api/auth/session",auth,(req,res)=>{
   }
 
   res.json({
-    version:"17.1.0",
+    version:APP_VERSION,
     user:{
       id:user.id,
       name:user.name,
       email:user.email,
       role:user.role,
       companyId:company.id,
-      companyName:company.name
+      companyName:company.name,
+      mustChangePassword:Boolean(user.mustChangePassword),
+      twoFactorEnabled:Boolean(user.twoFactorEnabled)
     },
     liveData:{
       customers:(store.customers||[]).filter(item=>!item.isDeleted).length,
@@ -954,7 +977,17 @@ app.get("/api/auth/session",auth,(req,res)=>{
   });
 });
 
-app.post("/api/auth/register-company",async (req,res)=>{
+app.get("/api/auth/registration-status",(_req,res)=>{
+  res.json({enabled:PUBLIC_COMPANY_REGISTRATION_ENABLED});
+});
+
+app.post("/api/auth/register-company",rateLimit("register-company",5,60*60*1000),async (req,res)=>{
+  if(!PUBLIC_COMPANY_REGISTRATION_ENABLED){
+    return res.status(403).json({
+      code:"PUBLIC_REGISTRATION_DISABLED",
+      message:"إنشاء الشركات الجديدة متوقف في الإنتاج. تواصل مع مسؤول النظام للحصول على دعوة."
+    });
+  }
   const ownerName=String(req.body?.ownerName||"").trim();
   const companyName=String(req.body?.companyName||"").trim();
   const email=String(req.body?.email||"").trim().toLowerCase();
@@ -1002,9 +1035,11 @@ app.post("/api/auth/change-password", auth, async (req,res)=>{
       user.passwordHash=hashPassword(newPassword);
       user.mustChangePassword=false;
       user.updatedAt=now();
-      audit(store,req.user.id,"UPDATE","USER_PASSWORD",user.id,{});
+      const revokedSessions=revokeUserSessions(store,user.id,user.id,req.user.jti);
+      const revokedBiometric=revokeBiometricForUser(store,user.id);
+      audit(store,req.user.id,"UPDATE","USER_PASSWORD",user.id,{revokedSessions,revokedBiometric});
     });
-    res.json({message:"تم تغيير كلمة المرور بنجاح"});
+    res.json({message:"تم تغيير كلمة المرور وإبطال الجلسات الأخرى والدخول بالبصمة",mustChangePassword:false});
   }catch(error){
     res.status(400).json({message:error.message||"تعذر تغيير كلمة المرور"});
   }
@@ -1063,7 +1098,9 @@ app.post("/api/auth/reset-password", rateLimit("reset-password",10,15*60*1000), 
       user.resetPasswordTokenHash=null;
       user.resetPasswordExpiresAt=null;
       user.updatedAt=now();
-      audit(root,user.id,"PASSWORD_RESET_COMPLETED","AUTH",user.id,{ip:req.ip,requestId:req.requestId});
+      const revokedSessions=revokeUserSessions(root,user.id,user.id,null);
+      const revokedBiometric=revokeBiometricForUser(root,user.id);
+      audit(root,user.id,"PASSWORD_RESET_COMPLETED","AUTH",user.id,{ip:req.ip,requestId:req.requestId,revokedSessions,revokedBiometric});
     });
     res.json({message:"تم تعيين كلمة المرور الجديدة بنجاح، يمكنك تسجيل الدخول الآن"});
   }catch(error){
@@ -1201,11 +1238,22 @@ app.patch("/api/users/:id", auth, async (req,res)=>{
       if(!user)throw new Error("المستخدم غير موجود");
       if(user.id===req.user.id&&req.body?.active===false)throw new Error("لا يمكنك تعطيل حسابك الحالي");
       if(req.body?.name!==undefined)user.name=String(req.body.name||"").trim()||user.name;
-      if(req.body?.role!==undefined&&["ADMIN","MANAGER","USER","VIEWER"].includes(String(req.body.role).toUpperCase()))user.role=String(req.body.role).toUpperCase();
+      if(req.body?.role!==undefined&&["ADMIN","MANAGER","ACCOUNTANT","USER","VIEWER"].includes(String(req.body.role).toUpperCase()))user.role=String(req.body.role).toUpperCase();
       if(req.body?.active!==undefined)user.active=Boolean(req.body.active);
-      if(req.body?.password!==undefined){const policy=passwordPolicy(String(req.body.password));if(!policy.ok)throw new Error(policy.message);user.passwordHash=hashPassword(String(req.body.password));user.mustChangePassword=true;}
+      let revokedSessions=0,revokedBiometric=0;
+      if(req.body?.password!==undefined){
+        const policy=passwordPolicy(String(req.body.password));
+        if(!policy.ok)throw new Error(policy.message);
+        user.passwordHash=hashPassword(String(req.body.password));
+        user.mustChangePassword=true;
+        revokedSessions=revokeUserSessions(store,user.id,req.user.id,null);
+        revokedBiometric=revokeBiometricForUser(store,user.id);
+      }else if(req.body?.active===false){
+        revokedSessions=revokeUserSessions(store,user.id,req.user.id,null);
+        revokedBiometric=revokeBiometricForUser(store,user.id);
+      }
       user.updatedAt=now();
-      audit(store,req.user.id,"UPDATE","USER",user.id,{role:user.role,active:user.active});
+      audit(store,req.user.id,"UPDATE","USER",user.id,{role:user.role,active:user.active,revokedSessions,revokedBiometric});
       return {id:user.id,name:user.name,email:user.email,role:user.role,active:user.active!==false,lastLoginAt:user.lastLoginAt||null};
     });
     res.json(updated);
@@ -3627,9 +3675,10 @@ async function fetchWithCookies(url,options={},cookie="",settings={}){
   let currentOptions={...options};
   const redirects=[];
   for(let index=0;index<=maxRedirects;index+=1){
+    await assertSafePartnerUrl(currentUrl);
     const headers={...(currentOptions.headers||{})};
     if(currentCookie)headers.Cookie=currentCookie;
-    const response=await fetch(currentUrl,{...currentOptions,headers,redirect:"manual",signal:AbortSignal.timeout(20000)});
+    const response=await pinnedPartnerFetch(currentUrl,{...currentOptions,headers,cookie:currentCookie});
     currentCookie=mergeCookies(currentCookie,extractCookies(response.headers));
     const status=response.status;
     const location=response.headers.get("location");
@@ -3638,12 +3687,19 @@ async function fetchWithCookies(url,options={},cookie="",settings={}){
     }
     if(index===maxRedirects)throw new Error("تجاوز موقع الشركة الحد المسموح لإعادة التوجيه");
     const nextUrl=new URL(location,currentUrl).toString();
+    await assertSafePartnerUrl(nextUrl);
     redirects.push({status,from:currentUrl,to:nextUrl});
     const method=String(currentOptions.method||"GET").toUpperCase();
     const shouldSwitchToGet=status===303||((status===301||status===302)&&method!=="GET"&&method!=="HEAD");
     const nextHeaders={...(currentOptions.headers||{})};
     try{
       if(new URL(nextUrl).origin===new URL(currentUrl).origin)nextHeaders.Referer=currentUrl;
+      else{
+        currentCookie="";
+        delete nextHeaders.Authorization;delete nextHeaders.authorization;
+        delete nextHeaders.Origin;delete nextHeaders.origin;
+        delete nextHeaders.Referer;delete nextHeaders.referer;
+      }
     }catch{}
     if(shouldSwitchToGet){
       delete nextHeaders["Content-Type"];delete nextHeaders["content-type"];
@@ -4040,7 +4096,7 @@ async function syncJadPartnerHttp(partner,{fromDate,toDate,testOnly=false}={}){
 
   // A connection test only needs to prove that authentication produced an
   // authenticated account page. Avoid the print report here: on Suryana it can
-  // take long enough for Render/the browser to close the request without a
+  // take long enough for the hosting platform or browser to close the request without a
   // response. A normal sync still loads and parses the complete statement.
   if(testOnly){
     const summary=parseJadStatement(accountHtml);
@@ -4099,6 +4155,10 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
   const cleanOtp=String(otp||"").replace(/\D/g,"").slice(0,8);
 
   const launchOptions={headless:true,args:["--no-sandbox","--disable-setuid-sandbox","--disable-dev-shm-usage","--disable-gpu","--no-zygote"],timeout:60000};
+  const primaryNetwork=await assertSafePartnerUrl(base);
+  if(net.isIP(primaryNetwork.address)===4){
+    launchOptions.args.push(`--host-resolver-rules=MAP ${primaryNetwork.hostname} ${primaryNetwork.address}`);
+  }
   if(process.env.CHROME_EXECUTABLE_PATH)launchOptions.executablePath=process.env.CHROME_EXECUTABLE_PATH;
 
   let browser; let page; const trace=[];
@@ -4168,9 +4228,22 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
         if(parsed&&Array.isArray(parsed.cookies))savedStorageState=parsed;
       }
     }catch(error){console.warn("[JAD][SESSION][STATE_INVALID]",String(error?.message||error));}
-    const contextOptions={locale:"ar",timezoneId:"America/Toronto",userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",viewport:{width:1365,height:900},extraHTTPHeaders:{"Accept-Language":"ar,en-US;q=0.9,en;q=0.8"},ignoreHTTPSErrors:true};
+    const contextOptions={locale:"ar",timezoneId:"America/Toronto",userAgent:"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",viewport:{width:1365,height:900},extraHTTPHeaders:{"Accept-Language":"ar,en-US;q=0.9,en;q=0.8"},ignoreHTTPSErrors:false};
     if(savedStorageState)contextOptions.storageState=savedStorageState;
     const context=await browser.newContext(contextOptions);
+    await context.route("**/*",async route=>{
+      const request=route.request();
+      const requestUrl=request.url();
+      if(!/^https?:/i.test(requestUrl))return route.continue();
+      try{
+        if(new URL(requestUrl).hostname.toLowerCase()!==primaryNetwork.hostname)throw new Error("PARTNER_BROWSER_CROSS_HOST");
+        await assertSafePartnerUrl(requestUrl);
+        return route.continue();
+      }catch{
+        trace.push({label:"blocked-private-network-request",url:requestUrl,resourceType:request.resourceType(),time:new Date().toISOString()});
+        return route.abort("blockedbyclient");
+      }
+    });
     page=await context.newPage();
     page.setDefaultTimeout(25000); page.setDefaultNavigationTimeout(45000);
 
@@ -5004,7 +5077,7 @@ async function syncDahabPartner(partner,{fromDate,toDate,otp}={}){
     result=await fetchWithCookies(otpForm.url,{method:"POST",headers:{...headers,Referer:result.url||login},body:otpBody.toString()},cookie,{maxRedirects:6});
     cookie=result.cookie;html=await result.response.text();
   }
-  if(/name=["']username["']/i.test(html)&&/name=["']password["']/i.test(html))throw Object.assign(new Error("رفض موقع دهب تسجيل الدخول. تأكد من اسم المستخدم وكلمة المرور، وإذا كانا صحيحين فقد يمنع الموقع دخول خادم Render"),{code:"DAHAB_LOGIN_REJECTED"});
+  if(/name=["']username["']/i.test(html)&&/name=["']password["']/i.test(html))throw Object.assign(new Error("رفض موقع دهب تسجيل الدخول. تأكد من اسم المستخدم وكلمة المرور، وإذا كانا صحيحين فقد يمنع الموقع دخول خادم Cloud Run"),{code:"DAHAB_LOGIN_REJECTED"});
   // The home card is the authoritative Dahab balance. Statement pages also
   // contain movement totals, which are not the current account balance.
   const dashboardBalance=dahabDashboardBalance(html);
@@ -5811,7 +5884,7 @@ const publicDir = path.resolve(__dirname, "../public");
 const indexFile = path.join(publicDir, "index.html");
 
 if (!fs.existsSync(indexFile)) {
-  console.error("Frontend files are missing. Run: npm run render-build");
+  console.error("Frontend files are missing. Run: npm run build");
 }
 
 
@@ -5838,7 +5911,7 @@ app.get("/api/security/status", auth, (req,res)=>{
   if(req.user.role!=="ADMIN")return res.status(403).json({message:"متاح للمدير فقط"});
   const store=readStore(); const logs=store.auditLogs||[]; let chainValid=true,prev="GENESIS";
   for(const item of logs){const copy={...item};delete copy.integrityHash;if(item.previousHash!==prev||sha256(JSON.stringify(copy))!==item.integrityHash){chainValid=false;break;}prev=item.integrityHash;}
-  res.json({version:"18.0.0",passwordHashing:"scrypt",sessionHours:12,httpsRequired:IS_PROD,auditIntegrity:chainValid,activeDevices:(store.devices||[]).filter(x=>x.active!==false).length,failedLogins24h:logs.filter(x=>x.action==="LOGIN_FAILED"&&Date.now()-new Date(x.createdAt).getTime()<86400000).length,securityScore:[IS_PROD,JWT_SECRET!=="LOCAL_TRIAL_CHANGE_ME_6_0",chainValid].filter(Boolean).length===3?95:78});
+  res.json({version:APP_VERSION,passwordHashing:"scrypt",sessionHours:+(DEFAULT_IDLE_MS/3600000).toFixed(2),httpsRequired:IS_PROD,auditIntegrity:chainValid,activeDevices:(store.devices||[]).filter(x=>x.active!==false).length,failedLogins24h:logs.filter(x=>x.action==="LOGIN_FAILED"&&Date.now()-new Date(x.createdAt).getTime()<86400000).length,securityScore:[IS_PROD,JWT_SECRET!=="LOCAL_TRIAL_CHANGE_ME_6_0",chainValid].filter(Boolean).length===3?95:78});
 });
 
 app.post("/api/backup/encrypted", auth, requirePermission("admin.only"), rateLimit("backup",10,60*60*1000),async (req,res)=>{ const password=String(req.body?.password||""); const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message});

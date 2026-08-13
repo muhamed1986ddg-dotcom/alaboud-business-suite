@@ -23,15 +23,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
         run: npm ci --prefix frontend --no-audit --no-fund
 
+      - name: Run all frontend tests
+        run: npm test --prefix frontend
+
       - name: Build production frontend
-        run: npm run build
+        run: npm run build --prefix frontend
 
       - name: Verify production output
         run: |

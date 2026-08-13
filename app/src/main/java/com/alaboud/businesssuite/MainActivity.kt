@@ -11,7 +11,9 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.net.Uri
+import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -19,6 +21,7 @@ import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.JavascriptInterface
+import android.webkit.SslErrorHandler
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -43,11 +46,16 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import org.json.JSONObject
 import java.io.File
+import java.net.URL
+import javax.net.ssl.HttpsURLConnection
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val APP_URL = "https://alaboud-business-suite-us-763786484727.us-central1.run.app/"
+        private const val APP_ORIGIN = "https://alaboud-business-suite-us-763786484727.us-central1.run.app"
+        private const val APP_HOST = "alaboud-business-suite-us-763786484727.us-central1.run.app"
+        private const val CLIENT_VERSION = "25.14.73"
         private const val FILE_CHOOSER_REQUEST = 9001
         private const val NOTIFICATION_PERMISSION_REQUEST = 9002
         private const val CHANNEL_ID = "alaboud_overdue_customers"
@@ -55,6 +63,36 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private val nativeBridge by lazy { NativeBridge(this) }
+    private var nativeBridgeAttached = false
+
+    private fun effectivePort(uri: Uri): Int = when {
+        uri.port >= 0 -> uri.port
+        uri.scheme.equals("https", ignoreCase = true) -> 443
+        uri.scheme.equals("http", ignoreCase = true) -> 80
+        else -> -1
+    }
+
+    private fun isTrustedAppUri(uri: Uri?): Boolean {
+        if (uri == null) return false
+        return uri.scheme.equals("https", ignoreCase = true) &&
+            uri.host.equals(APP_HOST, ignoreCase = true) &&
+            effectivePort(uri) == 443
+    }
+
+    private fun isTrustedPage(): Boolean = isTrustedAppUri(webView.url?.let(Uri::parse))
+
+    private fun attachNativeBridge() {
+        if (nativeBridgeAttached) return
+        webView.addJavascriptInterface(nativeBridge, "AlAboudNative")
+        nativeBridgeAttached = true
+    }
+
+    private fun detachNativeBridge() {
+        if (!nativeBridgeAttached) return
+        webView.removeJavascriptInterface("AlAboudNative")
+        nativeBridgeAttached = false
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -103,15 +141,15 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             cacheMode = WebSettings.LOAD_DEFAULT
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            userAgentString = "$userAgentString AlAboudMobile/25.14.72"
+            userAgentString = "$userAgentString AlAboudMobile/$CLIENT_VERSION"
         }
 
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
-            setAcceptThirdPartyCookies(webView, true)
+            setAcceptThirdPartyCookies(webView, false)
         }
 
-        webView.addJavascriptInterface(NativeBridge(this), "AlAboudNative")
+        attachNativeBridge()
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(
@@ -122,8 +160,12 @@ class MainActivity : AppCompatActivity() {
                 val scheme = uri.scheme?.lowercase()
 
                 if (scheme == "http" || scheme == "https") {
-                    if (uri.host?.endsWith("run.app") == true) return false
-                    openExternal(uri)
+                    if (isTrustedAppUri(uri)) {
+                        attachNativeBridge()
+                        return false
+                    }
+                    detachNativeBridge()
+                    if (request?.isForMainFrame != false) openExternal(uri)
                     return true
                 }
 
@@ -135,10 +177,34 @@ class MainActivity : AppCompatActivity() {
                 return false
             }
 
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                val uri = url?.let(Uri::parse)
+                if (isTrustedAppUri(uri)) {
+                    attachNativeBridge()
+                } else {
+                    detachNativeBridge()
+                    if (uri?.scheme in listOf("http", "https")) {
+                        view?.stopLoading()
+                        uri?.let(::openExternal)
+                    }
+                }
+                super.onPageStarted(view, url, favicon)
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
-                injectMobileNavigation()
-                checkOverdueCustomers()
+                if (isTrustedAppUri(url?.let(Uri::parse))) {
+                    attachNativeBridge()
+                    injectMobileNavigation()
+                    checkOverdueCustomers()
+                } else {
+                    detachNativeBridge()
+                }
                 super.onPageFinished(view, url)
+            }
+
+            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
+                detachNativeBridge()
+                handler?.cancel()
             }
 
             override fun onReceivedError(
@@ -147,7 +213,8 @@ class MainActivity : AppCompatActivity() {
                 error: WebResourceError?
             ) {
                 if (request?.isForMainFrame == true) {
-                        view?.loadDataWithBaseURL(
+                    detachNativeBridge()
+                    view?.loadDataWithBaseURL(
                         null,
                         offlineHtml(),
                         "text/html",
@@ -579,28 +646,32 @@ class MainActivity : AppCompatActivity() {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
-    private fun saveBiometricCredential(token: String, userJson: String) {
+    private fun saveBiometricCredential(token: String, userJson: String, deviceId: String) {
+        if (token.isBlank() || deviceId.isBlank()) return
         securePreferences().edit()
             .putString("biometric_token", token)
             .putString("biometric_user", userJson)
+            .putString("biometric_device_id", deviceId)
             .putBoolean("biometric_enabled", true)
             .apply()
     }
 
     private fun isBiometricEnabled(): Boolean =
         securePreferences().getBoolean("biometric_enabled", false) &&
-            !securePreferences().getString("biometric_token", null).isNullOrBlank()
+            !securePreferences().getString("biometric_token", null).isNullOrBlank() &&
+            !securePreferences().getString("biometric_device_id", null).isNullOrBlank()
 
     private fun disableBiometricLogin() {
         securePreferences().edit()
             .remove("biometric_token")
             .remove("biometric_user")
+            .remove("biometric_device_id")
             .putBoolean("biometric_enabled", false)
             .apply()
         Toast.makeText(this, "تم تعطيل الدخول بالبصمة أو الوجه", Toast.LENGTH_SHORT).show()
     }
 
-    private fun enableBiometricLogin(token: String, userJson: String) {
+    private fun enableBiometricLogin(token: String, userJson: String, deviceId: String) {
         val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
         val manager = BiometricManager.from(this)
         if (manager.canAuthenticate(authenticators) != BiometricManager.BIOMETRIC_SUCCESS) {
@@ -610,9 +681,9 @@ class MainActivity : AppCompatActivity() {
         val prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 super.onAuthenticationSucceeded(result)
-                saveBiometricCredential(token, userJson)
+                saveBiometricCredential(token, userJson, deviceId)
                 Toast.makeText(this@MainActivity, "تم تفعيل الدخول بالبصمة أو الوجه", Toast.LENGTH_SHORT).show()
-                webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('alaboud-biometric-status',{detail:{enabled:true}}));", null)
+                if (isTrustedPage()) webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('alaboud-biometric-status',{detail:{enabled:true}}));", null)
             }
         })
         val info = BiometricPrompt.PromptInfo.Builder()
@@ -623,13 +694,68 @@ class MainActivity : AppCompatActivity() {
         prompt.authenticate(info)
     }
 
+    private fun dispatchBiometricLoginResult(ok: Boolean, message: String) {
+        if (!isTrustedPage()) return
+        val detail = JSONObject().put("ok", ok).put("message", message).toString()
+        webView.evaluateJavascript(
+            "window.dispatchEvent(new CustomEvent('alaboud-biometric-login-result',{detail:$detail}));",
+            null
+        )
+    }
+
+    private fun performBiometricLogin(token: String, deviceId: String) {
+        Thread {
+            var connection: HttpsURLConnection? = null
+            try {
+                connection = URL("${APP_URL}api/auth/biometric-login").openConnection() as HttpsURLConnection
+                connection.requestMethod = "POST"
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 15_000
+                connection.doOutput = true
+                connection.instanceFollowRedirects = false
+                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                connection.setRequestProperty("Accept", "application/json")
+                connection.setRequestProperty("X-Installation-ID", deviceId)
+                connection.setRequestProperty("X-Alaboud-Client-Version", CLIENT_VERSION)
+                val payload = JSONObject().put("token", token).toString().toByteArray(Charsets.UTF_8)
+                connection.outputStream.use { it.write(payload) }
+
+                val status = connection.responseCode
+                val responseBody = (if (status in 200..299) connection.inputStream else connection.errorStream)
+                    ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                val cookies = connection.headerFields.entries
+                    .filter { it.key?.equals("Set-Cookie", ignoreCase = true) == true }
+                    .flatMap { it.value ?: emptyList() }
+                val message = runCatching { JSONObject(responseBody).optString("message") }.getOrDefault("")
+
+                runOnUiThread {
+                    if (status in 200..299 && cookies.isNotEmpty()) {
+                        val cookieManager = CookieManager.getInstance()
+                        cookies.forEach { cookieManager.setCookie(APP_ORIGIN, it) }
+                        cookieManager.flush()
+                        dispatchBiometricLoginResult(true, "تم تسجيل الدخول بالبصمة أو الوجه")
+                    } else {
+                        if (status == 401) disableBiometricLogin()
+                        dispatchBiometricLoginResult(false, message.ifBlank { "تعذر الدخول بالبصمة أو الوجه" })
+                    }
+                }
+            } catch (_: Exception) {
+                runOnUiThread { dispatchBiometricLoginResult(false, "تعذر الاتصال الآمن لتسجيل الدخول") }
+            } finally {
+                connection?.disconnect()
+            }
+        }.start()
+    }
+
     private fun requestBiometricLogin() {
+        if (!isTrustedPage()) return
         if (!isBiometricEnabled()) {
             Toast.makeText(this, "الدخول بالبصمة أو الوجه غير مفعّل", Toast.LENGTH_LONG).show()
             return
         }
         val token = securePreferences().getString("biometric_token", null)
-        if (token.isNullOrBlank()) {
+        val deviceId = securePreferences().getString("biometric_device_id", null)
+        if (token.isNullOrBlank() || deviceId.isNullOrBlank()) {
             Toast.makeText(this, "سجّل الدخول مرة واحدة بكلمة المرور لتفعيل البصمة", Toast.LENGTH_LONG).show()
             return
         }
@@ -642,8 +768,7 @@ class MainActivity : AppCompatActivity() {
         val prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 super.onAuthenticationSucceeded(result)
-                val escaped = JSONObject.quote(token)
-                webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('alaboud-biometric-token',{detail:{token:$escaped}}));", null)
+                performBiometricLogin(token, deviceId)
             }
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                 super.onAuthenticationError(errorCode, errString)
@@ -663,32 +788,37 @@ class MainActivity : AppCompatActivity() {
     class NativeBridge(private val activity: MainActivity) {
 
         @JavascriptInterface
-        fun isBiometricEnabled(): Boolean = activity.isBiometricEnabled()
+        fun isBiometricEnabled(): Boolean = activity.isTrustedPage() && activity.isBiometricEnabled()
 
         @JavascriptInterface
-        fun enableBiometricLogin(token: String, userJson: String) {
-            activity.runOnUiThread { activity.enableBiometricLogin(token, userJson) }
+        fun enableBiometricLogin(token: String, userJson: String, deviceId: String) {
+            if (!activity.isTrustedPage()) return
+            activity.runOnUiThread { activity.enableBiometricLogin(token, userJson, deviceId) }
         }
 
         @JavascriptInterface
         fun disableBiometricLogin() {
+            if (!activity.isTrustedPage()) return
             activity.runOnUiThread { activity.disableBiometricLogin() }
         }
 
         @JavascriptInterface
-        fun saveBiometricToken(token: String, userJson: String) {
+        fun saveBiometricToken(token: String, userJson: String, deviceId: String) {
+            if (!activity.isTrustedPage()) return
             activity.runOnUiThread {
-                activity.saveBiometricCredential(token, userJson)
+                activity.saveBiometricCredential(token, userJson, deviceId)
             }
         }
 
         @JavascriptInterface
         fun requestBiometricLogin() {
+            if (!activity.isTrustedPage()) return
             activity.runOnUiThread { activity.requestBiometricLogin() }
         }
 
         @JavascriptInterface
         fun shareImageToWhatsApp(dataUrl: String, fileName: String) {
+            if (!activity.isTrustedPage()) return
             try {
                 val base64Data = dataUrl.substringAfter("base64,", "")
                 if (base64Data.isBlank()) throw IllegalArgumentException("Invalid image data")
@@ -778,6 +908,7 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun showOverdueNotification(payload: String) {
+            if (!activity.isTrustedPage()) return
             try {
                 val json = JSONObject(payload)
                 val count = json.optInt("count", 0)

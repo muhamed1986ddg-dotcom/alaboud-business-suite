@@ -23,4 +23,4 @@ examples/
 *.xlsx
 *.xls
 *.tsv
-DEPLOY_CLOUD_RUN_V25_14_72.ps1
+*.ps1

@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 
-const APP_VERSION = "25.14.72";
+const APP_VERSION = "25.14.73";
 const BACKUP_FORMAT = "ALABOUD_BACKUP";
 
 function stableStringify(value){
@@ -51,7 +51,7 @@ function productionReadiness(env = process.env){
   if(env.NODE_ENV === "production"){
     if(!env.JWT_SECRET || env.JWT_SECRET.length < 32) issues.push("JWT_SECRET must be at least 32 characters");
     if(!env.DATABASE_URL) issues.push("DATABASE_URL is required in production");
-    if(!env.CORS_ORIGIN) issues.push("CORS_ORIGIN should be configured in production");
+    if(env.INITIAL_ADMIN_PASSWORD==="Admin123!ChangeMe") issues.push("INITIAL_ADMIN_PASSWORD must not use the documented default");
   }
   return {
     ok: issues.length === 0,

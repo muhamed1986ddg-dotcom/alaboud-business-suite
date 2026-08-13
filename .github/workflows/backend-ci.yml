@@ -23,7 +23,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
@@ -34,17 +34,10 @@ jobs:
         run: |
           find backend/src backend/tests -type f -name '*.js' -print0 | xargs -0 -n1 node --check
 
-      - name: Run Jest tests with coverage
+      - name: Run backend security, reliability and E2E gates
         env:
           NODE_ENV: test
           JWT_SECRET: ci-only-secret-not-for-production
-        run: npm run test:coverage --prefix backend
-
-      - name: Upload coverage report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-coverage
-          path: backend/coverage
-          if-no-files-found: warn
-          retention-days: 14
+        run: |
+          npm run check:all-backend-tests
+          npm test --prefix backend

@@ -1,12 +1,13 @@
 {
   "name": "alaboud-stable-frontend",
-  "version": "25.14.72",
+  "version": "25.14.73",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "node tests/run-all.mjs",
     "test:ui": "node --test tests/ui-components.test.mjs"
   },
   "dependencies": {
@@ -15,7 +16,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "vite": "^6.0.5",
-    "@vitejs/plugin-react": "^4.3.4"
+    "@vitejs/plugin-react": "^6.0.5",
+    "vite": "^8.2.1"
   }
 }
