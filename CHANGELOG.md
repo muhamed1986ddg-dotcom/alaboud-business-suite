@@ -1,3 +1,9 @@
+## Android v25.14.74 — WebView Startup Hotfix
+
+- إصلاح الشاشة الداكنة الفارغة في APK v25.14.73 الناتجة عن قراءة `webView.url` من خيط JavaScript Bridge الخلفي أثناء أول رسم لصفحة الدخول.
+- نقل حالة ثقة الأصل إلى قيمة `@Volatile` تُحدّث من callbacks الخاصة بـWebView على خيط الواجهة، مع بقاء المطابقة التامة لمضيف Cloud Run وفصل الجسر عند أي انتقال غير موثوق.
+- إضافة اختبار انحدار خاص بسلامة خيط WebView. هذا تحديث Android فقط؛ Web/Backend يبقيان على v25.14.73.
+
 ## v25.14.73 — Security & Session Reliability
 
 - قصر Android WebView على أصل Cloud Run الرسمي بمطابقة تامة، وإزالة تمرير رمز البصمة طويل الأمد إلى JavaScript.
