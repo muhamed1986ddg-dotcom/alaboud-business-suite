@@ -101,6 +101,34 @@ export function rateTrend(rate, history = []) {
   return { type: "same", symbol: "→", label: "ثابت" };
 }
 
+export function revealAppEditorNow(selector,doc=globalThis.document){
+  const target=doc?.querySelector?.(selector);
+  if(target?.scrollIntoView){
+    target.scrollIntoView({behavior:"smooth",block:"start",inline:"nearest"});
+    return true;
+  }
+  const appScroller=doc?.querySelector?.("main.app-main-content");
+  if(appScroller?.scrollTo){
+    appScroller.scrollTo({top:0,behavior:"smooth"});
+    return true;
+  }
+  globalThis.scrollTo?.({top:0,behavior:"smooth"});
+  return false;
+}
+
+// On phones the application content is its own scroll container. Calling
+// window.scrollTo() therefore leaves an editor rendered above the visible
+// card and makes the Edit button look broken. Wait for React to render the
+// editor, then reveal it inside the actual application scroll container.
+export function revealAppEditor(selector){
+  const reveal=()=>revealAppEditorNow(selector);
+  if(typeof globalThis.requestAnimationFrame==="function"){
+    globalThis.requestAnimationFrame(()=>globalThis.requestAnimationFrame(reveal));
+  }else{
+    globalThis.setTimeout?.(reveal,0);
+  }
+}
+
 
 
 export function confirmAction({

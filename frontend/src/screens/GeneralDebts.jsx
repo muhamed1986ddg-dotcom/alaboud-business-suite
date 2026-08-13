@@ -1,6 +1,6 @@
 import React,{useEffect,useState}from"react";
 import api,{cachedGet} from"../api";
-import {money,debtCurrencies} from"../shared";
+import {money,debtCurrencies,confirmAction} from"../shared";
 import {AppButton,AppModal} from"../components/ui";
 
 function GeneralDebts(){
@@ -99,7 +99,7 @@ function GeneralDebts(){
   }
 
   async function deleteDebt(){
-    if(!selectedDebtId||!window.confirm("هل أنت متأكد من حذف هذا الدين؟ لا يمكن حذف دين مرتبط بدفعات."))return;setMessage("");
+    if(!selectedDebtId||!await confirmAction({title:"تأكيد حذف الدين",message:"هل أنت متأكد من حذف هذا الدين؟ لا يمكن حذف دين مرتبط بدفعات.",confirmText:"حذف الدين"}))return;setMessage("");
     try{await api.delete(`/general-debts/${selectedDebtId}`);setActionMode("");setSelectedDebtId("");setMessage("تم حذف الدين بنجاح");void load();}
     catch(error){setMessage(error.response?.data?.message||"تعذر حذف الدين");}
   }

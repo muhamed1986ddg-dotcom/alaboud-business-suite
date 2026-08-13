@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useState} from "react";
 import api,{cachedGet,clearApiGetCache} from "../api";
-import {money,confirmAction} from "../shared";
+import {money,confirmAction,revealAppEditor} from "../shared";
 import {AppTable} from "../components/ui";
 
 export function Transactions({openInvoice}){
@@ -48,6 +48,7 @@ export function Transactions({openInvoice}){
       currency:transaction.currency||"USD",
       transferDate:transaction.transferDate||String(transaction.createdAt||"").slice(0,10)
     });
+    revealAppEditor('[data-app-editor="transaction"]');
   }
 
   async function saveEditedTransaction(event){
@@ -168,7 +169,7 @@ export function Transactions({openInvoice}){
 
 
     {editingTransaction&&
-      <form className="card form edit-panel transaction-edit-panel no-print" onSubmit={saveEditedTransaction}>
+      <form className="card form edit-panel transaction-edit-panel no-print" data-app-editor="transaction" onSubmit={saveEditedTransaction}>
         <div className="transaction-edit-title">
           <h3>✏️ تعديل الحوالة</h3>
           <small>{editingTransaction.number}</small>

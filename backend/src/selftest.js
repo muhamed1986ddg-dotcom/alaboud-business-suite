@@ -105,7 +105,7 @@ setTimeout(async()=>{
     r=await request("GET","/api/dashboard",null,token);
     assert(r.status===401,"revoked session reuse",r);
 
-    console.log("SELFTEST_OK: v25.14.73 critical flows passed");
+    console.log("SELFTEST_OK: v25.14.75 critical flows passed");
     child.kill();
     fs.rmSync(dataDir,{recursive:true,force:true});
     process.exit(0);

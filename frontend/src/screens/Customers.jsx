@@ -3,7 +3,7 @@ import api,{cachedGet,clearApiGetCache,isTransientReadFailure} from "../api";
 import {APP_VERSION} from "../version";
 import {AppPagination} from "../components/ui";
 import {CustomerToolbar,CustomerListControls} from "../components/customers/CustomerToolbar";
-import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
+import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction,revealAppEditor} from "../shared";
 import {authoritativeCustomerRate} from "../customerRate";
 
 
@@ -257,6 +257,12 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       setDuplicateCustomer(existing);
       setError(requestError.response?.data?.message||"تعذر تعديل العميل");
     }
+  }
+
+  function startEditCustomer(customer){
+    setEditingCustomer({...customer});
+    setActivePanel("");
+    revealAppEditor('[data-app-editor="customer"]');
   }
 
   async function deleteCustomer(customer){
@@ -572,7 +578,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     }
 
     {editingCustomer&&
-      <form className="card form edit-panel" onSubmit={saveCustomer}>
+      <form className="card form edit-panel" data-app-editor="customer" onSubmit={saveCustomer}>
         <h3>تعديل بيانات العميل</h3>
         <input value={editingCustomer.name||""} onChange={e=>setEditingCustomer({...editingCustomer,name:e.target.value})} placeholder="اسم العميل" required/>
         <input value={editingCustomer.phone||""} onChange={e=>setEditingCustomer({...editingCustomer,phone:e.target.value})} placeholder="رقم الهاتف / واتساب"/>
@@ -757,7 +763,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           <button
             type="button"
             className="customer-edit-button"
-            onClick={()=>{setEditingCustomer({...customer});setActivePanel("");window.scrollTo({top:0,behavior:"smooth"})}}
+            onClick={()=>startEditCustomer(customer)}
             aria-label={`تعديل ${customer.name}`}
           >
             ✏️ تعديل

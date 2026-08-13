@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
-import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from"../shared";
+import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction,revealAppEditor} from"../shared";
 import {AppModal,AppTable} from "../components/ui";
 
 function PartnerProfile({id,back}){
@@ -64,12 +64,12 @@ function PartnerProfile({id,back}){
   function editTransaction(item){
     setEditingTransactionId(item.id);setEditingPaymentId("");setError("");setNotice("");
     setTransaction({type:item.type||"RECEIVABLE",amount:String(item.amount||""),currency:item.currency||data.partner.accountCurrency||"CAD",date:String(item.date||new Date().toISOString()).slice(0,10),dueDate:item.dueDate||"",reference:item.reference||"",description:item.description||""});
-    window.scrollTo({top:0,behavior:"smooth"});
+    revealAppEditor('[data-app-editor="partner-transaction"]');
   }
   function editPayment(item){
     setEditingPaymentId(item.id);setEditingTransactionId("");setError("");setNotice("");
     setPayment({direction:item.direction||"RECEIVED",amount:String(item.amount||""),currency:item.currency||data.partner.accountCurrency||"CAD",date:String(item.date||new Date().toISOString()).slice(0,10),reference:item.reference||"",notes:item.notes||""});
-    window.scrollTo({top:0,behavior:"smooth"});
+    revealAppEditor('[data-app-editor="partner-payment"]');
   }
   async function deleteTransaction(item){
     if(!(await confirmAction({title:"حذف حركة الشركة",message:`حذف الحركة بقيمة ${money(item.amount)} ${item.currency||""}؟`,confirmText:"حذف"})))return;
@@ -107,7 +107,7 @@ function PartnerProfile({id,back}){
       <p><strong>الموقع:</strong> {[data.partner.city,data.partner.country].filter(Boolean).join("، ")||"-"}</p>
     </div>
 
-    <form className="card form" onSubmit={addTransaction}>
+    <form className="card form" data-app-editor="partner-transaction" onSubmit={addTransaction}>
       <h3>{editingTransactionId?"تعديل حركة الشركة":"إضافة حركة إلى حساب الشركة"}</h3>
       <select value={transaction.type} onChange={e=>setTransaction({...transaction,type:e.target.value})}>
         <option value="RECEIVABLE">دين لنا</option>
@@ -125,7 +125,7 @@ function PartnerProfile({id,back}){
       {editingTransactionId&&<button type="button" className="danger-button" onClick={()=>{setEditingTransactionId("");setTransaction(current=>({...current,amount:"",reference:"",description:"",dueDate:""}));}}>إلغاء التعديل</button>}
     </form>
 
-    <form className="card form" onSubmit={addPayment}>
+    <form className="card form" data-app-editor="partner-payment" onSubmit={addPayment}>
       <h3>{editingPaymentId?"تعديل دفعة":"تسجيل دفعة"}</h3>
       <select value={payment.direction} onChange={e=>setPayment({...payment,direction:e.target.value})}>
         <option value="RECEIVED">استلمنا دفعة</option>
@@ -292,12 +292,13 @@ function Partners({open,view="companies"}){
 
   function startEditPartner(partner){
     setError("");setMessage("");
+    setShowConnectionForm(true);
     setEditingId(partner.id);
     setForm({
       name:partner.name||"",contactName:partner.contactName||"",phone:partner.phone||"",whatsapp:partner.whatsapp||"",email:partner.email||"",country:partner.country||"",city:partner.city||"",address:partner.address||"",notes:partner.notes||"",
       companyMode:partner.companyMode||((partner.systemUrl||partner.connectorType!=="GENERIC")?"CONNECTED":"MANUAL"),openingBalance:"",openingBalanceDirection:"RECEIVABLE",systemUrl:partner.systemUrl||"",connectionType:partner.connectionType||"WEB",accountCurrency:partner.accountCurrency||"USD",integrationName:partner.integrationName||"",username:partner.username||"",password:"",externalAccountId:partner.externalAccountId||"",connectorType:partner.connectorType==="KONTORUN"?"TAWASUL":partner.connectorType||"GENERIC",pathPrefix:partner.pathPrefix||"/ssljd/merkez112/1/2",syncFromDate:partner.syncFromDate||"",syncEnabled:partner.syncEnabled!==false,syncIntervalMinutes:Number(partner.syncIntervalMinutes)||5,syncMode:partner.syncMode||"BALANCE_ONLY"
     });
-    window.scrollTo({top:0,behavior:"smooth"});
+    revealAppEditor('[data-app-editor="partner-company"]');
   }
 
   async function deletePartner(partner){
@@ -592,7 +593,7 @@ function Partners({open,view="companies"}){
       </div>
     </section>}
 
-    {showConnections&&<form className="card form company-integration-form" onSubmit={add}>
+    {showConnections&&<form className="card form company-integration-form" data-app-editor="partner-company" onSubmit={add}>
       <h3>{editingId?"✏️ تعديل معلومات الشركة":form.companyMode==="MANUAL"?"➕ إضافة شركة يدوية":"➕ إضافة شركة وربطها"}</h3>
       <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="اسم الشركة" required/>
       <select value={form.companyMode} onChange={e=>setForm({...form,companyMode:e.target.value,syncEnabled:e.target.value==="MANUAL"?false:form.syncEnabled})}>

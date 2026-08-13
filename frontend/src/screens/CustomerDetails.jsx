@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState} from "react";
 import api,{cachedGet,clearApiGetCache} from "../api";
 import {APP_VERSION} from "../version";
-import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from "../shared";
+import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction,revealAppEditor} from "../shared";
 import {AppTable} from "../components/ui";
 import {authoritativeCustomerRate} from "../customerRate";
 
@@ -22,6 +22,18 @@ export function Customer({id,back,onStatement,onAddTransfer}){
   const [oldBalanceForm,setOldBalanceForm]=useState("");
   const [oldBalanceType,setOldBalanceType]=useState("RECEIVABLE");
   const [savingOldBalance,setSavingOldBalance]=useState(false);
+
+  function startEditTransaction(transaction){
+    setEditingPayment(null);
+    setEditingTransaction({...transaction});
+    revealAppEditor('[data-app-editor="customer-transaction"]');
+  }
+
+  function startEditPayment(payment){
+    setEditingTransaction(null);
+    setEditingPayment({...payment});
+    revealAppEditor('[data-app-editor="customer-payment"]');
+  }
 
   async function load(){
     setLoading(true);
@@ -425,7 +437,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
     }
 
     {editingTransaction&&
-      <form className="card form edit-panel" onSubmit={saveTransaction}>
+      <form className="card form edit-panel" data-app-editor="customer-transaction" onSubmit={saveTransaction}>
         <h3>تعديل الحوالة {editingTransaction.number}</h3>
         <input type="date" value={editingTransaction.transferDate||""} onChange={e=>setEditingTransaction({...editingTransaction,transferDate:e.target.value})}/>
         <input type="number" step=".01" value={editingTransaction.amount} onChange={e=>setEditingTransaction({...editingTransaction,amount:e.target.value})} placeholder="المبلغ"/>
@@ -442,7 +454,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
     }
 
     {editingPayment&&
-      <form className="card form edit-panel" onSubmit={savePayment}>
+      <form className="card form edit-panel" data-app-editor="customer-payment" onSubmit={savePayment}>
         <h3>تعديل الدفعة</h3>
         <input type="number" min=".01" step=".01" value={editingPayment.amount} readOnly={Boolean(editingPayment.isGroupedPayment)} onChange={e=>setEditingPayment({...editingPayment,amount:e.target.value})}/>
         {editingPayment.isGroupedPayment&&<small className="payment-auto-note">مبلغ الدفعة الأصلية ثابت لأنه موزع على عدة حوالات. يمكنك تعديل التاريخ والطريقة والمرجع والملاحظات، أو حذف الدفعة وتسجيلها من جديد.</small>}
@@ -486,7 +498,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
             <div><dt>القيمة</dt><dd>{money(cadValue)} CAD</dd></div>
           </dl>
           <footer>
-            <button onClick={()=>setEditingTransaction({...transaction})}>تعديل</button>
+            <button type="button" onClick={()=>startEditTransaction(transaction)}>تعديل</button>
             <button className="danger-button" onClick={()=>deleteTransaction(transaction.id)}>حذف</button>
           </footer>
         </article>):<div className="customer-transfer-mobile-empty">لا توجد حوالات.</div>}
@@ -502,7 +514,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
             <td className="customer-transfer-rate">{exchangeRate.toFixed(4)}</td>
             <td className="customer-transfer-cad">{money(cadValue)} CAD</td>
             <td className="actions customer-transfer-actions">
-              <button onClick={()=>setEditingTransaction({...transaction})}>تعديل</button>
+              <button type="button" onClick={()=>startEditTransaction(transaction)}>تعديل</button>
               <button className="danger-button" onClick={()=>deleteTransaction(transaction.id)}>حذف</button>
             </td>
           </tr>):<tr><td colSpan="6">لا توجد حوالات.</td></tr>}</tbody>
@@ -541,7 +553,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
                 :transaction?.number||"—"}</dd></div>
             </dl>
             <footer>
-              <button onClick={()=>setEditingPayment({...payment})}>تعديل</button>
+              <button type="button" onClick={()=>startEditPayment(payment)}>تعديل</button>
               <button className="danger-button" onClick={()=>deletePayment(payment.id)}>حذف</button>
             </footer>
           </article>
@@ -567,7 +579,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
                 })}{Number(payment.oldBalanceAllocation||0)>0&&<div>الحساب القديم — {money(payment.oldBalanceAllocation)} CAD</div>}</details>
                 :transaction?.number||"—"}</td>
               <td className="actions">
-                <button onClick={()=>setEditingPayment({...payment})}>تعديل</button>
+                <button type="button" onClick={()=>startEditPayment(payment)}>تعديل</button>
                 <button className="danger-button" onClick={()=>deletePayment(payment.id)}>حذف</button>
               </td>
             </tr>
