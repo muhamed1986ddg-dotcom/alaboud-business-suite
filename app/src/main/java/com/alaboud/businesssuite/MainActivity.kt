@@ -55,7 +55,7 @@ class MainActivity : AppCompatActivity() {
         private const val APP_URL = "https://alaboud-business-suite-us-763786484727.us-central1.run.app/"
         private const val APP_ORIGIN = "https://alaboud-business-suite-us-763786484727.us-central1.run.app"
         private const val APP_HOST = "alaboud-business-suite-us-763786484727.us-central1.run.app"
-        private const val CLIENT_VERSION = "25.14.73"
+        private const val CLIENT_VERSION = "25.14.74"
         private const val FILE_CHOOSER_REQUEST = 9001
         private const val NOTIFICATION_PERMISSION_REQUEST = 9002
         private const val CHANNEL_ID = "alaboud_overdue_customers"
@@ -65,6 +65,7 @@ class MainActivity : AppCompatActivity() {
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private val nativeBridge by lazy { NativeBridge(this) }
     private var nativeBridgeAttached = false
+    @Volatile private var trustedPageActive = false
 
     private fun effectivePort(uri: Uri): Int = when {
         uri.port >= 0 -> uri.port
@@ -80,7 +81,16 @@ class MainActivity : AppCompatActivity() {
             effectivePort(uri) == 443
     }
 
-    private fun isTrustedPage(): Boolean = isTrustedAppUri(webView.url?.let(Uri::parse))
+    // JavascriptInterface methods run on a WebView background bridge thread.
+    // Never read webView.url from that thread: Android requires WebView access
+    // on its UI thread and otherwise aborts the synchronous JavaScript call.
+    private fun isTrustedPage(): Boolean = trustedPageActive
+
+    private fun updateTrustedPage(uri: Uri?): Boolean {
+        val trusted = isTrustedAppUri(uri)
+        trustedPageActive = trusted
+        return trusted
+    }
 
     private fun attachNativeBridge() {
         if (nativeBridgeAttached) return
@@ -158,14 +168,21 @@ class MainActivity : AppCompatActivity() {
             ): Boolean {
                 val uri = request?.url ?: return false
                 val scheme = uri.scheme?.lowercase()
+                val isMainFrame = request.isForMainFrame
 
                 if (scheme == "http" || scheme == "https") {
                     if (isTrustedAppUri(uri)) {
-                        attachNativeBridge()
+                        if (isMainFrame) {
+                            trustedPageActive = true
+                            attachNativeBridge()
+                        }
                         return false
                     }
-                    detachNativeBridge()
-                    if (request?.isForMainFrame != false) openExternal(uri)
+                    if (isMainFrame) {
+                        trustedPageActive = false
+                        detachNativeBridge()
+                        openExternal(uri)
+                    }
                     return true
                 }
 
@@ -179,7 +196,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 val uri = url?.let(Uri::parse)
-                if (isTrustedAppUri(uri)) {
+                if (updateTrustedPage(uri)) {
                     attachNativeBridge()
                 } else {
                     detachNativeBridge()
@@ -192,7 +209,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                if (isTrustedAppUri(url?.let(Uri::parse))) {
+                if (updateTrustedPage(url?.let(Uri::parse))) {
                     attachNativeBridge()
                     injectMobileNavigation()
                     checkOverdueCustomers()
@@ -203,6 +220,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
+                trustedPageActive = false
                 detachNativeBridge()
                 handler?.cancel()
             }
@@ -213,6 +231,7 @@ class MainActivity : AppCompatActivity() {
                 error: WebResourceError?
             ) {
                 if (request?.isForMainFrame == true) {
+                    trustedPageActive = false
                     detachNativeBridge()
                     view?.loadDataWithBaseURL(
                         null,
