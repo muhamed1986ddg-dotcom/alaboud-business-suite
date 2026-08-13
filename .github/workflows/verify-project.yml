@@ -25,15 +25,8 @@ jobs:
       - name: Backend syntax and tests
         run: |
           npm run check --prefix backend
-          node backend/src/access-control.test.js
-          node backend/src/durability.test.js
-          node backend/src/customer-pagination.test.js
-          npm run test:resilience --prefix backend
-          npm run test:migration --prefix backend
-          npm run test:projector --prefix backend
-          npm run test:api-platform --prefix backend
-          npm run test:branches --prefix backend
-          npm run test:production --prefix backend
+          npm run check:all-backend-tests
+          npm test --prefix backend
       - name: Verify shared UI migration
         run: npm run check:ui
       - name: UI component tests

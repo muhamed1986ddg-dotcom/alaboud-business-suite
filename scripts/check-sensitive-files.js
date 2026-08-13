@@ -4,7 +4,13 @@ const path = require("node:path");
 
 function listRepositoryFiles() {
   try {
-    return execFileSync("git", ["ls-files", "-z"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+    return execFileSync("git", ["ls-files", "-z"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      // Large repositories can exceed Node's default synchronous child-process
+      // buffer on Windows and incorrectly fall back to scanning ignored files.
+      maxBuffer: 16 * 1024 * 1024,
+    })
       .split("\0").filter(Boolean);
   } catch {
     const ignoredDirs = new Set([".git", "node_modules", "dist", "build", ".gradle", "coverage"]);

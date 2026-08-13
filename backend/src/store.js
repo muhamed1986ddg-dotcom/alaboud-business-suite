@@ -20,7 +20,13 @@ if(isProduction && !databaseUrl){
   throw new Error("DATABASE_URL is required in production; JSON fallback is disabled to protect persistent data");
 }
 
-const DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","apiKeys","webhooks","integrationLogs","monthlyInventories","sessions"];
+// Business records are isolated by company + branch. Identity and security
+// records are company-wide: treating sessions/users/devices as branch rows made
+// logout unable to see the session created before a branch was selected and
+// made Array#push on filtered users/branches silently disappear.
+const BRANCH_DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","monthlyInventories"];
+const COMPANY_DATA_ARRAYS = ["users","branches","devices","apiKeys","webhooks","integrationLogs","sessions"];
+const DATA_ARRAYS = [...BRANCH_DATA_ARRAYS,...COMPANY_DATA_ARRAYS];
 const emptyStore = () => ({
   companies: [], branches: [], users: [], customers: [], transactions: [], payments: [], expenses: [],
   capitalMovements: [], exchangeRates: [], generalDebts: [], generalDebtPayments: [],
@@ -56,7 +62,7 @@ const database = new DatabaseService({
 let rootStore = emptyStore();
 async function initStore({reload=false}={}){
   rootStore = reload ? await database.reload() : await database.init();
-  if(!databaseUrl)console.warn("DATABASE_URL missing: JSON fallback active; Render redeploy may erase data");
+  if(!databaseUrl)console.warn("DATABASE_URL missing: JSON fallback active; Cloud Run instances use ephemeral storage and may lose data");
 }
 function readRootStore(){return normalizeStore(rootStore)}
 function writeStore(store){
@@ -69,14 +75,16 @@ async function writeStoreDurable(store){
   await database.saveDurable(rootStore);
   return rootStore;
 }
-function tenantArray(root,key,companyId,branchId){
+function tenantArray(root,key,companyId,branchId,{branchScoped=true}={}){
   root=unwrapStore(root);
   const source=()=>Array.isArray(root[key])?root[key]:[];
-  const visible=()=>source().filter(item=>item&&item.companyId===companyId&&(!branchId||item.branchId===branchId));
-  return new Proxy([],{
+  const inScope=item=>Boolean(item&&item.companyId===companyId&&(!branchScoped||!branchId||item.branchId===branchId));
+  const visible=()=>source().filter(inScope);
+  const decorate=item=>({...item,companyId,...(branchScoped&&branchId?{branchId}:{})});
+  return new Proxy([],{ 
     get(_target,prop){
-      if(prop==="push")return (...items)=>source().push(...items.map(item=>({...item,companyId,...(branchId?{branchId}:{})})));
-      if(prop==="unshift")return (...items)=>source().unshift(...items.map(item=>({...item,companyId,...(branchId?{branchId}:{})})));
+      if(prop==="push")return (...items)=>source().push(...items.map(decorate));
+      if(prop==="unshift")return (...items)=>source().unshift(...items.map(decorate));
       if(prop==="splice")return (start,deleteCount,...items)=>{
         const rows=visible();
         const normalizedStart=start<0?Math.max(rows.length+Number(start||0),0):Math.min(Number(start||0),rows.length);
@@ -86,7 +94,7 @@ function tenantArray(root,key,companyId,branchId){
         const src=source();
         for(let index=src.length-1;index>=0;index--)if(removedSet.has(src[index]))src.splice(index,1);
         if(items.length){
-          const decorated=items.map(item=>({...item,companyId,...(branchId?{branchId}:{})}));
+          const decorated=items.map(decorate);
           const anchor=rows[normalizedStart];
           const sourceIndex=anchor?src.indexOf(anchor):src.length;
           src.splice(sourceIndex<0?src.length:sourceIndex,0,...decorated);
@@ -112,18 +120,19 @@ function tenantView(root,companyId,branchId){
   return new Proxy(root,{
     get(target,prop){
       if(prop===RAW_STORE)return target;
-      if(prop==="users")return target.users.filter(user=>user.companyId===companyId);
-      if(prop==="branches")return target.branches.filter(branch=>branch.companyId===companyId);
+      if(prop==="companies")return target.companies.filter(company=>company.id===companyId);
       if(prop==="notificationSettings")return target.companySettings[companyId];
-      if(DATA_ARRAYS.includes(prop))return tenantArray(target,prop,companyId,branchId);
+      if(COMPANY_DATA_ARRAYS.includes(prop))return tenantArray(target,prop,companyId,null,{branchScoped:false});
+      if(BRANCH_DATA_ARRAYS.includes(prop))return tenantArray(target,prop,companyId,branchId,{branchScoped:true});
       return target[prop];
     },
     set(target,prop,value){
       if(prop==="notificationSettings"){target.companySettings[companyId]={...value};return true}
       if(DATA_ARRAYS.includes(prop)){
         const current=Array.isArray(target[prop])?target[prop]:[];
-        const otherTenants=current.filter(item=>!item||item.companyId!==companyId||(branchId&&item.branchId!==branchId));
-        const tenantItems=Array.from(value||[]).map(item=>({...item,companyId,...(branchId?{branchId}:{})}));
+        const branchScoped=BRANCH_DATA_ARRAYS.includes(prop);
+        const otherTenants=current.filter(item=>!item||item.companyId!==companyId||(branchScoped&&branchId&&item.branchId!==branchId));
+        const tenantItems=Array.from(value||[]).map(item=>({...item,companyId,...(branchScoped&&branchId?{branchId}:{})}));
         target[prop]=[...otherTenants,...tenantItems];
         return true;
       }

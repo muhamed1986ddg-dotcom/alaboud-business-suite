@@ -1,5 +1,8 @@
 const crypto=require("crypto");
-const DEFAULT_IDLE_MS=Math.max(5*60*1000,Number(process.env.SESSION_IDLE_MINUTES||43200)*60*1000);
+// Twelve hours is the documented default. Deployments can choose a shorter
+// window through SESSION_IDLE_MINUTES, but a session must not remain idle for
+// the full 30-day token lifetime by accident.
+const DEFAULT_IDLE_MS=Math.max(5*60*1000,Number(process.env.SESSION_IDLE_MINUTES||720)*60*1000);
 
 function ensureSessionStore(store){
   if(!Array.isArray(store.sessions))store.sessions=[];
@@ -46,4 +49,19 @@ function revokeUserSessions(store,userId,revokedBy,exceptJti=null){
   return count;
 }
 
-module.exports={DEFAULT_IDLE_MS,ensureSessionStore,createSession,validateSession,revokeSession,revokeUserSessions};
+function revokeBiometricForUser(store,userId){
+  let count=0;
+  for(const device of Array.from(store.devices||[])){
+    if(device.userId!==userId)continue;
+    if(device.biometricActive===true||device.biometricJti){
+      device.biometricActive=false;
+      device.biometricJti=null;
+      device.revokedAt=new Date().toISOString();
+      device.updatedAt=device.revokedAt;
+      count++;
+    }
+  }
+  return count;
+}
+
+module.exports={DEFAULT_IDLE_MS,ensureSessionStore,createSession,validateSession,revokeSession,revokeUserSessions,revokeBiometricForUser};

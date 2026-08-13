@@ -24,7 +24,7 @@ class DatabaseService {
     if (this.initialized) return this.store;
 
     // When PostgreSQL is configured, never silently promote the JSON adapter
-    // to primary storage after a temporary DNS/connection failure. Render disks
+    // to primary storage after a temporary DNS/connection failure. Ephemeral disks
     // on free web services are ephemeral, so doing that can split the live data
     // between PostgreSQL and a temporary local file. The fallback adapter is
     // used only as a migration source after the primary adapter is ready.

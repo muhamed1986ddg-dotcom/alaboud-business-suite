@@ -441,7 +441,7 @@ function Partners({open,view="companies"}){
         setMessage(`${partner.name}: متصل — آخر مزامنة ناجحة ${syncedAt}.`);
       }else{
         const lastStep=diagnostic.length?diagnostic[diagnostic.length-1]?.label:"لا توجد خطوات مسجلة";
-        setMessage(`${partner.name}: سجل الربط متاح${lastStep&&lastStep!=="failure"?` — آخر خطوة: ${lastStep}`:""}. التفاصيل التقنية محفوظة في Console وRender Logs.`);
+        setMessage(`${partner.name}: سجل الربط متاح${lastStep&&lastStep!=="failure"?` — آخر خطوة: ${lastStep}`:""}. التفاصيل التقنية محفوظة في وحدة المطور وسجلات الخادم.`);
       }
     }catch(requestError){setError(cleanConnectorMessage(requestError.response?.data?.message||"لا يوجد سجل تشخيص متاح"));}
   }

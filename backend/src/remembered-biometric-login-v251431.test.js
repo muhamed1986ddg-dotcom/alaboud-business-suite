@@ -7,11 +7,13 @@ const login=fs.readFileSync(path.join(root,"frontend/src/LoginShell.jsx"),"utf8"
 const android=fs.readFileSync(path.join(root,"app/src/main/java/com/alaboud/businesssuite/MainActivity.kt"),"utf8");
 assert(server.includes('expiresIn:"30d"'));
 assert(server.includes('audience:"alaboud-biometric"') && server.includes('expiresIn:"90d"'));
-assert(registry.includes('SESSION_IDLE_MINUTES||43200'));
-assert(store.includes('"monthlyInventories","sessions"'));
+assert(registry.includes('SESSION_IDLE_MINUTES||720'));
+assert(store.includes('"sessions"'));
 assert(store.includes('monthlyInventories: [], sessions: []'));
-assert(login.includes('native.enableBiometricLogin?.(response.data.token,userJson)'));
+assert(login.includes('native.enableBiometricLogin?.(response.data.token,userJson,response.data.deviceId)'));
 assert(login.includes('requestBiometricLogin?.(),250'));
 assert(android.includes('alaboud-business-suite-us-763786484727.us-central1.run.app'));
-assert(android.includes('uri.host?.endsWith("run.app")'));
+assert(android.includes('uri.host.equals(APP_HOST, ignoreCase = true)'));
+assert(!android.includes('endsWith("run.app")'));
+assert(!android.includes('alaboud-biometric-token'));
 console.log("remembered + biometric login v25.14.31: OK");

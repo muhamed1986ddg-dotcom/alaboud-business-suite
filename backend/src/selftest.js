@@ -3,6 +3,7 @@ const http = require("http");
 const os = require("os");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "alaboud-v7-"));
 const child = spawn(process.execPath,[path.join(__dirname,"server.js")],{
@@ -15,7 +16,12 @@ function request(method,route,body,token){
     const data=body?JSON.stringify(body):"";
     const req=http.request({
       hostname:"127.0.0.1",port:5099,path:route,method,
-      headers:{"Content-Type":"application/json",...(token?{Authorization:`Bearer ${token}`}:{})}
+      headers:{
+        "Content-Type":"application/json",
+        "X-Installation-ID":"selftest-installation",
+        ...(!["GET","HEAD","OPTIONS"].includes(method)?{"Idempotency-Key":crypto.randomUUID()}:{}),
+        ...(token?{Authorization:`Bearer ${token}`}:{})
+      }
     },res=>{
       let output="";
       res.on("data",chunk=>output+=chunk);
@@ -43,6 +49,9 @@ setTimeout(async()=>{
     r=await request("POST","/api/auth/login",{email:"admin@alaboud.local",password:"Admin123!ChangeMe"});
     assert(r.status===200&&r.body.token,"login",r);
     const token=r.body.token;
+
+    r=await request("POST","/api/auth/change-password",{currentPassword:"Admin123!ChangeMe",newPassword:"SelftestOnly!251473"},token);
+    assert(r.status===200&&r.body.mustChangePassword===false,"forced password change",r);
 
     r=await request("POST","/api/customers",{name:"عميل اختبار",phone:"15195550123"},token);
     assert(r.status===201&&r.body.id,"customer",r);
@@ -80,7 +89,7 @@ setTimeout(async()=>{
     assert(r.status===201,"partner payment",r);
 
     r=await request("GET",`/api/partners/${partnerId}`,null,token);
-    assert(r.status===200&&r.body.totals.receivable===400&&r.body.totals.payable===200,"partner profile",r);
+    assert(r.status===200&&r.body.totals.receivable===200&&r.body.totals.payable===0&&r.body.totals.net===200,"partner profile",r);
 
     r=await request("GET",`/api/partners/${partnerId}/statement`,null,token);
     assert(r.status===200&&r.body.rows.length===3,"partner statement",r);
@@ -91,7 +100,12 @@ setTimeout(async()=>{
     r=await request("GET","/api/dashboard",null,token);
     assert(r.status===200,"dashboard",r);
 
-    console.log("SELFTEST_OK: v7 critical flows passed");
+    r=await request("POST","/api/auth/logout",{},token);
+    assert(r.status===200,"logout",r);
+    r=await request("GET","/api/dashboard",null,token);
+    assert(r.status===401,"revoked session reuse",r);
+
+    console.log("SELFTEST_OK: v25.14.73 critical flows passed");
     child.kill();
     fs.rmSync(dataDir,{recursive:true,force:true});
     process.exit(0);

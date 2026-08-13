@@ -2,6 +2,7 @@ import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend} from"../shared";
+import AppTable from"../components/ui/AppTable";
 
 function MonthlyReport(){
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
@@ -61,42 +62,48 @@ function MonthlyReport(){
       <div className="card"><span>صافي حركة رأس المال</span><strong>{money(s.netCapitalMovement)}</strong></div>
     </div>
 
-    <div className="card tablewrap">
+    <div className="card">
       <h3>الحركة اليومية خلال الشهر</h3>
-      <table>
-        <thead><tr><th>التاريخ</th><th>عدد الحوالات</th><th>قيمة الحوالات</th><th>الربح</th></tr></thead>
-        <tbody>{data.daily.length?data.daily.map(row=><tr key={row.date}>
-          <td>{row.date}</td>
-          <td>{row.count}</td>
-          <td>{money(row.total)}</td>
-          <td>{money(row.profit)}</td>
-        </tr>):<tr><td colSpan="4">لا توجد حوالات في هذا الشهر.</td></tr>}</tbody>
-      </table>
+      <AppTable
+        rows={data.daily}
+        rowKey="date"
+        emptyText="لا توجد حوالات في هذا الشهر."
+        columns={[
+          {key:"date",label:"التاريخ"},
+          {key:"count",label:"عدد الحوالات"},
+          {key:"total",label:"قيمة الحوالات",render:row=>money(row.total)},
+          {key:"profit",label:"الربح",render:row=>money(row.profit)},
+        ]}
+      />
     </div>
 
-    <div className="card tablewrap">
+    <div className="card">
       <h3>أكثر العملاء تعاملًا خلال الشهر</h3>
-      <table>
-        <thead><tr><th>العميل</th><th>إجمالي الحوالات</th></tr></thead>
-        <tbody>{data.topCustomers.length?data.topCustomers.map(row=><tr key={row.customerId}>
-          <td>{row.customerName}</td>
-          <td>{money(row.total)}</td>
-        </tr>):<tr><td colSpan="2">لا توجد بيانات.</td></tr>}</tbody>
-      </table>
+      <AppTable
+        rows={data.topCustomers}
+        rowKey="customerId"
+        emptyText="لا توجد بيانات."
+        columns={[
+          {key:"customerName",label:"العميل"},
+          {key:"total",label:"إجمالي الحوالات",render:row=>money(row.total)},
+        ]}
+      />
     </div>
 
-    <div className="card tablewrap">
+    <div className="card">
       <h3>تفاصيل حوالات الشهر</h3>
-      <table>
-        <thead><tr><th>الرقم</th><th>التاريخ</th><th>المبلغ</th><th>الأجور</th><th>الربح</th></tr></thead>
-        <tbody>{data.transactions.length?data.transactions.map(item=><tr key={item.id}>
-          <td>{item.number||item.id}</td>
-          <td>{item.transferDate||String(item.createdAt||"").slice(0,10)}</td>
-          <td>{money(item.amount)}</td>
-          <td>{money(item.transferFee)}</td>
-          <td>{money(item.totalProfit)}</td>
-        </tr>):<tr><td colSpan="5">لا توجد حوالات.</td></tr>}</tbody>
-      </table>
+      <AppTable
+        rows={data.transactions}
+        rowKey="id"
+        emptyText="لا توجد حوالات."
+        columns={[
+          {key:"number",label:"الرقم",render:item=>item.number||item.id},
+          {key:"date",label:"التاريخ",render:item=>item.transferDate||String(item.createdAt||"").slice(0,10)},
+          {key:"amount",label:"المبلغ",render:item=>money(item.amount)},
+          {key:"transferFee",label:"الأجور",render:item=>money(item.transferFee)},
+          {key:"totalProfit",label:"الربح",render:item=>money(item.totalProfit)},
+        ]}
+      />
     </div>
   </>;
 }

@@ -1,29 +1,31 @@
-# CI/CD — v22.2.0
+# CI/CD — v25.14.73
 
-The repository now runs separate GitHub Actions workflows for backend tests, frontend production builds, dependency security audits, Android APK builds, and optional Render deployment.
+المسار المعتمد لهذا الإصدار هو GitHub Actions للتحقق، ثم نشر مراجعة معزولة إلى Google Cloud Run بدون تحويل حركة الإنتاج تلقائيًا.
 
-## Required repository secret
+## فحوص GitHub Actions
 
-To enable deployment after successful CI, create this GitHub Actions secret:
+- `Backend CI`: فحص الصياغة وكل ملفات اختبارات الخادم واختباراته الذاتية.
+- `Frontend CI`: جميع اختبارات الواجهة وبناء الإنتاج.
+- `Dependency Security`: تدقيق أسبوعي وعند كل تغيير لثغرات التبعيات العالية والحرجة.
+- `Verify Project`: فحص الملفات الحساسة وبوابة المشروع المتكاملة.
+- `Build Android Enterprise APK`: بناء APK اختباري عند تغيير مصدر Android.
 
-- `RENDER_DEPLOY_HOOK_URL`: the deploy-hook URL from the Render service settings.
+يوصى بحماية فرع `main` واشتراط نجاح هذه الفحوص قبل الدمج.
 
-If the secret is not configured, CI still runs and deployment is safely skipped.
-
-## Branch protection recommendation
-
-Protect `main` and require these checks before merge:
-
-- `Backend CI / backend`
-- `Frontend CI / frontend`
-- `Dependency Security / audit (backend)`
-- `Dependency Security / audit (frontend)`
-
-## Local verification
+## التحقق المحلي
 
 ```bash
-npm ci --prefix backend
-npm run test:coverage --prefix backend
-npm ci --prefix frontend
+npm run install:all
+npm test
 npm run build
 ```
+
+## نشر Cloud Run الآمن
+
+1. خزّن `DATABASE_URL` و`JWT_SECRET` و`INITIAL_ADMIN_PASSWORD` في Secret Manager، ولا تضع قيمها في المستودع أو سطر الأوامر المسجل.
+2. اترك `PUBLIC_COMPANY_REGISTRATION_ENABLED=false` ما لم يكن التسجيل العام قرارًا مقصودًا.
+3. نفّذ `DEPLOY_CLOUD_RUN_V25_14_73.ps1`. السكربت يشغل بوابة الإصدار ثم ينشئ مراجعة موسومة `v251473-security` مع `--no-traffic`.
+4. اختبر `/api/health` وتسجيل الدخول والعزل بين الشركات وتغيير كلمة المرور وتكاملات الشركاء على رابط المراجعة.
+5. حوّل نسبة صغيرة من الحركة أولًا، راقب الأخطاء، ثم ارفعها تدريجيًا. لا تحذف المراجعة السابقة قبل اكتمال المراقبة وخطة الرجوع.
+
+إعدادات Render القديمة أزيلت عمدًا من المصدر لتفادي وجود مساري نشر متعارضين.

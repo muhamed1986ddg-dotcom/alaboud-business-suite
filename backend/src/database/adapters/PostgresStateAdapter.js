@@ -51,7 +51,7 @@ function isTransientPostgresError(error) {
   const syscall = String(error?.syscall || "").toLowerCase();
   const message = String(error?.message || "").toLowerCase();
   if (TRANSIENT_CODES.has(code) || code.startsWith("08")) return true;
-  // Render private DNS can be temporarily unavailable while PostgreSQL is
+  // Hosted private DNS can be temporarily unavailable while PostgreSQL is
   // restarting or its private network record is being refreshed.
   if (["ENOTFOUND", "EAI_AGAIN", "ETIMEOUT", "ECONNRESET", "ECONNREFUSED"].includes(code)) return true;
   if (syscall === "getaddrinfo" && ["ENOTFOUND", "EAI_AGAIN"].includes(code)) return true;
@@ -416,7 +416,7 @@ class PostgresStateAdapter {
           throw error;
         }
         // Throw away the failed client immediately before recovery. This is
-        // crucial on Render: a dead TLS socket must never be returned to pg.Pool.
+        // crucial on hosted networks: a dead TLS socket must never be returned to pg.Pool.
         if (client) { try { client.release(true); client = null; } catch {} }
         await this.recoverConnection(`${operation}:${error.code || error.message}`, { budgetMs: Number(recoveryBudgetMs || process.env.PG_QUERY_RECOVERY_BUDGET_MS || 6000) });
         const delay = retryDelay(attempt, baseMs, maxMs);
@@ -645,7 +645,7 @@ class PostgresStateAdapter {
         }, hardStepTimeoutMs, "transaction-guards");
         // Keep the financial write fully durable and commit app_state plus the
         // idempotency receipt in ONE PostgreSQL transaction/round trip. Previously these were three separate queries between
-        // BEGIN/COMMIT, which was noticeable on Render's network latency.
+        // BEGIN/COMMIT, which is noticeable on hosted network latency.
         const operationReceipt = options.operationReceipt;
         let responseJson = "null";
         if (operationReceipt?.key) {
