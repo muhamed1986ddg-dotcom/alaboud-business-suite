@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.75 Mobile Edit & Centered Dialogs";
+export const APP_VERSION="v25.14.76 Customer Statement Contrast";
