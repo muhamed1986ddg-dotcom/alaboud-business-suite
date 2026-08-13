@@ -66,3 +66,98 @@
   .transaction-mobile-card__actions button{min-height:38px;border:1px solid rgba(214,170,56,.45);border-radius:10px;background:linear-gradient(135deg,#d6aa38,#f0ce68);color:#07111f;font-weight:900;font-size:.82rem}
   .transaction-mobile-empty{padding:22px;text-align:center;color:#94a3b8;border:1px solid rgba(214,170,56,.25);border-radius:14px}
 }
+
+/* v25.14.76 — customer statement screen contrast.
+   The legacy statement deliberately used a white sheet, while the unified
+   dark system later forced amounts to white. Keep the live screen consistently
+   dark and restore an ink-friendly white sheet only while printing. */
+.simple-customer-statement{
+  background:linear-gradient(160deg,#101d31 0%,#091422 100%)!important;
+  color:#f8fafc!important;
+  border:1px solid rgba(214,173,60,.48)!important;
+  box-shadow:0 18px 46px rgba(0,0,0,.42)!important;
+}
+.simple-customer-statement .simple-statement-heading h1{color:#f2ca62!important}
+.simple-customer-statement .simple-statement-heading h2{color:#f8fafc!important}
+.simple-customer-statement .simple-statement-heading h3{color:#cbd5e1!important}
+.simple-customer-statement .tablewrap,
+.simple-customer-statement .app-table-wrap,
+.simple-customer-statement .statement-payments-ledger{
+  background:#0b1728!important;
+  border-color:#405675!important;
+}
+.simple-customer-statement .statement-payments-ledger h3{
+  color:#f2ca62!important;
+  padding-inline:12px;
+}
+.simple-customer-statement .simple-statement-table,
+.simple-customer-statement .simple-statement-table tbody,
+.simple-customer-statement .simple-statement-table tr{
+  background:#0d1a2d!important;
+  color:#f8fafc!important;
+}
+.simple-customer-statement .simple-statement-table th{
+  background:#172944!important;
+  color:#f2ca62!important;
+  border-color:#405675!important;
+}
+.simple-customer-statement .simple-statement-table td{
+  background:#0d1a2d!important;
+  color:#f8fafc!important;
+  border-color:#405675!important;
+}
+.simple-customer-statement .simple-statement-table tr:nth-child(even) td{background:#12233a!important}
+.simple-customer-statement .simple-statement-table td strong{color:#86efac!important}
+.simple-customer-statement .simple-statement-old-balance,
+.simple-customer-statement .simple-statement-payments,
+.simple-customer-statement .simple-statement-total{
+  color:#e5edf8!important;
+  border-color:rgba(214,173,60,.48)!important;
+}
+.simple-customer-statement .simple-statement-old-balance{background:#182238!important}
+.simple-customer-statement .simple-statement-old-balance strong{color:#f2ca62!important}
+.simple-customer-statement .simple-statement-payments strong{color:#86efac!important}
+.simple-customer-statement .simple-statement-total{
+  background:#0a1424!important;
+  padding:16px!important;
+  border:1px solid rgba(214,173,60,.6)!important;
+  border-radius:14px!important;
+}
+.simple-customer-statement .simple-statement-total strong{color:#f2ca62!important}
+
+@media(max-width:700px){
+  .simple-customer-statement{padding:16px 12px!important}
+  .simple-customer-statement .simple-statement-heading{margin-bottom:18px}
+  .simple-customer-statement .simple-statement-table td::before{color:#f2ca62!important}
+}
+
+@media print{
+  .simple-customer-statement{
+    background:#fff!important;color:#000!important;border:0!important;
+    box-shadow:none!important;
+  }
+  .simple-customer-statement .simple-statement-heading h1,
+  .simple-customer-statement .simple-statement-heading h2,
+  .simple-customer-statement .simple-statement-heading h3,
+  .simple-customer-statement .statement-payments-ledger h3,
+  .simple-customer-statement .simple-statement-old-balance,
+  .simple-customer-statement .simple-statement-old-balance strong,
+  .simple-customer-statement .simple-statement-payments,
+  .simple-customer-statement .simple-statement-payments strong,
+  .simple-customer-statement .simple-statement-total,
+  .simple-customer-statement .simple-statement-total strong{color:#000!important}
+  .simple-customer-statement .tablewrap,
+  .simple-customer-statement .app-table-wrap,
+  .simple-customer-statement .statement-payments-ledger,
+  .simple-customer-statement .simple-statement-table,
+  .simple-customer-statement .simple-statement-table tbody,
+  .simple-customer-statement .simple-statement-table tr,
+  .simple-customer-statement .simple-statement-table td,
+  .simple-customer-statement .simple-statement-table tr:nth-child(even) td,
+  .simple-customer-statement .simple-statement-old-balance,
+  .simple-customer-statement .simple-statement-total{
+    background:#fff!important;color:#000!important;box-shadow:none!important;
+  }
+  .simple-customer-statement .simple-statement-table th{background:#eee!important;color:#000!important}
+  .simple-customer-statement .simple-statement-table td strong{color:#000!important}
+}

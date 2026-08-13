@@ -13,11 +13,11 @@ const checks = [
 ];
 
 for (const [name, value] of checks) {
-  assert.strictEqual(value, expected, `${name} version mismatch`);
+  assert.strictEqual(value, expected, name + " version mismatch");
 }
 
 assert(
-  fs.readFileSync(path.join(root, "frontend/src/api.js"), "utf8").includes(`X-Alaboud-Client-Version"]="${expected}"`),
+  fs.readFileSync(path.join(root, "frontend/src/api.js"), "utf8").includes('X-Alaboud-Client-Version"]="' + expected + '"'),
   "client header mismatch",
 );
 assert(
@@ -25,10 +25,10 @@ assert(
   "session/runtime version must use APP_VERSION",
 );
 const gradle = fs.readFileSync(path.join(root, "app/build.gradle.kts"), "utf8");
-assert(gradle.includes(`versionName = "${expectedAndroid}"`), "Android versionName mismatch");
+assert(gradle.includes('versionName = "' + expectedAndroid + '"'), "Android versionName mismatch");
 assert(gradle.includes("versionCode = 251474"), "Android versionCode mismatch");
 assert(
-  fs.readFileSync(path.join(root, "app/src/main/java/com/alaboud/businesssuite/MainActivity.kt"), "utf8").includes(`CLIENT_VERSION = "${expectedAndroid}"`),
+  fs.readFileSync(path.join(root, "app/src/main/java/com/alaboud/businesssuite/MainActivity.kt"), "utf8").includes('CLIENT_VERSION = "' + expectedAndroid + '"'),
   "Android client version mismatch",
 );
-console.log("version consistency compatibility check web/backend v25.14.76 / Android shell v25.14.74: OK");
+console.log("version consistency web/backend v25.14.76 / Android shell v25.14.74: OK");
