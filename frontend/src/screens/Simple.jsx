@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
-import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from"../shared";
+import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction,revealAppEditor} from"../shared";
 import {AppTable} from "../components/ui";
 
 function Simple({type}){
@@ -31,7 +31,7 @@ function Simple({type}){
     }catch(err){setMessage(err?.response?.data?.message||"تعذر حفظ المصروف");}
     finally{setSaving(false);}
   }
-  function editExpense(x){setEditingId(x.id);setTitle(x.title||"");setAmount(String(x.amount??""));setCurrency(x.currency||"CAD");setExchangeRate(String(x.exchangeRate||1));setCategory(x.category||"Other");setDate(x.date||new Date().toISOString().slice(0,10));setMessage("");window.scrollTo({top:0,behavior:"smooth"});}
+  function editExpense(x){setEditingId(x.id);setTitle(x.title||"");setAmount(String(x.amount??""));setCurrency(x.currency||"CAD");setExchangeRate(String(x.exchangeRate||1));setCategory(x.category||"Other");setDate(x.date||new Date().toISOString().slice(0,10));setMessage("");revealAppEditor('[data-app-editor="expense"]');}
   async function deleteExpense(x){
     if(!await confirmAction({title:"تأكيد حذف المصروف",message:`هل أنت متأكد من حذف المصروف: ${x.title}؟`,confirmText:"حذف المصروف"}))return;
     try{await api.delete(`${endpoint}/${x.id}`);if(String(editingId)===String(x.id))resetExpenseForm();setMessage("تم حذف المصروف بنجاح");void load();}
@@ -41,7 +41,7 @@ function Simple({type}){
   const totals=list.reduce((acc,x)=>{const code=x.currency||"CAD";acc[code]=(acc[code]||0)+Number(x.amount||0);acc.CAD_TOTAL=(acc.CAD_TOTAL||0)+Number(x.cadAmount??x.amount??0);return acc;},{});
   return <div className="expenses-multi-page">
     <div className="expenses-title-row"><div><h2>المصروفات بجميع العملات</h2><p>سجّل المصروف بعملته الأصلية وسيتم احتسابه تلقائيًا بالدولار الكندي.</p></div><div className="expenses-cad-total"><span>الإجمالي المعتمد</span><strong>{money(totals.CAD_TOTAL)} CAD 🇨🇦</strong></div></div>
-    <form className="card form expenses-multi-form" onSubmit={add}>
+    <form className="card form expenses-multi-form" data-app-editor="expense" onSubmit={add}>
       <label><span>الوصف</span><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="مثال: وقود، إيجار، خدمات" required/></label>
       <label><span>التصنيف</span><select value={category} onChange={e=>setCategory(e.target.value)}><option value="Other">أخرى</option><option value="Fuel">وقود</option><option value="Rent">إيجار</option><option value="Utilities">خدمات</option><option value="Salary">رواتب</option><option value="Office">مكتب</option><option value="Transport">نقل</option></select></label>
       <label><span>العملة</span><select value={currency} onChange={e=>setCurrency(e.target.value)}>{expenseCurrencies.map(c=><option key={c.code} value={c.code}>{c.flag} {c.code} — {c.name}</option>)}</select></label>

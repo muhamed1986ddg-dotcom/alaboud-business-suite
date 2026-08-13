@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useState}from"react";
 import api,{cachedGet} from"../api";
-import {money} from"../shared";
+import {money,confirmAction} from"../shared";
 import {AppButton,AppCard,AppInput,AppLoader,AppStatCard,AppTable,AppToolbar} from"../components/ui";
 
 function ReportsProfits(){
@@ -46,7 +46,7 @@ function ReportsProfits(){
   }
   async function closeInventory(){
     if(vaultCash===""||!Number.isFinite(Number(vaultCash))||Number(vaultCash)<0){setError("أدخل قيمة الكاش في الخزنة أولًا");return;}
-    if(!window.confirm("سيتم تثبيت أرقام الجرد لهذا الشهر ولن تتغير لاحقًا. هل تريد المتابعة؟"))return;
+    if(!await confirmAction({title:"تأكيد إغلاق الجرد",message:"سيتم تثبيت أرقام الجرد لهذا الشهر ولن تتغير لاحقًا. هل تريد المتابعة؟",confirmText:"تثبيت الجرد",tone:"warning"}))return;
     setInventoryBusy(true);setError("");setInventoryNotice("");
     try{const response=await api.post("/monthly-inventory/close",{vaultCash:Number(vaultCash),notes:inventoryNotes});setInventoryNotice(response.data?.message||"تم تثبيت الجرد");setVaultCash("");setInventoryNotes("");await loadInventory();}
     catch(requestError){setError(requestError.response?.data?.message||"تعذر تثبيت الجرد الشهري");}
