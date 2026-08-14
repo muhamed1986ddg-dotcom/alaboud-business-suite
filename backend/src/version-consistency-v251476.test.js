@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "../..");
-const expected = "25.14.76";
+const expected = "25.14.77";
 const expectedAndroid = "25.14.74";
 const checks = [
   ["package.json", JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version],
@@ -31,4 +31,4 @@ assert(
   fs.readFileSync(path.join(root, "app/src/main/java/com/alaboud/businesssuite/MainActivity.kt"), "utf8").includes('CLIENT_VERSION = "' + expectedAndroid + '"'),
   "Android client version mismatch",
 );
-console.log("version consistency web/backend v25.14.76 / Android shell v25.14.74: OK");
+console.log("version consistency compatibility check web/backend v25.14.77 / Android shell v25.14.74: OK");

@@ -704,7 +704,7 @@ export function Statement({customerId,back}){
         <h3>{data.customer.name}</h3>
       </div>
 
-      <div className="tablewrap">
+      <div className="tablewrap simple-statement-desktop-table">
         <AppTable tableClassName="simple-statement-table">
           <thead>
             <tr>
@@ -728,8 +728,31 @@ export function Statement({customerId,back}){
         </AppTable>
       </div>
 
+      <div className="simple-statement-mobile-list" aria-label="حوالات كشف الحساب">
+        {data.transactions.length?
+          data.transactions.map((item,index)=><article className="simple-statement-mobile-card" key={item.id}>
+            <div className="simple-statement-mobile-card__title">حوالة رقم {index+1}</div>
+            <div className="simple-statement-mobile-card__grid">
+              <div className="simple-statement-mobile-field">
+                <span>مبلغ الحوالة</span>
+                <strong>{Number(item.usdAmount).toFixed(2)} 🇺🇸</strong>
+              </div>
+              <div className="simple-statement-mobile-field">
+                <span>سعر التحويل</span>
+                <strong>× {authoritativeCustomerRate(item).toFixed(4).replace(/0+$/,"").replace(/\.$/,"")}</strong>
+              </div>
+              <div className="simple-statement-mobile-field simple-statement-mobile-field--total">
+                <span>النتيجة</span>
+                <strong>{money(item.formulaResultCad)} 🇨🇦</strong>
+              </div>
+            </div>
+          </article>)
+          :<div className="simple-statement-mobile-empty">لا توجد حوالات في هذه الفترة.</div>
+        }
+      </div>
 
-      <div className="tablewrap statement-payments-ledger">
+
+      <div className="tablewrap statement-payments-ledger simple-statement-desktop-table">
         <h3>الدفعات المسجلة</h3>
         <AppTable tableClassName="simple-statement-table">
           <thead><tr><th>#</th><th>تاريخ الدفعة</th><th>البيان</th><th>قيمة الدفعة</th></tr></thead>
@@ -744,6 +767,32 @@ export function Statement({customerId,back}){
           </tbody>
         </AppTable>
       </div>
+
+      <section className="simple-statement-mobile-section" aria-label="الدفعات المسجلة">
+        <h3>الدفعات المسجلة</h3>
+        <div className="simple-statement-mobile-list">
+          {Array.isArray(data.payments)&&data.payments.length?
+            data.payments.map((payment,index)=><article className="simple-statement-mobile-card" key={payment.id||index}>
+              <div className="simple-statement-mobile-card__title">دفعة رقم {index+1}</div>
+              <div className="simple-statement-mobile-card__grid">
+                <div className="simple-statement-mobile-field">
+                  <span>تاريخ الدفعة</span>
+                  <strong>{payment.paymentDate||String(payment.date||payment.createdAt||"").slice(0,10)}</strong>
+                </div>
+                <div className="simple-statement-mobile-field">
+                  <span>البيان</span>
+                  <strong>{payment.notes||"دفعة من العميل"}</strong>
+                </div>
+                <div className="simple-statement-mobile-field simple-statement-mobile-field--total">
+                  <span>قيمة الدفعة</span>
+                  <strong>{money(payment.amount)} CAD</strong>
+                </div>
+              </div>
+            </article>)
+            :<div className="simple-statement-mobile-empty">لا توجد دفعات في هذه الفترة.</div>
+          }
+        </div>
+      </section>
 
       <div className="simple-statement-old-balance">
         <span>الحساب القديم {data.totals.oldBalanceType==="PAYABLE"?"له":"عليه"}:</span>

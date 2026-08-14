@@ -124,11 +124,118 @@
   border-radius:14px!important;
 }
 .simple-customer-statement .simple-statement-total strong{color:#f2ca62!important}
+.simple-statement-mobile-list,
+.simple-statement-mobile-section{display:none}
 
 @media(max-width:700px){
-  .simple-customer-statement{padding:16px 12px!important}
+  .simple-customer-statement{
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+    padding:16px 12px!important;
+    overflow-x:hidden!important;
+  }
   .simple-customer-statement .simple-statement-heading{margin-bottom:18px}
-  .simple-customer-statement .simple-statement-table td::before{color:#f2ca62!important}
+  .simple-customer-statement .simple-statement-desktop-table{display:none!important}
+  .simple-customer-statement .simple-statement-mobile-list{
+    display:grid;
+    width:100%;
+    min-width:0;
+    gap:12px;
+  }
+  .simple-customer-statement .simple-statement-mobile-section{
+    display:grid;
+    width:100%;
+    min-width:0;
+    gap:10px;
+    margin-top:18px;
+  }
+  .simple-customer-statement .simple-statement-mobile-section h3{
+    margin:0;
+    padding:0 4px;
+    color:#f2ca62!important;
+  }
+  .simple-customer-statement .simple-statement-mobile-card{
+    width:100%;
+    min-width:0;
+    overflow:hidden;
+    border:1px solid #405675;
+    border-radius:14px;
+    background:linear-gradient(150deg,#0d1a2d,#12233a);
+    box-shadow:0 8px 20px rgba(0,0,0,.24);
+  }
+  .simple-customer-statement .simple-statement-mobile-card__title{
+    padding:11px 13px;
+    border-bottom:1px solid #405675;
+    background:#172944;
+    color:#f2ca62;
+    font-weight:900;
+  }
+  .simple-customer-statement .simple-statement-mobile-card__grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    width:100%;
+    min-width:0;
+  }
+  .simple-customer-statement .simple-statement-mobile-field{
+    min-width:0;
+    padding:11px 12px;
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+    border-bottom:1px solid rgba(64,86,117,.72);
+  }
+  .simple-customer-statement .simple-statement-mobile-field:nth-child(odd):not(.simple-statement-mobile-field--total){
+    border-inline-end:1px solid rgba(64,86,117,.72);
+  }
+  .simple-customer-statement .simple-statement-mobile-field span{
+    color:#f2ca62;
+    font-size:.76rem;
+    font-weight:800;
+  }
+  .simple-customer-statement .simple-statement-mobile-field strong{
+    min-width:0;
+    color:#f8fafc!important;
+    font-size:1rem;
+    line-height:1.45;
+    white-space:normal!important;
+    overflow-wrap:anywhere;
+    word-break:break-word;
+    font-variant-numeric:tabular-nums;
+  }
+  .simple-customer-statement .simple-statement-mobile-field--total{
+    grid-column:1/-1;
+    border-bottom:0;
+    background:rgba(214,173,60,.06);
+  }
+  .simple-customer-statement .simple-statement-mobile-field--total strong{color:#86efac!important}
+  .simple-customer-statement .simple-statement-mobile-empty{
+    width:100%;
+    padding:20px 14px;
+    border:1px dashed #405675;
+    border-radius:14px;
+    color:#cbd5e1;
+    text-align:center;
+  }
+  .simple-customer-statement .simple-statement-old-balance,
+  .simple-customer-statement .simple-statement-payments,
+  .simple-customer-statement .simple-statement-total{
+    width:100%;
+    min-width:0;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) auto;
+    align-items:center;
+    gap:10px;
+  }
+  .simple-customer-statement .simple-statement-old-balance strong,
+  .simple-customer-statement .simple-statement-payments strong,
+  .simple-customer-statement .simple-statement-total strong{
+    min-width:0;
+    max-width:100%;
+    white-space:normal!important;
+    overflow-wrap:anywhere;
+    text-align:end;
+  }
 }
 
 @media print{
@@ -160,4 +267,7 @@
   }
   .simple-customer-statement .simple-statement-table th{background:#eee!important;color:#000!important}
   .simple-customer-statement .simple-statement-table td strong{color:#000!important}
+  .simple-customer-statement .simple-statement-desktop-table{display:block!important}
+  .simple-customer-statement .simple-statement-mobile-list,
+  .simple-customer-statement .simple-statement-mobile-section{display:none!important}
 }

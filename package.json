@@ -1,10 +1,10 @@
 {
   "name": "alaboud-business-suite-cloud",
-  "version": "25.14.76",
+  "version": "25.14.77",
   "private": true,
   "scripts": {
     "install:all": "npm ci --prefix backend --include=dev --ignore-scripts --no-audit --no-fund && npm ci --prefix frontend --include=dev --ignore-scripts --no-audit --no-fund",
-    "build": "npm run check:sensitive && npm run check:v251476 && npm run check:reliability && npm run check:regressions && npm run build --prefix frontend && node scripts/copy-frontend.js",
+    "build": "npm run check:sensitive && npm run check:v251477 && npm run check:reliability && npm run check:regressions && npm run build --prefix frontend && node scripts/copy-frontend.js",
     "start": "node backend/src/server.js",
     "test": "npm run check:release",
     "selftest": "node backend/src/selftest.js",
@@ -37,6 +37,7 @@
     "check:v251473": "node backend/src/security/partner-network.test.js && node backend/src/security-reliability-v251473.test.js && node backend/src/version-consistency-v251473.test.js",
     "check:v251475": "node backend/src/version-consistency-v251475.test.js && node --test frontend/tests/mobile-edit-modal-v251475.test.mjs && node backend/src/security/partner-network.test.js && node backend/src/security-reliability-v251473.test.js && node backend/src/android-webview-bridge-v251474.test.js",
     "check:v251476": "node backend/src/version-consistency-v251476.test.js && node --test frontend/tests/customer-statement-contrast-v251476.test.mjs && node --test frontend/tests/mobile-edit-modal-v251475.test.mjs && node backend/src/security/partner-network.test.js && node backend/src/security-reliability-v251473.test.js && node backend/src/android-webview-bridge-v251474.test.js",
+    "check:v251477": "node backend/src/version-consistency-v251477.test.js && node --test frontend/tests/customer-statement-mobile-cards-v251477.test.mjs && node --test frontend/tests/customer-statement-contrast-v251476.test.mjs && node --test frontend/tests/mobile-edit-modal-v251475.test.mjs && node backend/src/security/partner-network.test.js && node backend/src/security-reliability-v251473.test.js && node backend/src/android-webview-bridge-v251474.test.js",
     "check:all-backend-tests": "node scripts/run-backend-test-sweep.js",
     "check:release": "npm run check:sensitive && npm run check:all-backend-tests && npm test --prefix backend && npm run check:ui && npm test --prefix frontend && npm run build --prefix frontend"
   },

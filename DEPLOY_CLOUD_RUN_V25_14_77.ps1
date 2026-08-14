@@ -4,8 +4,14 @@ $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ProjectRoot
 
 $Version = (node -p "require('./package.json').version").Trim()
-if ($Version -ne "25.14.76") {
-    throw "Expected project version 25.14.76 but found $Version"
+if ($Version -ne "25.14.77") {
+    throw "Expected project version 25.14.77 but found $Version"
+}
+
+if (!(Test-Path "$ProjectRoot\backend\node_modules\pg") -or !(Test-Path "$ProjectRoot\frontend\node_modules\vite")) {
+    Write-Host "Installing locked backend/frontend dependencies..."
+    npm run install:all
+    if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed" }
 }
 
 Write-Host "Running production safety checks for v$Version..."
@@ -18,7 +24,8 @@ gcloud run deploy alaboud-business-suite-us `
     --region us-central1 `
     --project alaboud-business-suite `
     --no-traffic `
-    --tag v251476-contrast
+    --tag v251477-cards `
+    --max-instances 1
 
 if ($LASTEXITCODE -ne 0) { throw "Cloud Run test deployment failed" }
 

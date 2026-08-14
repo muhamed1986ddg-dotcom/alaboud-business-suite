@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.76 Customer Statement Contrast";
+export const APP_VERSION="v25.14.77 Mobile Statement Cards";
