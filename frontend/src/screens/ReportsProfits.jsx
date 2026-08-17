@@ -1,7 +1,7 @@
 import React,{useEffect,useMemo,useState}from"react";
 import api,{cachedGet} from"../api";
 import {money,confirmAction} from"../shared";
-import {AppButton,AppCard,AppInput,AppLoader,AppStatCard,AppTable,AppToolbar} from"../components/ui";
+import {AppButton,AppCard,AppInput,AppLoader,AppModal,AppStatCard,AppTable,AppToolbar} from"../components/ui";
 
 function ReportsProfits(){
   const [activeTab,setActiveTab]=useState("summary");
@@ -17,6 +17,8 @@ function ReportsProfits(){
   const [inventoryNotes,setInventoryNotes]=useState("");
   const [inventoryBusy,setInventoryBusy]=useState(false);
   const [inventoryNotice,setInventoryNotice]=useState("");
+  const [usdInventoryOpen,setUsdInventoryOpen]=useState(false);
+  const [usdCadRate,setUsdCadRate]=useState(null);
 
   async function loadProfits(){
     setLoading(true);setError("");
@@ -38,6 +40,28 @@ function ReportsProfits(){
     catch(requestError){setError(requestError.response?.data?.message||"تعذر تحميل الجرد الشهري");}
     finally{setInventoryBusy(false);}
   }
+  async function loadUsdCadRate(){
+    try{
+      const response=await cachedGet("/exchange-rates");
+      const rows=Array.isArray(response.data)
+        ? response.data
+        : Array.isArray(response.data?.rows)
+          ? response.data.rows
+          : Array.isArray(response.data?.data)
+            ? response.data.data
+            : [];
+
+      const rateRow=rows
+        .filter(row=>String(row.baseCurrency||"").toUpperCase()==="USD"&&String(row.quoteCurrency||"").toUpperCase()==="CAD")
+        .sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")))[0];
+
+      const rate=Number(rateRow?.sellRate||rateRow?.buyRate||0);
+      setUsdCadRate(Number.isFinite(rate)&&rate>0?rate:null);
+    }catch{
+      setUsdCadRate(null);
+    }
+  }
+
   async function saveInventoryDay(){
     setInventoryBusy(true);setError("");setInventoryNotice("");
     try{const response=await api.patch("/monthly-inventory/settings",{day:Number(inventoryDay)});setInventoryNotice(response.data?.message||"تم حفظ يوم الجرد");await loadInventory();}
@@ -81,6 +105,10 @@ function ReportsProfits(){
   );
   const previewFinalValue=previewTotalAssets-previewTotalLiabilities;
   const previewInventoryDifference=previewFinalValue-Number(inventoryCurrent.netCapital||0);
+  const previewFinalValueUsd=
+    Number.isFinite(Number(usdCadRate))&&Number(usdCadRate)>0
+      ? previewFinalValue/Number(usdCadRate)
+      : null;
 
   const monthlyColumns=useMemo(()=>[
     {key:"month",label:"الشهر"},
@@ -189,7 +217,38 @@ function ReportsProfits(){
             <div><span>🏢 ذمم الشركات علينا</span><strong>{money(inventoryCurrent.companyPayables)} CAD</strong></div>
             <div><span>📝 الذمم اليدوية علينا</span><strong>{money(inventoryCurrent.manualPayables)} CAD</strong></div>
             <div><span>إجمالي الالتزامات</span><strong>{money(previewTotalLiabilities)} CAD</strong></div>
-            <div className="inventory-final"><span>= قيمة الجرد / صافي الأصول</span><strong>{money(previewFinalValue)} CAD</strong></div>
+            <div className="inventory-final">
+  <span>= قيمة الجرد / صافي الأصول</span>
+  <strong>{money(previewFinalValue)} CAD</strong>
+  <AppButton
+    type="button"
+    variant="secondary"
+    onClick={async()=>{
+      await loadUsdCadRate();
+      setUsdInventoryOpen(true);
+    }}
+  >
+    🇺🇸 عرض بالدولار الأمريكي
+  </AppButton>
+</div>
+{usdInventoryOpen&&
+  <AppModal
+    open
+    title="🇺🇸 صافي الأصول بالدولار الأمريكي"
+    onClose={()=>setUsdInventoryOpen(false)}
+  >
+    <div className="inventory-usd-display">
+      <p>القيمة الأساسية</p>
+      <strong>{money(previewFinalValue)} CAD</strong>
+
+      {previewFinalValueUsd!==null?<>
+        <p>سعر التحويل: 1 USD = {Number(usdCadRate).toLocaleString("en-CA",{maximumFractionDigits:6})} CAD</p>
+        <h2>{money(previewFinalValueUsd)} USD</h2>
+        <small>هذه القيمة للعرض فقط ولا تُحفظ في الجرد ولا تؤثر على رأس المال أو الديون أو الأرباح.</small>
+      </>:<p className="customer-error">لا يوجد سعر USD/CAD صالح حاليًا. حدّث أسعار الصرف ثم أعد المحاولة.</p>}
+    </div>
+  </AppModal>
+}
             <div className={`inventory-difference ${Math.abs(previewInventoryDifference)<0.005?"inventory-difference--balanced":"inventory-difference--warning"}`}><span>⚖️ فرق المطابقة الرقابي</span><strong>{previewInventoryDifference>=0?"+":""}{money(previewInventoryDifference)} CAD</strong></div>
           </div>
           <small>فرق المطابقة مؤشر للمراجعة فقط؛ لا يُضاف إلى رأس المال ولا يُطرح من الجرد تلقائيًا.</small>
