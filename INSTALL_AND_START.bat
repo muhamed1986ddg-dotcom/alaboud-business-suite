@@ -1,7 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title AlAboud Business Suite v25.14.77 - Install
+title AlAboud Business Suite v25.14.82 - Install
 
 where node >nul 2>nul
 if errorlevel 1 (

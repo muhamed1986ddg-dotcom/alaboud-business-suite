@@ -18,10 +18,10 @@ async function wait(){for(let i=0;i<50;i++){try{const r=await request("GET","/ap
  r=await request("POST","/api/auth/change-password",{currentPassword:"Admin123!ChangeMe",newPassword:"E2eOnly!251473"},token);assert.equal(r.status,200);
  r=await request("POST","/api/customers",{name:"عميل E2E",phone:"15195550999",oldBalance:25},token);assert.equal(r.status,201);const customer=r.body;
  r=await request("GET",`/api/customers?search=${encodeURIComponent("عميل E2E")}&page=1&pageSize=20&sort=balance-desc`,null,token);assert.equal(r.status,200);assert.ok(r.body.items.some(x=>x.id===customer.id),"read-after-write customer missing");
- r=await request("POST","/api/transactions",{customerId:customer.id,currency:"USD",amount:100,costRate:1.3,finalRate:1.4,transferFee:10,transferDate:"2026-08-05"},token);assert.equal(r.status,201);const tx=r.body;
+ r=await request("POST","/api/transactions",{customerId:customer.id,currency:"USD",amount:100,costRate:1.3,finalRate:1.4,transferFee:10,feeMethod:"PAID",transferDate:"2026-08-05"},token);assert.equal(r.status,201);const tx=r.body;assert.equal(tx.totalCustomerDue,150);assert.equal(tx.totalProfit,20);assert.equal(tx.beneficiaryReceives,100);
  r=await request("POST",`/api/customers/${customer.id}/payments`,{amount:50,paymentDate:"2026-08-05"},token);assert.equal(r.status,201);
  r=await request("GET","/api/customers/debt-summary",null,token);assert.equal(r.status,200);assert.equal(r.body.totalDebtCad,125);
- r=await request("PATCH",`/api/transactions/${tx.id}`,{transferFee:20},token);assert.equal(r.status,200);
+ r=await request("PATCH",`/api/transactions/${tx.id}`,{finalRate:1.45},token);assert.equal(r.status,200);assert.equal(r.body.transferFee,10);assert.equal(r.body.totalCustomerDue,155);assert.equal(r.body.totalProfit,25);assert.equal(r.body.beneficiaryReceives,100);
  r=await request("POST","/api/general-debts",{type:"RECEIVABLE",partyName:"شركة E2E",amount:300,currency:"CAD"},token);assert.equal(r.status,201);const debt=r.body;
  r=await request("PATCH",`/api/general-debts/${debt.id}`,{amount:350},token);assert.equal(r.status,200);assert.equal(r.body.amount,350);
  r=await request("DELETE",`/api/general-debts/${debt.id}`,null,token);assert.equal(r.status,200);

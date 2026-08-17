@@ -49,7 +49,6 @@ function MonthlyReport(){
 
     <div className="stats">
       <div className="card"><span>أجور الحوالات</span><strong>{money(s.feesTotal)}</strong></div>
-      <div className="card"><span>ربح فرق السعر</span><strong>{money(s.exchangeProfit)}</strong></div>
       <div className="card"><span>إجمالي الربح</span><strong>{money(s.grossProfit)}</strong></div>
       <div className="card payable-card"><span>المصروفات</span><strong>{money(s.expenses)}</strong></div>
       <div className={`card final metric-card metric-net ${Number(s.netProfit||0)<0?"value-negative":"value-positive"}`}><span>صافي الربح</span><strong>{money(s.netProfit)}</strong></div>
@@ -100,7 +99,7 @@ function MonthlyReport(){
           {key:"number",label:"الرقم",render:item=>item.number||item.id},
           {key:"date",label:"التاريخ",render:item=>item.transferDate||String(item.createdAt||"").slice(0,10)},
           {key:"amount",label:"المبلغ",render:item=>money(item.amount)},
-          {key:"transferFee",label:"الأجور",render:item=>money(item.transferFee)},
+          {key:"transferFee",label:"أجور الحوالة",render:item=>money(item.transferFee)},
           {key:"totalProfit",label:"الربح",render:item=>money(item.totalProfit)},
         ]}
       />

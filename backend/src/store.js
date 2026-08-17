@@ -174,7 +174,9 @@ function mutateDurable(fn){
   // semantics while avoiding multiple full-store clones/normalizations on the
   // hot add/edit/delete path.
   const execute=async()=>runWithStaleRevisionRecovery({
-    maxAttempts:Math.max(1,Math.min(5,Number(process.env.DURABLE_STALE_REVISION_ATTEMPTS||3))),
+    maxAttempts:Math.max(1,Math.min(8,Number(process.env.DURABLE_STALE_REVISION_ATTEMPTS||5))),
+    baseDelayMs:Math.max(0,Number(process.env.DURABLE_STALE_REVISION_BASE_DELAY_MS||40)),
+    maxDelayMs:Math.max(40,Number(process.env.DURABLE_STALE_REVISION_MAX_DELAY_MS||320)),
     execute:async()=>{
       const draft=structuredClone(rootStore);
       const view=companyId?tenantView(draft,companyId,branchId):draft;

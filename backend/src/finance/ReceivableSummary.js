@@ -12,9 +12,10 @@ function calculateReceivableSummary({customerReceivable=0,customerPayable=0,comp
   const companyDue=money(companyPayable);
   const manualForUs=money(manualReceivable);
   const manualOnUs=money(manualPayable);
-  // Authoritative business KPI: customer balances + company balances only.
-  // Manual rows stay visible for reconciliation and never inflate the headline KPI.
-  const receivable=money(customers+companies);
+  // The comprehensive KPI includes both manual directions symmetrically. Any
+  // manual row that directly mirrors an official source must be filtered by
+  // DebtLinking before reaching this pure arithmetic function.
+  const receivable=money(customers+companies+manualForUs);
   const payable=money(customerDue+companyDue+manualOnUs);
   return Object.freeze({
     receivable,payable,net:money(receivable-payable),

@@ -6606,7 +6606,7 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 }
 
 /* v25.14.6 Monthly inventory */
-.inventory-alert-line{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.inventory-alert--due,.inventory-alert--overdue{border-color:#e0a52c!important;box-shadow:0 0 0 1px rgba(224,165,44,.18)}.inventory-alert--done{border-color:#2f9e68!important}.inventory-breakdown{display:grid;gap:10px}.inventory-breakdown>div{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:12px 14px;border:1px solid rgba(205,164,75,.18);border-radius:12px;background:rgba(255,255,255,.02)}.inventory-breakdown strong{font-variant-numeric:tabular-nums}.inventory-vault-input{align-items:flex-end!important}.inventory-vault-input .ui-field{min-width:220px;margin:0}.inventory-final{border-color:rgba(205,164,75,.55)!important;background:rgba(205,164,75,.08)!important;font-size:1.08rem}.inventory-final strong{color:#dfb653}.inventory-notes{margin:14px 0}.inventory-history{display:grid;gap:12px}.inventory-history-card{display:block!important}.inventory-row-notes{margin:10px 0 0;padding:10px;border-radius:10px;background:rgba(255,255,255,.03)}
+.inventory-alert-line{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.inventory-alert--due,.inventory-alert--overdue{border-color:#e0a52c!important;box-shadow:0 0 0 1px rgba(224,165,44,.18)}.inventory-alert--done{border-color:#2f9e68!important}.inventory-breakdown{display:grid;gap:10px}.inventory-breakdown>div{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:12px 14px;border:1px solid rgba(205,164,75,.18);border-radius:12px;background:rgba(255,255,255,.02)}.inventory-breakdown strong{font-variant-numeric:tabular-nums}.inventory-vault-input{align-items:flex-end!important}.inventory-vault-input .ui-field{min-width:220px;margin:0}.inventory-final{border-color:rgba(205,164,75,.55)!important;background:rgba(205,164,75,.08)!important;font-size:1.08rem}.inventory-final strong{color:#dfb653}.inventory-difference--balanced{border-color:rgba(47,158,104,.5)!important;background:rgba(47,158,104,.08)!important}.inventory-difference--warning{border-color:rgba(224,165,44,.55)!important;background:rgba(224,165,44,.08)!important}.inventory-difference--warning strong{color:#e0a52c}.inventory-notes{margin:14px 0}.inventory-history{display:grid;gap:12px}.inventory-history-card{display:block!important}.inventory-row-notes{margin:10px 0 0;padding:10px;border-radius:10px;background:rgba(255,255,255,.03)}
 @media(max-width:700px){.inventory-alert-line{align-items:flex-start;flex-direction:column}.inventory-breakdown>div{padding:11px 12px}.inventory-vault-input{display:block!important}.inventory-vault-input>span{display:block;margin-bottom:8px}.inventory-vault-input .ui-field{min-width:0;width:100%}.inventory-settings-grid{grid-template-columns:1fr}.inventory-history{padding-bottom:90px}}
 .global-inventory-alert{width:100%;border:1px solid rgba(214,164,58,.45);background:linear-gradient(135deg,rgba(94,63,8,.95),rgba(31,24,11,.96));color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 14px;display:flex;align-items:center;gap:10px;cursor:pointer;text-align:right}.global-inventory-alert strong{flex:1}.global-inventory-alert small{color:#e5c372}.global-inventory-alert--overdue{border-color:rgba(220,80,80,.65);background:linear-gradient(135deg,rgba(88,25,25,.95),rgba(31,15,15,.96))}@media(max-width:700px){.global-inventory-alert{margin:8px 8px 12px;width:calc(100% - 16px);align-items:flex-start;flex-wrap:wrap}.global-inventory-alert strong{min-width:calc(100% - 36px)}.global-inventory-alert small{width:100%;padding-right:34px}}
 
@@ -7013,4 +7013,79 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 /* v25.14.71 — keep reset beside open account in the customer directory */
 .customer-directory-actions .customer-reset-button{
   grid-column:auto!important;
+}
+
+/* v25.14.81 — exact accounting view, isolated from estimates */
+.accounting-period-note{
+  display:flex;
+  align-items:flex-start;
+  gap:12px;
+  margin:14px 0;
+  border-color:rgba(59,130,246,.34)!important;
+  background:rgba(30,64,175,.08)!important;
+}
+.accounting-period-note strong{white-space:nowrap;color:#93c5fd}
+.accounting-period-note span{color:#cbd5e1;line-height:1.7}
+.budget-accounting-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:14px;
+  margin:14px 0;
+}
+.budget-accounting-grid>.card{min-height:255px}
+.accounting-lines{display:grid;gap:10px;margin-top:18px}
+.accounting-lines>span,.accounting-lines>strong,.accounting-lines>em{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:11px 12px;
+  border-radius:11px;
+  background:rgba(255,255,255,.035);
+  font-style:normal;
+  font-variant-numeric:tabular-nums;
+}
+.accounting-lines>strong{
+  margin-top:4px;
+  border:1px solid rgba(205,164,75,.4);
+  background:rgba(205,164,75,.08);
+}
+.final-inventory-card.is-closed{border-color:rgba(34,197,94,.42)!important}
+.final-inventory-card.is-pending{border-color:rgba(245,158,11,.42)!important}
+.inventory-not-fixed{display:grid;gap:14px;margin-top:20px}
+.inventory-not-fixed p{margin:0;color:#fcd34d;line-height:1.75}
+.inventory-not-fixed button{justify-self:start}
+.non-accounting-notice{margin:14px 0;border-style:dashed!important}
+.non-accounting-notice summary{cursor:pointer;font-weight:800;color:#f1cf72}
+.non-accounting-notice p{margin:12px 0 0;color:#94a3b8;line-height:1.7}
+@media(max-width:1050px){
+  .budget-accounting-grid{grid-template-columns:1fr 1fr}
+  .final-inventory-card{grid-column:1/-1}
+}
+@media(max-width:700px){
+  .accounting-period-note{display:grid}
+  .accounting-period-note strong{white-space:normal}
+  .budget-accounting-grid{grid-template-columns:1fr}
+  .final-inventory-card{grid-column:auto}
+  .budget-accounting-grid>.card{min-height:0}
+  .accounting-lines>span,.accounting-lines>strong,.accounting-lines>em{align-items:flex-start;flex-direction:column}
+  .inventory-not-fixed button{width:100%}
+}
+/* v25.14.81 — the comprehensive equation has seven visible accounting rows. */
+.financial-equation-row{display:flex;flex-wrap:wrap;justify-content:center}
+.financial-equation-row>span{flex:1 1 165px;min-width:0}
+.financial-equation-row>i{flex:0 0 auto;align-self:center}
+.financial-equation-row>.equation-result{flex:1 1 240px}
+@media(max-width:900px){.financial-equation-row{display:grid;grid-template-columns:1fr}.financial-equation-row>span,.financial-equation-row>.equation-result{width:100%}}
+
+/* v25.14.85 — Capital turnover details by currency */
+.capital-currency-detail-card{align-content:start;gap:8px!important}
+.capital-currency-detail-card>span{display:flex;justify-content:space-between;gap:10px;align-items:center;line-height:1.45}
+.capital-currency-detail-card>span b{font-variant-numeric:tabular-nums;color:inherit}
+.capital-currency-code{font-size:1.22rem!important;margin-bottom:3px}
+.capital-turnover-line{margin-top:5px;padding-top:9px;border-top:1px solid rgba(240,200,91,.25);color:#f0c85b;font-weight:800}
+.capital-turnover-note{margin:12px 2px 0;color:#b8c4d8;font-size:.9rem;line-height:1.7}
+@media(max-width:640px){
+  .capital-currency-detail-card>span{font-size:.9rem;flex-wrap:wrap}
+  .capital-turnover-note{font-size:.82rem}
 }

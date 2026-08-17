@@ -18,7 +18,23 @@ function collect(directory){
   return files;
 }
 
-const tests=roots.flatMap(collect).sort((a,b)=>a.localeCompare(b));
+const currentVersion = require(path.join(root,"package.json")).version;
+const currentVersionToken = "v" + currentVersion.replace(/\./g,"");
+
+const tests = roots
+  .flatMap(collect)
+  .filter(file => {
+    const name = path.basename(file);
+
+    // Version-consistency files are release-specific checks.
+    // During the full backend sweep, run only the check for the current release.
+    if (/^version-consistency-v\d+\.test\.js$/.test(name)) {
+      return name === `version-consistency-${currentVersionToken}.test.js`;
+    }
+
+    return true;
+  })
+  .sort((a,b)=>a.localeCompare(b));
 const timeoutMs=Math.max(5000,Number(process.env.BACKEND_TEST_FILE_TIMEOUT_MS||30000));
 let passed=0;
 const failures=[];

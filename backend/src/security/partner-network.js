@@ -16,9 +16,10 @@ function isPrivateIp(address){
   return true;
 }
 
-async function assertSafePartnerUrl(rawUrl,{lookup=dns.lookup}={}){
+async function assertSafePartnerUrl(rawUrl,{lookup=dns.lookup,production=process.env.NODE_ENV==="production"}={}){
   const parsed=new URL(String(rawUrl||"").trim());
   if(!["https:","http:"].includes(parsed.protocol))throw new Error("PARTNER_URL_PROTOCOL");
+  if(production&&parsed.protocol!=="https:")throw new Error("PARTNER_HTTPS_REQUIRED");
   if(parsed.username||parsed.password)throw new Error("PARTNER_URL_CREDENTIALS");
   const hostname=String(parsed.hostname||"").toLowerCase();
   if(!hostname||hostname==="localhost"||hostname.endsWith(".localhost")||hostname.endsWith(".local")||hostname.endsWith(".internal"))throw new Error("PARTNER_PRIVATE_HOST");

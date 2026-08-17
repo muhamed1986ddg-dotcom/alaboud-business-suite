@@ -4,6 +4,7 @@ const path = require("path");
 const { Pool } = require("pg");
 const MigrationRunner = require("../database/MigrationRunner");
 const RelationalMigrationEngine = require("./RelationalMigrationEngine");
+const { postgresSslOptions } = require("../database/postgres-tls");
 
 function parseArgs(argv) {
   const [command = "migrate", ...rest] = argv;
@@ -16,7 +17,7 @@ function parseArgs(argv) {
 function createPool() {
   const connectionString = String(process.env.DATABASE_URL || "").trim();
   if (!connectionString) throw new Error("DATABASE_URL is required for relational migration");
-  return new Pool({ connectionString, ssl: connectionString.includes("localhost") ? false : { rejectUnauthorized: false } });
+  return new Pool({ connectionString, ssl: postgresSslOptions(connectionString) });
 }
 async function loadSource(pool, filePath) {
   if (filePath) {

@@ -27,6 +27,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -55,10 +56,11 @@ class MainActivity : AppCompatActivity() {
         private const val APP_URL = "https://alaboud-business-suite-us-763786484727.us-central1.run.app/"
         private const val APP_ORIGIN = "https://alaboud-business-suite-us-763786484727.us-central1.run.app"
         private const val APP_HOST = "alaboud-business-suite-us-763786484727.us-central1.run.app"
-        private const val CLIENT_VERSION = "25.14.74"
+        private const val CLIENT_VERSION = "25.14.88"
         private const val FILE_CHOOSER_REQUEST = 9001
         private const val NOTIFICATION_PERMISSION_REQUEST = 9002
         private const val CHANNEL_ID = "alaboud_overdue_customers"
+        private const val MAX_RATE_LIMIT_RETRIES = 2
     }
 
     private lateinit var webView: WebView
@@ -66,6 +68,8 @@ class MainActivity : AppCompatActivity() {
     private val nativeBridge by lazy { NativeBridge(this) }
     private var nativeBridgeAttached = false
     @Volatile private var trustedPageActive = false
+    private var rateLimitRetryCount = 0
+    private var rateLimitScreenShowing = false
 
     private fun effectivePort(uri: Uri): Int = when {
         uri.port >= 0 -> uri.port
@@ -170,6 +174,11 @@ class MainActivity : AppCompatActivity() {
                 val scheme = uri.scheme?.lowercase()
                 val isMainFrame = request.isForMainFrame
 
+                if (scheme == "alaboud" && uri.host.equals("retry-rate-limit", ignoreCase = true)) {
+                    handleRateLimitRetry()
+                    return true
+                }
+
                 if (scheme == "http" || scheme == "https") {
                     if (isTrustedAppUri(uri)) {
                         if (isMainFrame) {
@@ -209,7 +218,12 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
+                if (rateLimitScreenShowing) {
+                    super.onPageFinished(view, url)
+                    return
+                }
                 if (updateTrustedPage(url?.let(Uri::parse))) {
+                    rateLimitRetryCount = 0
                     attachNativeBridge()
                     injectMobileNavigation()
                     checkOverdueCustomers()
@@ -217,6 +231,18 @@ class MainActivity : AppCompatActivity() {
                     detachNativeBridge()
                 }
                 super.onPageFinished(view, url)
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView?,
+                request: WebResourceRequest?,
+                errorResponse: WebResourceResponse?
+            ) {
+                if (request?.isForMainFrame == true && errorResponse?.statusCode == 429) {
+                    showRateLimitPage(view)
+                    return
+                }
+                super.onReceivedHttpError(view, request, errorResponse)
             }
 
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
@@ -615,6 +641,64 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) {
             Toast.makeText(this, "تعذر فتح الرابط", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun showRateLimitPage(view: WebView?) {
+        rateLimitScreenShowing = true
+        trustedPageActive = false
+        detachNativeBridge()
+        view?.stopLoading()
+        view?.loadDataWithBaseURL(
+            APP_ORIGIN,
+            rateLimitHtml(),
+            "text/html",
+            "UTF-8",
+            null
+        )
+    }
+
+    private fun handleRateLimitRetry() {
+        if (rateLimitRetryCount >= MAX_RATE_LIMIT_RETRIES) {
+            showRateLimitPage(webView)
+            return
+        }
+        rateLimitRetryCount += 1
+        rateLimitScreenShowing = false
+        trustedPageActive = true
+        attachNativeBridge()
+        webView.loadUrl(APP_URL)
+    }
+
+    private fun rateLimitHtml(): String {
+        val retriesLeft = (MAX_RATE_LIMIT_RETRIES - rateLimitRetryCount).coerceAtLeast(0)
+        val action = if (retriesLeft > 0) {
+            """<button onclick="location.href='alaboud://retry-rate-limit'">إعادة الاتصال — متبقي $retriesLeft من $MAX_RATE_LIMIT_RETRIES</button>"""
+        } else {
+            """<p class="stopped">تم إيقاف إعادة الاتصال بعد محاولتين لحماية التطبيق من التكرار.</p>"""
+        }
+        return """
+            <!doctype html>
+            <html lang="ar" dir="rtl">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width,initial-scale=1">
+              <style>
+                body{font-family:sans-serif;background:#07111f;color:#f8fafc;padding:24px;text-align:center}
+                .card{max-width:540px;margin:72px auto;background:#0d1a2d;padding:30px 24px;border:1px solid #d6aa38;border-radius:20px;box-shadow:0 12px 36px #0008}
+                h2{color:#f2ca62;margin-top:0}p{line-height:1.8;color:#dbe4f0}.stopped{color:#f8c9c9}
+                button{background:linear-gradient(135deg,#d6aa38,#f0ce68);color:#07111f;border:0;padding:14px 22px;border-radius:12px;font-size:16px;font-weight:800}
+              </style>
+            </head>
+            <body>
+              <div class="card">
+                <h2>الخدمة مشغولة مؤقتًا</h2>
+                <p>وصل التطبيق إلى حد الطلبات المؤقت من الخادم (429). لم تُفقد بياناتك.</p>
+                <p>يمكن إعادة الاتصال بحد أقصى محاولتين فقط.</p>
+                $action
+              </div>
+            </body>
+            </html>
+        """.trimIndent()
     }
 
     private fun offlineHtml(): String = """

@@ -36,8 +36,8 @@ assert(
   "SSL failures must clear trust, detach the bridge and cancel navigation",
 );
 assert(
-  android.includes('CLIENT_VERSION = "25.14.74"'),
+  android.includes('CLIENT_VERSION = "25.14.88"'),
   "Android hotfix client version mismatch",
 );
 
-console.log("Android v25.14.74 WebView bridge thread-safety regression: OK");
+console.log("Android WebView bridge thread-safety regression on v25.14.84: OK");

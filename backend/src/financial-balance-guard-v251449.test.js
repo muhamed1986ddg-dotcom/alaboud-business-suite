@@ -13,6 +13,11 @@ const requiredMarkers = [
   'account:"CAPITAL_CAD"'
 ];
 for(const marker of requiredMarkers) assert(server.includes(marker),`missing financial integrity marker: ${marker}`);
+assert(server.includes('feeMethod:financials.feeMethod'),"transactions must persist the canonical fee method");
+assert(server.includes('beneficiaryReceives:financials.beneficiaryReceives'),"transactions must preserve the full beneficiary amount");
+assert(!server.includes('feeMethod==="DEDUCT"?Math.max(amount-fee,0):amount'),"legacy fee deduction formula must not return");
+assert(server.includes('account:"TRANSFER_FEE_REVENUE"'),"separately paid fees must balance against customer receivables");
+assert(server.includes('const allowed=["currency","amount","costRate","finalRate","transferFee","feeMethod"'),"fee mode and paid amount must be editable");
 const customerPaymentBlock=server.slice(server.indexOf('app.post("/api/customers/:id/payments"'),server.indexOf('app.post("/api/transactions/:id/payments"'));
 assert(customerPaymentBlock.includes('assertBalancedEntry(['));
 assert(customerPaymentBlock.includes('allocatedToTransactions'));

@@ -8,12 +8,14 @@ const exact = transactionFinancials({ amount: "100", finalRate: "1.47", costRate
 assert.strictEqual(exact.convertedCad, 147);
 assert.strictEqual(exact.totalCustomerDue, 147.1);
 assert.strictEqual(exact.exchangeProfit, 7);
+assert.strictEqual(exact.transferFee, 0.1);
 assert.strictEqual(exact.totalProfit, 7.1);
 
 const fractional = transactionFinancials({ amount: "0.1", finalRate: "2", costRate: "1", transferFee: "0.2", feeMethod: "ADD" });
 assert.strictEqual(fractional.convertedCad, 0.2);
 assert.strictEqual(fractional.totalCustomerDue, 0.4);
 assert.strictEqual(fractional.exchangeProfit, 0.1);
+assert.strictEqual(fractional.transferFee, 0.2);
 assert.strictEqual(fractional.totalProfit, 0.3);
 
 const legacy = { amount: "100", finalRate: "1.4700", customerRate: "12.6654", costRate: "1.4" };

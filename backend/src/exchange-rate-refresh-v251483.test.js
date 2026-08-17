@@ -1,0 +1,13 @@
+const assert=require("assert");
+const fs=require("fs");
+const path=require("path");
+const source=fs.readFileSync(path.join(__dirname,"server.js"),"utf8");
+const refresh=source.slice(source.indexOf('async function saveAutomaticRatesBatch'),source.indexOf('app.get("/api/profits"'));
+assert(refresh.includes('Promise.allSettled(['),'rate providers must be fetched concurrently');
+assert(refresh.includes('saveAutomaticRatesBatch(pending,userId)'),'successful rates must use one batch save');
+assert.strictEqual((refresh.match(/mutateDurable\(/g)||[]).length,1,'exchange refresh block must contain one durable mutation path');
+assert(!refresh.includes('saveAutomaticRate({'),'legacy one-rate-at-a-time saves must be removed');
+const route=source.slice(source.indexOf('app.post("/api/exchange-rates/refresh"'),source.indexOf('app.get("/api/exchange-rates"'));
+assert(route.includes('successCount===0'),'total provider failure must be reported separately');
+assert(route.includes('تم الاحتفاظ بآخر أسعار صحيحة'),'failure response must state that last good rates are retained');
+console.log('exchange rate refresh v25.14.83: OK');

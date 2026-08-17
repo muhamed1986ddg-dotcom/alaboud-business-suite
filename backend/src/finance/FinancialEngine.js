@@ -36,8 +36,7 @@ function isAfterReset(record, customer, preferredDateKey = "") {
   ) >= resetTime;
 }
 
-function customerReceiptsScaled(payments, customerId) {
-  const rows = (Array.isArray(payments) ? payments : []).filter(payment => payment && !payment.isDeleted && payment.customerId === customerId);
+function receiptsScaled(rows) {
   const receipts = rows.filter(payment => payment.recordType === "CUSTOMER_PAYMENT_RECEIPT");
   const receiptBatchIds = new Set(receipts.map(payment => payment.paymentBatchId).filter(Boolean));
   let total = receipts.reduce((sum, receipt) => sum + moneySafe(receipt.originalAmount ?? receipt.amount), 0n);
@@ -45,18 +44,38 @@ function customerReceiptsScaled(payments, customerId) {
   for (const payment of rows) {
     if (payment.recordType === "CUSTOMER_PAYMENT_RECEIPT") continue;
     if (payment.recordType === "PAYMENT_ALLOCATION" && payment.paymentBatchId && receiptBatchIds.has(payment.paymentBatchId)) continue;
-    const key = payment.paymentBatchId || (payment.allocationMode === "CUSTOMER_AUTO"
-      ? `${payment.customerId}:${payment.paymentDate || payment.date || payment.createdAt || ""}:${payment.originalAmount ?? payment.amount ?? 0}`
-      : `single:${payment.id}`);
-    if (!legacyGroups.has(key)) legacyGroups.set(key, 0n);
-    legacyGroups.set(key, legacyGroups.get(key) + moneySafe(payment.originalAmount ?? payment.amount));
+    const grouped = Boolean(payment.paymentBatchId || payment.allocationMode === "CUSTOMER_AUTO" || payment.recordType === "PAYMENT_ALLOCATION");
+    if (!grouped) {
+      total += moneySafe(payment.originalAmount ?? payment.amount);
+      continue;
+    }
+    const key = payment.paymentBatchId || `${payment.customerId}:${payment.paymentDate || payment.date || payment.createdAt || ""}:${payment.originalAmount ?? "legacy"}`;
+    if (!legacyGroups.has(key)) legacyGroups.set(key, {allocated:0n,original:0n});
+    const group=legacyGroups.get(key);
+    group.allocated += moneySafe(payment.amount);
+    const original=moneySafe(payment.originalAmount);
+    if(original>group.original)group.original=original;
   }
-  for (const amount of legacyGroups.values()) total += amount;
+  for (const group of legacyGroups.values()) total += group.original>0n?group.original:group.allocated;
   return total;
+}
+
+function customerReceiptsScaled(payments, customerId) {
+  const rows = (Array.isArray(payments) ? payments : []).filter(payment => payment && !payment.isDeleted && payment.customerId === customerId);
+  return receiptsScaled(rows);
+}
+
+function customerReceiptsTotalScaled(payments) {
+  const rows=(Array.isArray(payments)?payments:[]).filter(payment=>payment&&!payment.isDeleted);
+  return receiptsScaled(rows);
 }
 
 function customerReceipts(payments, customerId) {
   return moneyToNumber(customerReceiptsScaled(payments, customerId));
+}
+
+function customerReceiptsTotal(payments) {
+  return moneyToNumber(customerReceiptsTotalScaled(payments));
 }
 
 function customerSummary(store, customer, { overdueDays = 7 } = {}) {
@@ -175,6 +194,8 @@ module.exports = {
   customerBalanceTotals,
   customerReceipts,
   customerReceiptsScaled,
+  customerReceiptsTotal,
+  customerReceiptsTotalScaled,
   number,
   isAfterReset,
 };

@@ -1,0 +1,22 @@
+"use strict";
+const assert=require("assert");
+const fs=require("fs");
+const path=require("path");
+const {postgresSslOptions}=require("./database/postgres-tls");
+const {assertSafePartnerUrl}=require("./security/partner-network");
+(async()=>{
+  const root=path.resolve(__dirname,"../..");
+  const server=fs.readFileSync(path.join(__dirname,"server.js"),"utf8");
+  assert(server.includes("if (IS_PROD)"),"production email logging guard missing");
+  assert(server.includes("balanceOnly"),"BALANCE_ONLY enforcement missing");
+  assert(server.includes("result.movements=[]"),"BALANCE_ONLY must strip statement movements");
+  assert(server.includes("PRODUCTION_READINESS_FAILED"),"startup readiness gate missing");
+  assert.equal(postgresSslOptions("postgres://u:p@localhost/db"),false);
+  assert.equal(postgresSslOptions("postgres://u:p@127.0.0.1/db"),false);
+  assert.deepEqual(postgresSslOptions("postgres://u:p@db.example.com/db"),{rejectUnauthorized:true});
+  assert.deepEqual(postgresSslOptions("postgres://u:p@db.example.com/db",{ALLOW_INSECURE_DATABASE_TLS:"true"}),{rejectUnauthorized:false});
+  await assert.rejects(()=>assertSafePartnerUrl("http://partner.example",{production:true,lookup:async()=>[{address:"93.184.216.34"}]}),/PARTNER_HTTPS_REQUIRED/);
+  const safe=await assertSafePartnerUrl("https://partner.example",{production:true,lookup:async()=>[{address:"93.184.216.34"}]});
+  assert.equal(safe.protocol,"https:");
+  console.log("security production hardening v25.14.87: OK");
+})().catch(error=>{console.error(error);process.exit(1);});
