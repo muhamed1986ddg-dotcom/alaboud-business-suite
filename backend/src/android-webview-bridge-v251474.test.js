@@ -36,7 +36,7 @@ assert(
   "SSL failures must clear trust, detach the bridge and cancel navigation",
 );
 assert(
-  android.includes('CLIENT_VERSION = "25.14.89"'),
+  android.includes('CLIENT_VERSION = "25.14.90"'),
   "Android hotfix client version mismatch",
 );
 

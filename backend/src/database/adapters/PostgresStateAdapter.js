@@ -778,7 +778,14 @@ class PostgresStateAdapter {
         await wait(delay);
       } finally {
         try { detach(); } catch {}
-        if (client) { try { client.release(isConnectionError(attemptError) && String(attemptError?.code || "") !== "57014"); } catch {} }
+        if (client) {
+          try {
+            // Any failed attempt happened after BEGIN. Even when PostgreSQL keeps
+            // the socket connected (for example SQLSTATE 57014), the transaction
+            // may be aborted and must never be returned to the write pool.
+            client.release(Boolean(attemptError));
+          } catch {}
+        }
       }
     }
     throw lastError;

@@ -13,7 +13,7 @@ assert(
 );
 
 assert(
-  source.includes('X-Alaboud-Client-Version"]="25.14.89"'),
+  source.includes('X-Alaboud-Client-Version"]="25.14.90"'),
   'client version header must be current'
 );
 
