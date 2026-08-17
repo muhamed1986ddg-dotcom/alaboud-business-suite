@@ -1,6 +1,6 @@
 const crypto = require("crypto");
 
-const APP_VERSION = "25.14.88";
+const APP_VERSION = "25.14.89";
 const BACKUP_FORMAT = "ALABOUD_BACKUP";
 
 function stableStringify(value){
@@ -27,10 +27,10 @@ function createBackupEnvelope({ company, data, createdAt = new Date().toISOStrin
 
 function verifyBackupEnvelope(payload){
   if(!payload || payload.format !== BACKUP_FORMAT || !payload.data || typeof payload.data !== "object"){
-    return { ok:false, message:"ملف النسخة الاحتياطية غير صالح" };
+    return { ok:false, message:"ظ…ظ„ظپ ط§ظ„ظ†ط³ط®ط© ط§ظ„ط§ط­طھظٹط§ط·ظٹط© ط؛ظٹط± طµط§ظ„ط­" };
   }
   if(!payload.integrity?.checksum){
-    return { ok:false, message:"النسخة الاحتياطية لا تحتوي على بصمة سلامة" };
+    return { ok:false, message:"ط§ظ„ظ†ط³ط®ط© ط§ظ„ط§ط­طھظٹط§ط·ظٹط© ظ„ط§ طھط­طھظˆظٹ ط¹ظ„ظ‰ ط¨طµظ…ط© ط³ظ„ط§ظ…ط©" };
   }
   const core = {
     format: payload.format,
@@ -43,7 +43,7 @@ function verifyBackupEnvelope(payload){
   const supplied = String(payload.integrity.checksum);
   const valid = expected.length === supplied.length &&
     crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(supplied));
-  return valid ? { ok:true } : { ok:false, message:"فشل التحقق من سلامة النسخة الاحتياطية" };
+  return valid ? { ok:true } : { ok:false, message:"ظپط´ظ„ ط§ظ„طھط­ظ‚ظ‚ ظ…ظ† ط³ظ„ط§ظ…ط© ط§ظ„ظ†ط³ط®ط© ط§ظ„ط§ط­طھظٹط§ط·ظٹط©" };
 }
 
 function productionReadiness(env = process.env){
