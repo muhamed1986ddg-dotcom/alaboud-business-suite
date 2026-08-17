@@ -4408,6 +4408,46 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
       }
     }
     trace.push({label:"dashboard-currency-balances",url:page.url(),time:new Date().toISOString(),balances:dashboardCurrencyBalances,preview:safeText(htmlText(dashboardCurrencySource)).slice(0,1400)});
+    if(String(partner.syncMode||"BALANCE_ONLY").toUpperCase()==="BALANCE_ONLY"){
+      const preferred=String(partner.accountCurrency||"USD").toUpperCase();
+      const main=
+        dashboardCurrencyBalances[preferred] ||
+        dashboardCurrencyBalances.USD ||
+        dashboardCurrencyBalances.EUR ||
+        Object.values(dashboardCurrencyBalances)[0];
+
+      if(!main){
+        throw await diagnosticError(
+          "تم تسجيل الدخول بنجاح، لكن لم يتم العثور على رصيد الشركة في لوحة الحساب",
+          "JAD_BALANCE_NOT_FOUND"
+        );
+      }
+
+      const balance=safeNumber(main.balance);
+      const receivable=main.receivable!==undefined
+        ? safeNumber(main.receivable)
+        : balance>0 ? balance : 0;
+      const payable=main.payable!==undefined
+        ? safeNumber(main.payable)
+        : balance<0 ? Math.abs(balance) : 0;
+
+      const freshStorageState=await context.storageState().catch(()=>null);
+
+      return {
+        balance,
+        receivable,
+        payable,
+        currencies:dashboardCurrencyBalances,
+        movements:[],
+        feeMovements:[],
+        totalFees:0,
+        fromDate:null,
+        toDate:null,
+        mode:"BROWSER_BALANCE_ONLY",
+        diagnostic:trace.slice(-10),
+        _storageState:freshStorageState
+      };
+    }
 
     // Jad commonly exposes the statement on pl.m even when the authenticated
     // landing URL remains /log. Probe the known authenticated endpoint first,
@@ -4661,7 +4701,18 @@ async function syncJadPartnerBrowser(partner,{fromDate,toDate,otp}={}){
 
 async function syncJadPartner(partner,options={}){
   const mode=String(process.env.JAD_CONNECTOR_MODE||"browser").toLowerCase();
-  if(mode==="http")return syncJadPartnerHttp(partner,options);
+  const balanceOnly=options.balanceOnly!==undefined
+    ? Boolean(options.balanceOnly)
+    : String(partner.syncMode||"BALANCE_ONLY").toUpperCase()!=="BALANCE_AND_STATEMENT";
+
+  if(mode==="http"){
+    if(balanceOnly){
+      const error=new Error("وضع جلب الرصيد فقط لا يسمح بفتح كشف الحساب عبر موصل JAD HTTP");
+      error.code="JAD_HTTP_BALANCE_ONLY_DISABLED";
+      throw error;
+    }
+    return syncJadPartnerHttp(partner,options);
+  }
   try{
     return await syncJadPartnerBrowser(partner,options);
   }catch(error){
@@ -4674,7 +4725,7 @@ async function syncJadPartner(partner,options={}){
       return await syncJadPartnerBrowser(freshPartner,options);
     }
     const allowFallback=String(process.env.JAD_HTTP_FALLBACK||"false").toLowerCase()==="true";
-    if(!allowFallback||error?.code!=="JAD_BROWSER_UNAVAILABLE")throw error;
+    if(balanceOnly||!allowFallback||error?.code!=="JAD_BROWSER_UNAVAILABLE")throw error;
     console.warn("[JAD] Browser connector unavailable; falling back to HTTP connector:",error?.message||error);
     return syncJadPartnerHttp(partner,options);
   }
@@ -4894,7 +4945,7 @@ function mapKontorunCurrency(item={}){
   }
   return /^[A-Z]{3}$/.test(raw)?raw:"UNKNOWN";
 }
-async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
+async function syncKontorunPartner(partner,{fromDate,toDate,otp,balanceOnly=false}={}){
   const base=kontorunBaseUrl(partner);
   const username=String(partner.username||"").trim();
   const password=decryptIntegrationSecret(partner.passwordEncrypted);
@@ -4955,11 +5006,13 @@ async function syncKontorunPartner(partner,{fromDate,toDate,otp}={}){
   const start=fromDate||partner.syncFromDate||new Date(Date.now()-365*86400000).toISOString().slice(0,10);
   const end=toDate||new Date().toISOString().slice(0,10);
   let movements=[];
-  try{
-    const statement=await kontorunJsonp(base,"api/index.php?p=mt&f=aspro",{cookie,csrf,params:{cur:partner.externalAccountId||"1",fr:start,to:end}});
-    const list=Array.isArray(statement.data)?statement.data:[];
-    movements=list.map(item=>({externalId:String(item.ID||""),date:String(item.Date||""),name:String(item.Name||""),phone:String(item.Phone||""),amount:parseKontorunAmount(item.Value),fees:parseKontorunAmount(item.Fees),balance:parseKontorunAmount(item.AM),currency:mapKontorunCurrency(item),raw:item}));
-  }catch{}
+  if(!balanceOnly){
+    try{
+      const statement=await kontorunJsonp(base,"api/index.php?p=mt&f=aspro",{cookie,csrf,params:{cur:partner.externalAccountId||"1",fr:start,to:end}});
+      const list=Array.isArray(statement.data)?statement.data:[];
+      movements=list.map(item=>({externalId:String(item.ID||""),date:String(item.Date||""),name:String(item.Name||""),phone:String(item.Phone||""),amount:parseKontorunAmount(item.Value),fees:parseKontorunAmount(item.Fees),balance:parseKontorunAmount(item.AM),currency:mapKontorunCurrency(item),raw:item}));
+    }catch{}
+  }
   return {balance:main.balance,receivable:main.receivable,payable:main.payable,currencies,movements,profile:{id:profile.ID||"",name:profile.Name||""},balanceRows};
 }
 
@@ -5080,6 +5133,10 @@ async function syncDahabPartner(partner,{fromDate,toDate,otp}={}){
     const normalized={balance:+dashboardBalance.toFixed(2),receivable:dashboardBalance>0?+dashboardBalance.toFixed(2):0,payable:dashboardBalance<0?+Math.abs(dashboardBalance).toFixed(2):0};
     return {...normalized,currencies:{[currency]:normalized},movements:[],balanceRows:[{currency,amount:normalized.balance,source:"dashboard"}]};
   }
+  throw Object.assign(
+    new Error("تم تسجيل الدخول إلى دهب لكن لم يتم العثور على الرصيد في لوحة الحساب"),
+    {code:"DAHAB_DASHBOARD_BALANCE_NOT_FOUND"}
+  );
   const start=dahabDate(fromDate||partner.syncFromDate||new Date(Date.now()-7*86400000).toISOString().slice(0,10));
   const end=dahabDate(toDate||new Date().toISOString().slice(0,10));
   const currencyId=String(partner.externalAccountId||"3").replace(/\D/g,"")||"3";
@@ -5326,18 +5383,19 @@ async function executePartnerSync({partnerId,body,user,companyId,branchId,onProg
     const connector=resolvePartnerConnector(partner);
     if(!["JAD","TAWASUL","DAHAB","SURYANA"].includes(connector)){const error=new Error("لا يوجد موصل فعلي محدد لهذه الشركة");error.code="CONNECTOR_NOT_CONFIGURED";throw error;}
     if(syncTrigger==="AUTO"&&["JAD","DAHAB","SURYANA"].includes(connector)){const error=new Error("تم تعطيل المزامنة التلقائية لهذه الشركة لحماية استقرار الخادم؛ استخدم زر جلب الرصيد يدويًا");error.code="AUTO_SYNC_DISABLED";throw error;}
+    const syncMode=String(partner.syncMode||"BALANCE_ONLY").toUpperCase();
+    const balanceOnly=syncMode!=="BALANCE_AND_STATEMENT";
     try{
       onProgress?.("CONNECTING");
       const result=connector==="DAHAB"
         ? await syncDahabPartner(partner,{fromDate:body?.fromDate,toDate:body?.toDate,otp:body?.otp})
         : connector==="TAWASUL"
-          ? await syncKontorunPartner(partner,{fromDate:body?.fromDate,toDate:body?.toDate,otp:body?.otp})
-          : await syncJadPartner(partner,{fromDate:body?.fromDate,toDate:body?.toDate,otp:body?.otp});
+          ? await syncKontorunPartner(partner,{fromDate:body?.fromDate,toDate:body?.toDate,otp:body?.otp,balanceOnly})
+          : await syncJadPartner(partner,{fromDate:body?.fromDate,toDate:body?.toDate,otp:body?.otp,balanceOnly});
       onProgress?.("SAVING");
       const storageState=result?._storageState||null;
       if(result&&Object.prototype.hasOwnProperty.call(result,"_storageState"))delete result._storageState;
-      const syncMode=String(partner.syncMode||"BALANCE_ONLY").toUpperCase();
-      const balanceOnly=syncMode!=="BALANCE_AND_STATEMENT";
+
       const connectorMovements=Array.isArray(result?.movements)?result.movements:[];
       if(balanceOnly){
         result.movements=[];
