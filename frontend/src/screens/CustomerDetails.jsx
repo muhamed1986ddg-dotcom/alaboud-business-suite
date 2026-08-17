@@ -25,7 +25,11 @@ export function Customer({id,back,onStatement,onAddTransfer}){
 
   function startEditTransaction(transaction){
     setEditingPayment(null);
-    setEditingTransaction({...transaction});
+    setEditingTransaction({
+      ...transaction,
+      feeMethod:transaction.feeMethod==="PAID"?"PAID":"SPREAD",
+      transferFee:transaction.feeMethod==="PAID"?String(transaction.transferFee??""):""
+    });
     revealAppEditor('[data-app-editor="customer-transaction"]');
   }
 
@@ -320,7 +324,10 @@ export function Customer({id,back,onStatement,onAddTransfer}){
   async function saveTransaction(event){
     event.preventDefault();
     try{
-      await api.patch(`/transactions/${editingTransaction.id}`,editingTransaction);
+      await api.patch(`/transactions/${editingTransaction.id}`,{
+        ...editingTransaction,
+        transferFee:editingTransaction.feeMethod==="PAID"?Number(editingTransaction.transferFee||0):0
+      });
       setEditingTransaction(null);
       void load();
     }catch(requestError){
@@ -443,11 +450,14 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         <input type="number" step=".01" value={editingTransaction.amount} onChange={e=>setEditingTransaction({...editingTransaction,amount:e.target.value})} placeholder="المبلغ"/>
         <input type="number" step=".0001" value={editingTransaction.costRate} onChange={e=>setEditingTransaction({...editingTransaction,costRate:e.target.value})} placeholder="سعر التكلفة (CAD)"/>
         <input type="number" step=".0001" value={editingTransaction.finalRate} onChange={e=>setEditingTransaction({...editingTransaction,finalRate:e.target.value})} placeholder="سعر الحوالة (CAD)"/>
-        <input type="number" step=".01" value={editingTransaction.transferFee} onChange={e=>setEditingTransaction({...editingTransaction,transferFee:e.target.value})} placeholder="الأجور"/>
-        <select value={editingTransaction.feeMethod} onChange={e=>setEditingTransaction({...editingTransaction,feeMethod:e.target.value})}>
-          <option value="ADD">إضافة الأجور</option>
-          <option value="DEDUCT">خصم الأجور</option>
+        <select value={editingTransaction.feeMethod} onChange={e=>setEditingTransaction({...editingTransaction,feeMethod:e.target.value,transferFee:e.target.value==="PAID"?editingTransaction.transferFee:""})}>
+          <option value="SPREAD">الأجور من فرق سعر التحويل</option>
+          <option value="PAID">أجور مدفوعة بشكل مستقل</option>
         </select>
+        {editingTransaction.feeMethod==="PAID"&&<input type="number" min="0" step=".01" value={editingTransaction.transferFee} onChange={e=>setEditingTransaction({...editingTransaction,transferFee:e.target.value})} placeholder="الأجور المدفوعة (CAD)" required/>}
+        <div className="transaction-edit-preview"><span>أجور الحوالة</span><strong>{(editingTransaction.feeMethod==="PAID"?(Number(editingTransaction.transferFee)||0):((Number(editingTransaction.amount)||0)*((Number(editingTransaction.finalRate)||0)-(Number(editingTransaction.costRate)||0)))).toFixed(2)} CAD</strong></div>
+        <div className="transaction-edit-preview"><span>المجموع النهائي</span><strong>{(((Number(editingTransaction.amount)||0)*(Number(editingTransaction.finalRate)||0))+(editingTransaction.feeMethod==="PAID"?(Number(editingTransaction.transferFee)||0):0)).toFixed(2)} CAD</strong></div>
+        <small>المستفيد يستلم مبلغ الحوالة كاملاً، ولا تُخصم الأجور منه.</small>
         <button>حفظ التعديل</button>
         <button type="button" onClick={()=>setEditingTransaction(null)}>إلغاء</button>
       </form>
@@ -656,6 +666,7 @@ export function Invoice({transactionId,back}){
         <tbody>
           <tr><th>مبلغ الحوالة</th><td>{money(t.amount)}</td></tr>
           <tr><th>سعر الحوالة</th><td>{Number(t.finalRate||0).toFixed(4)}</td></tr>
+          <tr><th>نوع أجور الحوالة</th><td>{t.feeMethod==="PAID"?"أجور مدفوعة":"فرق سعر التحويل"}</td></tr>
           <tr><th>أجور الحوالة</th><td>{money(t.transferFee)}</td></tr>
           <tr><th>الإجمالي المطلوب</th><td>{money(t.totalCustomerDue)}</td></tr>
           <tr><th>المدفوع</th><td>{money(t.paid)}</td></tr>

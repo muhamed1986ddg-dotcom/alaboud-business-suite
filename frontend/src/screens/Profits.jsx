@@ -19,7 +19,6 @@ function Profits(){
     </div>
     <div className="stats">
       <div className="card metric-card metric-count"><span>عدد الحوالات</span><strong>{data.transactionCount}</strong></div>
-      <div className="card metric-card metric-profit"><span>ربح فرق السعر</span><strong>{money(data.exchangeProfit)}</strong></div>
       <div className="card metric-card metric-fees"><span>أجور الحوالات</span><strong>{money(data.transferFees)}</strong></div>
       <div className="card metric-card metric-total"><span>إجمالي الربح</span><strong>{money(data.grossProfit)}</strong></div>
       <div className="card metric-card metric-expense"><span>المصروفات</span><strong>{money(data.expenses)}</strong></div>
@@ -33,7 +32,6 @@ function Profits(){
         emptyText="لا توجد بيانات أرباح ضمن الفترة المحددة."
         columns={[
           {key:"month",label:"الشهر"},
-          {key:"exchangeProfit",label:"فرق السعر",render:row=>money(row.exchangeProfit)},
           {key:"transferFees",label:"أجور الحوالات",render:row=>money(row.transferFees)},
           {key:"grossProfit",label:"إجمالي الربح",render:row=>money(row.grossProfit)},
           {key:"expenses",label:"المصروفات",render:row=>money(row.expenses)},

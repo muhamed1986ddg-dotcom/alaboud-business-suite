@@ -4,7 +4,7 @@ import {money,debtCurrencies,confirmAction} from"../shared";
 import {AppButton,AppModal} from"../components/ui";
 
 function GeneralDebts(){
-  const [data,setData]=useState({rows:[],payments:[],totals:{receivable:0,payable:0,net:0},receivableBreakdown:{customers:0,customerPayable:0,companies:0,companyPayable:0,manualPayable:0,total:0},totalsByCurrency:{}});
+  const [data,setData]=useState({rows:[],payments:[],totals:{receivable:0,payable:0,net:0},receivableBreakdown:{customers:0,customerPayable:0,companies:0,manual:0,companyPayable:0,manualPayable:0,total:0},totalsByCurrency:{},possibleDuplicateParties:[],excludedLinkedManualDebts:0,excludedLinkedPartnerRows:0,partnerReviewFlags:[]});
   const [mode,setMode]=useState("ALL");
   const [message,setMessage]=useState("");
   const [refreshingRates,setRefreshingRates]=useState(false);
@@ -25,11 +25,15 @@ function GeneralDebts(){
         rows:Array.isArray(data?.rows)?data.rows:[],
         payments:Array.isArray(data?.payments)?data.payments:[],
         totals:data?.totals||{receivable:0,payable:0,net:0},
-        receivableBreakdown:data?.receivableBreakdown||{customers:0,customerPayable:0,companies:0,companyPayable:0,manualPayable:0,total:Number(data?.totals?.receivable||0)},
+        receivableBreakdown:data?.receivableBreakdown||{customers:0,customerPayable:0,companies:0,manual:0,companyPayable:0,manualPayable:0,total:Number(data?.totals?.receivable||0)},
         summaryCurrency:data?.summaryCurrency||"CAD",
         totalsByCurrency:data?.totalsByCurrency||{},
         missingRates:Array.isArray(data?.missingRates)?data.missingRates:[],
-        ratesUpdatedAt:data?.ratesUpdatedAt||null
+        ratesUpdatedAt:data?.ratesUpdatedAt||null,
+        possibleDuplicateParties:Array.isArray(data?.possibleDuplicateParties)?data.possibleDuplicateParties:[],
+        excludedLinkedManualDebts:Number(data?.excludedLinkedManualDebts||0),
+        excludedLinkedPartnerRows:Number(data?.excludedLinkedPartnerRows||0),
+        partnerReviewFlags:Array.isArray(data?.partnerReviewFlags)?data.partnerReviewFlags:[]
       });
     }catch(error){setMessage(error.response?.data?.message||"تعذر تحميل الديون");}
   }
@@ -126,6 +130,11 @@ function GeneralDebts(){
     </div>
 
     {data.missingRates?.length>0&&<div className="card debt-message">تعذر تحويل العملات التالية إلى {data.summaryCurrency||"CAD"}: {data.missingRates.join("، ")}.</div>}
+    {data.excludedLinkedManualDebts>0&&<div className="card customer-success">تم استبعاد {data.excludedLinkedManualDebts} من السجلات اليدوية من الإجمالي لأنها مرتبطة مباشرةً بحساب رسمي محسوب.</div>}
+    {data.excludedLinkedPartnerRows>0&&<div className="card customer-success">تم استبعاد {data.excludedLinkedPartnerRows} من حركات الشركات لأنها مرتبطة مباشرةً بالرصيد الخارجي نفسه.</div>}
+    {data.possibleDuplicateParties.some(item=>item.reviewStatus==="FLAGGED")&&<div className="card debt-message">توجد سجلات قديمة متشابهة بالاسم مع عملاء أو شركات. بقيت محسوبة دون تعديل، وتم تعليمها للمراجعة فقط.</div>}
+    {data.possibleDuplicateParties.some(item=>item.reviewStatus==="FLAGGED")&&<div className="card debt-review-list"><strong>سجلات تحت المراجعة</strong>{data.possibleDuplicateParties.filter(item=>item.reviewStatus==="FLAGGED").map(item=><div key={item.manualDebtId}><span>⚑ {item.partyName}</span><small>{item.warning}</small></div>)}</div>}
+    {data.partnerReviewFlags.length>0&&<div className="card debt-message">توجد شركات لها رصيد خارجي وحركات محلية للعملة نفسها دون مرجع مباشر. بقي الرقمان محسوبين ويجب مراجعتهما للتأكد أنهما مستقلان.</div>}
 
     <div className="debt-summary-mini">
       <div className="card"><span>الديون المفتوحة</span><strong>{openCount}</strong></div>
@@ -153,7 +162,7 @@ function GeneralDebts(){
       {mode==="RECEIVABLE"&&<>
         <div className="card debt-balance-row"><span>👤 رصيد دين العملاء</span><strong>{money(data.receivableBreakdown?.customers)} {data.summaryCurrency||"CAD"}</strong></div>
         <div className="card debt-balance-row"><span>🏢 دين الشركات لنا</span><strong>{money(data.receivableBreakdown?.companies)} {data.summaryCurrency||"CAD"}</strong></div>
-        {Number(data.receivableBreakdown?.manual||0)!==0&&<div className="card debt-balance-row"><span>📝 ديون يدوية (للعرض فقط)</span><strong>{money(data.receivableBreakdown?.manual)} {data.summaryCurrency||"CAD"}</strong></div>}
+        {Number(data.receivableBreakdown?.manual||0)!==0&&<div className="card debt-balance-row"><span>📝 ديون يدوية لنا</span><strong>{money(data.receivableBreakdown?.manual)} {data.summaryCurrency||"CAD"}</strong></div>}
         <div className="card debt-balance-row debt-balance-total"><span>💰 المجموع الكلي</span><strong>{money(data.receivableBreakdown?.total??data.totals.receivable)} {data.summaryCurrency||"CAD"}</strong></div>
       </>}
       {mode==="PAYABLE"&&<>
@@ -179,7 +188,7 @@ function GeneralDebts(){
       <div className="form debt-add-form">
         <select value={selectedDebtId} onChange={e=>chooseDebt(e.target.value)} required>
           <option value="">اختر الدين</option>
-          {(actionMode==="PAY"?openDebts:data.rows.filter(item=>item.source==="MANUAL")).map(item=><option key={item.id} value={item.id}>{item.partyName} — {money(item.remaining??item.amount)} {item.currency} — {item.type==="PAYABLE"?"دين علينا":"دين لنا"}</option>)}
+          {(actionMode==="PAY"?openDebts:data.rows.filter(item=>item.source==="MANUAL")).map(item=><option key={item.id} value={item.id}>{item.reviewStatus==="FLAGGED"?"⚑ تحت المراجعة — ":""}{item.partyName} — {money(item.remaining??item.amount)} {item.currency} — {item.type==="PAYABLE"?"دين علينا":"دين لنا"}</option>)}
         </select>
         {selectedDebt&&actionMode==="PAY"&&<div className="debt-settlement-summary"><strong>{selectedDebt.partyName}</strong><span>المتبقي: {money(selectedDebt.remaining)} {selectedDebt.currency}</span><AppButton variant="primary" onClick={()=>{setActionMode("");openSettlement(selectedDebt)}}>متابعة التسديد</AppButton></div>}
         {selectedDebt&&actionMode==="EDIT"&&<form className="form debt-add-form" onSubmit={updateDebt}>

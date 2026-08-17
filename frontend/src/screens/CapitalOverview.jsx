@@ -1,14 +1,14 @@
 import React,{useEffect,useRef,useState}from"react";
-import api,{cachedGet} from"../api";
-import {APP_VERSION} from"../version";
-import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from"../shared";
+import api,{clearApiGetCache} from"../api";
+import {money,debtCurrencies,confirmAction} from"../shared";
 import {AppModal,AppButton,AppTable} from "../components/ui";
 
-function CapitalOverview(){
+function CapitalOverview({navigate}){
+  const requestSequence=useRef(0);
   const [month,setMonth]=useState(new Date().toISOString().slice(0,7));
   const [data,setData]=useState(null);
   const [loading,setLoading]=useState(true);
-  const [previousData,setPreviousData]=useState(null);
+  const [inventory,setInventory]=useState(null);
   const [movements,setMovements]=useState([]);
   const [exchangeRates,setExchangeRates]=useState([]);
   const [goals,setGoals]=useState(()=>{
@@ -31,31 +31,38 @@ function CapitalOverview(){
     date:new Date().toISOString().slice(0,10)
   });
 
-  async function load(){
+  async function load({announce=false}={}){
+    const requestId=++requestSequence.current;
+    const refreshToken=Date.now();
+    if(announce){clearApiGetCache();setMessage("");}
     setLoading(true);setError("");
     try{
-      const selectedDate=new Date(`${month}-01T00:00:00`);
-      selectedDate.setMonth(selectedDate.getMonth()-1);
-      const previousMonth=selectedDate.toISOString().slice(0,7);
-      // الميزانية لا يجب أن تبقى فارغة بسبب فشل طلب ثانوي مثل الأسعار أو الشهر السابق.
+      // الميزانية لا يجب أن تبقى فارغة بسبب فشل طلب ثانوي مثل الأسعار أو الجرد.
       // حمّل المؤشرات الأساسية أولًا وبشكل مباشر، ثم حدّث البيانات المساعدة كلٌ على حدة.
-      const overviewResponse=await api.get("/capital-overview",{params:{month}});
+      const overviewResponse=await api.get("/capital-overview",{params:{month,_refresh:refreshToken}});
+      if(requestId!==requestSequence.current)return;
       setData(overviewResponse.data);
-      const [previousResult,movementsResult,ratesResult]=await Promise.allSettled([
-        api.get("/capital-overview",{params:{month:previousMonth}}),
-        api.get("/capital"),
-        api.get("/exchange-rates")
+      const [movementsResult,ratesResult,inventoryResult]=await Promise.allSettled([
+        api.get("/capital",{params:{_refresh:refreshToken}}),
+        api.get("/exchange-rates",{params:{_refresh:refreshToken}}),
+        api.get("/monthly-inventory",{params:{_refresh:refreshToken}})
       ]);
-      if(previousResult.status==="fulfilled")setPreviousData(previousResult.value.data);
+      if(requestId!==requestSequence.current)return;
       if(movementsResult.status==="fulfilled")setMovements(Array.isArray(movementsResult.value.data)?movementsResult.value.data:[]);
       if(ratesResult.status==="fulfilled")setExchangeRates(Array.isArray(ratesResult.value.data)?ratesResult.value.data:[]);
+      if(inventoryResult.status==="fulfilled")setInventory(inventoryResult.value.data);
+      if(announce)setMessage("تم تحديث الميزانية من أحدث أرصدة العملاء والشركات");
     }catch(requestError){
-      setData(null);
-      setError(requestError.response?.data?.message||"تعذر تحميل الميزانية. اضغط إعادة المحاولة.");
-    }finally{setLoading(false);}
+      if(requestId===requestSequence.current)setError(requestError.response?.data?.message||"تعذر تحميل الميزانية. اضغط إعادة المحاولة.");
+    }finally{
+      if(requestId===requestSequence.current)setLoading(false);
+    }
   }
 
-  useEffect(()=>{load();},[month]);
+  useEffect(()=>{
+    void load();
+    return()=>{requestSequence.current+=1;};
+  },[month]);
 
   useEffect(()=>{
     if(!budgetModal&&!editing)return;
@@ -131,68 +138,49 @@ function CapitalOverview(){
   const formCadRate=cadRateFor(form.currency);
   const formCadAmount=formCadRate&&Number(form.amount)>0?Number(form.amount)*formCadRate:null;
 
-  if(!data)return <div className="budget-recovery-state"><div className="page-title-row"><div><h2>⚖️ الميزانية</h2><p>تحميل المؤشرات المالية وصافي رأس المال.</p></div></div><div className={`card ${error?"customer-error":"budget-loading-card"}`}><strong>{error||"جاري تحميل الميزانية..."}</strong><small>{loading?"يتم الاتصال بالخادم الآن":"يمكن إعادة المحاولة بدون مغادرة الصفحة"}</small>{!loading&&<button type="button" onClick={load}>↻ إعادة المحاولة</button>}</div></div>;
+  if(!data)return <div className="budget-recovery-state"><div className="page-title-row"><div><h2>⚖️ الميزانية</h2><p>تحميل المؤشرات المالية وصافي رأس المال.</p></div></div><div className={`card ${error?"customer-error":"budget-loading-card"}`}><strong>{error||"جاري تحميل الميزانية..."}</strong><small>{loading?"يتم الاتصال بالخادم الآن":"يمكن إعادة المحاولة بدون مغادرة الصفحة"}</small>{!loading&&<AppButton type="button" onClick={()=>load({announce:true})}>↻ إعادة المحاولة</AppButton>}</div></div>;
 
-  const efficiency=data.turnoverRate>=3?"ممتاز":data.turnoverRate>=2?"جيد جداً":data.turnoverRate>=1?"جيد":"منخفض";
   const selectedMonthMovements=movements.filter(item=>String(item.date||item.createdAt||"").slice(0,7)===month);
-  const capitalIn=selectedMonthMovements.filter(item=>item.type==="IN").reduce((sum,item)=>sum+Number((item.cadAmount ?? item.amount ?? 0)),0);
-  const capitalOut=selectedMonthMovements.filter(item=>item.type==="OUT").reduce((sum,item)=>sum+Number((item.cadAmount ?? item.amount ?? 0)),0);
-  const netCapitalMovement=capitalIn-capitalOut;
-  const totalFlow=capitalIn+capitalOut;
-  const inShare=totalFlow?Math.round((capitalIn/totalFlow)*100):0;
-  const outShare=totalFlow?100-inShare:0;
-  const monthlyNet=Number(data.monthlyProfit||0)-Number(data.monthlyExpenses||0);
-  const liquidityStatus=Number(data.capitalBalance||0)>0?"مستقرة":"تحتاج متابعة";
+  const monthlyNet=Number(data.monthlyNet ?? (Number(data.monthlyProfit||0)-Number(data.monthlyExpenses||0)));
   const totalAddedCapital=movements.filter(item=>item.type==="IN"&&!item.isDeleted&&!item.deletedAt).reduce((sum,item)=>sum+Number(item.cadAmount ?? (String(item.currency||"CAD").toUpperCase()==="CAD"?item.amount:0) ?? 0),0);
   const filteredMovements=movements.filter(item=>{
     const matchesType=movementFilter==="ALL"||item.type===movementFilter;
     const text=`${item.description||""} ${item.currency||""} ${item.amount||""} ${item.date||item.createdAt||""}`.toLowerCase();
     return matchesType&&text.includes(movementSearch.trim().toLowerCase());
   });
-  const currencySummary=Object.values(selectedMonthMovements.reduce((acc,item)=>{
+  const legacyCurrencySummary=Object.values(selectedMonthMovements.reduce((acc,item)=>{
     const currency=item.currency||"CAD";
     acc[currency]??={currency,in:0,out:0};
     acc[currency][item.type==="IN"?"in":"out"]+=Number(item.amount||0);
     return acc;
   },{}));
+  const currencySummary=Array.isArray(data.capitalByCurrency)&&data.capitalByCurrency.length
+    ?data.capitalByCurrency.map(item=>({
+      currency:item.currency||"CAD",
+      in:Number(item.added||0),
+      out:Number(item.withdrawn||0),
+      currentCapital:Number(item.currentCapital||0),
+      operatingOut:Number(item.operatingOut||0),
+      operatingReturned:Number(item.operatingReturned||0),
+      operatingStuck:Number(item.operatingStuck||0),
+      turnoverRate:Number(item.turnoverRate||0)
+    }))
+    :legacyCurrencySummary.map(item=>({...item,currentCapital:item.in-item.out,operatingOut:0,operatingReturned:0,operatingStuck:0,turnoverRate:0}));
 
-  const today=new Date();
-  const selectedDate=new Date(`${month}-01T00:00:00`);
-  const isCurrentMonth=today.getFullYear()===selectedDate.getFullYear()&&today.getMonth()===selectedDate.getMonth();
-  const daysInMonth=new Date(selectedDate.getFullYear(),selectedDate.getMonth()+1,0).getDate();
-  const elapsedDays=isCurrentMonth?Math.max(1,today.getDate()):daysInMonth;
-  const projectedProfit=(Number(data.monthlyProfit||0)/elapsedDays)*daysInMonth;
-  const projectedExpenses=(Number(data.monthlyExpenses||0)/elapsedDays)*daysInMonth;
-  const projectedNet=projectedProfit-projectedExpenses;
+  const capitalContributions=Number(data.capitalContributions ?? data.capitalBalance ?? 0);
+  const capitalWithdrawals=Number(data.capitalWithdrawals||0);
+  const accumulatedProfit=Number(data.accumulatedProfit||0);
+  const accumulatedExpenses=Number(data.accumulatedExpenses||0);
+  const realizedNetProfit=Number(data.realizedNetProfit ?? (accumulatedProfit-accumulatedExpenses));
+  const profitDistributions=Number(data.profitDistributions||0);
   const debtForUs=Number(data.totalReceivables ?? (Number(data.receivables||0)+Number(data.generalReceivable||0)));
   const debtOnUs=Number(data.totalPayables ?? data.generalPayable ?? 0);
   const netDebt=Number(data.netDebt ?? (debtForUs-debtOnUs));
-  const totalMoney=Number(data.totalMoney ?? (Number(data.capitalBalance||0)+Number(data.accumulatedProfit||0)+debtForUs));
-  const totalLiabilities=Number(data.totalLiabilities ?? (Number(data.accumulatedExpenses||0)+debtOnUs));
-  const netCapital=Number(data.netCapital ?? (totalMoney-totalLiabilities));
+  const equityNetCapital=Number(data.equityNetCapital ?? (capitalContributions-capitalWithdrawals+realizedNetProfit-profitDistributions));
+  const netCapital=Number(data.comprehensiveNetCapital ?? data.netCapital ?? (equityNetCapital+netDebt));
   const estimatedCapital=Number(data.estimatedCapital ?? data.totalCapital ?? netCapital);
   const netWorth=estimatedCapital;
-  const profitChange=previousData&&Number(previousData.monthlyProfit||0)!==0?((Number(data.monthlyProfit||0)-Number(previousData.monthlyProfit||0))/Math.abs(Number(previousData.monthlyProfit||0)))*100:null;
-  const expenseChange=previousData&&Number(previousData.monthlyExpenses||0)!==0?((Number(data.monthlyExpenses||0)-Number(previousData.monthlyExpenses||0))/Math.abs(Number(previousData.monthlyExpenses||0)))*100:null;
-  const netPrevious=Number(previousData?.monthlyProfit||0)-Number(previousData?.monthlyExpenses||0);
-  const netChange=netPrevious!==0?((monthlyNet-netPrevious)/Math.abs(netPrevious))*100:null;
-  const liquidityRatio=debtOnUs>0?debtForUs/debtOnUs:3;
-  const profitMargin=Number(data.monthlyTransferValue||0)>0?monthlyNet/Number(data.monthlyTransferValue||0):0;
-  const healthScore=Math.max(0,Math.min(100,Math.round(
-    (monthlyNet>=0?30:8)+
-    Math.min(25,Math.max(0,liquidityRatio*10))+
-    Math.min(20,Math.max(0,Number(data.turnoverRate||0)*6))+
-    Math.min(15,Math.max(0,profitMargin*400))+
-    (netCapitalMovement>=0?10:3)
-  )));
-  const healthLabel=healthScore>=85?"ممتاز":healthScore>=70?"جيد جداً":healthScore>=55?"جيد":healthScore>=40?"يحتاج متابعة":"حرج";
-  const alerts=[];
-  if(monthlyNet<0)alerts.push({level:"danger",text:"صافي الشهر سالب؛ المصروفات تجاوزت الأرباح."});
-  if(expenseChange!=null&&expenseChange>15)alerts.push({level:"warning",text:`المصروفات ارتفعت ${expenseChange.toFixed(1)}% عن الشهر السابق.`});
-  if(Number(data.generalPayable||0)>Number(data.generalReceivable||0)+Number(data.receivables||0))alerts.push({level:"danger",text:"الديون علينا أعلى من إجمالي المبالغ المستحقة لنا."});
-  if(Number(data.turnoverRate||0)<1)alerts.push({level:"warning",text:"معدل دوران رأس المال منخفض عن مرة واحدة."});
-  if(projectedNet>monthlyNet&&isCurrentMonth)alerts.push({level:"info",text:`التوقع الحالي لصافي نهاية الشهر ${money(projectedNet)} CAD.`});
-  if(!alerts.length)alerts.push({level:"success",text:"المؤشرات المالية مستقرة ولا توجد تنبيهات حرجة."});
+  const closedInventory=(Array.isArray(inventory?.rows)?inventory.rows:[]).find(item=>item?.month===month&&!item.isDeleted);
   const saveGoals=next=>{setGoals(next);localStorage.setItem("alaboud-budget-goals",JSON.stringify(next));};
   const progress=(value,target)=>Math.max(0,Math.min(100,target>0?(Number(value||0)/Number(target))*100:0));
 
@@ -200,11 +188,11 @@ function CapitalOverview(){
     <div className="page-title-row budget-title-row">
       <div>
         <h2>⚖️ الميزانية</h2>
-        <p>نظرة مالية متكاملة على رأس المال والسيولة والأرباح</p>
+        <p>صافي رأس المال الشامل يضم رأس المال والأرباح وصافي ديون العملاء والشركات</p>
       </div>
       <div className="budget-title-actions no-print">
         <input type="month" value={month} onChange={e=>setMonth(e.target.value)}/>
-        <button onClick={load}>↻ تحديث</button>
+        <AppButton type="button" busy={loading} busyText="جاري التحديث..." onClick={()=>load({announce:true})}>↻ تحديث</AppButton>
         <button onClick={()=>window.print()}>🖨️ طباعة التقرير</button>
       </div>
     </div>
@@ -215,42 +203,50 @@ function CapitalOverview(){
     <section className="budget-action-bar no-print" aria-label="وظائف الميزانية">
       <button type="button" onClick={()=>setBudgetModal("movement")}>➕ إضافة حركة رأس مال</button>
       <button type="button" onClick={()=>setBudgetModal("history")}>📋 سجل الحركات</button>
-      <button type="button" onClick={()=>setBudgetModal("goals")}>🎯 الأهداف المالية</button>
+      <button type="button" onClick={()=>setBudgetModal("goals")}>🎯 أهداف التخطيط</button>
       <button type="button" onClick={()=>setBudgetModal("report")}>📊 تقرير الميزانية</button>
     </section>
 
     <section className="financial-summary-grid" aria-label="ملخص الميزانية">
       <button type="button" className="card financial-summary-card assets-card" onClick={()=>setFinancialDetails("assets")}>
         <span className="financial-card-icon">💰</span>
-        <div><small>إجمالي الأصول</small><h3>المال الكلي</h3></div>
-        <strong>{money(totalMoney)} CAD</strong>
-        <p>رأس المال + الأرباح + الدين لنا</p>
+        <div><small>حقوق الملكية</small><h3>رأس المال 💰</h3></div>
+        <strong>{money(capitalContributions-capitalWithdrawals)} CAD</strong>
+        <p>المضاف − المسحوبات</p>
         <em>اضغط لعرض التفاصيل</em>
       </button>
-      <button type="button" className="card financial-summary-card liabilities-card" onClick={()=>setFinancialDetails("liabilities")}>
-        <span className="financial-card-icon">📉</span>
-        <div><small>إجمالي الخصومات</small><h3>إجمالي الالتزامات</h3></div>
-        <strong>{money(totalLiabilities)} CAD</strong>
-        <p>الدين علينا + المصروفات</p>
+      <button type="button" className={`card financial-summary-card profit-card ${realizedNetProfit<0?"is-negative":""}`} onClick={()=>setFinancialDetails("profit")}>
+        <span className="financial-card-icon">📈</span>
+        <div><small>تراكمي — الحوالات غير الملغاة</small><h3>صافي الربح المسجل</h3></div>
+        <strong>{money(realizedNetProfit)} CAD</strong>
+        <p>أرباح الحوالات المسجلة − المصروفات</p>
         <em>اضغط لعرض التفاصيل</em>
       </button>
       <button type="button" className={`card financial-summary-card net-capital-card ${netCapital<0?"is-negative":""}`} onClick={()=>setFinancialDetails("net")}>
         <span className="financial-card-icon">💎</span>
-        <div><small>المجموع النهائي</small><h3>صافي رأس المال</h3></div>
+        <div><small>يشمل صافي الذمم</small><h3>صافي رأس المال الشامل</h3></div>
         <strong>{money(netCapital)} CAD</strong>
-        <p>المال الكلي − إجمالي الالتزامات</p>
+        <p>حقوق الملكية + الدين لنا − الدين علينا</p>
         <em>اضغط لعرض الحساب الكامل</em>
       </button>
     </section>
 
     <section className="card financial-equation-card">
-      <div className="section-heading"><h3>🧮 معادلة صافي رأس المال</h3><small>جميع القيم محوّلة إلى الدولار الكندي CAD</small></div>
+      <div className="section-heading"><h3>🧮 معادلة صافي رأس المال الشامل</h3><small>جميع القيم محوّلة إلى الدولار الكندي CAD</small></div>
       <div className="financial-equation-row">
-        <span><small>المال الكلي</small><b>{money(totalMoney)}</b></span>
+        <span><small>رأس المال المضاف</small><b>{money(capitalContributions)}</b></span>
         <i>−</i>
-        <span><small>إجمالي الالتزامات</small><b>{money(totalLiabilities)}</b></span>
+        <span><small>المسحوبات</small><b>{money(capitalWithdrawals)}</b></span>
+        <i>+</i>
+        <span><small>صافي الربح المسجل</small><b>{money(realizedNetProfit)}</b></span>
+        <i>−</i>
+        <span><small>توزيعات الأرباح</small><b>{money(profitDistributions)}</b></span>
+        <i>+</i>
+        <span><small>الدين لنا</small><b>{money(debtForUs)}</b></span>
+        <i>−</i>
+        <span><small>الدين علينا</small><b>{money(debtOnUs)}</b></span>
         <i>=</i>
-        <span className={netCapital>=0?"equation-result positive":"equation-result negative"}><small>صافي رأس المال</small><b>{money(netCapital)} CAD</b></span>
+        <span className={netCapital>=0?"equation-result positive":"equation-result negative"}><small>صافي رأس المال الشامل</small><b>{money(netCapital)} CAD</b></span>
       </div>
     </section>
 
@@ -259,101 +255,78 @@ function CapitalOverview(){
         <div className="financial-details-head">
           <div>
             <small>تفاصيل مالية دقيقة — CAD</small>
-            <h3>{financialDetails==="assets"?"💰 تفاصيل المال الكلي":financialDetails==="liabilities"?"📉 تفاصيل إجمالي الالتزامات":"💎 تفاصيل صافي رأس المال"}</h3>
+            <h3>{financialDetails==="assets"?"💰 تفاصيل رأس المال":financialDetails==="profit"?"📈 تفاصيل صافي الربح المسجل":"💎 تفاصيل صافي رأس المال الشامل"}</h3>
           </div>
           <button type="button" onClick={()=>setFinancialDetails(null)} aria-label="إغلاق">×</button>
         </div>
         {(financialDetails==="assets"||financialDetails==="net")&&<div className="financial-detail-group assets-detail-group">
-          <h4>الأصول</h4>
-          <p><span>رأس المال المضاف</span><b>+ {money(data.capitalBalance)} CAD</b></p>
-          <p><span>الأرباح المتراكمة</span><b>+ {money(data.accumulatedProfit||0)} CAD</b></p>
-          <p><span>الدين لنا</span><b>+ {money(debtForUs)} CAD</b></p>
-          <p className="detail-total"><span>المال الكلي</span><strong>{money(totalMoney)} CAD</strong></p>
+          <h4>رأس المال</h4>
+          <p><span>رأس المال المضاف</span><b>+ {money(capitalContributions)} CAD</b></p>
+          <p><span>المسحوبات</span><b>− {money(capitalWithdrawals)} CAD</b></p>
+          <p className="detail-total"><span>رأس المال الحالي</span><strong>{money(capitalContributions-capitalWithdrawals)} CAD</strong></p>
         </div>}
-        {(financialDetails==="liabilities"||financialDetails==="net")&&<div className="financial-detail-group liabilities-detail-group">
-          <h4>الالتزامات</h4>
-          <p><span>الدين علينا</span><b>− {money(debtOnUs)} CAD</b></p>
-          <p><span>المصروفات المتراكمة</span><b>− {money(data.accumulatedExpenses||0)} CAD</b></p>
-          <p className="detail-total"><span>إجمالي الالتزامات</span><strong>{money(totalLiabilities)} CAD</strong></p>
+        {(financialDetails==="profit"||financialDetails==="net")&&<div className="financial-detail-group liabilities-detail-group">
+          <h4>الأرباح والمصروفات</h4>
+          <p><span>أرباح الحوالات غير الملغاة</span><b>+ {money(accumulatedProfit)} CAD</b></p>
+          <p><span>المصروفات</span><b>− {money(accumulatedExpenses)} CAD</b></p>
+          <p className="detail-total"><span>صافي الربح المسجل</span><strong>{money(realizedNetProfit)} CAD</strong></p>
+        </div>}
+        {financialDetails==="net"&&<div className="financial-detail-group assets-detail-group">
+          <h4>ديون العملاء والشركات</h4>
+          <p><span>إجمالي الدين لنا</span><b>+ {money(debtForUs)} CAD</b></p>
+          <p><span>إجمالي الدين علينا</span><b>− {money(debtOnUs)} CAD</b></p>
+          <p className="detail-total"><span>صافي الذمم</span><strong>{money(netDebt)} CAD</strong></p>
         </div>}
         {financialDetails==="net"&&<div className={`financial-final-result ${netCapital>=0?"positive":"negative"}`}>
-          <span>المال الكلي {money(totalMoney)} − الالتزامات {money(totalLiabilities)}</span>
-          <strong>صافي رأس المال: {money(netCapital)} CAD</strong>
+          <span>{money(capitalContributions)} − {money(capitalWithdrawals)} + {money(realizedNetProfit)} − {money(profitDistributions)} + {money(debtForUs)} − {money(debtOnUs)}</span>
+          <strong>صافي رأس المال الشامل: {money(netCapital)} CAD</strong>
         </div>}
       </section>
     </div>}
 
-    <section className="budget-command-grid">
-      <article className="card company-health-card">
-        <div className="section-heading"><h3>🏥 صحة الشركة</h3><small>{healthLabel}</small></div>
-        <div className="health-score-ring" style={{"--score":`${healthScore*3.6}deg`}}><strong>{healthScore}</strong><span>/100</span></div>
-        <p>مؤشر مركب من السيولة والربحية والدوران وحركة رأس المال.</p>
+    <section className="card accounting-period-note">
+      <strong>فصل الفترات المحاسبية</strong>
+      <span>صافي رأس المال الشامل تراكمي ويضم صافي الذمم، ونتيجة الأعمال أدناه تخص شهر {month} فقط، والجرد لا يصبح نهائيًا قبل إدخال كاش الخزنة وتثبيته.</span>
+    </section>
+
+    <section className="budget-accounting-grid">
+      <article className="card monthly-accounting-card">
+        <div className="section-heading"><h3>📅 نتيجة الشهر</h3><small>{month}</small></div>
+        <div className="accounting-lines"><span>أرباح الحوالات المسجلة <b>+ {money(data.monthlyProfit)} CAD</b></span><span>مصروفات الشهر <b>− {money(data.monthlyExpenses)} CAD</b></span><strong className={monthlyNet>=0?"positive-value":"negative-value"}>صافي الشهر = {money(monthlyNet)} CAD</strong></div>
       </article>
       <article className="card net-worth-card">
-        <div className="section-heading"><h3>💎 صافي الثروة</h3><small>بعد خصم جميع الالتزامات</small></div>
-        <strong className={netWorth>=0?"positive-value":"negative-value"}>{money(netWorth)} CAD</strong>
-        <div className="net-worth-breakdown"><span>المال الكلي {money(totalMoney)}</span><span>إجمالي الالتزامات {money(totalLiabilities)}</span><span>صافي رأس المال {money(netCapital)}</span></div>
+        <div className="section-heading"><h3>🤝 الذمم الشاملة</h3><small>محسوبة مرة واحدة بعد منع الروابط المكررة</small></div>
+        <div className="accounting-lines"><span>إجمالي الذمم لنا <b>+ {money(debtForUs)} CAD</b></span><span>إجمالي الذمم علينا <b>− {money(debtOnUs)} CAD</b></span><strong className={netDebt>=0?"positive-value":"negative-value"}>صافي الذمم = {money(netDebt)} CAD</strong></div>
       </article>
-      <article className="card forecast-card">
-        <div className="section-heading"><h3>🔮 توقع نهاية الشهر</h3><small>{isCurrentMonth?`${elapsedDays}/${daysInMonth} يوم` : "شهر مكتمل"}</small></div>
-        <strong className={projectedNet>=0?"positive-value":"negative-value"}>{money(projectedNet)} CAD</strong>
-        <div className="forecast-pairs"><span>أرباح متوقعة <b>{money(projectedProfit)}</b></span><span>مصروفات متوقعة <b>{money(projectedExpenses)}</b></span></div>
+      <article className={`card final-inventory-card ${closedInventory?"is-closed":"is-pending"}`}>
+        <div className="section-heading"><h3>📦 الجرد النهائي</h3><small>{closedInventory?`مثبت ${closedInventory.inventoryDate||closedInventory.fixedAt?.slice?.(0,10)||""}`:"غير مثبت"}</small></div>
+        {closedInventory?<div className="accounting-lines"><span>كاش الخزنة <b>+ {money(closedInventory.vaultCash)} CAD</b></span><span>إجمالي الأصول <b>{money(closedInventory.totalAssets)} CAD</b></span><span>إجمالي الالتزامات <b>− {money(closedInventory.totalLiabilities)} CAD</b></span><strong>قيمة الجرد = {money(closedInventory.finalValue)} CAD</strong><em className={Math.abs(Number(closedInventory.inventoryDifference||0))<0.005?"positive-value":"negative-value"}>فرق المطابقة = {Number(closedInventory.inventoryDifference||0)>=0?"+":""}{money(closedInventory.inventoryDifference)} CAD</em></div>:<div className="inventory-not-fixed"><p>لا يمكن حساب قيمة الجرد النهائية بافتراض أن كاش الخزنة صفر. أدخل الكاش الفعلي من صفحة الجرد ثم ثبّت الجرد.</p><button type="button" onClick={()=>navigate?.("reports-profits")}>فتح الجرد الشهري</button></div>}
       </article>
     </section>
 
-    <section className="budget-comparison-grid">
-      <article className="card comparison-card"><span>الأرباح مقارنة بالشهر السابق</span><strong className={(profitChange??0)>=0?"positive-value":"negative-value"}>{profitChange==null?"—":`${profitChange>=0?"+":""}${profitChange.toFixed(1)}%`}</strong><small>{money(data.monthlyProfit)} مقابل {money(previousData?.monthlyProfit)}</small></article>
-      <article className="card comparison-card"><span>المصروفات مقارنة بالشهر السابق</span><strong className={(expenseChange??0)<=0?"positive-value":"negative-value"}>{expenseChange==null?"—":`${expenseChange>=0?"+":""}${expenseChange.toFixed(1)}%`}</strong><small>{money(data.monthlyExpenses)} مقابل {money(previousData?.monthlyExpenses)}</small></article>
-      <article className="card comparison-card"><span>صافي الربح مقارنة بالشهر السابق</span><strong className={(netChange??0)>=0?"positive-value":"negative-value"}>{netChange==null?"—":`${netChange>=0?"+":""}${netChange.toFixed(1)}%`}</strong><small>{money(monthlyNet)} مقابل {money(netPrevious)}</small></article>
-    </section>
-
-    <section className="budget-pro-grid">
-      <article className="card budget-goals-card budget-launch-card no-print">
-        <div className="section-heading"><h3>🎯 الأهداف المالية</h3><small>إدارة داخل نافذة مستقلة</small></div>
-        <p>راجع أهداف الأرباح والمصروفات وصافي رأس المال من دون ازدحام الصفحة.</p>
-        <button type="button" onClick={()=>setBudgetModal("goals")}>فتح الأهداف</button>
-      </article>
-      <article className="card budget-alerts-card">
-        <div className="section-heading"><h3>🔔 التنبيهات الذكية</h3><small>{alerts.length} ملاحظة</small></div>
-        <div className="smart-alert-list">{alerts.map((alert,index)=><div key={index} className={`smart-alert ${alert.level}`}>{alert.text}</div>)}</div>
-      </article>
-      <article className="card executive-summary-card">
-        <div className="section-heading"><h3>🤖 ملخص المدير</h3><small>تحليل فوري</small></div>
-        <p>{monthlyNet>=0?"الشركة تحقق صافيًا إيجابيًا خلال الشهر المحدد.":"يجب مراجعة المصروفات لأن صافي الشهر سلبي."}</p>
-        <p>{profitChange==null?"لا توجد بيانات كافية للمقارنة الشهرية.":profitChange>=0?`الأرباح ارتفعت ${profitChange.toFixed(1)}% عن الشهر السابق.`:`الأرباح انخفضت ${Math.abs(profitChange).toFixed(1)}% عن الشهر السابق.`}</p>
-        <p>{liquidityRatio>=1.5?"تغطية الالتزامات جيدة وفق المبالغ المستحقة.":"تغطية الالتزامات تحتاج متابعة وتحصيل أسرع."}</p>
-        <p>كفاءة دوران رأس المال مصنفة: <strong>{efficiency}</strong>.</p>
-      </article>
-    </section>
-
-    <section className="budget-intelligence-grid">
-      <article className="card budget-flow-card">
-        <div className="section-heading"><h3>📊 تدفق رأس المال</h3><small>{month}</small></div>
-        <div className="budget-flow-track"><span style={{width:`${inShare}%`}}></span><b style={{width:`${outShare}%`}}></b></div>
-        <div className="budget-flow-legend"><span>إضافات {inShare}%</span><span>سحوبات {outShare}%</span></div>
-      </article>
-      <article className="card budget-health-card">
-        <div className="section-heading"><h3>💡 المؤشر المالي</h3><small>{liquidityStatus}</small></div>
-        <strong className={monthlyNet>=0?"positive-value":"negative-value"}>{money(monthlyNet)} CAD</strong>
-        <p>صافي أرباح الشهر بعد خصم المصروفات</p>
-      </article>
-      <article className="card budget-turnover-card">
-        <div className="section-heading"><h3>⚡ كفاءة رأس المال</h3><small>{efficiency}</small></div>
-        <strong>{Number(data.turnoverRate).toFixed(2)}×</strong>
-        <div className="budget-score"><span style={{width:`${Math.min(100,Number(data.turnoverRate||0)*25)}%`}}></span></div>
-      </article>
-    </section>
+    <details className="card non-accounting-notice no-print">
+      <summary>التحليلات التقديرية غير المحاسبية</summary>
+      <p>تم إيقاف توقع نهاية الشهر، درجة صحة الشركة، المقارنة مع شهر غير مكتمل والتنبيهات الآلية من هذه الصفحة؛ لأنها ليست قيودًا دفترية ولا تدخل في رأس المال أو الجرد.</p>
+    </details>
 
     {currencySummary.length>0&&<section className="card budget-currency-summary">
-      <div className="section-heading"><h3>💱 حركة رأس المال حسب العملة</h3><small>الشهر المحدد</small></div>
-      <div className="budget-currency-grid">{currencySummary.map(item=><div key={item.currency}>
-        <strong>{item.currency}</strong><span className="positive-value">+ {money(item.in)}</span><span className="negative-value">- {money(item.out)}</span>
+      <div className="section-heading"><h3>💰 رأس المال حسب العملة</h3><small>الشهر المحدد — الدوران من الأموال التي خرجت للتشغيل ثم عادت فعليًا</small></div>
+      <div className="budget-currency-grid">{currencySummary.map(item=><div className="capital-currency-detail-card" key={item.currency}>
+        <strong className="capital-currency-code">{item.currency}</strong>
+        <span className="positive-value">🟢 المضاف: + {money(item.in)}</span>
+        <span className="negative-value">🔴 المسحوب: - {money(item.out)}</span>
+        <span>💰 رأس المال الحالي: <b>{money(item.currentCapital)}</b></span>
+        <span>➡️ خرج للتشغيل: <b>{money(item.operatingOut)}</b></span>
+        <span>⬅️ عاد من التشغيل: <b>{money(item.operatingReturned)}</b></span>
+        <span className={item.operatingStuck>0?"negative-value":"positive-value"}>⏳ عالق ولم يعد: <b>{money(item.operatingStuck)}</b></span>
+        <span className="capital-turnover-line">🔄 دوران رأس المال: <b>{Number(item.turnoverRate||0).toFixed(2)} مرة</b></span>
       </div>)}</div>
+      <p className="capital-turnover-note">لا تدخل إضافات أو سحوبات رأس المال (+/−) في حساب الدوران. الدفعات الجزئية تعيد جزءًا مماثلًا من أصل رأس المال فقط، بدون احتساب الربح أو الرسوم كعودة لرأس المال.</p>
     </section>}
 
     <AppModal
       open={Boolean(budgetModal)}
-      title={budgetModal==="movement"?"➕ إضافة رأس مال أو سحب":budgetModal==="history"?"📋 سجل رأس المال":budgetModal==="goals"?"🎯 الأهداف المالية":"📊 تقرير الميزانية"}
+      title={budgetModal==="movement"?"➕ إضافة رأس مال أو سحب":budgetModal==="history"?"📋 سجل رأس المال":budgetModal==="goals"?"🎯 أهداف التخطيط — غير محاسبية":"📊 تقرير الميزانية"}
       size="xl"
       onClose={()=>setBudgetModal(null)}
     >
@@ -408,9 +381,9 @@ function CapitalOverview(){
         </div>}
 
         {budgetModal==="report"&&<div className="budget-report-modal">
-          <div className="budget-report-grid"><div><span>إجمالي الحوالات في الشهر</span><strong>{money(data.monthlyTransferValue)} CAD</strong></div><div><span>معدل دوران رأس المال</span><strong>{Number(data.turnoverRate).toFixed(2)} مرة</strong></div><div><span>أرباح الشهر</span><strong>{money(data.monthlyProfit)} CAD</strong></div><div><span>مصروفات الشهر</span><strong>{money(data.monthlyExpenses)} CAD</strong></div></div>
-          <div className="capital-formula"><h3>حركة دوران رأس المال</h3><p><strong>إجمالي قيمة الحوالات الشهرية ÷ رأس المال المستخدم</strong></p><p>النتيجة الحالية: <strong>{Number(data.turnoverRate).toFixed(2)} مرة</strong> خلال شهر {data.month}.</p></div>
-          {currencySummary.length>0&&<div className="budget-currency-grid">{currencySummary.map(item=><div key={item.currency}><strong>{item.currency}</strong><span className="positive-value">+ {money(item.in)}</span><span className="negative-value">- {money(item.out)}</span></div>)}</div>}
+          <div className="budget-report-grid"><div><span>إجمالي الحوالات في الشهر</span><strong>{money(data.monthlyTransferValue)} CAD</strong></div><div><span>أرباح الشهر المسجلة</span><strong>{money(data.monthlyProfit)} CAD</strong></div><div><span>مصروفات الشهر</span><strong>{money(data.monthlyExpenses)} CAD</strong></div><div><span>صافي الشهر</span><strong>{money(monthlyNet)} CAD</strong></div></div>
+          <div className="capital-formula"><h3>حدود التقرير</h3><p>هذه الأرقام تخص شهر <strong>{data.month}</strong> فقط. الجرد النهائي وفرق المطابقة يعرضان بعد إدخال كاش الخزنة وتثبيت الجرد.</p></div>
+          {currencySummary.length>0&&<div className="budget-currency-grid">{currencySummary.map(item=><div key={item.currency}><strong>{item.currency}</strong><span className="positive-value">المضاف + {money(item.in)}</span><span className="negative-value">المسحوب - {money(item.out)}</span><span>الدوران 🔄 {Number(item.turnoverRate||0).toFixed(2)} مرة</span></div>)}</div>}
           <button type="button" onClick={()=>window.print()}>🖨️ طباعة التقرير</button>
         </div>}
     </AppModal>

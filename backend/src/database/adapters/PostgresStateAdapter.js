@@ -1,6 +1,7 @@
 const { Pool } = require("pg");
 const MigrationRunner = require("../MigrationRunner");
 const { RelationalProjector } = require("../../repositories/RelationalProjector");
+const { postgresSslOptions } = require("../postgres-tls");
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const TRANSIENT_CODES = new Set([
@@ -205,7 +206,7 @@ class PostgresStateAdapter {
     const isWritePool = role === "write";
     const pool = new Pool({
       connectionString: this.connectionString,
-      ssl: this.connectionString.includes("localhost") ? false : { rejectUnauthorized: false },
+      ssl: postgresSslOptions(this.connectionString),
       max: Math.max(1, Number(isWritePool ? (process.env.PG_WRITE_POOL_MAX || 2) : (process.env.PG_POOL_MAX || 3))),
       min: 0,
       // Keep one warm PostgreSQL connection during an active session. The old

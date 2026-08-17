@@ -10,7 +10,11 @@ const a = transactionFinancials({amount:100, costRate:1.40, finalRate:1.47, cust
 assert.equal(a.convertedCad,147);
 assert.equal(a.totalCustomerDue,152);
 assert.ok(Math.abs(a.exchangeProfit-7)<1e-9);
+assert.ok(Math.abs(a.transferFee-5)<1e-9);
+assert.ok(Math.abs(a.paidFee-5)<1e-9);
 assert.ok(Math.abs(a.totalProfit-12)<1e-9);
+assert.equal(a.beneficiaryReceives,100);
+assert.equal(a.feeMethod,"PAID");
 assert.equal(a.valid,true);
 
 const rows=[

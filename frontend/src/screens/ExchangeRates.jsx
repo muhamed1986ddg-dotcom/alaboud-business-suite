@@ -30,7 +30,7 @@ function ExchangeRates(){
       setList(normalize(rates.data));setHistory(normalize(hist.data));
     }catch(e){setMessage(e.response?.data?.message||"تعذر تحميل أسعار الصرف")}
   }
-  useEffect(()=>{load();const timer=setInterval(()=>{if(document.visibilityState==="visible")refresh(false)},60*60*1000);return()=>clearInterval(timer)},[]);
+  useEffect(()=>{load()},[]);
 
   async function refresh(show=true){
     setRefreshing(true);if(show)setMessage("");

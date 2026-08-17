@@ -1,5 +1,5 @@
 import React,{useEffect,useRef,useState}from"react";
-import api,{cachedGet} from"../api";
+import api,{cachedGet,clearApiGetCache} from"../api";
 import {APP_VERSION} from"../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction,revealAppEditor} from"../shared";
 import {AppModal,AppTable} from "../components/ui";
@@ -375,7 +375,10 @@ function Partners({open,view="companies"}){
         consecutiveErrors=0;
         const job=statusResponse.data||{};
         setMessage(`${partner.name}: ${syncProgressLabel(job.progress)}`);
-        if(job.status==="SUCCESS")return job.result||{};
+        if(job.status==="SUCCESS"){
+          clearApiGetCache();
+          return job.result||{};
+        }
         if(job.status==="FAILED"){
           const failure=job.error||{message:"تعذرت مزامنة الشركة"};
           throw Object.assign(new Error(failure.message),{response:{data:failure}});

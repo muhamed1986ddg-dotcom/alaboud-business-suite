@@ -8,9 +8,9 @@ const summary=calculateReceivableSummary({
   manualReceivable:301,
   manualPayable:155.82
 });
-assert.equal(summary.receivable,140834.91,"debt for us must equal customers + companies only");
-assert.equal(summary.breakdown.manual,301,"manual debt remains visible for reconciliation");
-assert.equal(summary.breakdown.total,140834.91,"manual receivable must not inflate headline debt");
+assert.equal(summary.receivable,141135.91,"comprehensive debt for us must include independent manual receivables");
+assert.equal(summary.breakdown.manual,301,"manual debt remains visible as a separate component");
+assert.equal(summary.breakdown.total,141135.91,"the headline must equal all included receivable components");
 assert.equal(summary.payable,59706.01,"payable must include company and manual payables");
-assert.equal(summary.net,81128.90,"net must be calculated from authoritative totals");
+assert.equal(summary.net,81429.90,"net must be calculated from authoritative comprehensive totals");
 console.log("numeric unified receivable test passed");

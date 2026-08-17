@@ -1,0 +1,11 @@
+const assert=require("assert");
+const fs=require("fs");
+const path=require("path");
+const source=fs.readFileSync(path.join(__dirname,"../../app/src/main/java/com/alaboud/businesssuite/MainActivity.kt"),"utf8");
+assert(source.includes('MAX_RATE_LIMIT_RETRIES = 2'),'Android retry limit must be exactly two');
+assert(source.includes('override fun onReceivedHttpError'),'Android must handle HTTP status errors');
+assert(source.includes('errorResponse?.statusCode == 429'),'Android must intercept HTTP 429');
+assert(source.includes('showRateLimitPage(view)'),'429 must render the Arabic recovery screen');
+assert(source.includes('rateLimitRetryCount >= MAX_RATE_LIMIT_RETRIES'),'retries must be bounded');
+assert(source.includes('تم إيقاف إعادة الاتصال بعد محاولتين'),'screen must explain retry exhaustion in Arabic');
+console.log('android 429 handling v25.14.83: OK');

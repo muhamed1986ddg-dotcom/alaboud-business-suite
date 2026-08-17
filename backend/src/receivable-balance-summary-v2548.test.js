@@ -3,7 +3,7 @@ const assert=require('assert');
 const server=fs.readFileSync(require('path').join(__dirname,'server.js'),'utf8');
 const ui=fs.readFileSync(require('path').join(__dirname,'../../frontend/src/screens/GeneralDebts.jsx'),'utf8');
 assert(server.includes('receivableBreakdown'), 'server must return receivable breakdown');
-assert(server.includes('for(const row of partnerRows)'), 'company rows must be separated');
+assert(server.includes('calculateCompanyDebtPosition(store'), 'company totals must use the centralized company-debt formula');
 assert(ui.includes('رصيد دين العملاء'), 'customer balance must be shown');
 assert(ui.includes('دين الشركات لنا'), 'gross company receivable must be shown');
 assert(ui.includes('mode==="RECEIVABLE"'), 'receivable mode must use compact summary');

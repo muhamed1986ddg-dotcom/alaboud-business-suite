@@ -65,10 +65,25 @@ function ReportsProfits(){
     expenses:profits?.expenses??summary.expenses??0,
     netProfit:profits?.netProfit??summary.netProfit??0,
   };
+  const inventoryCurrent=inventory?.current||{};
+  const enteredVaultCash=Number.isFinite(Number(vaultCash))?Math.max(0,Number(vaultCash)):0;
+  const previewTotalAssets=(
+    Number(inventoryCurrent.partnerAssets||0)
+    + Number(inventoryCurrent.customerReceivables||0)
+    + Number(inventoryCurrent.companyReceivables||0)
+    + Number(inventoryCurrent.manualReceivables||0)
+    + enteredVaultCash
+  );
+  const previewTotalLiabilities=(
+    Number(inventoryCurrent.customerPayables||0)
+    + Number(inventoryCurrent.companyPayables||0)
+    + Number(inventoryCurrent.manualPayables||0)
+  );
+  const previewFinalValue=previewTotalAssets-previewTotalLiabilities;
+  const previewInventoryDifference=previewFinalValue-Number(inventoryCurrent.netCapital||0);
 
   const monthlyColumns=useMemo(()=>[
     {key:"month",label:"الشهر"},
-    {key:"exchangeProfit",label:"فرق السعر",render:row=>money(row.exchangeProfit)},
     {key:"transferFees",label:"أجور الحوالات",render:row=>money(row.transferFees)},
     {key:"grossProfit",label:"إجمالي الربح",render:row=>money(row.grossProfit)},
     {key:"expenses",label:"المصروفات",render:row=>money(row.expenses)},
@@ -107,14 +122,13 @@ function ReportsProfits(){
       {loading&&!profits?<AppLoader label="جاري تحميل الأرباح..."/>:<>
         <div className="ui-stat-grid">
           <AppStatCard label="عدد الحوالات" value={overview.transactionCount} tone="info"/>
-          <AppStatCard label="ربح فرق السعر" value={money(overview.exchangeProfit)} tone="success"/>
-          <AppStatCard label="أجور الحوالات" value={money(overview.transferFees)} tone="info"/>
+          <AppStatCard label="أجور الحوالات" value={money(overview.transferFees)} tone="success"/>
           <AppStatCard label="إجمالي الربح" value={money(overview.grossProfit)} tone="success"/>
           <AppStatCard label="المصروفات" value={money(overview.expenses)} tone="danger"/>
           <AppStatCard label="صافي الربح" value={money(overview.netProfit)} tone={Number(overview.netProfit)<0?"danger":"success"}/>
         </div>
         <AppCard className="profits-monthly-table-card" title="الأرباح الشهرية"><AppTable columns={monthlyColumns} rows={profits?.monthly||[]} rowKey="month" emptyText="لا توجد بيانات للفترة المحددة."/></AppCard>
-        <div className="profits-mobile-cards">{(profits?.monthly||[]).length?(profits?.monthly||[]).map(row=><article className="transaction-mobile-card profit-mobile-card" key={`profit-mobile-${row.month}`}><header className="transaction-mobile-card__head"><div><strong>{row.month}</strong><small>الأرباح الشهرية</small></div></header><div className="transaction-mobile-card__grid"><div><span>الشهر</span><strong>{row.month}</strong></div><div><span>فرق السعر</span><strong>{money(row.exchangeProfit)}</strong></div><div><span>أجور الحوالات</span><strong>{money(row.transferFees)}</strong></div><div><span>إجمالي الربح</span><strong>{money(row.grossProfit)}</strong></div><div><span>المصروفات</span><strong>{money(row.expenses)}</strong></div><div className="transaction-mobile-card__total"><span>صافي الربح</span><strong className={Number(row.netProfit||0)<0?"value-negative":"value-positive"}>{money(row.netProfit)}</strong></div></div></article>):<div className="transaction-mobile-empty">لا توجد بيانات للفترة المحددة.</div>}</div>
+        <div className="profits-mobile-cards">{(profits?.monthly||[]).length?(profits?.monthly||[]).map(row=><article className="transaction-mobile-card profit-mobile-card" key={`profit-mobile-${row.month}`}><header className="transaction-mobile-card__head"><div><strong>{row.month}</strong><small>الأرباح الشهرية</small></div></header><div className="transaction-mobile-card__grid"><div><span>الشهر</span><strong>{row.month}</strong></div><div><span>أجور الحوالات</span><strong>{money(row.transferFees)}</strong></div><div><span>إجمالي الربح</span><strong>{money(row.grossProfit)}</strong></div><div><span>المصروفات</span><strong>{money(row.expenses)}</strong></div><div className="transaction-mobile-card__total"><span>صافي الربح</span><strong className={Number(row.netProfit||0)<0?"value-negative":"value-positive"}>{money(row.netProfit)}</strong></div></div></article>):<div className="transaction-mobile-empty">لا توجد بيانات للفترة المحددة.</div>}</div>
       </>}
     </>}
 
@@ -133,8 +147,7 @@ function ReportsProfits(){
           <AppStatCard label="متوسط الحوالة" value={money(summary.averageTransfer)}/>
           <AppStatCard label="أكبر حوالة" value={money(summary.largestTransfer)} tone="success"/>
           <AppStatCard label="أصغر حوالة" value={money(summary.smallestTransfer)}/>
-          <AppStatCard label="أجور الحوالات" value={money(summary.feesTotal)} tone="info"/>
-          <AppStatCard label="ربح فرق السعر" value={money(summary.exchangeProfit)} tone="success"/>
+          <AppStatCard label="أجور الحوالات" value={money(summary.feesTotal)} tone="success"/>
           <AppStatCard label="إجمالي الربح" value={money(summary.grossProfit)} tone="success"/>
           <AppStatCard label="المصروفات" value={money(summary.expenses)} tone="danger"/>
           <AppStatCard label="صافي الربح" value={money(summary.netProfit)} tone={Number(summary.netProfit||0)<0?"danger":"success"}/>
@@ -154,7 +167,7 @@ function ReportsProfits(){
       </AppCard>}
 
       <AppCard className="no-print" title="موعد الجرد الشهري">
-        <div className="inventory-refresh-row"><span>يعتمد الجرد مباشرة على صافي رأس المال الحالي في صفحة الميزانية.</span><AppButton variant="secondary" busy={inventoryBusy} onClick={loadInventory}>↻ تحديث الجرد</AppButton></div>
+        <div className="inventory-refresh-row"><span>يقارن الجرد صافي الأصول الفعلية بحقوق الملكية، ويعرض فرق المطابقة دون دمجه تلقائيًا.</span><AppButton variant="secondary" busy={inventoryBusy} onClick={loadInventory}>↻ تحديث الجرد</AppButton></div>
         <div className="ui-form-grid inventory-settings-grid">
           <AppInput label="يوم الجرد" type="number" min="1" max="28" value={inventoryDay} onChange={event=>setInventoryDay(event.target.value)}/>
           <AppButton variant="secondary" busy={inventoryBusy} onClick={saveInventoryDay}>حفظ يوم الجرد</AppButton>
@@ -165,10 +178,25 @@ function ReportsProfits(){
       {inventoryBusy&&!inventory?<AppLoader label="جاري تحميل الجرد..."/>:!inventory?<AppCard className="customer-error"><strong>تعذر عرض الجرد الشهري.</strong><AppButton variant="secondary" onClick={loadInventory}>إعادة المحاولة</AppButton></AppCard>:<>
         <AppCard title={`جرد ${inventory.alert?.month||new Date().toISOString().slice(0,7)}`}>
           <div className="inventory-breakdown inventory-breakdown--simple">
-            <div className="inventory-net-capital"><span>💎 صافي رأس المال من صفحة الميزانية</span><strong>{money(inventory.current?.netCapital)} CAD</strong></div>
-            <div className="inventory-vault-input"><span>+ الكاش الموجود في الخزنة</span><AppInput type="number" min="0" step="0.01" value={vaultCash} onChange={event=>setVaultCash(event.target.value)} placeholder="أدخل قيمة الكاش يدويًا"/></div>
-            <div className="inventory-final"><span>= قيمة الجرد النهائية</span><strong>{money(Number(inventory.current?.netCapital||0)+Number(vaultCash||0))} CAD</strong></div>
+            <div className="inventory-net-capital"><span>💎 صافي رأس المال — حقوق الملكية</span><strong>{money(inventoryCurrent.netCapital)} CAD</strong></div>
+            <div><span>🏦 أرصدة الشركاء الخارجية</span><strong>{money(inventoryCurrent.partnerAssets)} CAD</strong></div>
+            <div><span>👤 ذمم العملاء لنا</span><strong>{money(inventoryCurrent.customerReceivables)} CAD</strong></div>
+            <div><span>🏢 ذمم الشركات لنا</span><strong>{money(inventoryCurrent.companyReceivables)} CAD</strong></div>
+            <div><span>📝 الذمم اليدوية لنا</span><strong>{money(inventoryCurrent.manualReceivables)} CAD</strong></div>
+            <div className="inventory-vault-input"><span>💵 الكاش الموجود في الخزنة</span><AppInput type="number" min="0" step="0.01" value={vaultCash} onChange={event=>setVaultCash(event.target.value)} placeholder="أدخل قيمة الكاش يدويًا"/></div>
+            <div><span>إجمالي الأصول</span><strong>{money(previewTotalAssets)} CAD</strong></div>
+            <div><span>👤 ذمم العملاء علينا</span><strong>{money(inventoryCurrent.customerPayables)} CAD</strong></div>
+            <div><span>🏢 ذمم الشركات علينا</span><strong>{money(inventoryCurrent.companyPayables)} CAD</strong></div>
+            <div><span>📝 الذمم اليدوية علينا</span><strong>{money(inventoryCurrent.manualPayables)} CAD</strong></div>
+            <div><span>إجمالي الالتزامات</span><strong>{money(previewTotalLiabilities)} CAD</strong></div>
+            <div className="inventory-final"><span>= قيمة الجرد / صافي الأصول</span><strong>{money(previewFinalValue)} CAD</strong></div>
+            <div className={`inventory-difference ${Math.abs(previewInventoryDifference)<0.005?"inventory-difference--balanced":"inventory-difference--warning"}`}><span>⚖️ فرق المطابقة الرقابي</span><strong>{previewInventoryDifference>=0?"+":""}{money(previewInventoryDifference)} CAD</strong></div>
           </div>
+          <small>فرق المطابقة مؤشر للمراجعة فقط؛ لا يُضاف إلى رأس المال ولا يُطرح من الجرد تلقائيًا.</small>
+          {Number(inventoryCurrent.excludedManualDuplicateCount||0)>0&&<p className="customer-success">تم استبعاد {inventoryCurrent.excludedManualDuplicateCount} من الذمم اليدوية لارتباطها مباشرةً بمصدر رسمي محسوب.</p>}
+          {Number(inventoryCurrent.excludedPartnerDuplicateCount||0)>0&&<p className="customer-success">تم استبعاد {inventoryCurrent.excludedPartnerDuplicateCount} من حركات الشركات لارتباطها مباشرةً بالرصيد الخارجي نفسه.</p>}
+          {(inventoryCurrent.manualDebtReviewFlags||[]).some(item=>item.reviewStatus==="FLAGGED")&&<p className="customer-error">توجد ذمم يدوية قد تتشابه بالاسم مع حسابات رسمية. بقيت محسوبة ولم تُعدّل، وتحتاج مراجعة وربطاً مباشراً.</p>}
+          {(inventoryCurrent.partnerReviewFlags||[]).length>0&&<p className="customer-error">توجد شركات لها رصيد خارجي وحركات محلية للعملة نفسها دون مرجع يثبت إن كانا مستقلين. راجعها قبل تثبيت الجرد.</p>}
           <div className="inventory-notes"><AppInput label="ملاحظات الجرد (اختياري)" value={inventoryNotes} onChange={event=>setInventoryNotes(event.target.value)} placeholder="أي ملاحظة على الكاش أو الجرد"/></div>
           {inventory.current?.missingRates?.length>0&&<p className="customer-error">ينقص سعر تحويل: {inventory.current.missingRates.join("، ")}</p>}
           <AppButton variant="primary" busy={inventoryBusy} disabled={inventory.alert?.status==="DONE"} onClick={closeInventory}>{inventory.alert?.status==="DONE"?"✅ تم تثبيت جرد هذا الشهر":"📌 تثبيت جرد الشهر"}</AppButton>
@@ -183,7 +211,10 @@ function ReportsProfits(){
               return <article className="transaction-mobile-card inventory-history-card" key={row.id||row.month}>
                 <header className="transaction-mobile-card__head"><div><strong>{row.month}</strong><small>{row.inventoryDate||row.fixedAt?.slice?.(0,10)||""}</small></div><b>{money(row.finalValue)}</b></header>
                 <div className="transaction-mobile-card__grid">
-                  <div><span>صافي رأس المال</span><strong>{money(row.netCapital ?? (Number(row.finalValue||0)-Number(row.vaultCash||0)))}</strong></div><div><span>الكاش في الخزنة</span><strong>{money(row.vaultCash)}</strong></div>
+                  <div><span>صافي رأس المال</span><strong>{money(row.netCapital)}</strong></div><div><span>الكاش في الخزنة</span><strong>{money(row.vaultCash)}</strong></div>
+                  {row.totalAssets!==undefined&&<div><span>إجمالي الأصول</span><strong>{money(row.totalAssets)}</strong></div>}
+                  {row.totalLiabilities!==undefined&&<div><span>إجمالي الالتزامات</span><strong>{money(row.totalLiabilities)}</strong></div>}
+                  {row.inventoryDifference!==undefined&&<div className="transaction-mobile-card__total"><span>فرق المطابقة الرقابي</span><strong className={Math.abs(Number(row.inventoryDifference||0))<0.005?"value-positive":"value-negative"}>{Number(row.inventoryDifference||0)>=0?"+":""}{money(row.inventoryDifference)}</strong></div>}
                   {diff!==null&&<div className="transaction-mobile-card__total"><span>الفرق عن الشهر السابق</span><strong className={diff<0?"value-negative":"value-positive"}>{diff>=0?"+":""}{money(diff)}</strong></div>}
                 </div>
                 {row.notes&&<p className="inventory-row-notes">{row.notes}</p>}

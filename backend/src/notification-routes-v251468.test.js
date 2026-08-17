@@ -121,8 +121,9 @@ async function runHandler(route,req){
   const notificationAt=serverSource.indexOf("registerNotificationRoutes(app");
   const capitalAt=serverSource.indexOf('app.get("/api/capital-overview"');
   assert(dashboardAt>=0&&notificationAt>dashboardAt&&capitalAt>notificationAt,"notification route registration order changed");
-  // Temporary security-hotfix budget; reduce again as auth routes are extracted.
-  assert(serverSource.split(/\r?\n/).length<=6100,"server.js notification extraction unexpectedly regressed");
+  // Temporary financial-hardening budget after inventory, fee, receipt and debt
+  // safeguards. Reduce again when the financial routes are extracted.
+  assert(serverSource.split(/\r?\n/).length<=6250,"server.js route extraction budget unexpectedly regressed");
 
   console.log("v25.14.68 notification routes extraction regression: OK");
 })().catch(error=>{console.error(error);process.exit(1);});

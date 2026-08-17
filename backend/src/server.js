@@ -16,9 +16,25 @@ const { createTelemetryWriter } = require("./telemetry-writer");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const FinancialEngine = require("./finance/FinancialEngine");
 const { customerBalanceTotals } = FinancialEngine;
-const { transactionFinancials } = require("./finance/TransactionFinancials");
+const { customerReceiptsTotal } = FinancialEngine;
+const { normalizeFeeMethod, transactionFinancials } = require("./finance/TransactionFinancials");
+const { calculateCapitalOverviewFinancials } = require("./finance/CapitalOverviewFinancials");
 const { calculateReceivableSummary } = require("./finance/ReceivableSummary");
-const { calculateInventoryPayables, calculateInventoryMonthProfit } = require("./finance/MonthlyInventoryFinancials");
+const { manualDebtLinkStatus, partitionManualDebts } = require("./finance/DebtLinking");
+const {
+  calculateNetCapital,
+  calculateInventorySnapshot,
+  calculateInventoryPosition,
+  calculateInventoryPayables,
+  calculateInventoryMonthProfit
+} = require("./finance/MonthlyInventoryFinancials");
+const {
+  calculatePartnerDebtBuckets,
+  aggregateDebtBuckets,
+  calculateCompanyDebtPosition,
+  externalCurrencies,
+  mirrorsExternalBalance
+} = require("./finance/CompanyDebtPosition");
 const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
 const { registerHealthRoutes } = require("./routes/health");
 const { registerDeveloperRoutes } = require("./routes/developer");
@@ -190,7 +206,11 @@ async function sendEmail(to, subject, text) {
       return false;
     }
   }
-  console.log(`[DEV EMAIL] To: ${to} | Subject: ${subject}\n${text}`);
+  if (IS_PROD) {
+    console.warn(`[EMAIL NOT SENT] SMTP is not configured; recipient=${maskEmail(to)} subject=${String(subject||"").slice(0,120)}`);
+  } else {
+    console.log(`[DEV EMAIL] To: ${to} | Subject: ${subject}\n${text}`);
+  }
   return false;
 }
 async function sendRaselSms({to,body}){
@@ -1319,15 +1339,21 @@ app.get("/api/capital-overview", auth, (req,res)=>{
   const requestedMonth=String(req.query.month||new Date().toISOString().slice(0,7));
   const transactions=(Array.isArray(store.transactions)?store.transactions:[])
     .filter(item=>item&&!item.isDeleted&&item.status!=="CANCELLED");
-  const capitalMovements=Array.isArray(store.capitalMovements)?store.capitalMovements:[];
-  const expenses=Array.isArray(store.expenses)?store.expenses:[];
+  const capitalMovements=(Array.isArray(store.capitalMovements)?store.capitalMovements:[])
+    .filter(item=>item&&!item.isDeleted);
+  const expenses=(Array.isArray(store.expenses)?store.expenses:[])
+    .filter(item=>item&&!item.isDeleted);
   const customers=Array.isArray(store.customers)?store.customers:[];
   const debts=Array.isArray(store.generalDebts)?store.generalDebts:[];
   const debtPayments=Array.isArray(store.generalDebtPayments)?store.generalDebtPayments:[];
 
-  const capitalBalance=capitalMovements.reduce(
-    (sum,item)=>sum+(item.type==="IN"?capitalCadAmount(store,item):-capitalCadAmount(store,item)),0
-  );
+  const capitalContributions=capitalMovements
+    .filter(item=>item.type==="IN")
+    .reduce((sum,item)=>sum+capitalCadAmount(store,item),0);
+  const capitalWithdrawals=capitalMovements
+    .filter(item=>item.type!=="IN")
+    .reduce((sum,item)=>sum+capitalCadAmount(store,item),0);
+  const capitalBalance=capitalContributions-capitalWithdrawals;
 
   const monthTransactions=transactions.filter(item=>
     String(item.transferDate||item.createdAt||"").slice(0,7)===requestedMonth
@@ -1368,100 +1394,166 @@ app.get("/api/capital-overview", auth, (req,res)=>{
     if(debt.type==="PAYABLE")generalPayable+=cadRemaining;
   }
 
-  // Include every company/partner balance shown in the general-debts page.
-  let partnerReceivable=0;
-  let partnerPayable=0;
-  const partners=Array.isArray(store.partners)?store.partners:[];
-  const partnerTransactions=Array.isArray(store.partnerTransactions)?store.partnerTransactions:[];
-  const partnerPayments=Array.isArray(store.partnerPayments)?store.partnerPayments:[];
-  for(const partner of partners){
-    const txs=partnerTransactions.filter(item=>item.partnerId===partner.id);
-    const pays=partnerPayments.filter(item=>item.partnerId===partner.id);
-    const currencies=new Set([
-      ...txs.map(item=>String(item.currency||"CAD").toUpperCase()),
-      ...pays.map(item=>String(item.currency||"CAD").toUpperCase())
-    ]);
-    for(const currency of currencies){
-      const receivable=txs.filter(item=>item.type==="RECEIVABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-      const payable=txs.filter(item=>item.type==="PAYABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-      const received=pays.filter(item=>item.direction==="RECEIVED"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-      const paid=pays.filter(item=>item.direction==="PAID"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-      partnerReceivable+=toCad(Math.max(receivable-received,0),currency);
-      partnerPayable+=toCad(Math.max(payable-paid,0),currency);
-    }
-
-    const multi=partner.externalBalances&&typeof partner.externalBalances==="object"?partner.externalBalances:null;
-    const entries=multi?Object.entries(multi).filter(([currency,value])=>currency&&value&&typeof value==="object"):[];
-    if(entries.length){
-      for(const [currency,value] of entries){
-        partnerReceivable+=toCad(Math.max(safeNumber(value.receivable),0),currency);
-        partnerPayable+=toCad(Math.max(safeNumber(value.payable),0),currency);
-      }
-    }else{
-      const currency=String(partner.accountCurrency||"USD").toUpperCase();
-      const extReceivable=Math.max(safeNumber(partner.externalReceivable),0);
-      const extPayable=Math.max(safeNumber(partner.externalPayable),0);
-      if(extReceivable>0.001||extPayable>0.001){
-        partnerReceivable+=toCad(extReceivable,currency);
-        partnerPayable+=toCad(extPayable,currency);
-      }else{
-        const balance=safeNumber(partner.externalBalance);
-        if(balance>0.001)partnerReceivable+=toCad(balance,currency);
-        if(balance<-0.001)partnerPayable+=toCad(Math.abs(balance),currency);
-      }
-    }
-  }
+  // v25.14.84: one authoritative company-debt formula shared with the
+  // Companies page, General Debts and Monthly Inventory. Local company
+  // RECEIVABLE/PAYABLE movements are netted per company + currency first,
+  // then the resulting side is converted with the automatic exchange graph.
+  const companyDebtPosition=calculateCompanyDebtPosition(store,{toCad});
+  const partnerReceivable=companyDebtPosition.receivable;
+  const partnerPayable=companyDebtPosition.payable;
 
   // Financial capital indicators (all values normalized to CAD).
-  // Total money includes capital, accumulated profit and all receivables.
-  // Net capital after everything deducts accumulated expenses and every payable.
+  // The primary net-capital indicator follows the product's established
+  // comprehensive formula: equity + receivables - payables. The equity-only
+  // value is also returned separately for monthly-inventory reconciliation.
   const accumulatedProfit=transactions.reduce(
     (sum,item)=>sum+transactionFinancials(item).totalProfit,0
   );
   const accumulatedExpenses=expenses.reduce(
     (sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0
   );
-  // Business rule: "debt for us" is exactly customer balances + company balances.
-  // Manual general-debt records remain visible in the debt register but do not alter this KPI.
-  const totalReceivables=receivables+partnerReceivable;
-  const totalPayables=customerPayable+generalPayable+partnerPayable;
+  const capitalPosition=calculateInventoryPosition(store,{toCad,customerBalances});
+  const totalReceivables=
+    capitalPosition.partnerAssets+
+    capitalPosition.customerReceivables+
+    capitalPosition.companyReceivables+
+    capitalPosition.manualReceivables;
+  const totalPayables=
+    capitalPosition.customerPayables+
+    capitalPosition.companyPayables+
+    capitalPosition.manualPayables;
+  // Backward-compatible presentation totals used by the detailed breakdown.
   const totalMoney=capitalBalance+accumulatedProfit+totalReceivables;
   const totalLiabilities=accumulatedExpenses+totalPayables;
-  const netCapital=totalMoney-totalLiabilities;
-  const netDebt=totalReceivables-totalPayables;
-  const estimatedCapital=netCapital;
-  const totalCapital=netCapital;
+  const realizedNetProfit=accumulatedProfit-accumulatedExpenses;
+  const accounting=calculateCapitalOverviewFinancials({
+    capitalContributions,
+    capitalWithdrawals,
+    accumulatedProfit,
+    accumulatedExpenses,
+    profitDistributions:0,
+    totalReceivables,
+    totalPayables,
+    monthlyProfit,
+    monthlyExpenses
+  });
+  const estimatedCapital=accounting.comprehensiveNetCapital;
+  const totalCapital=accounting.comprehensiveNetCapital;
   const turnoverBase=Math.abs(capitalBalance)>0?Math.abs(capitalBalance):Math.abs(estimatedCapital);
   const turnoverRate=turnoverBase>0?monthlyTransferValue/turnoverBase:0;
   const averageTransfer=monthTransactions.length?monthlyTransferValue/monthTransactions.length:0;
 
+  // Capital turnover by currency. Capital IN/OUT remains an owner-equity movement only.
+  // Operating turnover is calculated separately from real transfers and the customer
+  // receipts allocated to those transfers. Profit/fees are excluded from returned
+  // principal so the metric answers: how much operating capital left and came back.
+  const requestedMonthEnd=`${requestedMonth}-31`;
+  const activePayments=(Array.isArray(store.payments)?store.payments:[])
+    .filter(item=>item&&!item.isDeleted&&item.transactionId);
+  const paidByTransactionThroughMonth=new Map();
+  for(const payment of activePayments){
+    const paymentDay=String(payment.paymentDate||payment.date||payment.createdAt||"").slice(0,10);
+    if(paymentDay && paymentDay>requestedMonthEnd)continue;
+    paidByTransactionThroughMonth.set(
+      payment.transactionId,
+      safeNumber(paidByTransactionThroughMonth.get(payment.transactionId))+safeNumber(payment.amount)
+    );
+  }
+
+  const capitalCurrencyMap=new Map();
+  const ensureCapitalCurrency=(currency)=>{
+    const code=String(currency||"CAD").toUpperCase();
+    if(!capitalCurrencyMap.has(code))capitalCurrencyMap.set(code,{
+      currency:code,added:0,withdrawn:0,currentCapital:0,operatingOut:0,operatingReturned:0,operatingStuck:0,turnoverRate:0
+    });
+    return capitalCurrencyMap.get(code);
+  };
+
+  for(const movement of capitalMovements){
+    const currency=String(movement.currency||"CAD").toUpperCase();
+    const row=ensureCapitalCurrency(currency);
+    const movementMonth=String(movement.date||movement.createdAt||"").slice(0,7);
+    const amount=Math.max(safeNumber(movement.amount),0);
+    if(movementMonth===requestedMonth){
+      if(movement.type==="IN")row.added+=amount;else row.withdrawn+=amount;
+    }
+    if(!movementMonth || movementMonth<=requestedMonth){
+      row.currentCapital+=movement.type==="IN"?amount:-amount;
+    }
+  }
+
+  for(const transaction of monthTransactions){
+    const financials=transactionFinancials(transaction);
+    const currency=String(transaction.currency||"CAD").toUpperCase();
+    const row=ensureCapitalCurrency(currency);
+    const principal=Math.max(safeNumber(financials.beneficiaryReceives||financials.amount),0);
+    const due=Math.max(safeNumber(financials.totalCustomerDue),0);
+    const paid=Math.max(safeNumber(paidByTransactionThroughMonth.get(transaction.id)),0);
+    const returnedRatio=due>0?Math.min(paid/due,1):0;
+    const returnedPrincipal=principal*returnedRatio;
+    row.operatingOut+=principal;
+    row.operatingReturned+=returnedPrincipal;
+    row.operatingStuck+=Math.max(principal-returnedPrincipal,0);
+  }
+
+  const capitalByCurrency=[...capitalCurrencyMap.values()]
+    .map(row=>{
+      const base=Math.abs(row.currentCapital);
+      return {
+        currency:row.currency,
+        added:+row.added.toFixed(2),
+        withdrawn:+row.withdrawn.toFixed(2),
+        currentCapital:+row.currentCapital.toFixed(2),
+        operatingOut:+row.operatingOut.toFixed(2),
+        operatingReturned:+row.operatingReturned.toFixed(2),
+        operatingStuck:+row.operatingStuck.toFixed(2),
+        turnoverRate:+(base>0?row.operatingReturned/base:0).toFixed(3)
+      };
+    })
+    .filter(row=>Math.abs(row.added)+Math.abs(row.withdrawn)+Math.abs(row.currentCapital)+row.operatingOut+row.operatingReturned>0)
+    .sort((a,b)=>a.currency==="CAD"?-1:b.currency==="CAD"?1:a.currency.localeCompare(b.currency));
+
   res.json({
     month:requestedMonth,
-    capitalBalance:+capitalBalance.toFixed(2),
-    accumulatedProfit:+accumulatedProfit.toFixed(2),
-    accumulatedExpenses:+accumulatedExpenses.toFixed(2),
+    capitalBalance:accounting.capitalBalance,
+    capitalContributions:accounting.capitalContributions,
+    capitalWithdrawals:accounting.capitalWithdrawals,
+    accumulatedProfit:accounting.accumulatedProfit,
+    accumulatedExpenses:accounting.accumulatedExpenses,
+    realizedNetProfit:accounting.realizedNetProfit,
+    profitDistributions:accounting.profitDistributions,
     totalMoney:+totalMoney.toFixed(2),
     totalLiabilities:+totalLiabilities.toFixed(2),
-    netCapital:+netCapital.toFixed(2),
-    totalReceivables:+totalReceivables.toFixed(2),
-    totalPayables:+totalPayables.toFixed(2),
+    netCapital:accounting.comprehensiveNetCapital,
+    comprehensiveNetCapital:accounting.comprehensiveNetCapital,
+    equityNetCapital:accounting.equityNetCapital,
+    totalReceivables:accounting.totalReceivables,
+    totalPayables:accounting.totalPayables,
     customerReceivable:+receivables.toFixed(2),
     customerPayable:+customerPayable.toFixed(2),
     partnerReceivable:+partnerReceivable.toFixed(2),
     partnerPayable:+partnerPayable.toFixed(2),
+    manualReceivable:+capitalPosition.manualReceivables.toFixed(2),
+    manualPayable:+capitalPosition.manualPayables.toFixed(2),
+    excludedManualDuplicateCount:capitalPosition.excludedManualDuplicateCount,
+    manualDebtReviewFlags:capitalPosition.manualDebtReviewFlags,
+    excludedPartnerDuplicateCount:capitalPosition.excludedPartnerDuplicateCount,
+    partnerReviewFlags:capitalPosition.partnerReviewFlags,
     missingDebtRates:[...missingDebtRates],
-    netDebt:+netDebt.toFixed(2),
+    netDebt:accounting.netDebt,
     estimatedCapital:+estimatedCapital.toFixed(2),
     totalCapital:+totalCapital.toFixed(2),
     monthlyTransferValue:+monthlyTransferValue.toFixed(2),
     monthlyTransferCount:monthTransactions.length,
     averageTransfer:+averageTransfer.toFixed(2),
-    monthlyProfit:+monthlyProfit.toFixed(2),
-    monthlyExpenses:+monthlyExpenses.toFixed(2),
+    monthlyProfit:accounting.monthlyProfit,
+    monthlyExpenses:accounting.monthlyExpenses,
+    monthlyNet:accounting.monthlyNet,
     receivables:+receivables.toFixed(2),
     generalReceivable:+generalReceivable.toFixed(2),
     generalPayable:+generalPayable.toFixed(2),
-    turnoverRate:+turnoverRate.toFixed(3)
+    turnoverRate:+turnoverRate.toFixed(3),
+    capitalByCurrency
   });
 });
 
@@ -1479,28 +1571,52 @@ function inventoryLocalDate(settings={}){
 }
 
 function calculateInventoryNetCapital(store){
-  // IMPORTANT: this mirrors the authoritative "صافي رأس المال" equation used by
-  // /api/capital-overview. Monthly inventory must snapshot that KPI, not rebuild
-  // a second inventory-specific balance equation.
+  // Equity is independent from the physical inventory count. Receivables,
+  // payables and vault cash belong to net assets and are reconciled separately.
   const transactions=(Array.isArray(store.transactions)?store.transactions:[])
     .filter(item=>item&&!item.isDeleted&&item.status!=="CANCELLED");
-  const capitalMovements=Array.isArray(store.capitalMovements)?store.capitalMovements:[];
-  const expenses=Array.isArray(store.expenses)?store.expenses:[];
-  const customers=Array.isArray(store.customers)?store.customers:[];
-  const debts=Array.isArray(store.generalDebts)?store.generalDebts:[];
-  const debtPayments=Array.isArray(store.generalDebtPayments)?store.generalDebtPayments:[];
-
-  const capitalBalance=capitalMovements.reduce(
-    (sum,item)=>sum+(item.type==="IN"?capitalCadAmount(store,item):-capitalCadAmount(store,item)),0
-  );
-  const customerBalances=customerBalanceTotals(store);
-  const customerReceivable=safeNumber(customerBalances.receivable);
-  const customerPayable=safeNumber(customerBalances.payable);
-  const debtPaidById=new Map();
-  for(const payment of debtPayments){
-    debtPaidById.set(payment.debtId,safeNumber(debtPaidById.get(payment.debtId))+safeNumber(payment.amount));
-  }
+  const capitalMovements=(Array.isArray(store.capitalMovements)?store.capitalMovements:[])
+    .filter(item=>item&&!item.isDeleted);
+  const expenses=(Array.isArray(store.expenses)?store.expenses:[])
+    .filter(item=>item&&!item.isDeleted);
   const missingRates=new Set();
+  const movementCad=item=>{
+    const saved=Number(item?.cadAmount);
+    if(Number.isFinite(saved))return saved;
+    const normalized=String(item?.currency||"CAD").toUpperCase();
+    if(normalized==="CAD")return safeNumber(item?.amount);
+    const conversion=currencyConversion(store,normalized,"CAD");
+    if(!conversion){missingRates.add(normalized);return 0;}
+    return safeNumber(item?.amount)*conversion.factor;
+  };
+  const capitalContributions=capitalMovements
+    .filter(item=>item.type==="IN")
+    .reduce((sum,item)=>sum+movementCad(item),0);
+  const capitalWithdrawals=capitalMovements
+    .filter(item=>item.type!=="IN")
+    .reduce((sum,item)=>sum+movementCad(item),0);
+  const grossRealizedProfit=transactions.reduce((sum,item)=>sum+transactionFinancials(item).totalProfit,0);
+  const operatingExpenses=expenses.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
+  const realizedNetProfit=grossRealizedProfit-operatingExpenses;
+  const netCapital=calculateNetCapital({
+    capitalContributions,
+    capitalWithdrawals,
+    realizedNetProfit,
+    profitDistributions:0
+  });
+  return {
+    netCapital,
+    capitalContributions,
+    capitalWithdrawals,
+    realizedNetProfit,
+    profitDistributions:0,
+    missingRates:[...missingRates]
+  };
+}
+
+function monthlyInventoryDraft(store,{vaultCash=0}={}){
+  const capital=calculateInventoryNetCapital(store);
+  const missingRates=new Set(capital.missingRates);
   const toCad=(amount,currency="CAD")=>{
     const normalized=String(currency||"CAD").toUpperCase();
     if(normalized==="CAD")return safeNumber(amount);
@@ -1508,73 +1624,28 @@ function calculateInventoryNetCapital(store){
     if(!conversion){missingRates.add(normalized);return 0;}
     return safeNumber(amount)*conversion.factor;
   };
-  let generalPayable=0;
-  for(const debt of debts){
-    const remaining=Math.max(safeNumber(debt.amount)-safeNumber(debtPaidById.get(debt.id)),0);
-    if(debt.type==="PAYABLE")generalPayable+=toCad(remaining,debt.currency||"CAD");
-  }
-
-  let partnerReceivable=0;
-  let partnerPayable=0;
-  const partners=Array.isArray(store.partners)?store.partners:[];
-  const partnerTransactions=Array.isArray(store.partnerTransactions)?store.partnerTransactions:[];
-  const partnerPayments=Array.isArray(store.partnerPayments)?store.partnerPayments:[];
-  for(const partner of partners){
-    const txs=partnerTransactions.filter(item=>item.partnerId===partner.id);
-    const pays=partnerPayments.filter(item=>item.partnerId===partner.id);
-    const currencies=new Set([
-      ...txs.map(item=>String(item.currency||"CAD").toUpperCase()),
-      ...pays.map(item=>String(item.currency||"CAD").toUpperCase())
-    ]);
-    for(const currency of currencies){
-      const receivable=txs.filter(item=>item.type==="RECEIVABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-      const payable=txs.filter(item=>item.type==="PAYABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-      const received=pays.filter(item=>item.direction==="RECEIVED"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-      const paid=pays.filter(item=>item.direction==="PAID"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-      partnerReceivable+=toCad(Math.max(receivable-received,0),currency);
-      partnerPayable+=toCad(Math.max(payable-paid,0),currency);
-    }
-    const multi=partner.externalBalances&&typeof partner.externalBalances==="object"?partner.externalBalances:null;
-    const entries=multi?Object.entries(multi).filter(([currency,value])=>currency&&value&&typeof value==="object"):[];
-    if(entries.length){
-      for(const [currency,value] of entries){
-        partnerReceivable+=toCad(Math.max(safeNumber(value.receivable),0),currency);
-        partnerPayable+=toCad(Math.max(safeNumber(value.payable),0),currency);
-      }
-    }else{
-      const currency=String(partner.accountCurrency||"USD").toUpperCase();
-      const extReceivable=Math.max(safeNumber(partner.externalReceivable),0);
-      const extPayable=Math.max(safeNumber(partner.externalPayable),0);
-      if(extReceivable>0.001||extPayable>0.001){
-        partnerReceivable+=toCad(extReceivable,currency);
-        partnerPayable+=toCad(extPayable,currency);
-      }else{
-        const balance=safeNumber(partner.externalBalance);
-        if(balance>0.001)partnerReceivable+=toCad(balance,currency);
-        if(balance<-0.001)partnerPayable+=toCad(Math.abs(balance),currency);
-      }
-    }
-  }
-
-  const accumulatedProfit=transactions.reduce((sum,item)=>sum+transactionFinancials(item).totalProfit,0);
-  const accumulatedExpenses=expenses.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-  const totalReceivables=customerReceivable+partnerReceivable;
-  const totalPayables=customerPayable+generalPayable+partnerPayable;
-  const totalMoney=capitalBalance+accumulatedProfit+totalReceivables;
-  const totalLiabilities=accumulatedExpenses+totalPayables;
-  return {netCapital:totalMoney-totalLiabilities,missingRates:[...missingRates]};
-}
-
-function monthlyInventoryDraft(store,{vaultCash=0}={}){
-  const capital=calculateInventoryNetCapital(store);
-  const normalizedVault=Math.max(0,safeNumber(vaultCash));
-  const round=value=>+safeNumber(value).toFixed(2);
+  const position=calculateInventoryPosition(store,{
+    toCad,
+    customerBalances:customerBalanceTotals(store)
+  });
+  const snapshot=calculateInventorySnapshot({
+    netCapital:capital.netCapital,
+    vaultCash,
+    ...position
+  });
   return {
-    currency:"CAD",
-    netCapital:round(capital.netCapital),
-    vaultCash:round(normalizedVault),
-    finalValue:round(capital.netCapital+normalizedVault),
-    missingRates:capital.missingRates
+    ...snapshot,
+    companyLocalPayables:position.companyLocalPayables,
+    partnerPayables:position.partnerPayables,
+    excludedManualDuplicateCount:position.excludedManualDuplicateCount,
+    manualDebtReviewFlags:position.manualDebtReviewFlags,
+    excludedPartnerDuplicateCount:position.excludedPartnerDuplicateCount,
+    partnerReviewFlags:position.partnerReviewFlags,
+    capitalContributions:capital.capitalContributions,
+    capitalWithdrawals:capital.capitalWithdrawals,
+    realizedNetProfit:capital.realizedNetProfit,
+    profitDistributions:capital.profitDistributions,
+    missingRates:[...missingRates]
   };
 }
 
@@ -1596,7 +1667,14 @@ app.get("/api/monthly-inventory", auth, (req,res)=>{
   const store=readStore();
   const settings=store.notificationSettings||{};
   const scheduleDay=Math.max(1,Math.min(28,Math.trunc(safeNumber(settings.inventoryDay,20)||20)));
-  const rows=Array.from(store.monthlyInventories||[]).filter(item=>item&&!item.isDeleted).sort((a,b)=>String(b.month).localeCompare(String(a.month)));
+  const rows=Array.from(store.monthlyInventories||[])
+    .filter(item=>item&&!item.isDeleted)
+    .map(item=>{
+      const componentKeys=["netCapital","vaultCash","partnerAssets","customerReceivables","companyReceivables","manualReceivables","customerPayables","companyPayables","manualPayables"];
+      const hasCompleteBreakdown=componentKeys.every(key=>Number.isFinite(Number(item[key])));
+      return hasCompleteBreakdown?{...item,...calculateInventorySnapshot(item)}:item;
+    })
+    .sort((a,b)=>String(b.month).localeCompare(String(a.month)));
   const current=monthlyInventoryDraft(store,{vaultCash:0});
   res.json({scheduleDay,alert:inventoryAlert(store),current,rows});
 });
@@ -1650,7 +1728,7 @@ app.get("/api/monthly-report", auth, (req,res)=>{
   const grossProfit=transactions.reduce((sum,item)=>sum+transactionFinancials(item).totalProfit,0);
   const expenseTotal=expenses.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
   const netProfit=grossProfit-expenseTotal;
-  const paidTotal=payments.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
+  const paidTotal=customerReceiptsTotal(payments);
 
   const capitalIn=capitalMovements
     .filter(item=>item.type==="IN")
@@ -1718,6 +1796,18 @@ app.get("/api/monthly-report", auth, (req,res)=>{
     transactions:transactions
       .slice()
       .sort((a,b)=>String(a.transferDate||a.createdAt).localeCompare(String(b.transferDate||b.createdAt)))
+      .map(item=>{
+        const financials=transactionFinancials(item);
+        return {
+          ...item,
+          transferFee:financials.transferFee,
+          feeMethod:financials.feeMethod,
+          beneficiaryReceives:financials.beneficiaryReceives,
+          exchangeProfit:financials.exchangeProfit,
+          totalProfit:financials.totalProfit,
+          totalCustomerDue:financials.totalCustomerDue
+        };
+      })
   });
 });
 
@@ -1975,6 +2065,11 @@ app.get("/api/customers/:id", auth, (req,res)=>{
         return {
           ...transaction,
           number: String(transaction.number || transaction.id || "-"),
+          transferFee:financials.transferFee,
+          feeMethod:financials.feeMethod,
+          beneficiaryReceives:financials.beneficiaryReceives,
+          exchangeProfit:financials.exchangeProfit,
+          totalProfit:financials.totalProfit,
           totalCustomerDue: +due.toFixed(2),
           paid: +paid.toFixed(2),
           remaining: +Math.max(due - paid, 0).toFixed(2),
@@ -2010,9 +2105,22 @@ app.get("/api/transactions", auth, async (req,res)=>{
   const base=transactions.filter(t=>(!currency||String(t.currency||"").toUpperCase()===currency)&&(!search||[t.id,t.reference,t.customerId,customerNameById.get(t.customerId)].some(v=>String(v||"").toLowerCase().includes(search))));
   const win=requestedWindow(req,base.length);
   const items=base.slice(win.start,win.end).map(t=>{
+    const financials=transactionFinancials(t);
     const paidAmount=paidByTransaction.get(t.id)||0;
-    const remaining=Math.max(safeNumber(t.totalCustomerDue)-paidAmount,0);
-    return {...t,customerName:customerNameById.get(t.customerId)||"-",paidAmount:+paidAmount.toFixed(2),remaining:+remaining.toFixed(2),paymentStatus:remaining<=0.001?"PAID":"UNPAID"};
+    const remaining=Math.max(financials.totalCustomerDue-paidAmount,0);
+    return {
+      ...t,
+      transferFee:financials.transferFee,
+      feeMethod:financials.feeMethod,
+      beneficiaryReceives:financials.beneficiaryReceives,
+      exchangeProfit:financials.exchangeProfit,
+      totalProfit:financials.totalProfit,
+      totalCustomerDue:financials.totalCustomerDue,
+      customerName:customerNameById.get(t.customerId)||"-",
+      paidAmount:+paidAmount.toFixed(2),
+      remaining:+remaining.toFixed(2),
+      paymentStatus:remaining<=0.001?"PAID":"UNPAID"
+    };
   }).filter(t=>!status||t.paymentStatus===status||String(t.status||"").toUpperCase()===status);
   res.json(windowResponse({...win,total:status?items.length:win.total},items));
 });
@@ -2050,12 +2158,12 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     amount,
     costRate,
     finalRate,
-    transferFee=0,
-    feeMethod="ADD",
     rateSource="manual",
     rateUpdatedAt=null,
     status="COMPLETED",
     paymentStatus="UNPAID",
+    transferFee=0,
+    feeMethod="",
     transferDate=""
   }=req.body||{};
 
@@ -2064,19 +2172,22 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     return res.status(400).json({message:"قيم الحوالة غير صحيحة"});
   }
 
+  const rawFeeMethod=String(feeMethod||"").trim().toUpperCase();
+  if(rawFeeMethod==="DEDUCT"||!(["","SPREAD","PAID","ADD"].includes(rawFeeMethod))){
+    return res.status(400).json({message:"نوع أجور الحوالة غير صحيح"});
+  }
+
   const [a,cost,clientRate,fee]=nums;
   const normalizedCurrency=String(currency||"USD").toUpperCase();
-  const baseCustomerDue=a*clientRate;
-  const totalCustomerDue=feeMethod==="ADD"?baseCustomerDue+fee:baseCustomerDue;
-  // Financial integrity: customer charge must equal base due plus any added fee.
+  const normalizedFeeMethod=normalizeFeeMethod({feeMethod:rawFeeMethod,transferFee:fee});
+  const financials=transactionFinancials({amount:a,costRate:cost,finalRate:clientRate,transferFee:fee,feeMethod:normalizedFeeMethod});
+  // In PAID mode the sender pays a separate CAD fee above the converted
+  // amount. In SPREAD mode the fee is already embedded in the customer rate.
   assertBalancedEntry([
-    {account:"CUSTOMER_RECEIVABLE",debit:+totalCustomerDue.toFixed(2)},
-    {account:"TRANSFER_BASE_DUE",credit:+baseCustomerDue.toFixed(2)},
-    {account:"TRANSFER_FEE_ADDED",credit:feeMethod==="ADD"?+fee.toFixed(2):0}
+    {account:"CUSTOMER_RECEIVABLE",debit:+financials.totalCustomerDue.toFixed(2)},
+    {account:"TRANSFER_AT_CUSTOMER_RATE",credit:+financials.convertedCad.toFixed(2)},
+    {account:"TRANSFER_FEE_REVENUE",credit:+financials.paidFee.toFixed(2)}
   ]);
-  const beneficiaryReceives=feeMethod==="DEDUCT"?Math.max(a-fee,0):a;
-  const exchangeProfit=a*(clientRate-cost);
-  const totalProfit=exchangeProfit+fee;
 
   const tx=await mutateDurable((s)=>{
     if(!s.customers.some(c=>c.id===customerId))throw new Error("Customer not found");
@@ -2092,13 +2203,13 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
       finalRate:clientRate,
       rateSource,
       rateUpdatedAt,
-      transferFee:+fee.toFixed(2),
-      feeMethod,
-      destinationAmount:+a.toFixed(2),
-      beneficiaryReceives:+beneficiaryReceives.toFixed(2),
-      exchangeProfit:+exchangeProfit.toFixed(2),
-      totalProfit:+totalProfit.toFixed(2),
-      totalCustomerDue:+totalCustomerDue.toFixed(2),
+      transferFee:financials.transferFee,
+      feeMethod:financials.feeMethod,
+      destinationAmount:financials.beneficiaryReceives,
+      beneficiaryReceives:financials.beneficiaryReceives,
+      exchangeProfit:financials.exchangeProfit,
+      totalProfit:financials.totalProfit,
+      totalCustomerDue:financials.totalCustomerDue,
       status,
       transferDate:transferDate||new Date().toISOString().slice(0,10),
       createdAt:now(),
@@ -2156,7 +2267,7 @@ app.post("/api/customers/:id/payments", auth, requireIdempotencyKey, async (req,
           const paid=store.payments
             .filter(payment=>payment.transactionId===transaction.id&&!payment.isDeleted&&isAfterCustomerReset(payment,customer,"paymentDate"))
             .reduce((sum,payment)=>sum+Number(payment.amount||0),0);
-          return {transaction,remaining:Math.max(Number(transaction.totalCustomerDue||0)-paid,0)};
+          return {transaction,remaining:Math.max(transactionFinancials(transaction).totalCustomerDue-paid,0)};
         })
         .filter(row=>row.remaining>0.0001);
 
@@ -2275,7 +2386,7 @@ app.post("/api/transactions/:id/payments", auth, requireIdempotencyKey, async (r
       const t=s.transactions.find(x=>x.id===req.params.id);
       if(!t)throw new Error("Transaction not found");
       const already=s.payments.filter(p=>p.transactionId===t.id&&!p.isDeleted).reduce((a,p)=>a+Number(p.amount),0);
-      const remaining=Math.max(Number(t.totalCustomerDue)-already,0);
+      const remaining=Math.max(transactionFinancials(t).totalCustomerDue-already,0);
       if(n>remaining+0.001)throw new Error("Payment exceeds remaining balance");
       const p={
         id:id(),
@@ -2335,6 +2446,14 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
       const allowed=["currency","amount","costRate","finalRate","transferFee","feeMethod","transferDate","status","rateSource","rateUpdatedAt"];
       const oldData={...transaction};
 
+      const requestedFeeMethod=String(req.body?.feeMethod||"").trim().toUpperCase();
+      if(requestedFeeMethod==="DEDUCT"||!(["","SPREAD","PAID","ADD"].includes(requestedFeeMethod))){
+        throw new Error("نوع أجور الحوالة غير صحيح");
+      }
+      if((requestedFeeMethod==="PAID"||requestedFeeMethod==="ADD")&&req.body?.transferFee===undefined&&normalizeFeeMethod(transaction)!=="PAID"){
+        throw new Error("يجب إدخال قيمة الأجور المدفوعة");
+      }
+
       for(const key of allowed){
         if(req.body[key]!==undefined)transaction[key]=req.body[key];
       }
@@ -2343,25 +2462,27 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
       const cost=Number(transaction.costRate);
       const finalRate=Number(transaction.finalRate);
       const fee=Number(transaction.transferFee||0);
+      const normalizedFeeMethod=normalizeFeeMethod(transaction);
 
-      if(![amount,cost,finalRate,fee].every(Number.isFinite)||amount<=0||cost<=0||finalRate<=0||fee<0){
+      if(![amount,cost,finalRate,fee].every(Number.isFinite)||amount<=0||cost<=0||finalRate<=0||(normalizedFeeMethod==="PAID"&&fee<0)){
         throw new Error("قيم الحوالة غير صحيحة");
       }
 
-      const baseCustomerDue=amount*finalRate;
-      const exchangeProfit=amount*(finalRate-cost);
+      const financials=transactionFinancials({amount,costRate:cost,finalRate,transferFee:fee,feeMethod:normalizedFeeMethod});
 
       transaction.currency=String(transaction.currency||"USD").toUpperCase();
       transaction.direction=`${transaction.currency}_TO_CAD`;
-      transaction.destinationAmount=+amount.toFixed(2);
-      transaction.beneficiaryReceives=+(transaction.feeMethod==="DEDUCT"?Math.max(amount-fee,0):amount).toFixed(2);
-      transaction.exchangeProfit=+exchangeProfit.toFixed(2);
-      transaction.totalProfit=+(exchangeProfit+fee).toFixed(2);
-      transaction.totalCustomerDue=+(transaction.feeMethod==="ADD"?baseCustomerDue+fee:baseCustomerDue).toFixed(2);
+      transaction.destinationAmount=financials.beneficiaryReceives;
+      transaction.beneficiaryReceives=financials.beneficiaryReceives;
+      transaction.transferFee=financials.transferFee;
+      transaction.feeMethod=financials.feeMethod;
+      transaction.exchangeProfit=financials.exchangeProfit;
+      transaction.totalProfit=financials.totalProfit;
+      transaction.totalCustomerDue=financials.totalCustomerDue;
       assertBalancedEntry([
         {account:"CUSTOMER_RECEIVABLE",debit:transaction.totalCustomerDue},
-        {account:"TRANSFER_BASE_DUE",credit:+baseCustomerDue.toFixed(2)},
-        {account:"TRANSFER_FEE_ADDED",credit:transaction.feeMethod==="ADD"?+fee.toFixed(2):0}
+        {account:"TRANSFER_AT_CUSTOMER_RATE",credit:financials.convertedCad},
+        {account:"TRANSFER_FEE_REVENUE",credit:financials.paidFee}
       ]);
       transaction.updatedAt=now();
       transaction.updatedBy=req.user.id;
@@ -2466,7 +2587,7 @@ app.patch("/api/payments/:id", auth, requireIdempotencyKey, async (req,res)=>{
       const totalPaid=s.payments
         .filter(item=>item.transactionId===transaction.id&&!item.isDeleted&&item.recordType!=="CUSTOMER_PAYMENT_RECEIPT")
         .reduce((sum,item)=>sum+Number(item.amount||0),0);
-      if(totalPaid>Number(transaction.totalCustomerDue)+0.001)throw new Error("إجمالي الدفعات أكبر من رصيد الحوالة");
+      if(totalPaid>transactionFinancials(transaction).totalCustomerDue+0.001)throw new Error("إجمالي الدفعات أكبر من رصيد الحوالة");
       payment.updatedAt=now();
       payment.updatedBy=req.user.id;
       audit(s,req.user.id,"UPDATE","PAYMENT",payment.id,{oldData,newData:{...payment}});
@@ -2566,60 +2687,54 @@ async function fetchGoldPriceCad() {
   };
 }
 
-async function saveAutomaticRate({baseCurrency,quoteCurrency,rate,source,notes,sourceDate,userId}) {
-  return await mutateDurable((store)=>{
-    const x = {
-      id:id(),
-      baseCurrency,
-      quoteCurrency,
-      buyRate:rate,
-      sellRate:rate,
-      notes,
-      source,
-      sourceDate:sourceDate || new Date().toISOString(),
-      isAutomatic:true,
-      createdAt:now(),
-      createdBy:userId
-    };
-    store.exchangeRates.push(x);
-    audit(store,userId,"AUTO_REFRESH","EXCHANGE_RATE",x.id,{
-      baseCurrency,quoteCurrency,rate,source
+async function saveAutomaticRatesBatch(entries,userId="SYSTEM") {
+  if(!Array.isArray(entries)||!entries.length)return [];
+  return mutateDurable((store)=>{
+    const createdAt=now();
+    return entries.map((entry)=>{
+      const x={id:id(),baseCurrency:entry.baseCurrency,quoteCurrency:entry.quoteCurrency,buyRate:entry.rate,sellRate:entry.rate,notes:entry.notes,source:entry.source,sourceDate:entry.sourceDate||new Date().toISOString(),isAutomatic:true,createdAt,createdBy:userId};
+      store.exchangeRates.push(x);
+      audit(store,userId,"AUTO_REFRESH","EXCHANGE_RATE",x.id,{baseCurrency:x.baseCurrency,quoteCurrency:x.quoteCurrency,rate:x.buyRate,source:x.source});
+      return x;
     });
-    return x;
   });
 }
 
 async function refreshAutomaticRates(userId="SYSTEM") {
-  const results = [];
-  try {
-    const globalFeed = await fetchGlobalUsdRates();
-    for (const code of GLOBAL_USD_RATE_CODES) {
-      const rate = globalFeed.rates[code];
-      if (!rate) { results.push({ok:false,pair:`USD/${code}`,error:`${code} rate is unavailable`}); continue; }
-      const saved = await saveAutomaticRate({
-        baseCurrency:"USD", quoteCurrency:code, rate, source:"GLOBAL_USD_FEED",
-        notes:`تحديث تلقائي عالمي لسعر USD/${code}`, sourceDate:globalFeed.updatedAt, userId
-      });
-      results.push({ok:true,pair:`USD/${code}`,rate:saved.buyRate,source:"GLOBAL_USD_FEED"});
+  const results=[],pending=[];
+  const [globalResult,goldResult]=await Promise.allSettled([fetchGlobalUsdRates(),fetchGoldPriceCad()]);
+  if(globalResult.status==="fulfilled"){
+    const globalFeed=globalResult.value;
+    for(const code of GLOBAL_USD_RATE_CODES){
+      const rate=globalFeed.rates[code];
+      if(!rate){results.push({ok:false,pair:`USD/${code}`,error:`${code} rate is unavailable`});continue;}
+      pending.push({pair:`USD/${code}`,baseCurrency:"USD",quoteCurrency:code,rate,source:"GLOBAL_USD_FEED",notes:`تحديث تلقائي عالمي لسعر USD/${code}`,sourceDate:globalFeed.updatedAt});
     }
-  } catch (error) {
-    for (const code of GLOBAL_USD_RATE_CODES) results.push({ok:false,pair:`USD/${code}`,error:error.message});
+  }else{
+    const message=globalResult.reason?.message||"Global USD feed failed";
+    for(const code of GLOBAL_USD_RATE_CODES)results.push({ok:false,pair:`USD/${code}`,error:message});
   }
-
-  try {
-    const gold = await fetchGoldPriceCad();
-    const pureGramCad = gold.pricePerOunceCad / TROY_OUNCE_GRAMS;
-    for (const [baseCurrency, purity] of GOLD_KARATS) {
-      const gramRate = +(pureGramCad * purity).toFixed(4);
-      const saved = await saveAutomaticRate({ baseCurrency, quoteCurrency:"CAD", rate:gramRate, source:"GOLD_API", notes:`سعر غرام الذهب التلقائي — ${baseCurrency.replace("XAU","")} قيراط`, sourceDate:gold.updatedAt, userId });
-      results.push({ok:true,pair:`${baseCurrency}/CAD`,rate:saved.buyRate,source:"GOLD_API"});
+  if(goldResult.status==="fulfilled"){
+    const gold=goldResult.value,pureGramCad=gold.pricePerOunceCad/TROY_OUNCE_GRAMS;
+    for(const [baseCurrency,purity] of GOLD_KARATS){
+      const gramRate=+(pureGramCad*purity).toFixed(4);
+      pending.push({pair:`${baseCurrency}/CAD`,baseCurrency,quoteCurrency:"CAD",rate:gramRate,source:"GOLD_API",notes:`سعر غرام الذهب التلقائي — ${baseCurrency.replace("XAU","")} قيراط`,sourceDate:gold.updatedAt});
     }
-  } catch (error) {
-    for (const [baseCurrency] of GOLD_KARATS) results.push({ok:false,pair:`${baseCurrency}/CAD`,error:error.message});
+  }else{
+    const message=goldResult.reason?.message||"Gold feed failed";
+    for(const [baseCurrency] of GOLD_KARATS)results.push({ok:false,pair:`${baseCurrency}/CAD`,error:message});
+  }
+  if(pending.length){
+    try{
+      const saved=await saveAutomaticRatesBatch(pending,userId);
+      for(let i=0;i<saved.length;i+=1)results.push({ok:true,pair:pending[i].pair,rate:saved[i].buyRate,source:saved[i].source});
+    }catch(error){
+      const message=error?.message||"تعذر حفظ الأسعار الجديدة";
+      for(const item of pending)results.push({ok:false,pair:item.pair,error:message});
+    }
   }
   return results;
 }
-
 app.get("/api/profits", auth, (req,res)=>{
   const s = readStore();
   const from = String(req.query.from || "");
@@ -2679,20 +2794,16 @@ app.get("/api/profits", auth, (req,res)=>{
 
 app.post("/api/exchange-rates/refresh", auth, async (req,res)=>{
   try {
-    const results = await refreshAutomaticRates(req.user.id);
-    const successCount = results.filter(x=>x.ok).length;
-    res.json({
-      message:`تم تحديث ${successCount} من ${results.length} سعرًا عالميًا تلقائيًا، والدولار الأمريكي هو العملة الأساسية.`,
-      successCount,
-      total:results.length,
-      updatedAt:now(),
-      results
-    });
+    const results=await refreshAutomaticRates(req.user.id);
+    const successCount=results.filter(x=>x.ok).length,total=results.length,failedCount=total-successCount;
+    const payload={successCount,failedCount,total,updatedAt:now(),results};
+    if(successCount===0)return res.status(502).json({...payload,message:"تعذر جلب أسعار جديدة من المصادر الخارجية. تم الاحتفاظ بآخر أسعار صحيحة محفوظة دون تغيير."});
+    if(failedCount>0)return res.json({...payload,message:`تم تحديث ${successCount} من ${total} سعرًا. تعذر تحديث ${failedCount} سعرًا، وتم الاحتفاظ بآخر أسعار صحيحة لها.`});
+    return res.json({...payload,message:`تم تحديث جميع الأسعار العالمية بنجاح (${successCount} من ${total}).`});
   } catch (error) {
-    res.status(502).json({message:"تعذر تحديث أسعار الصرف",error:error.message});
+    res.status(502).json({message:"تعذر تحديث أسعار الصرف. تم الاحتفاظ بآخر أسعار صحيحة محفوظة دون تغيير.",error:error.message});
   }
 });
-
 app.get("/api/exchange-rates", auth, async (req,res)=>{
   const s = readStore();
   const rates=await branchSafeRead(req,"exchange-rates",()=>nativeRepositories.exchangeRates.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(s.exchangeRates));
@@ -2753,6 +2864,10 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   ]);
   const type = String(req.query.type || "");
 
+  const manualDebtPartition=partitionManualDebts({...store,generalDebts:debts,customers,transactions},debts);
+  const linkedManualRows=new Map(
+    [...manualDebtPartition.included,...manualDebtPartition.linkedDuplicates].map(item=>[item.id,item])
+  );
   const manualRows = debts.map((debt)=>{
     const paid = debtPayments
       .filter((payment)=>payment.debtId===debt.id)
@@ -2766,6 +2881,7 @@ app.get("/api/general-debts", auth, async (req,res)=>{
 
     return {
       ...debt,
+      ...(linkedManualRows.get(debt.id)||{}),
       source:"MANUAL",
       paid:+paid.toFixed(2),
       remaining:+remaining.toFixed(2),
@@ -2839,118 +2955,61 @@ app.get("/api/general-debts", auth, async (req,res)=>{
   }).filter(Boolean);
 
   const partners = Array.isArray(store.partners) ? store.partners : [];
-  const partnerTransactions = Array.isArray(store.partnerTransactions) ? store.partnerTransactions : [];
-  const partnerPayments = Array.isArray(store.partnerPayments) ? store.partnerPayments : [];
   const partnerRows = [];
+  const partnerReviewFlags=[];
+  let excludedLinkedPartnerRows=0;
 
+  // v25.14.84 authoritative company debt rows. Local company movements are
+  // netted per company + currency before we decide whether the balance is
+  // RECEIVABLE or PAYABLE. This is the same formula used by /api/partners,
+  // capital overview and monthly inventory.
   for (const partner of partners) {
-    const transactionsForPartner = partnerTransactions.filter((item)=>item.partnerId===partner.id);
-    const paymentsForPartner = partnerPayments.filter((item)=>item.partnerId===partner.id);
-    const currencies = new Set([
-      ...transactionsForPartner.map((item)=>String(item.currency||"CAD").toUpperCase()),
-      ...paymentsForPartner.map((item)=>String(item.currency||"CAD").toUpperCase())
-    ]);
-
-    for (const currency of currencies) {
-      const receivable = transactionsForPartner
-        .filter((item)=>item.type==="RECEIVABLE" && String(item.currency||"CAD").toUpperCase()===currency)
-        .reduce((sum,item)=>sum+safeNumber(item.amount),0);
-      const payable = transactionsForPartner
-        .filter((item)=>item.type==="PAYABLE" && String(item.currency||"CAD").toUpperCase()===currency)
-        .reduce((sum,item)=>sum+safeNumber(item.amount),0);
-      const received = paymentsForPartner
-        .filter((item)=>item.direction==="RECEIVED" && String(item.currency||"CAD").toUpperCase()===currency)
-        .reduce((sum,item)=>sum+safeNumber(item.amount),0);
-      const paid = paymentsForPartner
-        .filter((item)=>item.direction==="PAID" && String(item.currency||"CAD").toUpperCase()===currency)
-        .reduce((sum,item)=>sum+safeNumber(item.amount),0);
-
-      const receivableRemaining = Math.max(receivable-received,0);
-      const payableRemaining = Math.max(payable-paid,0);
-      if (receivableRemaining>0.001) partnerRows.push({
-        id:`PARTNER:RECEIVABLE:${partner.id}:${currency}`,
-        type:"RECEIVABLE", partyName:partner.name, amount:+receivable.toFixed(2),
-        paid:+received.toFixed(2), remaining:+receivableRemaining.toFixed(2), currency,
-        dueDate:"", description:"رصيد شركة مرتبط", reference:partner.integrationName||partner.name,
-        status:received>0?"PARTIAL":"OPEN", source:"PARTNER", partnerId:partner.id,
-        createdAt:partner.updatedAt||partner.createdAt||now()
+    const position=calculatePartnerDebtBuckets(store,partner);
+    excludedLinkedPartnerRows+=position.excludedDuplicateCount;
+    partnerReviewFlags.push(...position.reviewFlags);
+    const createdAt=partner.updatedAt||partner.createdAt||now();
+    for(const bucket of position.localBuckets){
+      const receivable=Math.max(safeNumber(bucket.receivable),0);
+      const payable=Math.max(safeNumber(bucket.payable),0);
+      if(receivable>0.001)partnerRows.push({
+        id:`PARTNER:RECEIVABLE:${partner.id}:${bucket.currency}`,
+        type:"RECEIVABLE",partyName:partner.name,amount:+receivable.toFixed(2),paid:0,
+        remaining:+receivable.toFixed(2),currency:bucket.currency,dueDate:"",
+        description:"الرصيد المحلي الصافي للشركة",reference:partner.integrationName||partner.name,
+        status:"OPEN",source:"PARTNER",partnerId:partner.id,createdAt,
+        grossReceivable:bucket.grossReceivable,grossPayable:bucket.grossPayable,
+        received:bucket.received,paidOut:bucket.paid
       });
-      if (payableRemaining>0.001) partnerRows.push({
-        id:`PARTNER:PAYABLE:${partner.id}:${currency}`,
-        type:"PAYABLE", partyName:partner.name, amount:+payable.toFixed(2),
-        paid:+paid.toFixed(2), remaining:+payableRemaining.toFixed(2), currency,
-        dueDate:"", description:"رصيد شركة مرتبط", reference:partner.integrationName||partner.name,
-        status:paid>0?"PARTIAL":"OPEN", source:"PARTNER", partnerId:partner.id,
-        createdAt:partner.updatedAt||partner.createdAt||now()
+      if(payable>0.001)partnerRows.push({
+        id:`PARTNER:PAYABLE:${partner.id}:${bucket.currency}`,
+        type:"PAYABLE",partyName:partner.name,amount:+payable.toFixed(2),paid:0,
+        remaining:+payable.toFixed(2),currency:bucket.currency,dueDate:"",
+        description:"الرصيد المحلي الصافي للشركة",reference:partner.integrationName||partner.name,
+        status:"OPEN",source:"PARTNER",partnerId:partner.id,createdAt,
+        grossReceivable:bucket.grossReceivable,grossPayable:bucket.grossPayable,
+        received:bucket.received,paidOut:bucket.paid
       });
     }
-
-    // أرصدة الشركات الخارجية متعددة العملات تظهر في الدين العام حسب العملة الأصلية لكل رصيد.
-    // externalBalances مثال: { USD:{receivable,payable,balance}, EUR:{...} }
-    const externalCreatedAt = partner.lastSyncAt || partner.updatedAt || partner.createdAt || now();
-    const multiCurrencyBalances = partner.externalBalances && typeof partner.externalBalances === "object"
-      ? partner.externalBalances
-      : null;
-    const multiEntries = multiCurrencyBalances
-      ? Object.entries(multiCurrencyBalances).filter(([currency,value])=>currency && value && typeof value === "object")
-      : [];
-
-    if (multiEntries.length) {
-      for (const [rawCurrency, value] of multiEntries) {
-        const currency = String(rawCurrency || "USD").toUpperCase();
-        const receivable = Math.max(safeNumber(value.receivable), 0);
-        const payable = Math.max(safeNumber(value.payable), 0);
-        if (receivable > 0.001) partnerRows.push({
-          id:`PARTNER:EXTERNAL:RECEIVABLE:${partner.id}:${currency}`,
-          type:"RECEIVABLE", partyName:partner.name, amount:+receivable.toFixed(2), paid:0,
-          remaining:+receivable.toFixed(2), currency, dueDate:"",
-          description:`دين لنا من الرصيد الخارجي لشركة ${partner.name}`,
-          reference:partner.integrationName || partner.name, status:"OPEN", source:"PARTNER_EXTERNAL",
-          partnerId:partner.id, createdAt:externalCreatedAt, lastSyncAt:partner.lastSyncAt || null
-        });
-        if (payable > 0.001) partnerRows.push({
-          id:`PARTNER:EXTERNAL:PAYABLE:${partner.id}:${currency}`,
-          type:"PAYABLE", partyName:partner.name, amount:+payable.toFixed(2), paid:0,
-          remaining:+payable.toFixed(2), currency, dueDate:"",
-          description:`دين علينا من الرصيد الخارجي لشركة ${partner.name}`,
-          reference:partner.integrationName || partner.name, status:"OPEN", source:"PARTNER_EXTERNAL",
-          partnerId:partner.id, createdAt:externalCreatedAt, lastSyncAt:partner.lastSyncAt || null
-        });
-      }
-    } else {
-      // توافق مع السجلات القديمة ذات العملة الواحدة.
-      const externalCurrency = String(partner.accountCurrency || "USD").toUpperCase();
-      const externalReceivable = Math.max(safeNumber(partner.externalReceivable), 0);
-      const externalPayable = Math.max(safeNumber(partner.externalPayable), 0);
-      const hasDetailedExternalDebt = externalReceivable > 0.001 || externalPayable > 0.001;
-      if (externalReceivable > 0.001) partnerRows.push({
-        id:`PARTNER:EXTERNAL:RECEIVABLE:${partner.id}:${externalCurrency}`, type:"RECEIVABLE",
-        partyName:partner.name, amount:+externalReceivable.toFixed(2), paid:0, remaining:+externalReceivable.toFixed(2),
-        currency:externalCurrency, dueDate:"", description:`دين لنا من الرصيد الخارجي لشركة ${partner.name}`,
-        reference:partner.integrationName || partner.name, status:"OPEN", source:"PARTNER_EXTERNAL",
-        partnerId:partner.id, createdAt:externalCreatedAt, lastSyncAt:partner.lastSyncAt || null
+    const externalCreatedAt=partner.lastSyncAt||createdAt;
+    for(const bucket of position.externalBuckets){
+      const receivable=Math.max(safeNumber(bucket.receivable),0);
+      const payable=Math.max(safeNumber(bucket.payable),0);
+      if(receivable>0.001)partnerRows.push({
+        id:`PARTNER:EXTERNAL:RECEIVABLE:${partner.id}:${bucket.currency}`,
+        type:"RECEIVABLE",partyName:partner.name,amount:+receivable.toFixed(2),paid:0,
+        remaining:+receivable.toFixed(2),currency:bucket.currency,dueDate:"",
+        description:`دين لنا من الرصيد الخارجي لشركة ${partner.name}`,
+        reference:partner.integrationName||partner.name,status:"OPEN",source:"PARTNER_EXTERNAL",
+        partnerId:partner.id,createdAt:externalCreatedAt,lastSyncAt:partner.lastSyncAt||null
       });
-      if (externalPayable > 0.001) partnerRows.push({
-        id:`PARTNER:EXTERNAL:PAYABLE:${partner.id}:${externalCurrency}`, type:"PAYABLE",
-        partyName:partner.name, amount:+externalPayable.toFixed(2), paid:0, remaining:+externalPayable.toFixed(2),
-        currency:externalCurrency, dueDate:"", description:`دين علينا من الرصيد الخارجي لشركة ${partner.name}`,
-        reference:partner.integrationName || partner.name, status:"OPEN", source:"PARTNER_EXTERNAL",
-        partnerId:partner.id, createdAt:externalCreatedAt, lastSyncAt:partner.lastSyncAt || null
+      if(payable>0.001)partnerRows.push({
+        id:`PARTNER:EXTERNAL:PAYABLE:${partner.id}:${bucket.currency}`,
+        type:"PAYABLE",partyName:partner.name,amount:+payable.toFixed(2),paid:0,
+        remaining:+payable.toFixed(2),currency:bucket.currency,dueDate:"",
+        description:`دين علينا من الرصيد الخارجي لشركة ${partner.name}`,
+        reference:partner.integrationName||partner.name,status:"OPEN",source:"PARTNER_EXTERNAL",
+        partnerId:partner.id,createdAt:externalCreatedAt,lastSyncAt:partner.lastSyncAt||null
       });
-      if (!hasDetailedExternalDebt) {
-        const externalBalance = safeNumber(partner.externalBalance);
-        if (Math.abs(externalBalance) > 0.001) {
-          const externalType = externalBalance < 0 ? "PAYABLE" : "RECEIVABLE";
-          const externalAmount = Math.abs(externalBalance);
-          partnerRows.push({
-            id:`PARTNER:EXTERNAL:BALANCE:${partner.id}:${externalCurrency}`, type:externalType,
-            partyName:partner.name, amount:+externalAmount.toFixed(2), paid:0, remaining:+externalAmount.toFixed(2),
-            currency:externalCurrency, dueDate:"", description:`الرصيد الخارجي لشركة ${partner.name}`,
-            reference:partner.integrationName || partner.name, status:"OPEN", source:"PARTNER_EXTERNAL",
-            partnerId:partner.id, createdAt:externalCreatedAt, lastSyncAt:partner.lastSyncAt || null
-          });
-        }
-      }
     }
   }
 
@@ -2960,6 +3019,7 @@ app.get("/api/general-debts", auth, async (req,res)=>{
 
   const totalsByCurrency = {};
   for (const row of rows) {
+    if(row.source==="MANUAL"&&row.includedInComprehensiveTotal===false)continue;
     const currency = String(row.currency || "CAD").toUpperCase();
     if (!totalsByCurrency[currency]) totalsByCurrency[currency] = {receivable:0,payable:0,net:0};
     if (row.type==="RECEIVABLE") totalsByCurrency[currency].receivable += safeNumber(row.remaining);
@@ -2974,56 +3034,11 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     };
   }
 
-  // Convert every currency total to the requested base currency for the top summary cards.
-  // Latest exchange rates are treated as quote units per 1 base unit.
+  // Convert every currency total with the same automatic exchange-rate graph
+  // used by the Companies page, budget and inventory. Manual/user rates are
+  // intentionally excluded from cross-page company-debt totals.
   const summaryCurrency = String(req.query.summaryCurrency || "CAD").toUpperCase();
-  const latestRates = new Map();
-  for (const rate of (Array.isArray(store.exchangeRates) ? store.exchangeRates : [])
-    .slice().sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||"")))) {
-    const base = String(rate.baseCurrency || "").toUpperCase();
-    const quote = String(rate.quoteCurrency || "").toUpperCase();
-    if (!base || !quote || base===quote) continue;
-    const key = `${base}_${quote}`;
-    if (!latestRates.has(key)) latestRates.set(key, rate);
-  }
-
-  const graph = new Map();
-  const addEdge = (from,to,factor,sourceUpdatedAt)=>{
-    if (!from || !to || !Number.isFinite(factor) || factor<=0) return;
-    if (!graph.has(from)) graph.set(from,[]);
-    graph.get(from).push({to,factor,sourceUpdatedAt});
-  };
-  for (const rate of latestRates.values()) {
-    const base = String(rate.baseCurrency || "").toUpperCase();
-    const quote = String(rate.quoteCurrency || "").toUpperCase();
-    const direct = safeNumber(rate.sellRate, rate.buyRate);
-    if (direct>0) {
-      addEdge(base,quote,direct,rate.createdAt||null);
-      addEdge(quote,base,1/direct,rate.createdAt||null);
-    }
-  }
-
-  const findConversion = (from,to)=>{
-    if (from===to) return {factor:1,path:[from],updatedAt:null};
-    const queue=[{currency:from,factor:1,path:[from],updatedAt:null}];
-    const seen=new Set([from]);
-    while(queue.length){
-      const current=queue.shift();
-      for(const edge of (graph.get(current.currency)||[])){
-        if(seen.has(edge.to)) continue;
-        const next={
-          currency:edge.to,
-          factor:current.factor*edge.factor,
-          path:[...current.path,edge.to],
-          updatedAt:[current.updatedAt,edge.sourceUpdatedAt].filter(Boolean).sort().pop()||null
-        };
-        if(edge.to===to) return next;
-        seen.add(edge.to);
-        queue.push(next);
-      }
-    }
-    return null;
-  };
+  const findConversion=(from,to)=>currencyConversion(store,String(from||"CAD").toUpperCase(),String(to||"CAD").toUpperCase());
 
   let convertedReceivable=0;
   let convertedPayable=0;
@@ -3067,27 +3082,25 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     ? safeNumber(authoritativeCustomerBalancesCad.payable)*customerConversion.factor
     : 0;
 
-  // Company debt comes only from partner/company rows. It is kept separate from
-  // customer debt and is converted using the same exchange-rate graph.
-  let companyReceivable=0;
-  let companyPayable=0;
-  for(const row of partnerRows){
-    const currency=String(row.currency||"CAD").toUpperCase();
-    const conversion=findConversion(currency,summaryCurrency);
-    if(!conversion)continue;
-    const convertedRemaining=safeNumber(row.remaining)*conversion.factor;
-    if(row.type==="RECEIVABLE") companyReceivable+=convertedRemaining;
-    if(row.type==="PAYABLE") companyPayable+=convertedRemaining;
-  }
-  // Keep the gross company receivable separate from company payables. "Debt for us"
-  // must never subtract company payables; those belong only in "Debt on us" and net debt.
-  const companyFinalBalance=companyReceivable-companyPayable;
+  // Company debt uses the same centralized formula as /api/partners, budget
+  // and monthly inventory, including local per-currency netting.
+  const companyPosition=calculateCompanyDebtPosition(store,{toCad:(amount,currency)=>{
+    const normalized=String(currency||"CAD").toUpperCase();
+    const conversion=findConversion(normalized,summaryCurrency);
+    if(!conversion){if(!missingRates.includes(normalized))missingRates.push(normalized);return 0;}
+    if(conversion.updatedAt&&(!ratesUpdatedAt||conversion.updatedAt>ratesUpdatedAt))ratesUpdatedAt=conversion.updatedAt;
+    return safeNumber(amount)*conversion.factor;
+  }});
+  const companyReceivable=companyPosition.receivable;
+  const companyPayable=companyPosition.payable;
+  const companyFinalBalance=companyPosition.net;
 
-  // Manual general debts are not represented by customerSummary or partnerRows.
-  // Include them explicitly so the general-debts total matches the budget endpoint.
+  // Manual general debts are included symmetrically only when they do not have
+  // a direct customer/partner/source reference already represented above.
   let manualReceivable=0;
   let manualPayable=0;
   for(const row of manualRows){
+    if(row.includedInComprehensiveTotal===false)continue;
     const currency=String(row.currency||"CAD").toUpperCase();
     const conversion=findConversion(currency,summaryCurrency);
     if(!conversion)continue;
@@ -3096,8 +3109,6 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     if(row.type==="PAYABLE")manualPayable+=convertedRemaining;
   }
 
-  // Business rule: the headline "debt for us" must equal customer debt + company debt only.
-  // Manual records are reported separately to avoid silently inflating the authoritative KPI.
   const authoritativeSummary=calculateReceivableSummary({
     customerReceivable:authoritativeCustomerReceivable,
     customerPayable:authoritativeCustomerPayable,
@@ -3129,12 +3140,14 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     })
     .sort((a,b)=>String(b.paymentDate||b.createdAt||"").localeCompare(String(a.paymentDate||a.createdAt||"")));
 
-  const normalizePartyKey=(value)=>String(value||"").trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu,"");
-  const customerPartyKeys=new Map(customers.filter(c=>c&&!c.isDeleted).map(c=>[normalizePartyKey(c.name),c]).filter(([key])=>key.length>=3));
-  const possibleDuplicateParties=manualRows.map(row=>{
-    const customer=customerPartyKeys.get(normalizePartyKey(row.partyName));
-    return customer?{manualDebtId:row.id,partyName:row.partyName,customerId:customer.id,customerName:customer.name,warning:"قد تكون الجهة مسجلة كعميل وكدين يدوي"}:null;
-  }).filter(Boolean);
+  const possibleDuplicateParties=manualDebtPartition.reviewFlags.map(item=>({
+    manualDebtId:item.debtId,
+    partyName:item.partyName,
+    reviewStatus:item.reviewStatus,
+    warning:item.reviewReason,
+    directLink:item.directLink,
+    suspectedEntity:item.suspectedEntity
+  }));
 
   res.json({
     rows,
@@ -3149,7 +3162,10 @@ app.get("/api/general-debts", auth, async (req,res)=>{
     automaticTransferDebts:transferRows.length,
     automaticCustomerOldBalanceDebts:customerOldBalanceRows.length,
     automaticCompanyDebts:partnerRows.length,
-    possibleDuplicateParties
+    possibleDuplicateParties,
+    excludedLinkedManualDebts:manualDebtPartition.linkedDuplicates.length,
+    excludedLinkedPartnerRows,
+    partnerReviewFlags
   });
 });
 
@@ -3161,7 +3177,11 @@ app.post("/api/general-debts", auth, requireIdempotencyKey, async (req,res)=>{
     currency="CAD",
     dueDate="",
     description="",
-    reference=""
+    reference="",
+    customerId="",
+    partnerId="",
+    linkedCompanyId="",
+    sourceRef=""
   } = req.body || {};
 
   const numericAmount = Number(amount);
@@ -3179,11 +3199,11 @@ app.post("/api/general-debts", auth, requireIdempotencyKey, async (req,res)=>{
   }
 
   const currentStore=readStore();
-  const normalizedParty=String(partyName||"").trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu,"");
-  const duplicateCustomer=(currentStore.customers||[]).find(customer=>!customer?.isDeleted&&normalizedParty.length>=3&&String(customer.name||"").trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu,"")===normalizedParty);
-  if(duplicateCustomer&&req.body?.confirmPossibleDuplicate!==true){
-    return res.status(409).json({code:"POSSIBLE_DUPLICATE_PARTY",message:`الجهة موجودة أيضًا كعميل باسم ${duplicateCustomer.name}. أكد الإضافة فقط إذا كان القيد اليدوي منفصلًا فعلًا.`,customer:{id:duplicateCustomer.id,name:duplicateCustomer.name}});
-  }
+  const prospectiveDebt={type,partyName,amount:numericAmount,currency:normalizedCurrency,customerId,partnerId,linkedCompanyId,sourceRef};
+  const linkStatus=manualDebtLinkStatus(prospectiveDebt,currentStore);
+  if(customerId&&!manualDebtLinkStatus({customerId},currentStore).directLink)return res.status(400).json({message:"معرّف العميل المرتبط غير موجود"});
+  if((partnerId||linkedCompanyId)&&!manualDebtLinkStatus({partnerId:partnerId||linkedCompanyId},currentStore).directLink)return res.status(400).json({message:"معرّف الشركة المرتبطة غير موجود"});
+  if(sourceRef&&!manualDebtLinkStatus({sourceRef},currentStore).directLink)return res.status(400).json({message:"مرجع المصدر الرسمي غير موجود"});
 
   const debt = await mutateDurable((store)=>{
     const item = {
@@ -3195,6 +3215,13 @@ app.post("/api/general-debts", auth, requireIdempotencyKey, async (req,res)=>{
       dueDate:dueDate || "",
       description,
       reference,
+      customerId:String(customerId||"")||null,
+      partnerId:String(partnerId||linkedCompanyId||"")||null,
+      linkedCompanyId:String(linkedCompanyId||partnerId||"")||null,
+      sourceRef:String(sourceRef||"")||null,
+      reviewStatus:linkStatus.reviewStatus,
+      reviewReason:linkStatus.reviewReason,
+      includedInComprehensiveTotal:linkStatus.includedInComprehensiveTotal,
       status:"OPEN",
       createdAt:now(),
       createdBy:req.user.id
@@ -3285,19 +3312,35 @@ app.patch("/api/general-debts/:id", auth, requireIdempotencyKey, async (req,res)
     const debt = store.generalDebts.find((item)=>item.id===req.params.id);
     if (!debt) return null;
     const before={...debt};
+    const next={...debt};
 
-    if (req.body?.partyName !== undefined) debt.partyName = String(req.body.partyName);
+    if (req.body?.partyName !== undefined) next.partyName = String(req.body.partyName);
     if (req.body?.amount !== undefined) {
       const nextAmount=Number(req.body.amount);
       const paid=(store.generalDebtPayments||[]).filter(item=>item.debtId===debt.id).reduce((sum,item)=>sum+safeNumber(item.amount),0);
       if(!Number.isFinite(nextAmount)||nextAmount<=0||nextAmount+0.0001<paid)return {validationError:"المبلغ الجديد لا يمكن أن يكون أقل من مجموع الدفعات"};
-      debt.amount=+nextAmount.toFixed(2);debt.paid=+paid.toFixed(2);debt.remaining=+Math.max(nextAmount-paid,0).toFixed(2);debt.status=debt.remaining<=0.001?"PAID":paid>0?"PARTIAL":"OPEN";
+      next.amount=+nextAmount.toFixed(2);next.paid=+paid.toFixed(2);next.remaining=+Math.max(nextAmount-paid,0).toFixed(2);next.status=next.remaining<=0.001?"PAID":paid>0?"PARTIAL":"OPEN";
     }
-    if (req.body?.currency !== undefined) debt.currency = String(req.body.currency||"CAD").toUpperCase();
-    if (req.body?.dueDate !== undefined) debt.dueDate = req.body.dueDate || "";
-    if (req.body?.description !== undefined) debt.description = req.body.description || "";
-    if (req.body?.reference !== undefined) debt.reference = req.body.reference || "";
-    if (req.body?.status !== undefined) debt.status = req.body.status;
+    if (req.body?.currency !== undefined) next.currency = String(req.body.currency||"CAD").toUpperCase();
+    if (req.body?.dueDate !== undefined) next.dueDate = req.body.dueDate || "";
+    if (req.body?.description !== undefined) next.description = req.body.description || "";
+    if (req.body?.reference !== undefined) next.reference = req.body.reference || "";
+    if (req.body?.status !== undefined) next.status = req.body.status;
+    if (req.body?.customerId !== undefined) next.customerId = String(req.body.customerId||"")||null;
+    if (req.body?.partnerId !== undefined) next.partnerId = String(req.body.partnerId||"")||null;
+    if (req.body?.linkedCompanyId !== undefined) next.linkedCompanyId = String(req.body.linkedCompanyId||"")||null;
+    if (req.body?.sourceRef !== undefined) next.sourceRef = String(req.body.sourceRef||"")||null;
+    if (req.body?.reviewStatus !== undefined) next.reviewStatus = String(req.body.reviewStatus||"").toUpperCase()==="CLEARED"?"CLEARED":next.reviewStatus;
+
+    const linkStatus=manualDebtLinkStatus(next,store);
+    if(next.customerId&&!manualDebtLinkStatus({customerId:next.customerId},store).directLink)return {validationError:"معرّف العميل المرتبط غير موجود"};
+    if((next.partnerId||next.linkedCompanyId)&&!manualDebtLinkStatus({partnerId:next.partnerId||next.linkedCompanyId},store).directLink)return {validationError:"معرّف الشركة المرتبطة غير موجود"};
+    if(next.sourceRef&&!manualDebtLinkStatus({sourceRef:next.sourceRef},store).directLink)return {validationError:"مرجع المصدر الرسمي غير موجود"};
+    Object.assign(debt,next,{
+      reviewStatus:linkStatus.reviewStatus,
+      reviewReason:linkStatus.reviewReason,
+      includedInComprehensiveTotal:linkStatus.includedInComprehensiveTotal
+    });
 
     debt.updatedAt = now();
     audit(store, req.user.id, "UPDATE", "GENERAL_DEBT", debt.id, {before,after:{...debt},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
@@ -3393,7 +3436,7 @@ app.get("/api/customers/:id/statement", auth, (req,res)=>{
           remaining:+remaining.toFixed(2),
           status:paymentStatus,
           overdueDays,
-          transferFee:+safeNumber(transaction.transferFee).toFixed(2)
+          transferFee:financials.transferFee
         };
       })
       .sort((a,b)=>String(a.transferDate).localeCompare(String(b.transferDate)));
@@ -3515,6 +3558,10 @@ app.get("/api/transactions/:id/invoice", auth, (req,res)=>{
         costRate:financials.costRate,
         finalRate:financials.finalRate,
         transferFee:financials.transferFee,
+        feeMethod:financials.feeMethod,
+        beneficiaryReceives:financials.beneficiaryReceives,
+        exchangeProfit:financials.exchangeProfit,
+        totalProfit:financials.totalProfit,
         totalCustomerDue:+due.toFixed(2),
         paid:+paid.toFixed(2),
         remaining:+Math.max(due-paid,0).toFixed(2)
@@ -4635,24 +4682,20 @@ async function syncJadPartner(partner,options={}){
 
 
 function partnerLocalBalancesCad(store,partnerId){
-  const transactions=(Array.isArray(store.partnerTransactions)?store.partnerTransactions:[]).filter(item=>item.partnerId===partnerId);
-  const payments=(Array.isArray(store.partnerPayments)?store.partnerPayments:[]).filter(item=>item.partnerId===partnerId);
-  const currencies=new Set([...transactions.map(item=>String(item.currency||"CAD").toUpperCase()),...payments.map(item=>String(item.currency||"CAD").toUpperCase())]);
-  let receivable=0,payable=0;const missingRates=new Set();let ratesUpdatedAt=null;
-  for(const currency of currencies){
-    const txReceivable=transactions.filter(item=>item.type==="RECEIVABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-    const txPayable=transactions.filter(item=>item.type==="PAYABLE"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-    const received=payments.filter(item=>item.direction==="RECEIVED"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-    const paid=payments.filter(item=>item.direction==="PAID"&&String(item.currency||"CAD").toUpperCase()===currency).reduce((sum,item)=>sum+safeNumber(item.amount),0);
-    const net=txReceivable-txPayable-received+paid;
-    if(Math.abs(net)<=0.001)continue;
-    const conversion=currencyConversion(store,currency,"CAD");
-    if(!conversion){missingRates.add(currency);continue;}
-    const cad=Math.abs(net)*conversion.factor;
-    if(net>0)receivable+=cad;else payable+=cad;
+  const partner=(Array.isArray(store.partners)?store.partners:[]).find(item=>item?.id===partnerId);
+  if(!partner)return {receivable:0,payable:0,net:0,missingRates:[],ratesUpdatedAt:null};
+  const buckets=calculatePartnerDebtBuckets(store,partner);
+  const localOnly={...buckets,externalBuckets:[]};
+  const missingRates=new Set();
+  let ratesUpdatedAt=null;
+  const totals=aggregateDebtBuckets(localOnly,{toTarget:(amount,currency)=>{
+    const normalized=String(currency||"CAD").toUpperCase();
+    const conversion=currencyConversion(store,normalized,"CAD");
+    if(!conversion){missingRates.add(normalized);return 0;}
     if(conversion.updatedAt&&(!ratesUpdatedAt||conversion.updatedAt>ratesUpdatedAt))ratesUpdatedAt=conversion.updatedAt;
-  }
-  return {receivable,payable,net:receivable-payable,missingRates:[...missingRates],ratesUpdatedAt};
+    return safeNumber(amount)*conversion.factor;
+  }});
+  return {receivable:totals.receivable,payable:totals.payable,net:totals.net,missingRates:[...missingRates],ratesUpdatedAt};
 }
 
 app.get("/api/partners", auth, async (req,res)=>{
@@ -4661,91 +4704,42 @@ app.get("/api/partners", auth, async (req,res)=>{
   const missingRates=new Set();
   let ratesUpdatedAt=null;
   const convertedTotals={receivable:0,payable:0};
-  const addConverted=(amount,currency,type)=>{
-    const value=Math.max(safeNumber(amount),0);
-    if(value<=0.001)return;
-    const conversion=currencyConversion(store,String(currency||summaryCurrency).toUpperCase(),summaryCurrency);
-    if(!conversion){missingRates.add(String(currency||summaryCurrency).toUpperCase());return;}
-    convertedTotals[type]+=value*conversion.factor;
-    if(conversion.updatedAt&&(!ratesUpdatedAt||conversion.updatedAt>ratesUpdatedAt))ratesUpdatedAt=conversion.updatedAt;
-  };
   const partners=await branchSafeRead(req,"partners",()=>nativeRepositories.partners.listByCompany(req.user.companyId,{orderBy:"name ASC"}),()=>Array.from(store.partners||[]));
-  const transactions=Array.isArray(store.partnerTransactions)?store.partnerTransactions:[];
-  const payments=Array.isArray(store.partnerPayments)?store.partnerPayments:[];
 
   const rows=partners.map(partner=>{
-    const localBalance=partnerLocalBalancesCad(store,partner.id);
-    const localReceivable=localBalance.receivable;
-    const localPayable=localBalance.payable;
-    for(const currency of localBalance.missingRates)missingRates.add(currency);
+    const buckets=calculatePartnerDebtBuckets(store,partner);
+    const summaryTotals=aggregateDebtBuckets(buckets,{toTarget:(amount,currency)=>{
+      const normalized=String(currency||summaryCurrency).toUpperCase();
+      const conversion=currencyConversion(store,normalized,summaryCurrency);
+      if(!conversion){missingRates.add(normalized);return 0;}
+      if(conversion.updatedAt&&(!ratesUpdatedAt||conversion.updatedAt>ratesUpdatedAt))ratesUpdatedAt=conversion.updatedAt;
+      return safeNumber(amount)*conversion.factor;
+    }});
+    convertedTotals.receivable+=summaryTotals.receivable;
+    convertedTotals.payable+=summaryTotals.payable;
 
-    const multi=partner.externalBalances&&typeof partner.externalBalances==="object"?partner.externalBalances:null;
-    const entries=multi?Object.entries(multi).filter(([currency,value])=>currency&&value&&typeof value==="object"):[];
-    let externalReceivable=0;
-    let externalPayable=0;
-    if(entries.length){
-      for(const [currency,value] of entries){
-        const itemReceivable=Math.max(safeNumber(value.receivable),0);
-        const itemPayable=Math.max(safeNumber(value.payable),0);
-        addConverted(itemReceivable,currency,"receivable");
-        addConverted(itemPayable,currency,"payable");
-        if(String(currency).toUpperCase()===String(partner.accountCurrency||"USD").toUpperCase()){
-          externalReceivable+=itemReceivable;externalPayable+=itemPayable;
-        }
-      }
-    }else{
-      externalReceivable=Math.max(safeNumber(partner.externalReceivable),0);
-      externalPayable=Math.max(safeNumber(partner.externalPayable),0);
-      if(externalReceivable<=0.001&&externalPayable<=0.001){
-        const balance=safeNumber(partner.externalBalance);
-        if(balance>0)externalReceivable=balance;
-        if(balance<0)externalPayable=Math.abs(balance);
-      }
-      addConverted(externalReceivable,partner.accountCurrency||"USD","receivable");
-      addConverted(externalPayable,partner.accountCurrency||"USD","payable");
-    }
-    // Partner transactions are stored in their normalized CAD value.
-    addConverted(localReceivable,"CAD","receivable");
-    addConverted(localPayable,"CAD","payable");
-
-    // Never add CAD local balances to a foreign-currency external balance directly.
-    // Every displayed company total is normalized independently using the latest automatic rate.
-    let partnerCadReceivable=localReceivable;
-    let partnerCadPayable=localPayable;
     let partnerRateUpdatedAt=null;
     const partnerRateSources=new Set();
-    const addPartnerCad=(amount,currency,type)=>{
-      const value=Math.max(safeNumber(amount),0);
-      if(value<=0.001)return;
-      const conversion=currencyConversion(store,String(currency||"CAD").toUpperCase(),"CAD");
-      if(!conversion)return;
-      if(type==="receivable")partnerCadReceivable+=value*conversion.factor;
-      else partnerCadPayable+=value*conversion.factor;
+    const cadTotals=aggregateDebtBuckets(buckets,{toTarget:(amount,currency)=>{
+      const normalized=String(currency||"CAD").toUpperCase();
+      const conversion=currencyConversion(store,normalized,"CAD");
+      if(!conversion){missingRates.add(normalized);return 0;}
       if(conversion.updatedAt&&(!partnerRateUpdatedAt||conversion.updatedAt>partnerRateUpdatedAt))partnerRateUpdatedAt=conversion.updatedAt;
-      for(const source of conversion.sources||[])partnerRateSources.add(source);
-    };
-    if(entries.length){
-      for(const [currency,value] of entries){
-        addPartnerCad(Math.max(safeNumber(value.receivable),0),currency,"receivable");
-        addPartnerCad(Math.max(safeNumber(value.payable),0),currency,"payable");
-      }
-    }else{
-      addPartnerCad(externalReceivable,partner.accountCurrency||"USD","receivable");
-      addPartnerCad(externalPayable,partner.accountCurrency||"USD","payable");
-    }
+      if(conversion.source)partnerRateSources.add(conversion.source);
+      return safeNumber(amount)*conversion.factor;
+    }});
 
     const {passwordEncrypted,...publicPartner}=partner;
     return {
       ...publicPartner,
       hasPassword:Boolean(passwordEncrypted),
-      // Legacy fields now have an explicit currency and no longer mix currencies.
-      receivable:+partnerCadReceivable.toFixed(2),
-      payable:+partnerCadPayable.toFixed(2),
-      net:+(partnerCadReceivable-partnerCadPayable).toFixed(2),
+      receivable:+cadTotals.receivable.toFixed(2),
+      payable:+cadTotals.payable.toFixed(2),
+      net:+cadTotals.net.toFixed(2),
       balanceCurrency:"CAD",
-      cadReceivable:+partnerCadReceivable.toFixed(2),
-      cadPayable:+partnerCadPayable.toFixed(2),
-      cadNet:+(partnerCadReceivable-partnerCadPayable).toFixed(2),
+      cadReceivable:+cadTotals.receivable.toFixed(2),
+      cadPayable:+cadTotals.payable.toFixed(2),
+      cadNet:+cadTotals.net.toFixed(2),
       automaticRateUpdatedAt:partnerRateUpdatedAt,
       automaticRateSource:[...partnerRateSources].join("، ")||null
     };
@@ -5342,6 +5336,13 @@ async function executePartnerSync({partnerId,body,user,companyId,branchId,onProg
       onProgress?.("SAVING");
       const storageState=result?._storageState||null;
       if(result&&Object.prototype.hasOwnProperty.call(result,"_storageState"))delete result._storageState;
+      const syncMode=String(partner.syncMode||"BALANCE_ONLY").toUpperCase();
+      const balanceOnly=syncMode!=="BALANCE_AND_STATEMENT";
+      const connectorMovements=Array.isArray(result?.movements)?result.movements:[];
+      if(balanceOnly){
+        result.movements=[];
+        result.totalFees=0;
+      }
       let publicPartner=null;
       await mutateDurable(store=>{
         const item=store.partners.find(x=>x.id===partner.id);if(!item)return;
@@ -5357,28 +5358,37 @@ async function executePartnerSync({partnerId,body,user,companyId,branchId,onProg
         item.externalReceivable=result.receivable;item.externalPayable=result.payable;item.externalBalance=result.balance;item.externalBalances=normalizedCurrencies;
         if(storageState)item.jadStorageStateEncrypted=encryptIntegrationSecret(JSON.stringify(storageState));
         item.lastSyncAt=now();item.lastSyncError="";item.lastJadDiagnostic=[];item.lastJadArtifacts=null;item.connectionStatus="READY";item.updatedAt=now();
-        item.lastImportedMovementCount=result.movements.length;
+        item.lastImportedMovementCount=balanceOnly?0:connectorMovements.length;
         item.lastFeeTotal=safeNumber(result.totalFees);item.lastFeeFromDate=result.fromDate||body?.fromDate||"";item.lastFeeToDate=result.toDate||body?.toDate||"";item.lastFeeCurrency=partner.accountCurrency||"USD";
         const {passwordEncrypted,...safe}=item;publicPartner={...safe,hasPassword:Boolean(passwordEncrypted)};
-        audit(store,user.id,"SYNC","PARTNER",item.id,{connector,balance:result.balance,receivable:result.receivable,payable:result.payable,currencies:Object.keys(result.currencies||{}),count:result.movements.length});
-        recordPartnerSyncLog(store,item,{status:"SUCCESS",trigger:syncTrigger,durationMs:Date.now()-syncStartedAt,beforeBalance:safeNumber(partner.externalBalance),afterBalance:result.balance,changed:Math.abs(safeNumber(partner.externalBalance)-safeNumber(result.balance))>0.0001,importedCount:result.movements.length,message:"تمت المزامنة بنجاح"});
+        audit(store,user.id,"SYNC","PARTNER",item.id,{connector,balance:result.balance,receivable:result.receivable,payable:result.payable,currencies:Object.keys(result.currencies||{}),count:balanceOnly?0:connectorMovements.length,syncMode});
+        recordPartnerSyncLog(store,item,{status:"SUCCESS",trigger:syncTrigger,durationMs:Date.now()-syncStartedAt,beforeBalance:safeNumber(partner.externalBalance),afterBalance:result.balance,changed:Math.abs(safeNumber(partner.externalBalance)-safeNumber(result.balance))>0.0001,importedCount:balanceOnly?0:connectorMovements.length,message:balanceOnly?"تم جلب الرصيد فقط":"تمت المزامنة بنجاح"});
       });
       const connectorNames={TAWASUL:"تواصل",JAD:"جاد",DAHAB:"دهب",SURYANA:"سوريانا"};
-      return {message:`تم جلب الرصيد من شركة ${connectorNames[connector]||partner.name}`,partner:publicPartner,result:{...result,movements:result.movements.slice(-20)}};
+      return {message:`تم جلب الرصيد من شركة ${connectorNames[connector]||partner.name}`,partner:publicPartner,result:{...result,movements:balanceOnly?[]:connectorMovements.slice(-20)}};
     }catch(error){
       let stalePartner=null;
-      let hasSuccessfulSync=false;
-      await mutateDurable(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){
-        hasSuccessfulSync=Boolean(item.lastSyncAt) && (Number.isFinite(Number(item.externalBalance)) || (item.externalBalances&&typeof item.externalBalances==="object"&&Object.keys(item.externalBalances).length>0));
-        item.connectionStatus=hasSuccessfulSync?"READY":"ERROR";
-        item.lastSyncError=String(error.message||error);
-        if(["JAD_SESSION_REJECTED","JAD_LOGIN_REJECTED"].includes(String(error.code||"")))item.jadStorageStateEncrypted="";
-        item.lastSyncAttemptErrorAt=now();item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];item.lastJadArtifacts=error.jadArtifacts||null;item.updatedAt=now();
-        recordPartnerSyncLog(store,item,{status:"FAILED",trigger:syncTrigger,durationMs:Date.now()-syncStartedAt,beforeBalance:safeNumber(partner.externalBalance),afterBalance:safeNumber(item.externalBalance),changed:false,importedCount:0,message:String(error.message||"تعذر جلب الرصيد")});
-        if(hasSuccessfulSync){const {passwordEncrypted,...safe}=item;stalePartner={...safe,hasPassword:Boolean(passwordEncrypted)};}
-      }});
+      let hasSuccessfulSync=Boolean(partner.lastSyncAt) && (Number.isFinite(Number(partner.externalBalance)) || (partner.externalBalances&&typeof partner.externalBalances==="object"&&Object.keys(partner.externalBalances).length>0));
+      // Failure diagnostics are secondary metadata. Never replace the real connector/
+      // commit error with a second STALE_STATE_REVISION raised while recording that
+      // metadata. This was the reason users sometimes saw the generic English stale
+      // revision message instead of the actual Jad/Tawasul/Dahab/Suryana failure.
+      try{
+        await mutateDurable(store=>{const item=store.partners.find(x=>x.id===partner.id);if(item){
+          hasSuccessfulSync=Boolean(item.lastSyncAt) && (Number.isFinite(Number(item.externalBalance)) || (item.externalBalances&&typeof item.externalBalances==="object"&&Object.keys(item.externalBalances).length>0));
+          item.connectionStatus=hasSuccessfulSync?"READY":"ERROR";
+          item.lastSyncError=String(error.publicMessage||error.message||error);
+          if(["JAD_SESSION_REJECTED","JAD_LOGIN_REJECTED"].includes(String(error.code||"")))item.jadStorageStateEncrypted="";
+          item.lastSyncAttemptErrorAt=now();item.lastJadDiagnostic=Array.isArray(error.jadTrace)?error.jadTrace.slice(-16):[];item.lastJadArtifacts=error.jadArtifacts||null;item.updatedAt=now();
+          recordPartnerSyncLog(store,item,{status:"FAILED",trigger:syncTrigger,durationMs:Date.now()-syncStartedAt,beforeBalance:safeNumber(partner.externalBalance),afterBalance:safeNumber(item.externalBalance),changed:false,importedCount:0,message:String(error.publicMessage||error.message||"تعذر جلب الرصيد")});
+          if(hasSuccessfulSync){const {passwordEncrypted,...safe}=item;stalePartner={...safe,hasPassword:Boolean(passwordEncrypted)};}
+        }});
+      }catch(metadataError){
+        console.warn(`Partner sync failure metadata was not persisted: ${metadataError?.code||metadataError?.message||metadataError}`);
+        if(hasSuccessfulSync){const {passwordEncrypted,...safe}=partner;stalePartner={...safe,hasPassword:Boolean(passwordEncrypted)};}
+      }
       if(hasSuccessfulSync&&stalePartner){
-        return {ok:true,stale:true,message:"تعذر تحديث الرصيد الآن؛ تم الاحتفاظ بآخر رصيد ناجح",reason:String(error.message||"تعذر تحديث البيانات مؤقتًا"),partner:stalePartner,lastSyncAt:stalePartner.lastSyncAt,result:{balance:safeNumber(stalePartner.externalBalance),receivable:safeNumber(stalePartner.externalReceivable),payable:safeNumber(stalePartner.externalPayable),currencies:stalePartner.externalBalances&&typeof stalePartner.externalBalances==="object"?stalePartner.externalBalances:{},movements:[]},warningCode:error.code||"JAD_TEMPORARY_ERROR"};
+        return {ok:true,stale:true,message:"تعذر تحديث الرصيد الآن؛ تم الاحتفاظ بآخر رصيد ناجح",reason:String(error.publicMessage||error.message||"تعذر تحديث البيانات مؤقتًا"),partner:stalePartner,lastSyncAt:stalePartner.lastSyncAt,result:{balance:safeNumber(stalePartner.externalBalance),receivable:safeNumber(stalePartner.externalReceivable),payable:safeNumber(stalePartner.externalPayable),currencies:stalePartner.externalBalances&&typeof stalePartner.externalBalances==="object"?stalePartner.externalBalances:{},movements:[]},warningCode:error.code||"JAD_TEMPORARY_ERROR"};
       }
       throw error;
     }
@@ -5448,34 +5458,30 @@ app.get("/api/partners/:id", auth, (req,res)=>{
     .filter(item=>item.partnerId===partner.id)
     .sort((a,b)=>String(b.date||b.createdAt).localeCompare(String(a.date||a.createdAt)));
 
-  const localBalance=partnerLocalBalancesCad(store,partner.id);
-  let externalReceivableCad=0,externalPayableCad=0;
-  const externalEntries=partner.externalBalances&&typeof partner.externalBalances==="object"?Object.entries(partner.externalBalances):[];
-  if(externalEntries.length){
-    for(const [currency,value] of externalEntries){
-      const conversion=currencyConversion(store,String(currency).toUpperCase(),"CAD");if(!conversion)continue;
-      externalReceivableCad+=Math.max(safeNumber(value?.receivable),0)*conversion.factor;
-      externalPayableCad+=Math.max(safeNumber(value?.payable),0)*conversion.factor;
-    }
-  }else{
-    const conversion=currencyConversion(store,String(partner.accountCurrency||"USD").toUpperCase(),"CAD");
-    if(conversion){
-      let extReceivable=Math.max(safeNumber(partner.externalReceivable),0),extPayable=Math.max(safeNumber(partner.externalPayable),0);
-      if(extReceivable<=0.001&&extPayable<=0.001){const balance=safeNumber(partner.externalBalance);if(balance>0)extReceivable=balance;if(balance<0)extPayable=Math.abs(balance);}
-      externalReceivableCad=extReceivable*conversion.factor;externalPayableCad=extPayable*conversion.factor;
-    }
-  }
-  const totalNet=localBalance.net+externalReceivableCad-externalPayableCad;
+  const buckets=calculatePartnerDebtBuckets(store,partner);
+  const missingRates=new Set();
+  const cadTotals=aggregateDebtBuckets(buckets,{toTarget:(amount,currency)=>{
+    const normalized=String(currency||"CAD").toUpperCase();
+    const conversion=currencyConversion(store,normalized,"CAD");
+    if(!conversion){missingRates.add(normalized);return 0;}
+    return safeNumber(amount)*conversion.factor;
+  }});
+  const localTotals=aggregateDebtBuckets({...buckets,externalBuckets:[]},{toTarget:(amount,currency)=>{
+    const normalized=String(currency||"CAD").toUpperCase();
+    const conversion=currencyConversion(store,normalized,"CAD");
+    if(!conversion){missingRates.add(normalized);return 0;}
+    return safeNumber(amount)*conversion.factor;
+  }});
   const {passwordEncrypted,...safePartner}=partner;
   res.json({
     partner:{...safePartner,hasPassword:Boolean(passwordEncrypted)},transactions,payments,
-    totals:{receivable:+Math.max(totalNet,0).toFixed(2),payable:+Math.max(-totalNet,0).toFixed(2),net:+totalNet.toFixed(2)},
-    localBalance:{receivable:+localBalance.receivable.toFixed(2),payable:+localBalance.payable.toFixed(2),net:+localBalance.net.toFixed(2),missingRates:localBalance.missingRates}
+    totals:{receivable:+cadTotals.receivable.toFixed(2),payable:+cadTotals.payable.toFixed(2),net:+cadTotals.net.toFixed(2)},
+    localBalance:{receivable:+localTotals.receivable.toFixed(2),payable:+localTotals.payable.toFixed(2),net:+localTotals.net.toFixed(2),missingRates:[...missingRates]}
   });
 });
 
 app.post("/api/partners/:id/transactions", auth, requireIdempotencyKey, async (req,res)=>{
-  const {type,amount,currency="CAD",date="",dueDate="",reference="",description=""}=req.body||{};
+  const {type,amount,currency="CAD",date="",dueDate="",reference="",description="",sourceRef=""}=req.body||{};
   const numericAmount=Number(amount);
 
   if(!["RECEIVABLE","PAYABLE"].includes(type)){
@@ -5507,6 +5513,7 @@ app.post("/api/partners/:id/transactions", auth, requireIdempotencyKey, async (r
       dueDate:dueDate||"",
       reference,
       description,
+      sourceRef:String(sourceRef||"")||null,
       createdAt:now(),
       createdBy:req.user.id
     };
@@ -5521,7 +5528,7 @@ app.post("/api/partners/:id/transactions", auth, requireIdempotencyKey, async (r
 });
 
 app.patch("/api/partners/:id/transactions/:transactionId", auth, requireIdempotencyKey, async (req,res)=>{
-  const {type,amount,currency,date,dueDate,reference,description}=req.body||{};
+  const {type,amount,currency,date,dueDate,reference,description,sourceRef}=req.body||{};
   let updated=null;
   await mutateDurable(store=>{
     const partner=(store.partners||[]).find(item=>item.id===req.params.id);
@@ -5536,7 +5543,7 @@ app.patch("/api/partners/:id/transactions/:transactionId", auth, requireIdempote
     const conversion=currencyConversion(store,nextCurrency,"CAD");
     if(!conversion)throw Object.assign(new Error(`لا يوجد سعر صرف آلي لتحويل ${nextCurrency} إلى CAD`),{status:400,code:"MISSING_AUTOMATIC_RATE"});
     const before={...item};
-    Object.assign(item,{type:nextType,amount:nextAmount,currency:nextCurrency,cadAmount:+(nextAmount*conversion.factor).toFixed(2),automaticRate:conversion.factor,automaticRateUpdatedAt:conversion.updatedAt||null,date:date??item.date,dueDate:dueDate??item.dueDate,reference:reference??item.reference,description:description??item.description,updatedAt:now(),updatedBy:req.user.id});
+    Object.assign(item,{type:nextType,amount:nextAmount,currency:nextCurrency,cadAmount:+(nextAmount*conversion.factor).toFixed(2),automaticRate:conversion.factor,automaticRateUpdatedAt:conversion.updatedAt||null,date:date??item.date,dueDate:dueDate??item.dueDate,reference:reference??item.reference,description:description??item.description,sourceRef:sourceRef===undefined?item.sourceRef:(String(sourceRef||"")||null),updatedAt:now(),updatedBy:req.user.id});
     audit(store,req.user.id,"UPDATE","PARTNER_TRANSACTION",item.id,{before,after:item,partnerId:partner.id});
     updated={...item};
   });
@@ -5558,7 +5565,7 @@ app.delete("/api/partners/:id/transactions/:transactionId", auth, requireIdempot
 });
 
 app.post("/api/partners/:id/payments", auth, requireIdempotencyKey, async (req,res)=>{
-  const {direction,amount,currency="CAD",date="",reference="",notes=""}=req.body||{};
+  const {direction,amount,currency="CAD",date="",reference="",notes="",transactionId=null,sourceRef=""}=req.body||{};
   const numericAmount=Number(amount);
 
   if(!["RECEIVED","PAID"].includes(direction)){
@@ -5589,6 +5596,8 @@ app.post("/api/partners/:id/payments", auth, requireIdempotencyKey, async (req,r
       date:date||new Date().toISOString().slice(0,10),
       reference,
       notes,
+      transactionId:transactionId||null,
+      sourceRef:String(sourceRef||"")||null,
       createdAt:now(),
       createdBy:req.user.id
     };
@@ -5603,7 +5612,7 @@ app.post("/api/partners/:id/payments", auth, requireIdempotencyKey, async (req,r
 });
 
 app.patch("/api/partners/:id/payments/:paymentId", auth, requireIdempotencyKey, async (req,res)=>{
-  const {direction,amount,currency,date,reference,notes}=req.body||{};
+  const {direction,amount,currency,date,reference,notes,transactionId,sourceRef}=req.body||{};
   let updated=null;
   await mutateDurable(store=>{
     const partner=(store.partners||[]).find(item=>item.id===req.params.id);
@@ -5618,7 +5627,7 @@ app.patch("/api/partners/:id/payments/:paymentId", auth, requireIdempotencyKey, 
     const conversion=currencyConversion(store,nextCurrency,"CAD");
     if(!conversion)throw Object.assign(new Error(`لا يوجد سعر صرف آلي لتحويل ${nextCurrency} إلى CAD`),{status:400,code:"MISSING_AUTOMATIC_RATE"});
     const before={...item};
-    Object.assign(item,{direction:nextDirection,amount:nextAmount,currency:nextCurrency,cadAmount:+(nextAmount*conversion.factor).toFixed(2),automaticRate:conversion.factor,automaticRateUpdatedAt:conversion.updatedAt||null,date:date??item.date,reference:reference??item.reference,notes:notes??item.notes,updatedAt:now(),updatedBy:req.user.id});
+    Object.assign(item,{direction:nextDirection,amount:nextAmount,currency:nextCurrency,cadAmount:+(nextAmount*conversion.factor).toFixed(2),automaticRate:conversion.factor,automaticRateUpdatedAt:conversion.updatedAt||null,date:date??item.date,reference:reference??item.reference,notes:notes??item.notes,transactionId:transactionId===undefined?item.transactionId:(transactionId||null),sourceRef:sourceRef===undefined?item.sourceRef:(String(sourceRef||"")||null),updatedAt:now(),updatedBy:req.user.id});
     audit(store,req.user.id,"UPDATE","PARTNER_PAYMENT",item.id,{before,after:item,partnerId:partner.id});
     updated={...item};
   });
@@ -6007,6 +6016,12 @@ async function initializeApplicationWithRetry(){
       nativeRepositories = new NativeRepositoryRegistry({ query: getDatabaseQuery() });
       telemetryLifecycle.start();
       await seedAdmin();
+      const readiness=productionReadiness();
+      if(IS_PROD&&!readiness.ok){
+        const error=new Error(`Production readiness failed: ${readiness.issues.join("; ")}`);
+        error.code="PRODUCTION_READINESS_FAILED";
+        throw error;
+      }
       serviceReady=true;
       serviceStartupError=null;
       console.log(`Database initialization completed after ${startupAttempt} attempt(s)`);

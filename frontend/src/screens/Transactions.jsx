@@ -43,8 +43,8 @@ export function Transactions({openInvoice}){
       amount:String(transaction.amount??""),
       costRate:String(transaction.costRate??""),
       finalRate:String(transaction.finalRate??""),
-      transferFee:String(transaction.transferFee??0),
-      feeMethod:transaction.feeMethod||"ADD",
+      feeMethod:transaction.feeMethod==="PAID"?"PAID":"SPREAD",
+      transferFee:transaction.feeMethod==="PAID"?String(transaction.transferFee??""):"",
       currency:transaction.currency||"USD",
       transferDate:transaction.transferDate||String(transaction.createdAt||"").slice(0,10)
     });
@@ -62,8 +62,8 @@ export function Transactions({openInvoice}){
         amount:Number(editingTransaction.amount),
         costRate:Number(editingTransaction.costRate),
         finalRate:Number(editingTransaction.finalRate),
-        transferFee:Number(editingTransaction.transferFee||0),
         feeMethod:editingTransaction.feeMethod,
+        transferFee:editingTransaction.feeMethod==="PAID"?Number(editingTransaction.transferFee||0):0,
         transferDate:editingTransaction.transferDate,
         status:editingTransaction.status||"COMPLETED",
         rateSource:"manual"
@@ -127,10 +127,10 @@ export function Transactions({openInvoice}){
   };
 
   function exportTransactions(){
-    const headers=["رقم الحوالة","التاريخ","العميل","الشركة","العملة","المبلغ الأصلي","سعر الصرف CAD","القيمة CAD","العمولة CAD","المجموع النهائي CAD","الحالة"];
+    const headers=["رقم الحوالة","التاريخ","العميل","الشركة","العملة","المبلغ الأصلي","سعر الصرف CAD","القيمة CAD","نوع الأجور","أجور الحوالة CAD","المجموع النهائي CAD","الحالة"];
     const rows=filteredTransactions.map(transaction=>{
       const baseCad=Number(transaction.amount||0)*Number(transaction.finalRate||transaction.clientRate||0);
-      return [transaction.number,transaction.transferDate||String(transaction.createdAt||"").slice(0,10),transaction.customerName||"-",transaction.companyName||transaction.partnerName||"-",transaction.currency||"USD",Number(transaction.amount||0).toFixed(2),Number(transaction.finalRate||transaction.clientRate||0).toFixed(6),baseCad.toFixed(2),Number(transaction.transferFee||0).toFixed(2),Number(transaction.totalCustomerDue||0).toFixed(2),transaction.paymentStatus==="PAID"?"مدفوعة":"غير مدفوعة"];
+      return [transaction.number,transaction.transferDate||String(transaction.createdAt||"").slice(0,10),transaction.customerName||"-",transaction.companyName||transaction.partnerName||"-",transaction.currency||"USD",Number(transaction.amount||0).toFixed(2),Number(transaction.finalRate||transaction.clientRate||0).toFixed(6),baseCad.toFixed(2),transaction.feeMethod==="PAID"?"مدفوعة":"فرق السعر",Number(transaction.transferFee||0).toFixed(2),Number(transaction.totalCustomerDue||0).toFixed(2),transaction.paymentStatus==="PAID"?"مدفوعة":"غير مدفوعة"];
     });
     const csv="\uFEFF"+[headers,...rows].map(row=>row.map(value=>`"${String(value??"").replaceAll('"','""')}"`).join(",")).join("\n");
     const link=document.createElement("a");
@@ -198,23 +198,31 @@ export function Transactions({openInvoice}){
         </label>
 
         <label className="currency-field">
-          <span className="currency-field-title">أجور الحوالة</span>
-          <input type="number" inputMode="decimal" step=".01" value={editingTransaction.transferFee} onChange={e=>setEditingTransaction({...editingTransaction,transferFee:e.target.value})}/>
+          <span className="currency-field-title">طريقة احتساب الأجور</span>
+          <select value={editingTransaction.feeMethod} onChange={e=>setEditingTransaction({...editingTransaction,feeMethod:e.target.value,transferFee:e.target.value==="PAID"?editingTransaction.transferFee:""})}>
+            <option value="SPREAD">فرق سعر التحويل</option>
+            <option value="PAID">أجور مدفوعة بشكل مستقل</option>
+          </select>
         </label>
 
-        <select value={editingTransaction.feeMethod} onChange={e=>setEditingTransaction({...editingTransaction,feeMethod:e.target.value})}>
-          <option value="ADD">إضافة الأجور</option>
-          <option value="DEDUCT">خصم الأجور</option>
-        </select>
+        {editingTransaction.feeMethod==="PAID"&&<label className="currency-field">
+          <span className="currency-field-title">الأجور المدفوعة (CAD)</span>
+          <input type="number" inputMode="decimal" min="0" step=".01" value={editingTransaction.transferFee} onChange={e=>setEditingTransaction({...editingTransaction,transferFee:e.target.value})} required/>
+        </label>}
 
         <input type="date" value={editingTransaction.transferDate||""} onChange={e=>setEditingTransaction({...editingTransaction,transferDate:e.target.value})}/>
 
         <div className="transaction-edit-preview">
           <span>المجموع بعد التعديل</span>
-          <strong>{(
-            (Number(editingTransaction.amount)||0)*(Number(editingTransaction.finalRate)||0)
-            +(editingTransaction.feeMethod==="ADD"?(Number(editingTransaction.transferFee)||0):0)
-          ).toFixed(2)} CAD</strong>
+          <strong>{(((Number(editingTransaction.amount)||0)*(Number(editingTransaction.finalRate)||0))+(editingTransaction.feeMethod==="PAID"?(Number(editingTransaction.transferFee)||0):0)).toFixed(2)} CAD</strong>
+        </div>
+        <div className="transaction-edit-preview">
+          <span>أجور الحوالة</span>
+          <strong>{(editingTransaction.feeMethod==="PAID"?(Number(editingTransaction.transferFee)||0):((Number(editingTransaction.amount)||0)*((Number(editingTransaction.finalRate)||0)-(Number(editingTransaction.costRate)||0)))).toFixed(2)} CAD</strong>
+        </div>
+        <div className="transaction-edit-preview">
+          <span>إجمالي ربح الحوالة</span>
+          <strong>{(((Number(editingTransaction.amount)||0)*((Number(editingTransaction.finalRate)||0)-(Number(editingTransaction.costRate)||0)))+(editingTransaction.feeMethod==="PAID"?(Number(editingTransaction.transferFee)||0):0)).toFixed(2)} CAD</strong>
         </div>
 
         <div className="transaction-edit-actions">
@@ -256,7 +264,7 @@ export function Transactions({openInvoice}){
             <div><span>القيمة CAD</span><strong>{money(cadValue)}</strong></div>
             <div className="transaction-mobile-card__total"><span>الإجمالي CAD</span><strong>{money(finalTotal)}</strong></div>
           </div>
-          {Number(transaction.transferFee||0)>0&&<div className="transaction-mobile-card__fee">العمولة: <strong>{money(transaction.transferFee)} CAD</strong></div>}
+          {Number(transaction.transferFee||0)!==0&&<div className="transaction-mobile-card__fee">أجور الحوالة ({transaction.feeMethod==="PAID"?"مدفوعة":"فرق السعر"}): <strong>{money(transaction.transferFee)} CAD</strong></div>}
           <footer className="transaction-mobile-card__actions">
             <button title="فتح الفاتورة" onClick={()=>openInvoice(transaction.id)}>فاتورة</button>
             <button title="تعديل" onClick={()=>startEditTransaction(transaction)}>تعديل</button>
@@ -272,7 +280,7 @@ export function Transactions({openInvoice}){
           <tr>
             <th>#</th><th>تاريخ الحوالة</th><th>رقم الحوالة</th><th>العميل</th><th>الشركة</th>
             <th>العملة الأصلية</th><th>المبلغ الأصلي</th><th>سعر الصرف (CAD)</th><th>القيمة بالكندي (CAD)</th>
-            <th>العمولة (CAD)</th><th>المجموع النهائي (CAD)</th><th>الحالة</th><th>الإجراءات</th>
+            <th>نوع الأجور</th><th>أجور الحوالة (CAD)</th><th>المجموع النهائي (CAD)</th><th>الحالة</th><th>الإجراءات</th>
           </tr>
         </thead>
         <tbody>
@@ -289,12 +297,13 @@ export function Transactions({openInvoice}){
               <td data-label="المبلغ الأصلي">{money(transaction.amount)} <small>{transaction.currency||"USD"}</small></td>
               <td data-label="سعر التحويل">{exchangeRate?exchangeRate.toFixed(4):"-"}</td>
               <td data-label="القيمة CAD" className="transaction-cad-value">{money(cadValue)}</td>
-              <td data-label="العمولة CAD">{money(transaction.transferFee||0)}</td>
+              <td data-label="نوع الأجور">{transaction.feeMethod==="PAID"?"مدفوعة":"فرق السعر"}</td>
+              <td data-label="أجور الحوالة CAD">{money(transaction.transferFee||0)}</td>
               <td data-label="الإجمالي CAD" className="transaction-final-total">{money(transaction.totalCustomerDue||cadValue)}</td>
               <td data-label="الحالة"><span className={`transfer-payment-badge ${transaction.paymentStatus==="PAID"?"paid":"unpaid"}`}>{transaction.paymentStatus==="PAID"?"مكتملة":"غير مدفوعة"}</span></td>
               <td data-label="الإجراءات" className="transaction-mobile-actions"><div className="transaction-row-actions"><button title="فتح الفاتورة" onClick={()=>openInvoice(transaction.id)}>◉</button><button title="تعديل" className="transaction-edit-button" onClick={()=>startEditTransaction(transaction)}>✎</button><button title="حذف" className="danger-button" onClick={()=>deleteTransaction(transaction)}>🗑</button></div></td>
             </tr>;
-          }):<tr><td colSpan="13">لا توجد حوالات مطابقة.</td></tr>}
+          }):<tr><td colSpan="14">لا توجد حوالات مطابقة.</td></tr>}
         </tbody>
       </AppTable>
     </div>
@@ -306,7 +315,7 @@ export function Transactions({openInvoice}){
 
     <section className="transaction-ledger-formula">
       <div><strong>معلومات مهمة للقراءة</strong><p><b>العملة الأصلية:</b> العملة التي تم إرسال المبلغ بها.</p><p><b>القيمة بالكندي:</b> قيمة المبلغ بعد التحويل إلى CAD.</p><p><b>المجموع النهائي:</b> المبلغ النهائي الذي يُسجل على العميل.</p></div>
-      <div className="transaction-formula-flow"><strong>طريقة حساب المجموع النهائي</strong><p><span>المجموع النهائي (CAD)</span> = <span>القيمة بالكندي (CAD)</span> + <span>العمولة (CAD)</span></p></div>
+      <div className="transaction-formula-flow"><strong>طريقة الحساب</strong><p><span>فرق السعر:</span> المبلغ × (سعر العميل − سعر التكلفة). <span>الأجر المدفوع:</span> يُضاف فوق قيمة الحوالة. لا تُخصم الأجور من مبلغ المستفيد.</p></div>
     </section>
   </>;
 }

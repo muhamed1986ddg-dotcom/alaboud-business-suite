@@ -33,8 +33,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     amount:"",
     costRate:"",
     finalRate:"",
-    transferFee:"0",
-    feeMethod:"ADD",
+    feeMethod:"SPREAD",
+    transferFee:"",
     paymentStatus:"UNPAID",
     transferDate:new Date().toISOString().slice(0,10),
     rateMode:"auto",
@@ -134,7 +134,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       amount:"",
       costRate:"",
       finalRate:"",
-      transferFee:"0",
+      feeMethod:"SPREAD",
+      transferFee:"",
       paymentStatus:"UNPAID",
       transferDate:new Date().toISOString().slice(0,10),
       rateMode:"auto",
@@ -304,8 +305,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       amount:"",
       costRate:"",
       finalRate:"",
-      transferFee:"0",
-      feeMethod:"ADD",
+      feeMethod:"SPREAD",
+      transferFee:"",
       paymentStatus:"UNPAID",
       transferDate:new Date().toISOString().slice(0,10),
       rateMode:"auto",
@@ -325,7 +326,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         amount:Number(transferForm.amount),
         costRate:Number(transferForm.costRate),
         finalRate:Number(transferForm.finalRate),
-        transferFee:Number(transferForm.transferFee||0),
+        feeMethod:transferForm.feeMethod,
+        transferFee:transferForm.feeMethod==="PAID"?Number(transferForm.transferFee||0):0,
         rateSource:transferForm.rateMode==="auto"?"exchange-rates":"manual",
         rateUpdatedAt:transferForm.rateUpdatedAt||selectedRateMeta?.createdAt||null
       });
@@ -340,8 +342,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         amount:"",
         costRate:"",
         finalRate:"",
-        transferFee:"0",
-        feeMethod:"ADD",
+        feeMethod:"SPREAD",
+        transferFee:"",
         paymentStatus:"UNPAID",
         transferDate:new Date().toISOString().slice(0,10),
         rateMode:"auto",
@@ -642,21 +644,35 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           <input type="number" inputMode="decimal" min=".0001" step=".0001" value={transferForm.finalRate} onChange={e=>setTransferForm({...transferForm,finalRate:e.target.value})} placeholder="0.0000" required/>
           <small>السعر الذي يُحاسب عليه العميل مقابل كل وحدة من عملة الحوالة</small>
         </label>
+        <label className="currency-field">
+          <span className="currency-field-title">طريقة احتساب أجور الحوالة</span>
+          <select value={transferForm.feeMethod} onChange={e=>setTransferForm({...transferForm,feeMethod:e.target.value,transferFee:e.target.value==="PAID"?transferForm.transferFee:""})}>
+            <option value="SPREAD">فرق سعر التحويل</option>
+            <option value="PAID">أجور مدفوعة بشكل مستقل</option>
+          </select>
+          <small>{transferForm.feeMethod==="PAID"?"تُضاف الأجور المدفوعة إلى المجموع المطلوب من العميل":"تُحسب الأجور تلقائياً من الفرق بين سعر التحويل وسعر التكلفة"}</small>
+        </label>
+        {transferForm.feeMethod==="PAID"&&<label className="currency-field">
+          <span className="currency-field-title">الأجور المدفوعة</span>
+          <span className="currency-badge cad">CAD</span>
+          <input type="number" inputMode="decimal" min="0" step=".01" value={transferForm.transferFee} onChange={e=>setTransferForm({...transferForm,transferFee:e.target.value})} placeholder="0.00" required/>
+          <small>يدفعها العميل فوق قيمة الحوالة، ولا تُخصم من مبلغ المستفيد</small>
+        </label>}
         <div className="transfer-calculation-grid">
           <div className="transfer-total-preview">
             <span>المجموع النهائي (CAD) للعميل</span>
-            <strong>{((Number(transferForm.amount)||0)*(Number(transferForm.finalRate)||0)+(Number(transferForm.transferFee)||0)).toFixed(2)} CAD</strong>
+            <strong>{(((Number(transferForm.amount)||0)*(Number(transferForm.finalRate)||0))+(transferForm.feeMethod==="PAID"?(Number(transferForm.transferFee)||0):0)).toFixed(2)} CAD</strong>
           </div>
           <div className="transfer-profit-preview">
-            <span>ربح الحوالة</span>
-            <strong>{((Number(transferForm.amount)||0)*((Number(transferForm.finalRate)||0)-(Number(transferForm.costRate)||0))+(Number(transferForm.transferFee)||0)).toFixed(2)} CAD</strong>
+            <span>أجور الحوالة</span>
+            <strong>{(transferForm.feeMethod==="PAID"?(Number(transferForm.transferFee)||0):((Number(transferForm.amount)||0)*((Number(transferForm.finalRate)||0)-(Number(transferForm.costRate)||0)))).toFixed(2)} CAD</strong>
+          </div>
+          <div className="transfer-profit-preview">
+            <span>إجمالي ربح الحوالة</span>
+            <strong>{(((Number(transferForm.amount)||0)*((Number(transferForm.finalRate)||0)-(Number(transferForm.costRate)||0)))+(transferForm.feeMethod==="PAID"?(Number(transferForm.transferFee)||0):0)).toFixed(2)} CAD</strong>
           </div>
         </div>
-        <label className="currency-field">
-          <span className="currency-field-title">أجور الحوالة</span>
-          <span className="currency-badge cad">CAD</span>
-          <input type="number" inputMode="decimal" min="0" step=".01" value={transferForm.transferFee} onChange={e=>setTransferForm({...transferForm,transferFee:e.target.value})} placeholder="0.00"/>
-        </label>
+        <small>المستفيد يستلم مبلغ الحوالة كاملاً في الحالتين. لا يوجد خصم للأجور من مبلغ المستفيد.</small>
         <div className="transfer-payment-status">
           <div className="transfer-payment-status-title">حالة الحوالة</div>
           <div className="transfer-payment-status-buttons">

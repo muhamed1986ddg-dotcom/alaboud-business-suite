@@ -7,5 +7,8 @@ const capital=fs.readFileSync(path.join(root,"frontend/src/screens/CapitalOvervi
 assert(debts.includes("دين العملاء علينا"));
 assert(debts.includes("receivableBreakdown?.customerPayable"));
 assert(debts.includes("receivableBreakdown?.companyPayable"));
-assert(capital.includes("const liquidityRatio=debtOnUs>0?debtForUs/debtOnUs:3;"));
+assert(capital.includes("const debtForUs=Number(data.totalReceivables"));
+assert(capital.includes("const debtOnUs=Number(data.totalPayables"));
+assert(capital.includes("إجمالي الذمم لنا"));
+assert(capital.includes("إجمالي الذمم علينا"));
 console.log("v25.14.35 customer debt UI classification tests passed");

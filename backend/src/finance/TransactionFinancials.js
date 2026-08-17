@@ -26,6 +26,16 @@ function positiveRate(value) {
   catch { return 0n; }
 }
 
+function normalizeFeeMethod(transaction = {}) {
+  const raw = String(transaction.feeMethod || "").trim().toUpperCase();
+  if (raw === "PAID" || raw === "ADD") return "PAID";
+  if (raw === "SPREAD" || raw === "DEDUCT") return "SPREAD";
+
+  // Backwards compatibility: old rows were stored without feeMethod while a
+  // positive transferFee meant that the sender paid a separate fee.
+  return positiveMoney(transaction.transferFee) > 0n ? "PAID" : "SPREAD";
+}
+
 /** Returns the exact rate belonging to this transfer, in RATE_SCALE units. */
 function authoritativeTransactionRateScaled(transaction = {}) {
   const amount = positiveMoney(transaction.amount ?? transaction.usdAmount);
@@ -33,8 +43,8 @@ function authoritativeTransactionRateScaled(transaction = {}) {
   if (finalRate) return finalRate;
 
   if (amount > 0n) {
-    const fee = positiveMoney(transaction.transferFee);
-    const feeMethod = String(transaction.feeMethod || "ADD").toUpperCase();
+    const feeMethod = normalizeFeeMethod(transaction);
+    const paidFee = feeMethod === "PAID" ? positiveMoney(transaction.transferFee) : 0n;
     const due = positiveMoney(
       transaction.baseCustomerDue ?? transaction.convertedCad ?? transaction.formulaResultCad ??
       transaction.cadValue ?? transaction.valueCad
@@ -43,7 +53,7 @@ function authoritativeTransactionRateScaled(transaction = {}) {
 
     const totalDue = positiveMoney(transaction.totalCustomerDue);
     if (totalDue > 0n) {
-      const baseDue = feeMethod === "ADD" ? (totalDue > fee ? totalDue - fee : 0n) : totalDue;
+      const baseDue = totalDue > paidFee ? totalDue - paidFee : 0n;
       if (baseDue > 0n) return roundedDivide(baseDue * RATE_SCALE, amount);
     }
 
@@ -72,43 +82,50 @@ function transactionFinancials(transaction = {}) {
   const amountScaled = positiveMoney(transaction.amount ?? transaction.usdAmount);
   const finalRateScaled = authoritativeTransactionRateScaled(transaction);
   const costRateScaled = positiveRate(transaction.costRate);
-  const transferFeeScaled = positiveMoney(transaction.transferFee);
-  const feeMethod = String(transaction.feeMethod || "ADD").toUpperCase();
+  const feeMethod = normalizeFeeMethod(transaction);
+  const paidFeeScaled = feeMethod === "PAID" ? positiveMoney(transaction.transferFee) : 0n;
 
   const convertedCadScaled = finalRateScaled > 0n
     ? roundedDivide(amountScaled * finalRateScaled, RATE_SCALE)
     : 0n;
-  const totalCustomerDueScaled = feeMethod === "ADD"
-    ? convertedCadScaled + transferFeeScaled
-    : convertedCadScaled;
+  const totalCustomerDueScaled = convertedCadScaled + paidFeeScaled;
   const exchangeProfitScaled = roundedDivide(
     amountScaled * (finalRateScaled - costRateScaled),
     RATE_SCALE
   );
-  const totalProfitScaled = exchangeProfitScaled + transferFeeScaled;
+  // SPREAD: the fee shown is the rate spread already embedded in the converted
+  // amount. PAID: the sender pays a separate CAD fee above that amount.
+  // Neither mode deducts anything from the beneficiary's original amount.
+  const transferFeeScaled = feeMethod === "PAID" ? paidFeeScaled : exchangeProfitScaled;
+  const totalProfitScaled = exchangeProfitScaled + paidFeeScaled;
+  const beneficiaryReceivesScaled = amountScaled;
 
   const amount = moneyToNumber(amountScaled);
   const finalRate = rateToNumber(finalRateScaled);
   const costRate = rateToNumber(costRateScaled);
   const transferFee = moneyToNumber(transferFeeScaled);
+  const paidFee = moneyToNumber(paidFeeScaled);
   const convertedCad = moneyToNumber(convertedCadScaled);
   const totalCustomerDue = moneyToNumber(totalCustomerDueScaled);
   const exchangeProfit = moneyToNumber(exchangeProfitScaled);
   const totalProfit = moneyToNumber(totalProfitScaled);
+  const beneficiaryReceives = moneyToNumber(beneficiaryReceivesScaled);
   const valid = amountScaled > 0n && finalRateScaled > 0n && costRateScaled > 0n;
 
   return {
-    amount, finalRate, costRate, transferFee, feeMethod,
-    convertedCad, totalCustomerDue, exchangeProfit, totalProfit, valid,
+    amount, finalRate, costRate, transferFee, paidFee, feeMethod,
+    convertedCad, totalCustomerDue, exchangeProfit, totalProfit, beneficiaryReceives, valid,
     scaled: {
       amount: amountScaled,
       finalRate: finalRateScaled,
       costRate: costRateScaled,
       transferFee: transferFeeScaled,
+      paidFee: paidFeeScaled,
       convertedCad: convertedCadScaled,
       totalCustomerDue: totalCustomerDueScaled,
       exchangeProfit: exchangeProfitScaled,
       totalProfit: totalProfitScaled,
+      beneficiaryReceives: beneficiaryReceivesScaled,
     },
   };
 }
@@ -116,5 +133,6 @@ function transactionFinancials(transaction = {}) {
 module.exports = {
   authoritativeTransactionRate,
   authoritativeTransactionRateScaled,
+  normalizeFeeMethod,
   transactionFinancials,
 };

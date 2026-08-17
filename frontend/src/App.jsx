@@ -373,7 +373,7 @@ export default function App({onAuthExpired=()=>{}}){
   }else if(page==="debts"){
     content=<GeneralDebts/>;
   }else if(page==="capital-overview"||page==="capital"){
-    content=<CapitalOverview/>;
+    content=<CapitalOverview navigate={navigate}/>;
   }else if(page==="notification-settings"){
     content=<SettingsPanel activeBranchId={activeBranchId} onActiveBranchChange={changeActiveBranch}/>;
   }else if(page==="settings"){
