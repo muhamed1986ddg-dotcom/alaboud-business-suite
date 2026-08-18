@@ -6,10 +6,29 @@ const path=require("path");
 const {isPrivateIp,assertSafePartnerUrl,pinnedPartnerFetch}=require("./partner-network");
 
 (async()=>{
-  for(const address of ["127.0.0.1","10.2.3.4","169.254.169.254","172.20.0.1","192.168.1.2","::1","fd00::1"]){
+  for(const address of [
+    "127.0.0.1",
+    "10.2.3.4",
+    "169.254.169.254",
+    "172.20.0.1",
+    "192.168.1.2",
+    "::1",
+    "fd00::1",
+    "::ffff:127.0.0.1",
+    "::ffff:10.0.0.1",
+    "::ffff:172.16.0.1",
+    "::ffff:192.168.1.1",
+    "::ffff:169.254.1.1",
+    "::ffff:100.64.0.1",
+    "::ffff:ac10:1",
+    "::ffff:a9fe:101",
+    "::ffff:6440:1"
+  ]){
     assert.equal(isPrivateIp(address),true,`${address} must be private`);
   }
+
   assert.equal(isPrivateIp("8.8.8.8"),false);
+  assert.equal(isPrivateIp("::ffff:8.8.8.8"),false);
   await assert.rejects(()=>assertSafePartnerUrl("http://localhost/admin",{production:false}),/PARTNER_PRIVATE_HOST/);
   await assert.rejects(()=>assertSafePartnerUrl("http://169.254.169.254/latest/meta-data",{production:false}),/PARTNER_PRIVATE_IP/);
   await assert.rejects(()=>assertSafePartnerUrl("http://partner.example",{production:true,lookup:async()=>[{address:"93.184.216.34"}]}),/PARTNER_HTTPS_REQUIRED/);
