@@ -1,34 +1,40 @@
-name: CI
+name: Project CI
 on:
   push:
     branches: [main, master]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: project-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test-and-build:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - name: Install backend dependencies
-        run: npm ci --prefix backend --no-audit --no-fund
-      - name: Install frontend dependencies
-        run: npm ci --prefix frontend --no-audit --no-fund
-      - name: Backend syntax check
-        run: find backend/src backend/tests -type f -name '*.js' -print0 | xargs -0 -n1 node --check
-      - name: Run backend tests
-        run: |
-          npm run check:all-backend-tests
-          npm test --prefix backend
-      - name: Run frontend tests
+      - name: Block secrets and local data
+        run: npm run check:sensitive
+      - name: Install locked dependencies
+        run: npm run install:all
+      - name: Backend syntax
+        run: npm run check --prefix backend
+      - name: Backend test sweep
+        env:
+          NODE_ENV: test
+          JWT_SECRET: ci-only-secret-not-for-production
+        run: npm run check:all-backend-tests
+      - name: Backend selftest
+        run: npm test --prefix backend
+      - name: Frontend tests
         run: npm test --prefix frontend
-      - name: Build frontend
-        run: npm run build --prefix frontend
-      - name: Dependency audit
-        run: |
-          npm audit --prefix backend --audit-level=high
-          npm audit --prefix frontend --audit-level=high
+      - name: Current release and build gate
+        run: npm run build

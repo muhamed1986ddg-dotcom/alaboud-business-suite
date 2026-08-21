@@ -642,6 +642,10 @@ button{
 }
 button:hover{background:linear-gradient(135deg,#9a7b18,var(--ab-gold))!important;color:#111!important}
 .whatsapp-button{background:linear-gradient(135deg,#0b6f3f,#15945d)!important;color:#fff!important}
+.whatsapp-quick-send-button{background:linear-gradient(135deg,#0b6f3f,#15945d)!important;color:#fff!important;white-space:normal}
+@media(max-width:640px){
+  .app-modal__actions .whatsapp-quick-send-button{max-width:100%;flex:1 1 100%}
+}
 .danger-button{background:linear-gradient(135deg,#7f1d1d,#b91c1c)!important;color:#fff!important}
 input,select,textarea{
   background:#fffdf7!important;border:1px solid rgba(212,175,55,.35)!important;border-radius:12px!important
@@ -4179,6 +4183,19 @@ body.app-language-en aside{
 .home-return-bottom{margin-top:24px;margin-bottom:88px}
 .settings-alerts-embedded .notification-settings-embedded .settings-form{box-shadow:none;border:0;padding:0;background:transparent}
 .settings-alerts-embedded .notification-settings-embedded .settings-form label{font-weight:700}
+.monthly-account-message-settings{border:1px solid rgba(201,161,74,.42);border-radius:14px;padding:14px;margin-top:14px;min-width:0}
+.monthly-account-message-settings legend{padding:0 8px;font-weight:800;color:var(--gold,#c9a14a)}
+.monthly-message-schedule{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.monthly-message-schedule label{display:grid;gap:6px}
+.monthly-message-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.monthly-message-actions button{flex:1 1 170px}
+.monthly-message-preview{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-top:14px}
+.monthly-message-preview>strong{grid-column:1/-1}
+.monthly-message-preview article{display:grid;gap:5px;padding:10px;border:1px solid rgba(201,161,74,.25);border-radius:10px;min-width:0}
+.monthly-message-preview pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0 0;font:inherit}
+.monthly-message-log{display:grid;gap:6px;margin-top:14px}
+.monthly-message-log>div{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;padding:7px;border-bottom:1px solid rgba(127,127,127,.2)}
+@media(max-width:640px){.monthly-message-schedule{grid-template-columns:1fr}.monthly-message-preview{grid-template-columns:1fr}.monthly-message-actions{display:grid}.monthly-message-log>div{grid-template-columns:1fr auto}}
 .currency-with-flag{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
 .currency-with-flag small{opacity:.7;font-size:.75rem}
 @media (max-width:800px){.home-return-bottom{margin:18px 0 100px}.home-return-button{width:100%;min-height:52px}}
@@ -4970,6 +4987,7 @@ body.app-language-en aside{
 .settings-modal-shell .settings-grid{display:block!important}
 .settings-modal-shell .settings-grid>[data-panel]{display:none!important}
 .settings-modal-shell[data-active-panel="branches"] [data-panel="branches"],
+.settings-modal-shell[data-active-panel="transferFees"] [data-panel="transferFees"],
 .settings-modal-shell[data-active-panel="security"] [data-panel="security"],
 .settings-modal-shell[data-active-panel="verification"] [data-panel="verification"],
 .settings-modal-shell[data-active-panel="backup"] [data-panel="backup"],
@@ -6615,6 +6633,28 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 
 .inventory-payable-row{flex-wrap:wrap}.inventory-payable-row small{width:100%;opacity:.72;font-size:.78rem;text-align:left;direction:rtl}
 
+/* Multi-currency vault cash: detail only; the converted CAD total remains the inventory input. */
+.inventory-vault-input{display:block!important;direction:rtl}
+.inventory-vault-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.inventory-vault-heading>span{font-weight:800}.inventory-vault-heading>strong{color:#dfb653;font-size:1.12rem;direction:ltr;white-space:nowrap}
+.inventory-vault-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:9px;width:100%}
+.inventory-vault-currency{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:6px 9px;min-width:0;padding:9px 10px;border:1px solid rgba(205,164,75,.24);border-radius:11px;background:rgba(0,0,0,.12)}
+.inventory-vault-currency>span{display:flex;align-items:center;gap:6px}.inventory-vault-currency>span b{font-size:1.15rem}.inventory-vault-currency>span strong{color:#e4c36d}
+.inventory-vault-currency input{width:100%;min-width:0;height:38px;padding:6px 8px!important;text-align:left;direction:ltr}
+.inventory-vault-currency small{grid-column:1/3;min-width:0;color:#aeb8c8;line-height:1.4;overflow-wrap:anywhere}
+.inventory-vault-remove{grid-column:3;grid-row:1/3;align-self:stretch;min-width:52px;margin:0!important;padding:5px 8px!important;border:1px solid rgba(248,113,113,.35)!important;background:rgba(127,29,29,.28)!important;color:#fecaca!important;font-size:.78rem!important}
+.inventory-vault-empty{padding:12px!important;border:1px dashed rgba(205,164,75,.3)!important;background:rgba(0,0,0,.08)!important;color:#aeb8c8;text-align:center}
+.inventory-vault-add{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px}.inventory-vault-add button{width:auto!important;min-height:38px;padding:7px 11px!important;background:linear-gradient(135deg,#b88916,#e5bd54)!important;color:#111!important;font-weight:800}.inventory-vault-add select{width:min(240px,100%);min-height:40px;margin:0!important}.inventory-vault-add small{color:#aeb8c8}
+.inventory-vault-note{display:block;margin-top:9px;color:#aeb8c8}
+.inventory-vault-history-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;margin-top:10px}
+.inventory-vault-history-grid>span{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid rgba(205,164,75,.2);border-radius:9px;background:rgba(255,255,255,.025)}
+.inventory-vault-history-grid strong{direction:ltr;text-align:left;font-size:.84rem}
+@media(max-width:700px){.inventory-vault-heading{margin-bottom:9px}.inventory-vault-grid{grid-template-columns:minmax(0,1fr);gap:7px}.inventory-vault-currency{padding:7px 8px;gap:4px 7px}.inventory-vault-currency input{height:35px}.inventory-vault-currency small{font-size:.72rem}.inventory-vault-remove{min-width:48px}.inventory-vault-add{align-items:stretch;flex-direction:column}.inventory-vault-add button,.inventory-vault-add select{width:100%!important}.inventory-vault-history-grid{grid-template-columns:1fr}}
+.inventory-primary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start}.inventory-primary-card{display:grid;gap:7px;min-width:0;padding:15px;border:1px solid rgba(205,164,75,.24);border-radius:14px;background:rgba(255,255,255,.025)}.inventory-primary-card>span{font-weight:800;overflow-wrap:anywhere}.inventory-primary-card>strong{color:#dfb653;font-size:1.25rem;direction:ltr;white-space:nowrap}.inventory-primary-card>small{color:#aeb8c8;line-height:1.4}.inventory-primary-card--info{border-color:rgba(47,158,104,.32)}.inventory-final-card{display:grid;justify-items:center;gap:9px;margin-top:14px;padding:20px;border:1px solid rgba(205,164,75,.6);border-radius:16px;background:linear-gradient(135deg,rgba(205,164,75,.14),rgba(47,158,104,.09));text-align:center}.inventory-final-card>span{font-size:1.05rem;font-weight:900}.inventory-final-card>strong{color:#dfb653;font-size:1.8rem;direction:ltr}.inventory-final-card>small{color:#c8d1dc}.inventory-final-card button{margin-top:2px}
+@media(max-width:1100px){.inventory-primary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:640px){.inventory-primary-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.inventory-primary-card{gap:5px;padding:10px}.inventory-primary-card>strong{font-size:1.05rem}.inventory-primary-card>small{font-size:.72rem}.inventory-primary-card--vault{grid-column:1/-1}.inventory-final-card{margin-top:10px;padding:14px}.inventory-final-card>strong{font-size:1.45rem}}
+@media(max-width:380px){.inventory-primary-grid{grid-template-columns:minmax(0,1fr)}.inventory-primary-card--vault{grid-column:auto}}
+
 /* v25.14.9 — capital added grand total */
 .capital-history-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .capital-total-button{white-space:nowrap;background:linear-gradient(135deg,#b88916,#f3c53f);color:#101010;border:1px solid rgba(255,215,92,.7);font-weight:800}
@@ -7088,4 +7128,206 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 @media(max-width:640px){
   .capital-currency-detail-card>span{font-size:.9rem;flex-wrap:wrap}
   .capital-turnover-note{font-size:.82rem}
+}
+
+/* =========================================================
+   v25.14.98 — direct execution-company fees (Dahab/Jad)
+   ========================================================= */
+.provider-fee-section{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  width:100%;
+}
+.provider-fee-inline{
+  grid-column:1 / -1;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(96px,140px);
+  gap:8px;
+  align-items:center;
+}
+.provider-fee-inline input,
+.provider-fee-inline select{
+  width:100%;
+  margin:0!important;
+  min-height:44px;
+}
+.transfer-profit-preview.final{
+  grid-column:1 / -1;
+  background:linear-gradient(135deg,#3b2a05,#7c5a11);
+  border-color:rgba(250,204,21,.68);
+  color:#fff7cc;
+}
+@media(max-width:800px){
+  .provider-fee-section{grid-template-columns:1fr;}
+  .provider-fee-inline{grid-template-columns:1fr 110px;}
+}
+
+/* v25.14.98 — configurable automatic provider fee */
+.provider-fee-auto-button{margin-top:8px;width:max-content;max-width:100%;padding:7px 12px;border-radius:10px;font-size:.86rem;}
+
+/* v25.14.101 — responsive desktop layout for the add-transfer form */
+.customer-transfer-focus-page{
+  width:100%;
+  max-width:1180px;
+  min-width:0;
+  overflow-x:clip;
+}
+.customer-transfer-form{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  align-items:stretch;
+  gap:16px;
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  overflow:visible;
+}
+.customer-transfer-form>*,
+.customer-transfer-form .currency-field,
+.customer-transfer-form .provider-fee-section,
+.customer-transfer-form .transfer-calculation-grid{
+  min-width:0;
+  max-width:100%;
+}
+.customer-transfer-form>h3,
+.customer-transfer-form>.locked-transfer-customer,
+.customer-transfer-form>.provider-fee-section,
+.customer-transfer-form>.transfer-calculation-grid,
+.customer-transfer-form>.transfer-payment-status,
+.customer-transfer-form>small{
+  grid-column:1 / -1;
+}
+.customer-transfer-form>input,
+.customer-transfer-form>select,
+.customer-transfer-form .currency-field input,
+.customer-transfer-form .currency-field select,
+.customer-transfer-form .provider-fee-inline input,
+.customer-transfer-form .provider-fee-inline select{
+  width:100%;
+  min-width:0;
+  max-width:100%;
+  box-sizing:border-box;
+}
+.customer-transfer-form .currency-field{
+  grid-template-columns:minmax(0,1fr) auto;
+  align-content:start;
+  height:auto;
+  overflow:visible;
+}
+.customer-transfer-form .currency-field-title,
+.customer-transfer-form .currency-field small,
+.customer-transfer-form>small{
+  min-width:0;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  word-break:normal;
+  line-height:1.55;
+}
+.customer-transfer-form .provider-fee-section{
+  grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));
+  align-items:stretch;
+  gap:16px;
+  width:100%;
+  height:auto;
+}
+.customer-transfer-form .provider-fee-inline{
+  grid-template-columns:minmax(0,1fr) minmax(96px,130px);
+  width:100%;
+}
+.customer-transfer-form .transfer-calculation-grid{
+  grid-template-columns:repeat(auto-fit,minmax(min(190px,100%),1fr));
+  gap:14px;
+  width:100%;
+}
+.customer-transfer-form .transfer-total-preview,
+.customer-transfer-form .transfer-profit-preview{
+  min-width:0;
+  min-height:86px;
+  flex-wrap:wrap;
+  align-content:center;
+}
+.customer-transfer-form .transfer-total-preview span,
+.customer-transfer-form .transfer-profit-preview span{
+  flex:1 1 125px;
+  min-width:0;
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+.customer-transfer-form .transfer-total-preview strong,
+.customer-transfer-form .transfer-profit-preview strong{
+  flex:0 1 auto;
+  min-width:0;
+  max-width:100%;
+  font-size:clamp(1rem,1.5vw,1.25rem);
+  white-space:normal;
+  overflow-wrap:anywhere;
+  text-align:left;
+}
+.customer-transfer-form .transfer-profit-preview.final{
+  grid-column:auto;
+}
+
+@media(max-width:1100px){
+  .customer-transfer-form{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:14px;
+  }
+}
+
+@media(max-width:640px){
+  .customer-transfer-focus-page{overflow-x:hidden;}
+  .customer-transfer-form{
+    grid-template-columns:minmax(0,1fr);
+    gap:12px;
+  }
+  .customer-transfer-form>*{grid-column:1!important;}
+  .customer-transfer-form .provider-fee-section,
+  .customer-transfer-form .provider-fee-inline{
+    grid-template-columns:minmax(0,1fr);
+  }
+  .customer-transfer-form .transfer-calculation-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;
+  }
+  .customer-transfer-form .transfer-total-preview,
+  .customer-transfer-form .transfer-profit-preview{
+    min-height:0;
+    height:auto;
+    padding:10px 11px!important;
+    align-items:flex-start;
+    align-content:normal;
+    justify-content:flex-start;
+    flex-direction:column;
+    flex-wrap:nowrap;
+    gap:5px;
+  }
+  .customer-transfer-form .transfer-total-preview span,
+  .customer-transfer-form .transfer-profit-preview span{
+    flex:0 0 auto;
+    width:100%;
+    font-size:15px;
+    line-height:1.35;
+  }
+  .customer-transfer-form .transfer-total-preview strong,
+  .customer-transfer-form .transfer-profit-preview strong{
+    flex:0 0 auto;
+    width:100%;
+    font-size:22px;
+    line-height:1.2;
+    text-align:right;
+    direction:ltr;
+  }
+  .customer-transfer-form .transfer-profit-preview.final{
+    grid-column:1 / -1;
+  }
+}
+
+@media(max-width:375px){
+  .customer-transfer-form .transfer-calculation-grid{
+    grid-template-columns:minmax(0,1fr);
+  }
+  .customer-transfer-form .transfer-profit-preview.final{
+    grid-column:auto;
+  }
 }

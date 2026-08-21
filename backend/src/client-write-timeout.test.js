@@ -2,10 +2,9 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const source = fs.readFileSync(
-  path.resolve(__dirname, '../../frontend/src/api.js'),
-  'utf8'
-);
+const root = path.resolve(__dirname, '../..');
+const source = fs.readFileSync(path.join(root, 'frontend/src/api.js'), 'utf8');
+const currentVersion = require(path.join(root, 'package.json')).version;
 
 assert(
   source.includes('config.timeout=method==="get"?45000:12000'),
@@ -13,8 +12,8 @@ assert(
 );
 
 assert(
-  source.includes('X-Alaboud-Client-Version"]="25.14.90"'),
-  'client version header must be current'
+  source.includes(`X-Alaboud-Client-Version"]="${currentVersion}"`),
+  'client version header must match the current package version'
 );
 
 assert(

@@ -31,7 +31,7 @@ const emptyStore = () => ({
   companies: [], branches: [], users: [], customers: [], transactions: [], payments: [], expenses: [],
   capitalMovements: [], exchangeRates: [], generalDebts: [], generalDebtPayments: [],
   partners: [], partnerTransactions: [], partnerPayments: [], partnerSyncLogs: [],
-  notificationSettings: { overdueDays: 7, lowCashLimit: 5000, whatsappTemplate: "" },
+  notificationSettings: { overdueDays: 7, lowCashLimit: 5000, whatsappTemplate: "", monthlyAccountWhatsAppEnabled: false, monthlyAccountMessageDay: 19, monthlyAccountMessageTime: "09:00", monthlyAccountMessageTemplate: "", automaticTransferWhatsAppEnabled: false, zeroBalanceWhatsAppEnabled:false, timeZone:"America/Toronto", automaticProviderFeeEnabled: true, providerFeePer100: 0.40 },
   companySettings: {}, notificationActions: [], auditLogs: [], devices: [], apiKeys: [], webhooks: [], integrationLogs: [], monthlyInventories: [], sessions: []
 });
 
@@ -116,7 +116,7 @@ function tenantArray(root,key,companyId,branchId,{branchScoped=true}={}){
 }
 function tenantView(root,companyId,branchId){
   root=unwrapStore(root);
-  if(!root.companySettings[companyId])root.companySettings[companyId]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
+  if(!root.companySettings[companyId])root.companySettings[companyId]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,timeZone:"America/Toronto"};
   return new Proxy(root,{
     get(target,prop){
       if(prop===RAW_STORE)return target;

@@ -27,7 +27,10 @@ async function testFlushReportsFailedPersistence(){
 }
 
 function testSensitiveRoutesUseDurableMutation(){
-  const source = fs.readFileSync(path.join(__dirname,'server.js'),'utf8');
+  const sources = [
+    fs.readFileSync(path.join(__dirname,'server.js'),'utf8'),
+    fs.readFileSync(path.join(__dirname,'routes','finance-operations.js'),'utf8')
+  ];
   const required = [
     ['post','/api/customers'], ['patch','/api/customers/:id'], ['delete','/api/customers/:id'],
     ['post','/api/transactions'], ['patch','/api/transactions/:id'], ['delete','/api/transactions/:id'],
@@ -39,8 +42,9 @@ function testSensitiveRoutesUseDurableMutation(){
   ];
   for(const [method,route] of required){
     const marker = `app.${method}("${route}"`;
+    const source = sources.find(candidate=>candidate.includes(marker));
+    assert(source, `missing route ${method.toUpperCase()} ${route}`);
     const index = source.indexOf(marker);
-    assert(index >= 0, `missing route ${method.toUpperCase()} ${route}`);
     const next = source.indexOf('\napp.', index + marker.length);
     const block = source.slice(index, next < 0 ? source.length : next);
     assert(block.includes('mutateDurable('), `${method.toUpperCase()} ${route} must use mutateDurable`);

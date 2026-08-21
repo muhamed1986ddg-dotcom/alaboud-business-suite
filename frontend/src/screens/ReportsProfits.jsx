@@ -2,6 +2,10 @@ import React,{useEffect,useMemo,useState}from"react";
 import api,{cachedGet} from"../api";
 import {money,confirmAction} from"../shared";
 import {AppButton,AppCard,AppInput,AppLoader,AppModal,AppStatCard,AppTable,AppToolbar} from"../components/ui";
+import {addVaultCurrency,availableVaultCurrencies,buildVaultCashRows,removeVaultCurrency,savedVaultCurrencies} from"../inventoryVaultCurrencies";
+
+const DEFAULT_VAULT_CURRENCIES=["CAD","USD","EUR","GBP","SAR","AED","TRY","SYP"];
+const CURRENCY_FLAGS={CAD:"🇨🇦",USD:"🇺🇸",EUR:"🇪🇺",GBP:"🇬🇧",SAR:"🇸🇦",AED:"🇦🇪",TRY:"🇹🇷",SYP:"🇸🇾"};
 
 function ReportsProfits(){
   const [activeTab,setActiveTab]=useState("summary");
@@ -12,8 +16,10 @@ function ReportsProfits(){
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
   const [inventory,setInventory]=useState(null);
+  const [inventoryPreview,setInventoryPreview]=useState(null);
   const [inventoryDay,setInventoryDay]=useState(20);
-  const [vaultCash,setVaultCash]=useState("");
+  const [vaultCashByCurrency,setVaultCashByCurrency]=useState({});
+  const [vaultCurrencyPickerOpen,setVaultCurrencyPickerOpen]=useState(false);
   const [inventoryNotes,setInventoryNotes]=useState("");
   const [inventoryBusy,setInventoryBusy]=useState(false);
   const [inventoryNotice,setInventoryNotice]=useState("");
@@ -36,7 +42,7 @@ function ReportsProfits(){
 
   async function loadInventory(){
     setInventoryBusy(true);setError("");
-    try{const response=await api.get("/monthly-inventory");setInventory(response.data);setInventoryDay(response.data?.scheduleDay||20);}
+    try{const response=await api.get("/monthly-inventory");setInventory(response.data);setInventoryPreview(response.data?.current||null);setInventoryDay(response.data?.scheduleDay||20);}
     catch(requestError){setError(requestError.response?.data?.message||"تعذر تحميل الجرد الشهري");}
     finally{setInventoryBusy(false);}
   }
@@ -69,52 +75,67 @@ function ReportsProfits(){
     finally{setInventoryBusy(false);}
   }
   async function closeInventory(){
-    if(vaultCash===""||!Number.isFinite(Number(vaultCash))||Number(vaultCash)<0){setError("أدخل قيمة الكاش في الخزنة أولًا");return;}
+    const invalidCurrency=Object.entries(vaultCashByCurrency).find(([,value])=>value!==""&&(!Number.isFinite(Number(value))||Number(value)<0));
+    if(invalidCurrency){setError(`أدخل قيمة صحيحة لرصيد ${invalidCurrency[0]}`);return;}
+    if(vaultCashMissingRates.length){setError(`ينقص سعر تحويل رصيد الخزنة: ${vaultCashMissingRates.join("، ")}`);return;}
     if(!await confirmAction({title:"تأكيد إغلاق الجرد",message:"سيتم تثبيت أرقام الجرد لهذا الشهر ولن تتغير لاحقًا. هل تريد المتابعة؟",confirmText:"تثبيت الجرد",tone:"warning"}))return;
     setInventoryBusy(true);setError("");setInventoryNotice("");
-    try{const response=await api.post("/monthly-inventory/close",{vaultCash:Number(vaultCash),notes:inventoryNotes});setInventoryNotice(response.data?.message||"تم تثبيت الجرد");setVaultCash("");setInventoryNotes("");await loadInventory();}
+    try{const response=await api.post("/monthly-inventory/close",{vaultCashByCurrency,notes:inventoryNotes});setInventoryNotice(response.data?.message||"تم تثبيت الجرد");setVaultCashByCurrency({});setVaultCurrencyPickerOpen(false);setInventoryNotes("");await loadInventory();}
     catch(requestError){setError(requestError.response?.data?.message||"تعذر تثبيت الجرد الشهري");}
     finally{setInventoryBusy(false);}
   }
 
   useEffect(()=>{loadProfits();},[]);
   useEffect(()=>{if(activeTab==="monthly"&&!monthly)loadMonthly();if(activeTab==="inventory"&&!inventory)loadInventory();},[activeTab]);
+  useEffect(()=>{
+    if(activeTab!=="inventory"||!inventory)return undefined;
+    let active=true;
+    const timer=setTimeout(async()=>{
+      try{
+        const response=await api.post("/monthly-inventory/preview",{vaultCashByCurrency});
+        if(active)setInventoryPreview(response.data);
+      }catch(requestError){
+        if(active)setError(requestError.response?.data?.message||"تعذر تحديث معاينة الجرد");
+      }
+    },200);
+    return()=>{active=false;clearTimeout(timer)};
+  },[activeTab,inventory,vaultCashByCurrency]);
 
   const summary=monthly?.summary||{};
   const overview={
     transactionCount:profits?.transactionCount??summary.transferCount??0,
     exchangeProfit:profits?.exchangeProfit??summary.exchangeProfit??0,
-    transferFees:profits?.transferFees??summary.feesTotal??0,
+    customerFees:profits?.customerFees??summary.customerFeesTotal??0,
+    providerFees:profits?.providerFees??summary.providerFeesTotal??0,
+    grossProfitBeforeProviderFees:profits?.grossProfitBeforeProviderFees??summary.grossProfitBeforeProviderFees??0,
     grossProfit:profits?.grossProfit??summary.grossProfit??0,
     expenses:profits?.expenses??summary.expenses??0,
     netProfit:profits?.netProfit??summary.netProfit??0,
   };
   const inventoryCurrent=inventory?.current||{};
-  const enteredVaultCash=Number.isFinite(Number(vaultCash))?Math.max(0,Number(vaultCash)):0;
-  const previewTotalAssets=(
-    Number(inventoryCurrent.partnerAssets||0)
-    + Number(inventoryCurrent.customerReceivables||0)
-    + Number(inventoryCurrent.companyReceivables||0)
-    + Number(inventoryCurrent.manualReceivables||0)
-    + enteredVaultCash
-  );
-  const previewTotalLiabilities=(
-    Number(inventoryCurrent.customerPayables||0)
-    + Number(inventoryCurrent.companyPayables||0)
-    + Number(inventoryCurrent.manualPayables||0)
-  );
-  const previewFinalValue=previewTotalAssets-previewTotalLiabilities;
-  const previewInventoryDifference=previewFinalValue-Number(inventoryCurrent.netCapital||0);
+  const inventoryDisplay=inventoryPreview||inventoryCurrent;
+  const vaultCashCurrencies=useMemo(()=>[...new Set([...DEFAULT_VAULT_CURRENCIES,...(Array.isArray(inventory?.vaultCashCurrencies)?inventory.vaultCashCurrencies:[])])],[inventory?.vaultCashCurrencies]);
+  const vaultCashRows=buildVaultCashRows(vaultCashByCurrency,inventoryCurrent.vaultCashExchangeRates);
+  const availableVaultCurrencyOptions=availableVaultCurrencies(vaultCashCurrencies,vaultCashByCurrency);
+  const vaultCashMissingRates=vaultCashRows.filter(row=>row.amount>0&&row.convertedCad===null).map(row=>row.currency);
+
+  async function deleteVaultCurrency(currency){
+    if(Number(vaultCashByCurrency[currency]||0)>0&&!await confirmAction({title:"حذف عملة من الخزنة",message:`رصيد ${currency} أكبر من صفر. هل تريد حذفه من النموذج؟`,confirmText:"حذف",tone:"warning"}))return;
+    setVaultCashByCurrency(current=>removeVaultCurrency(current,currency));
+  }
+  const officialFinalInventory=Number(inventoryDisplay.finalInventory??inventoryDisplay.finalValue??0);
   const previewFinalValueUsd=
     Number.isFinite(Number(usdCadRate))&&Number(usdCadRate)>0
-      ? previewFinalValue/Number(usdCadRate)
+      ? officialFinalInventory/Number(usdCadRate)
       : null;
 
   const monthlyColumns=useMemo(()=>[
     {key:"month",label:"الشهر"},
-    {key:"transferFees",label:"أجور الحوالات",render:row=>money(row.transferFees)},
-    {key:"grossProfit",label:"إجمالي الربح",render:row=>money(row.grossProfit)},
-    {key:"expenses",label:"المصروفات",render:row=>money(row.expenses)},
+    {key:"exchangeProfit",label:"ربح فرق السعر",render:row=>money(row.exchangeProfit)},
+    {key:"customerFees",label:"أجور العميل",render:row=>money(row.customerFees)},
+    {key:"providerFees",label:"أجور الشركات",render:row=>money(row.providerFees)},
+    {key:"grossProfit",label:"ربح الحوالات بعد الأجور",render:row=>money(row.grossProfit)},
+    {key:"expenses",label:"المصروفات العامة",render:row=>money(row.expenses)},
     {key:"netProfit",label:"صافي الربح",render:row=><strong className={Number(row.netProfit||0)<0?"value-negative":"value-positive"}>{money(row.netProfit)}</strong>},
   ],[]);
   const dailyColumns=useMemo(()=>[
@@ -150,13 +171,15 @@ function ReportsProfits(){
       {loading&&!profits?<AppLoader label="جاري تحميل الأرباح..."/>:<>
         <div className="ui-stat-grid">
           <AppStatCard label="عدد الحوالات" value={overview.transactionCount} tone="info"/>
-          <AppStatCard label="أجور الحوالات" value={money(overview.transferFees)} tone="success"/>
-          <AppStatCard label="إجمالي الربح" value={money(overview.grossProfit)} tone="success"/>
-          <AppStatCard label="المصروفات" value={money(overview.expenses)} tone="danger"/>
+          <AppStatCard label="ربح فرق السعر" value={money(overview.exchangeProfit)} tone="success"/>
+          <AppStatCard label="أجور مأخوذة من العملاء" value={money(overview.customerFees)} tone="success"/>
+          <AppStatCard label="أجور دهب/جاد والشركات" value={money(overview.providerFees)} tone="danger"/>
+          <AppStatCard label="ربح الحوالات بعد أجور الشركات" value={money(overview.grossProfit)} tone={Number(overview.grossProfit)<0?"danger":"success"}/>
+          <AppStatCard label="المصروفات العامة" value={money(overview.expenses)} tone="danger"/>
           <AppStatCard label="صافي الربح" value={money(overview.netProfit)} tone={Number(overview.netProfit)<0?"danger":"success"}/>
         </div>
         <AppCard className="profits-monthly-table-card" title="الأرباح الشهرية"><AppTable columns={monthlyColumns} rows={profits?.monthly||[]} rowKey="month" emptyText="لا توجد بيانات للفترة المحددة."/></AppCard>
-        <div className="profits-mobile-cards">{(profits?.monthly||[]).length?(profits?.monthly||[]).map(row=><article className="transaction-mobile-card profit-mobile-card" key={`profit-mobile-${row.month}`}><header className="transaction-mobile-card__head"><div><strong>{row.month}</strong><small>الأرباح الشهرية</small></div></header><div className="transaction-mobile-card__grid"><div><span>الشهر</span><strong>{row.month}</strong></div><div><span>أجور الحوالات</span><strong>{money(row.transferFees)}</strong></div><div><span>إجمالي الربح</span><strong>{money(row.grossProfit)}</strong></div><div><span>المصروفات</span><strong>{money(row.expenses)}</strong></div><div className="transaction-mobile-card__total"><span>صافي الربح</span><strong className={Number(row.netProfit||0)<0?"value-negative":"value-positive"}>{money(row.netProfit)}</strong></div></div></article>):<div className="transaction-mobile-empty">لا توجد بيانات للفترة المحددة.</div>}</div>
+        <div className="profits-mobile-cards">{(profits?.monthly||[]).length?(profits?.monthly||[]).map(row=><article className="transaction-mobile-card profit-mobile-card" key={`profit-mobile-${row.month}`}><header className="transaction-mobile-card__head"><div><strong>{row.month}</strong><small>الأرباح الشهرية</small></div></header><div className="transaction-mobile-card__grid"><div><span>ربح فرق السعر</span><strong>{money(row.exchangeProfit)}</strong></div><div><span>أجور العميل</span><strong>{money(row.customerFees)}</strong></div><div><span>أجور الشركات</span><strong>- {money(row.providerFees)}</strong></div><div><span>ربح الحوالات بعد الأجور</span><strong>{money(row.grossProfit)}</strong></div><div><span>المصروفات العامة</span><strong>{money(row.expenses)}</strong></div><div className="transaction-mobile-card__total"><span>صافي الربح</span><strong className={Number(row.netProfit||0)<0?"value-negative":"value-positive"}>{money(row.netProfit)}</strong></div></div></article>):<div className="transaction-mobile-empty">لا توجد بيانات للفترة المحددة.</div>}</div>
       </>}
     </>}
 
@@ -175,9 +198,11 @@ function ReportsProfits(){
           <AppStatCard label="متوسط الحوالة" value={money(summary.averageTransfer)}/>
           <AppStatCard label="أكبر حوالة" value={money(summary.largestTransfer)} tone="success"/>
           <AppStatCard label="أصغر حوالة" value={money(summary.smallestTransfer)}/>
-          <AppStatCard label="أجور الحوالات" value={money(summary.feesTotal)} tone="success"/>
-          <AppStatCard label="إجمالي الربح" value={money(summary.grossProfit)} tone="success"/>
-          <AppStatCard label="المصروفات" value={money(summary.expenses)} tone="danger"/>
+          <AppStatCard label="ربح فرق السعر" value={money(summary.exchangeProfit)} tone="success"/>
+          <AppStatCard label="أجور مأخوذة من العملاء" value={money(summary.customerFeesTotal)} tone="success"/>
+          <AppStatCard label="أجور دهب/جاد والشركات" value={money(summary.providerFeesTotal)} tone="danger"/>
+          <AppStatCard label="ربح الحوالات بعد أجور الشركات" value={money(summary.grossProfit)} tone={Number(summary.grossProfit||0)<0?"danger":"success"}/>
+          <AppStatCard label="المصروفات العامة" value={money(summary.expenses)} tone="danger"/>
           <AppStatCard label="صافي الربح" value={money(summary.netProfit)} tone={Number(summary.netProfit||0)<0?"danger":"success"}/>
           <AppStatCard label="الدفعات المستلمة" value={money(summary.paymentsReceived)}/>
           <AppStatCard label="إضافات رأس المال" value={money(summary.capitalIn)} tone="success"/>
@@ -205,21 +230,39 @@ function ReportsProfits(){
 
       {inventoryBusy&&!inventory?<AppLoader label="جاري تحميل الجرد..."/>:!inventory?<AppCard className="customer-error"><strong>تعذر عرض الجرد الشهري.</strong><AppButton variant="secondary" onClick={loadInventory}>إعادة المحاولة</AppButton></AppCard>:<>
         <AppCard title={`جرد ${inventory.alert?.month||new Date().toISOString().slice(0,7)}`}>
-          <div className="inventory-breakdown inventory-breakdown--simple">
-            <div className="inventory-net-capital"><span>💎 صافي رأس المال — حقوق الملكية</span><strong>{money(inventoryCurrent.netCapital)} CAD</strong></div>
-            <div><span>🏦 أرصدة الشركاء الخارجية</span><strong>{money(inventoryCurrent.partnerAssets)} CAD</strong></div>
-            <div><span>👤 ذمم العملاء لنا</span><strong>{money(inventoryCurrent.customerReceivables)} CAD</strong></div>
-            <div><span>🏢 ذمم الشركات لنا</span><strong>{money(inventoryCurrent.companyReceivables)} CAD</strong></div>
-            <div><span>📝 الذمم اليدوية لنا</span><strong>{money(inventoryCurrent.manualReceivables)} CAD</strong></div>
-            <div className="inventory-vault-input"><span>💵 الكاش الموجود في الخزنة</span><AppInput type="number" min="0" step="0.01" value={vaultCash} onChange={event=>setVaultCash(event.target.value)} placeholder="أدخل قيمة الكاش يدويًا"/></div>
-            <div><span>إجمالي الأصول</span><strong>{money(previewTotalAssets)} CAD</strong></div>
-            <div><span>👤 ذمم العملاء علينا</span><strong>{money(inventoryCurrent.customerPayables)} CAD</strong></div>
-            <div><span>🏢 ذمم الشركات علينا</span><strong>{money(inventoryCurrent.companyPayables)} CAD</strong></div>
-            <div><span>📝 الذمم اليدوية علينا</span><strong>{money(inventoryCurrent.manualPayables)} CAD</strong></div>
-            <div><span>إجمالي الالتزامات</span><strong>{money(previewTotalLiabilities)} CAD</strong></div>
-            <div className="inventory-final">
-  <span>= قيمة الجرد / صافي الأصول</span>
-  <strong>{money(previewFinalValue)} CAD</strong>
+          <div className="inventory-primary-grid">
+            <div className="inventory-primary-card"><span>🏢 صافي الشركات</span><strong>{money(inventoryDisplay.netCompanies)} CAD</strong></div>
+            <div className="inventory-primary-card"><span>👤 صافي ديون العملاء</span><strong>{money(inventoryDisplay.netCustomers)} CAD</strong></div>
+            <div className="inventory-primary-card inventory-primary-card--info"><span>📈 صافي الأرباح</span><strong>{money(inventoryDisplay.netProfit)} CAD</strong><small>للعرض فقط — لا يُضاف مرة ثانية إلى الجرد النهائي.</small></div>
+            <div className="inventory-primary-card inventory-primary-card--vault">
+              <div className="inventory-vault-heading"><span>💵 الكاش في الخزنة</span><strong>{money(inventoryDisplay.vaultCash)} CAD</strong></div>
+              {vaultCashRows.length?<div className="inventory-vault-grid">
+                {vaultCashRows.map(row=><div className="inventory-vault-currency" key={row.currency}>
+                  <span><b>{CURRENCY_FLAGS[row.currency]||"💱"}</b><strong>{row.currency}</strong></span>
+                  <input type="number" inputMode="decimal" min="0" step="0.01" value={vaultCashByCurrency[row.currency]||""} onChange={event=>setVaultCashByCurrency(current=>({...current,[row.currency]:event.target.value}))} placeholder="0.00"/>
+                  <small>{row.currency==="CAD"
+                    ?`${money(row.amount)} CAD`
+                    :row.convertedCad===null
+                      ?"سعر التحويل إلى CAD غير متوفر"
+                      :`${money(row.amount)} ${row.currency} ≈ ${money(row.convertedCad)} CAD`}</small>
+                  <button type="button" className="inventory-vault-remove" onClick={()=>deleteVaultCurrency(row.currency)}>حذف</button>
+                </div>)}
+              </div>:<div className="inventory-vault-empty">لم تتم إضافة أي عملة إلى الخزنة</div>}
+              <div className="inventory-vault-add">
+                <button type="button" onClick={()=>setVaultCurrencyPickerOpen(open=>!open)}>＋ إضافة عملة</button>
+                {vaultCurrencyPickerOpen&&<select value="" onChange={event=>{if(!event.target.value)return;setVaultCashByCurrency(current=>addVaultCurrency(current,event.target.value));setVaultCurrencyPickerOpen(false)}}>
+                  <option value="">اختر العملة</option>
+                  {availableVaultCurrencyOptions.map(currency=><option value={currency} key={currency}>{CURRENCY_FLAGS[currency]||"💱"} {currency}</option>)}
+                </select>}
+                {vaultCurrencyPickerOpen&&!availableVaultCurrencyOptions.length&&<small>تمت إضافة جميع العملات المدعومة.</small>}
+              </div>
+              <small className="inventory-vault-note">الإجمالي المحول إلى CAD أعلاه هو القيمة الوحيدة التي تدخل في الجرد.</small>
+            </div>
+          </div>
+          <div className="inventory-final-card">
+  <span>الجرد النهائي</span>
+  <strong>{money(officialFinalInventory)} CAD</strong>
+  {Math.abs(Number(inventoryDisplay.netManualDebts||0))>=0.005&&<small>تسويات/ذمم أخرى: {money(inventoryDisplay.netManualDebts)} CAD</small>}
   <AppButton
     type="button"
     variant="secondary"
@@ -239,7 +282,7 @@ function ReportsProfits(){
   >
     <div className="inventory-usd-display">
       <p>القيمة الأساسية</p>
-      <strong>{money(previewFinalValue)} CAD</strong>
+      <strong>{money(officialFinalInventory)} CAD</strong>
 
       {previewFinalValueUsd!==null?<>
         <p>سعر التحويل: 1 USD = {Number(usdCadRate).toLocaleString("en-CA",{maximumFractionDigits:6})} CAD</p>
@@ -249,9 +292,6 @@ function ReportsProfits(){
     </div>
   </AppModal>
 }
-            <div className={`inventory-difference ${Math.abs(previewInventoryDifference)<0.005?"inventory-difference--balanced":"inventory-difference--warning"}`}><span>⚖️ فرق المطابقة الرقابي</span><strong>{previewInventoryDifference>=0?"+":""}{money(previewInventoryDifference)} CAD</strong></div>
-          </div>
-          <small>فرق المطابقة مؤشر للمراجعة فقط؛ لا يُضاف إلى رأس المال ولا يُطرح من الجرد تلقائيًا.</small>
           {Number(inventoryCurrent.excludedManualDuplicateCount||0)>0&&<p className="customer-success">تم استبعاد {inventoryCurrent.excludedManualDuplicateCount} من الذمم اليدوية لارتباطها مباشرةً بمصدر رسمي محسوب.</p>}
           {Number(inventoryCurrent.excludedPartnerDuplicateCount||0)>0&&<p className="customer-success">تم استبعاد {inventoryCurrent.excludedPartnerDuplicateCount} من حركات الشركات لارتباطها مباشرةً بالرصيد الخارجي نفسه.</p>}
           {(inventoryCurrent.manualDebtReviewFlags||[]).some(item=>item.reviewStatus==="FLAGGED")&&<p className="customer-error">توجد ذمم يدوية قد تتشابه بالاسم مع حسابات رسمية. بقيت محسوبة ولم تُعدّل، وتحتاج مراجعة وربطاً مباشراً.</p>}
@@ -270,12 +310,18 @@ function ReportsProfits(){
               return <article className="transaction-mobile-card inventory-history-card" key={row.id||row.month}>
                 <header className="transaction-mobile-card__head"><div><strong>{row.month}</strong><small>{row.inventoryDate||row.fixedAt?.slice?.(0,10)||""}</small></div><b>{money(row.finalValue)}</b></header>
                 <div className="transaction-mobile-card__grid">
-                  <div><span>صافي رأس المال</span><strong>{money(row.netCapital)}</strong></div><div><span>الكاش في الخزنة</span><strong>{money(row.vaultCash)}</strong></div>
+                  <div><span>صافي رأس المال</span><strong>{money(row.netCapital)}</strong></div><div><span>الكاش في الخزنة</span><strong>{money(row.vaultCash)} CAD</strong></div>
                   {row.totalAssets!==undefined&&<div><span>إجمالي الأصول</span><strong>{money(row.totalAssets)}</strong></div>}
                   {row.totalLiabilities!==undefined&&<div><span>إجمالي الالتزامات</span><strong>{money(row.totalLiabilities)}</strong></div>}
                   {row.inventoryDifference!==undefined&&<div className="transaction-mobile-card__total"><span>فرق المطابقة الرقابي</span><strong className={Math.abs(Number(row.inventoryDifference||0))<0.005?"value-positive":"value-negative"}>{Number(row.inventoryDifference||0)>=0?"+":""}{money(row.inventoryDifference)}</strong></div>}
                   {diff!==null&&<div className="transaction-mobile-card__total"><span>الفرق عن الشهر السابق</span><strong className={diff<0?"value-negative":"value-positive"}>{diff>=0?"+":""}{money(diff)}</strong></div>}
                 </div>
+                {row.vaultCashByCurrency&&<div className="inventory-vault-history-grid">
+                  {savedVaultCurrencies(row.vaultCashByCurrency).map(({currency,amount})=>{
+                    const converted=row.vaultCashExchangeRates?.[currency]?.convertedCad;
+                    return <span key={currency}><b>{CURRENCY_FLAGS[currency]||"💱"} {currency}</b><strong>{money(amount)} {currency}{currency!=="CAD"&&Number.isFinite(Number(converted))?` ≈ ${money(converted)} CAD`:""}</strong></span>;
+                  })}
+                </div>}
                 {row.notes&&<p className="inventory-row-notes">{row.notes}</p>}
               </article>;
             }):<div className="transaction-mobile-empty">لا يوجد جرد شهري مثبت حتى الآن.</div>}

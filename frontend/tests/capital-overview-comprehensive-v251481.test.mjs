@@ -9,16 +9,16 @@ const projectRoot=path.resolve(testDir,"../..");
 const screen=fs.readFileSync(path.join(projectRoot,"frontend/src/screens/CapitalOverview.jsx"),"utf8");
 const server=fs.readFileSync(path.join(projectRoot,"backend/src/server.js"),"utf8");
 
-test("primary capital value includes comprehensive customer and company net debt",()=>{
+test("legacy primary capital still includes comprehensive debt before the first inventory",()=>{
   assert.match(screen,/data\.comprehensiveNetCapital \?\? data\.netCapital/);
   assert.match(screen,/equityNetCapital\+netDebt/);
-  assert.match(screen,/صافي رأس المال الشامل/);
+  assert.match(screen,/data\.capitalBasis==="LAST_APPROVED_INVENTORY"/);
   assert.match(screen,/إجمالي الدين لنا/);
   assert.match(screen,/إجمالي الدين علينا/);
 });
 
-test("API preserves equity separately and publishes comprehensive capital as primary",()=>{
-  assert.match(server,/netCapital:accounting\.comprehensiveNetCapital/);
-  assert.match(server,/comprehensiveNetCapital:accounting\.comprehensiveNetCapital/);
-  assert.match(server,/equityNetCapital:accounting\.equityNetCapital/);
+test("API publishes the approved-inventory current capital and preserves the legacy value",()=>{
+  assert.match(server,/netCapital:currentCapital/);
+  assert.match(server,/comprehensiveNetCapital:currentCapital/);
+  assert.match(server,/legacyComprehensiveNetCapital:accounting\.comprehensiveNetCapital/);
 });

@@ -1,9 +1,10 @@
 const crypto = require("crypto");
 
-const APP_VERSION = "25.14.93";
+const APP_VERSION = "25.14.106";
 const BACKUP_FORMAT = "ALABOUD_BACKUP";
 
 function stableStringify(value){
+  if(typeof value === "bigint") return JSON.stringify(value.toString());
   if(value === null || typeof value !== "object") return JSON.stringify(value);
   if(Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   const keys = Object.keys(value).sort();
@@ -14,12 +15,13 @@ function checksum(value){
   return crypto.createHash("sha256").update(stableStringify(value)).digest("hex");
 }
 
-function createBackupEnvelope({ company, data, createdAt = new Date().toISOString() }){
+function createBackupEnvelope({ company, scope, data, createdAt = new Date().toISOString() }){
   const core = {
     format: BACKUP_FORMAT,
     version: APP_VERSION,
     createdAt,
     company: company || null,
+    ...(scope ? { scope } : {}),
     data: data || {}
   };
   return { ...core, integrity: { algorithm: "SHA-256", checksum: checksum(core) } };
@@ -27,23 +29,24 @@ function createBackupEnvelope({ company, data, createdAt = new Date().toISOStrin
 
 function verifyBackupEnvelope(payload){
   if(!payload || payload.format !== BACKUP_FORMAT || !payload.data || typeof payload.data !== "object"){
-    return { ok:false, message:"ظ…ظ„ظپ ط§ظ„ظ†ط³ط®ط© ط§ظ„ط§ط­طھظٹط§ط·ظٹط© ط؛ظٹط± طµط§ظ„ط­" };
+    return { ok:false, message:"ملف النسخة الاحتياطية غير صالح" };
   }
   if(!payload.integrity?.checksum){
-    return { ok:false, message:"ط§ظ„ظ†ط³ط®ط© ط§ظ„ط§ط­طھظٹط§ط·ظٹط© ظ„ط§ طھط­طھظˆظٹ ط¹ظ„ظ‰ ط¨طµظ…ط© ط³ظ„ط§ظ…ط©" };
+    return { ok:false, message:"النسخة الاحتياطية لا تحتوي على بصمة سلامة" };
   }
   const core = {
     format: payload.format,
     version: payload.version,
     createdAt: payload.createdAt,
     company: payload.company || null,
+    ...(Object.prototype.hasOwnProperty.call(payload,"scope") ? { scope:payload.scope } : {}),
     data: payload.data
   };
   const expected = checksum(core);
   const supplied = String(payload.integrity.checksum);
   const valid = expected.length === supplied.length &&
     crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(supplied));
-  return valid ? { ok:true } : { ok:false, message:"ظپط´ظ„ ط§ظ„طھط­ظ‚ظ‚ ظ…ظ† ط³ظ„ط§ظ…ط© ط§ظ„ظ†ط³ط®ط© ط§ظ„ط§ط­طھظٹط§ط·ظٹط©" };
+  return valid ? { ok:true } : { ok:false, message:"فشل التحقق من سلامة النسخة الاحتياطية" };
 }
 
 function productionReadiness(env = process.env){

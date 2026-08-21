@@ -11,7 +11,7 @@ assert(server.includes("operatingReturned"),"capital turnover must expose return
 assert(server.includes("paidByTransactionThroughMonth"),"turnover must be grounded in allocated customer payments");
 assert(server.includes("returnedRatio=due>0?Math.min(paid/due,1):0"),"returned principal must be capped at the transfer due");
 assert(server.includes("row.operatingReturned/base"),"turnover rate must use returned operating principal over capital base");
-assert(capital.includes("رأس المال 💰"),"main capital card title must be renamed");
+assert(capital.includes("رأس المال الأصلي — آخر جرد معتمد"),"main capital card title must match the approved inventory-baseline label");
 assert(capital.includes("💰 رأس المال حسب العملة"),"currency section title must be renamed");
 for(const label of ["المضاف:","المسحوب:","رأس المال الحالي:","خرج للتشغيل:","عاد من التشغيل:","عالق ولم يعد:","دوران رأس المال:"]){
   assert(capital.includes(label),`missing capital detail label: ${label}`);

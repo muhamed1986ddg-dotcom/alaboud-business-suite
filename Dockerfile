@@ -27,7 +27,7 @@ COPY app/src/main/java/com/alaboud/businesssuite/MainActivity.kt ./app/src/main/
 RUN node -e "const fs=require('fs');const s=fs.readFileSync('backend/src/server.js','utf8');if(!/\{[^}]*\bmutate\b[^}]*\}\s*=\s*require\(['\"]\.\/store['\"]\)/s.test(s))throw new Error('STARTUP_GUARD: backend/src/server.js does not import mutate from ./store');"
 
 # Production build gate: catch runtime startup regressions and financial/reliability regressions before image publication.
-RUN npm run check:sensitive && npm run check:v251493 && npm run check:reliability && npm run check:regressions
+RUN npm run check:sensitive && npm run check:current && npm run check:reliability && npm run check:regressions
 
 RUN cd backend && npx playwright install --with-deps chromium
 
@@ -38,6 +38,11 @@ RUN rm -rf backend/public \
 
 # Cloud Run rejects images whose filesystem contains non-UTF-8 path names.
 RUN node scripts/check-container-paths.js
+
+# Remove frontend build dependencies from the runtime image and drop root privileges.
+RUN rm -rf frontend/node_modules \
+    && chown -R node:node /app
+USER node
 
 EXPOSE 8080
 

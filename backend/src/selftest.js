@@ -6,8 +6,10 @@ const fs = require("fs");
 const crypto = require("crypto");
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "alaboud-v7-"));
+const selftestPort=5200+crypto.randomInt(1000);
+const selftestInitialPassword="SelftestInitial!2514104";
 const child = spawn(process.execPath,[path.join(__dirname,"server.js")],{
-  env:{...process.env,PORT:"5099",DATA_DIR:dataDir,JWT_SECRET:"QA_SECRET"},
+  env:{...process.env,PORT:String(selftestPort),DATA_DIR:dataDir,DATABASE_URL:"",JWT_SECRET:"QA_SECRET",INITIAL_ADMIN_PASSWORD:selftestInitialPassword},
   stdio:["ignore","pipe","pipe"]
 });
 
@@ -15,7 +17,7 @@ function request(method,route,body,token){
   return new Promise((resolve,reject)=>{
     const data=body?JSON.stringify(body):"";
     const req=http.request({
-      hostname:"127.0.0.1",port:5099,path:route,method,
+      hostname:"127.0.0.1",port:selftestPort,path:route,method,
       headers:{
         "Content-Type":"application/json",
         "X-Installation-ID":"selftest-installation",
@@ -46,11 +48,11 @@ setTimeout(async()=>{
     let r=await request("GET","/api/health");
     assert(r.status===200&&r.body.version===require("../package.json").version,"health",r);
 
-    r=await request("POST","/api/auth/login",{email:"admin@alaboud.local",password:"Admin123!ChangeMe"});
+    r=await request("POST","/api/auth/login",{email:"admin@alaboud.local",password:selftestInitialPassword});
     assert(r.status===200&&r.body.token,"login",r);
     const token=r.body.token;
 
-    r=await request("POST","/api/auth/change-password",{currentPassword:"Admin123!ChangeMe",newPassword:"SelftestOnly!251473"},token);
+    r=await request("POST","/api/auth/change-password",{currentPassword:selftestInitialPassword,newPassword:"SelftestOnly!251473"},token);
     assert(r.status===200&&r.body.mustChangePassword===false,"forced password change",r);
 
     r=await request("POST","/api/customers",{name:"عميل اختبار",phone:"15195550123"},token);

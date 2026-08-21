@@ -32,6 +32,41 @@ function calculateNetCapital({capitalContributions=0,capitalWithdrawals=0,realiz
   );
 }
 
+function calculateVaultCashSnapshot(vaultCashByCurrency={},resolveConversion=()=>null){
+  const source=vaultCashByCurrency&&typeof vaultCashByCurrency==="object"&&!Array.isArray(vaultCashByCurrency)?vaultCashByCurrency:{};
+  const codes=new Set(["CAD","USD"]);
+  for(const rawCode of Object.keys(source)){
+    const code=String(rawCode||"").trim().toUpperCase();
+    if(/^[A-Z]{3}$/.test(code))codes.add(code);
+  }
+  const balances={};
+  const rates={};
+  const missingRates=[];
+  const invalidCurrencies=[];
+  let totalCad=0n;
+  for(const code of codes){
+    const raw=source[code]??source[code.toLowerCase()]??0;
+    const amount=Number(raw);
+    if(!Number.isFinite(amount)||amount<0){invalidCurrencies.push(code);continue;}
+    const normalizedAmount=moneyToNumber(centMoney(amount));
+    balances[code]=normalizedAmount;
+    const conversion=code==="CAD"?{factor:1,path:["CAD"],updatedAt:null,source:"IDENTITY"}:resolveConversion(code,"CAD");
+    if(!conversion||!Number.isFinite(Number(conversion.factor))||Number(conversion.factor)<=0){
+      if(normalizedAmount>0)missingRates.push(code);
+      continue;
+    }
+    const converted=centMoney(normalizedAmount*Number(conversion.factor));
+    totalCad+=converted;
+    rates[code]={from:code,to:"CAD",factor:Number(conversion.factor),path:Array.isArray(conversion.path)?conversion.path:[code,"CAD"],updatedAt:conversion.updatedAt||null,source:conversion.source||null,convertedCad:moneyToNumber(converted)};
+  }
+  return Object.freeze({vaultCash:moneyToNumber(totalCad),vaultCashByCurrency:Object.freeze(balances),vaultCashExchangeRates:Object.freeze(rates),missingRates:Object.freeze(missingRates),invalidCurrencies:Object.freeze(invalidCurrencies)});
+}
+
+function legacyVaultCashDetails(vaultCash=0){
+  const cad=moneyToNumber(centMoney(positiveMoney(vaultCash)));
+  return {vaultCashByCurrency:{CAD:cad,USD:0},vaultCashExchangeRates:{CAD:{from:"CAD",to:"CAD",factor:1,path:["CAD"],updatedAt:null,source:"LEGACY_CAD",convertedCad:cad}}};
+}
+
 function calculateInventorySnapshot({
   netCapital=0,
   vaultCash=0,
@@ -83,6 +118,23 @@ function calculateInventorySnapshot({
     totalLiabilities:moneyToNumber(totalLiabilities),
     finalValue:moneyToNumber(finalValue),
     inventoryDifference:moneyToNumber(inventoryDifference)
+  });
+}
+
+function calculateInventoryPresentation(snapshot={},netProfit=0){
+  const netCompanies=(
+    moneySafe(snapshot.partnerAssets)
+    + moneySafe(snapshot.companyReceivables)
+    - moneySafe(snapshot.companyPayables)
+  );
+  const netCustomers=moneySafe(snapshot.customerReceivables)-moneySafe(snapshot.customerPayables);
+  const netManualDebts=moneySafe(snapshot.manualReceivables)-moneySafe(snapshot.manualPayables);
+  return Object.freeze({
+    netCompanies:moneyToNumber(netCompanies),
+    netCustomers:moneyToNumber(netCustomers),
+    netProfit:moneyToNumber(centMoney(netProfit)),
+    netManualDebts:moneyToNumber(netManualDebts),
+    finalInventory:moneyToNumber(centMoney(snapshot.finalValue))
   });
 }
 
@@ -165,7 +217,10 @@ function calculateInventoryMonthProfit(store,{month,transactionFinancials}){
 
 module.exports={
   calculateNetCapital,
+  calculateVaultCashSnapshot,
+  legacyVaultCashDetails,
   calculateInventorySnapshot,
+  calculateInventoryPresentation,
   calculateInventoryPosition,
   calculateInventoryPayables,
   calculateInventoryMonthProfit,

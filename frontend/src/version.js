@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.93 Security Hardening";
+export const APP_VERSION="v25.14.106 WhatsApp Quick Send";

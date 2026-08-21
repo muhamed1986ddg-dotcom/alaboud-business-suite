@@ -1,0 +1,20 @@
+import assert from "node:assert/strict";
+import {buildWhatsAppUrl,compactWhatsAppLines,normalizeWhatsAppPhone,openWhatsAppMessage} from "../src/whatsapp.js";
+
+assert.equal(normalizeWhatsAppPhone("+1 519 555 1234"),"15195551234");
+assert.equal(normalizeWhatsAppPhone("00963 944 123 456"),"963944123456");
+assert.equal(normalizeWhatsAppPhone("(519) 555-1234"),"5195551234");
+assert.equal(normalizeWhatsAppPhone(""),"");
+const arabic="مرحباً، تم حفظ الحوالة بنجاح";
+assert.equal(buildWhatsAppUrl("+1 519 555 1234",arabic),`https://wa.me/15195551234?text=${encodeURIComponent(arabic)}`);
+assert.equal(compactWhatsAppLines(["مرحباً",undefined,null,NaN,"الرصيد"]),"مرحباً\nالرصيد");
+let opened=false;
+assert.equal(openWhatsAppMessage("",arabic,{open(){opened=true}}).ok,false);
+assert.equal(opened,false);
+assert.equal(openWhatsAppMessage("+1 519 555 1234",arabic,{open(url,target,features){opened={url,target,features}}}).ok,true);
+assert.equal(opened.target,"_blank");
+assert.match(opened.features,/noopener/);
+let androidUrl="";
+assert.equal(openWhatsAppMessage("00963 944 123 456",arabic,{navigator:{userAgent:"Android WebView"},location:{assign(url){androidUrl=url}}}).ok,true);
+assert.match(androidUrl,/^https:\/\/wa\.me\/963944123456\?text=/);
+console.log("WhatsApp quick send v25.14.106 checks passed");

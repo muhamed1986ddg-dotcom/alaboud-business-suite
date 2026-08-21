@@ -1,0 +1,16 @@
+"use strict";
+const assert=require("assert/strict");
+const fs=require("fs");
+const path=require("path");
+const root=path.resolve(__dirname,"../..");
+const expected="25.14.106";
+assert.equal(require(path.join(root,"package.json")).version,expected);
+assert.equal(require(path.join(root,"backend/package.json")).version,expected);
+assert.equal(require(path.join(root,"frontend/package.json")).version,expected);
+assert.equal(require("./production-readiness").APP_VERSION,expected);
+assert(fs.readFileSync(path.join(root,"app/build.gradle.kts"),"utf8").includes('versionName = "25.14.106"'));
+assert(fs.readFileSync(path.join(root,"app/build.gradle.kts"),"utf8").includes('versionCode = 2514106'));
+assert(fs.readFileSync(path.join(root,"app/src/main/java/com/alaboud/businesssuite/MainActivity.kt"),"utf8").includes('CLIENT_VERSION = "25.14.106"'));
+assert(fs.readFileSync(path.join(root,"frontend/src/api.js"),"utf8").includes('X-Alaboud-Client-Version"]="25.14.106"'));
+assert(fs.readFileSync(path.join(root,"frontend/src/version.js"),"utf8").includes('v25.14.106'));
+console.log("version consistency v25.14.106: OK");

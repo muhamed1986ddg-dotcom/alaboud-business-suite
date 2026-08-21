@@ -12,18 +12,24 @@ const net = require("net");
 const http = require("http");
 const https = require("https");
 const { readStore, readRootStore, mutate, mutateVolatile, mutateDurable, id, now, runWithTenant, initStore, databaseHealth, flushStore, closeStore, getDatabaseQuery } = require("./store");
+const { sendJsonAttachmentChunked } = require("./backup-response");
+const { backupRestoreMaxBytes, validateBackupRestoreSchema } = require("./backup-restore");
 const { createTelemetryWriter } = require("./telemetry-writer");
 const NativeRepositoryRegistry = require("./repositories/NativeRepositoryRegistry");
 const FinancialEngine = require("./finance/FinancialEngine");
 const { customerBalanceTotals } = FinancialEngine;
 const { customerReceiptsTotal } = FinancialEngine;
-const { normalizeFeeMethod, transactionFinancials } = require("./finance/TransactionFinancials");
-const { calculateCapitalOverviewFinancials } = require("./finance/CapitalOverviewFinancials");
+const { normalizeFeeMethod, transactionFinancials, transactionFinancialView, addTransactionProfitToBucket, summarizeTransactionProfits } = require("./finance/TransactionFinancials");
+const { resolveProviderPartner, providerFeeStoredFields, assertProviderFeeBalanced } = require("./finance/ProviderFeeAccounting");
+const { calculateCapitalOverviewFinancials, resolveInventoryCapital, isAfterInventoryApproval } = require("./finance/CapitalOverviewFinancials");
 const { calculateReceivableSummary } = require("./finance/ReceivableSummary");
 const { manualDebtLinkStatus, partitionManualDebts } = require("./finance/DebtLinking");
 const {
   calculateNetCapital,
+  calculateVaultCashSnapshot,
+  legacyVaultCashDetails,
   calculateInventorySnapshot,
+  calculateInventoryPresentation,
   calculateInventoryPosition,
   calculateInventoryPayables,
   calculateInventoryMonthProfit
@@ -39,10 +45,15 @@ const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialInt
 const { registerHealthRoutes } = require("./routes/health");
 const { registerDeveloperRoutes } = require("./routes/developer");
 const { registerNotificationRoutes } = require("./routes/notifications");
+const { registerMonthlyAccountMessagesJob } = require("./routes/monthly-account-messages-job"); const { registerOrganizationRoutes } = require("./routes/organization");
+const { registerFinanceOperationsRoutes } = require("./routes/finance-operations");
+const { registerBackupRoutes } = require("./routes/backup");
 const { createServiceReadinessGate } = require("./middleware/service-readiness");
-const { createInMemoryRateLimiter } = require("./middleware/rate-limit");
+const { createHybridRateLimiter } = require("./middleware/rate-limit");
 const { createTelemetryLifecycle } = require("./services/telemetry-lifecycle");
+const { selectMonthlyBalanceRecipients, monthlyBalanceMessage, isScheduledRunDue, executeMonthlyAccountMessages, executeTransferCreatedMessage } = require("./services/monthly-customer-balance-messages"); const { createTransferWhatsappDispatcher } = require("./services/transfer-whatsapp-dispatcher"); const { executeZeroBalanceMessage } = require("./services/zero-balance-whatsapp"); const { buildTwilioMessagePayload, sendAutomaticWhatsappTemplate } = require("./services/twilio-whatsapp-content"); const { createWhatsappSender, isWhatsappProviderConfigured } = require("./services/whatsapp-provider");
 const { createGracefulShutdown } = require("./services/graceful-shutdown");
+const { editGroupedCustomerPayment } = require("./services/customer-payment-edit");
 const { createIdempotencyMiddleware, createRequireIdempotencyKey, operationScopeKey } = require("./reliability/idempotency");
 const { assertSafePartnerUrl, pinnedPartnerFetch } = require("./security/partner-network");
 const { permissionsFor, requirePermission, requiredPermissionForRequest, hasPermission } = require("./access-control");
@@ -57,6 +68,12 @@ const {
   verifyBackupEnvelope,
   productionReadiness
 } = require("./production-readiness");
+const {
+  COMPANY_OPERATIONAL_BACKUP_SCOPE,
+  buildCompanyOperationalBackup,
+  restoreCompanyOperationalBackup,
+  isCompanyWideOperationalBackup
+} = require("./company-backup");
 
 const PORT = Number(process.env.PORT || 5000);
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -268,7 +285,7 @@ async function sendRaselSms({to,body}){
   return {ok:false,reason:"RASEL_SEND_FAILED",status:response.status};
 }
 
-async function sendTwilioMessage({channel,to,body}){
+async function sendTwilioMessage({channel,to,body,contentSid="",contentVariables=null,requireTemplate=false}){
   const accountSid=String(process.env.TWILIO_ACCOUNT_SID||"").trim();
   const authToken=String(process.env.TWILIO_AUTH_TOKEN||"").trim();
   const smsFrom=String(process.env.TWILIO_SMS_FROM||"").trim();
@@ -276,25 +293,26 @@ async function sendTwilioMessage({channel,to,body}){
   if(!accountSid||!authToken)return {ok:false,reason:"TWILIO_NOT_CONFIGURED"};
   const from=channel==="WHATSAPP"?whatsappFrom:smsFrom;
   if(!from)return {ok:false,reason:channel==="WHATSAPP"?"WHATSAPP_SENDER_NOT_CONFIGURED":"SMS_SENDER_NOT_CONFIGURED"};
-  const payload=new URLSearchParams();
-  payload.set("From",channel==="WHATSAPP"?(from.startsWith("whatsapp:")?from:`whatsapp:${from}`):from);
-  payload.set("To",channel==="WHATSAPP"?(to.startsWith("whatsapp:")?to:`whatsapp:${to}`):to);
-  payload.set("Body",body);
+  if(channel==="WHATSAPP"&&requireTemplate&&!contentSid)return {ok:false,reason:"WHATSAPP_TEMPLATE_NOT_CONFIGURED",configurationError:true};
+  const built=buildTwilioMessagePayload({channel,to,from,body,contentSid,contentVariables});if(!built.ok)return built;const payload=built.payload;
   const response=await fetch(`https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`,{
     method:"POST",
     headers:{"Authorization":`Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,"Content-Type":"application/x-www-form-urlencoded"},
     body:payload.toString(),
     signal:AbortSignal.timeout(10000)
   });
-  if(response.ok)return {ok:true};
+  if(response.ok){
+    let result={};try{result=await response.json()}catch{}
+    return {ok:true,provider:"twilio",providerMessageId:result.sid||null};
+  }
   let detail="";try{detail=(await response.json())?.message||""}catch{}
   console.error(`Twilio ${channel} failed:`,response.status,detail);
   return {ok:false,reason:"TWILIO_SEND_FAILED",status:response.status};
 }
 const app = express();
-let serviceReady = false;
-let serviceStartupError = null;
-let startupAttempt = 0;
+let serviceReady = false; let serviceStartupError = null;
+const sendWhatsAppMessage=createWhatsappSender({sendTwilioTemplate:payload=>sendAutomaticWhatsappTemplate({...payload,sendTwilioMessage})});
+let startupAttempt = 0; const transferWhatsAppDispatcher=createTransferWhatsappDispatcher({runWithTenant,readStore,mutateDurable,id,now,customerSummary,executeTransferCreatedMessage,executeZeroBalanceMessage,sendWhatsApp:sendWhatsAppMessage});
 // التقاط تلقائي لأي خطأ (متزامن أو غير متزامن) يحدث داخل أي مسار API لم يكن
 // يحتوي على try/catch صريح. بدون هذا، أي استثناء داخل مسار async كان يتحول
 // إلى "unhandled rejection" وبما أن السيرفر مهيأ لإيقاف نفسه عند أي رفض غير
@@ -320,6 +338,10 @@ app.disable("x-powered-by");
 app.set("trust proxy", 1);
 app.use((req,res,next)=>{ req.requestId=crypto.randomUUID(); res.setHeader("X-Request-ID",req.requestId); next(); });
 app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc:["'self'"], scriptSrc:["'self'"], styleSrc:["'self'","'unsafe-inline'"], imgSrc:["'self'","data:","blob:"], connectSrc:["'self'","https:"], objectSrc:["'none'"], baseUri:["'self'"], frameAncestors:["'none'"] } }, crossOriginEmbedderPolicy:false, hsts: IS_PROD ? {maxAge:31536000,includeSubDomains:true,preload:true}:false }));
+// Backup restore uses a separate bounded parser because valid exports can be
+// larger than the normal API payload limit. The normal 2 MB limit is retained
+// unchanged for every other JSON endpoint.
+app.use("/api/backup/restore",express.json({limit:backupRestoreMaxBytes(),strict:true,type:"application/json"}));
 app.use(express.json({ limit: "2mb", strict:true }));
 app.use(express.urlencoded({extended:false,limit:"256kb"}));
 app.use("/api", createIdempotencyMiddleware({
@@ -339,7 +361,7 @@ const telemetryLifecycle=createTelemetryLifecycle({writer:telemetryWriter});
 app.use(versionAliasMiddleware);
 app.use(apiKeyMiddleware({readStore,telemetry:telemetryWriter,now,id}));
 app.use(integrationLogger({telemetry:telemetryWriter,now,id}));
-const {rateLimit}=createInMemoryRateLimiter();
+const {rateLimit}=createHybridRateLimiter({getQuery:getDatabaseQuery});
 app.use("/api",rateLimit("api",600,15*60*1000));
 
 app.use("/api",(_req,res,next)=>{
@@ -383,7 +405,7 @@ async function seedAdmin(){
       }
     }
     if(!store.companySettings[company.id]){
-      store.companySettings[company.id]={...(store.notificationSettings||{}),overdueDays:store.notificationSettings?.overdueDays||7,lowCashLimit:store.notificationSettings?.lowCashLimit||5000,whatsappTemplate:store.notificationSettings?.whatsappTemplate||""};
+      store.companySettings[company.id]={...(store.notificationSettings||{}),overdueDays:store.notificationSettings?.overdueDays||7,lowCashLimit:store.notificationSettings?.lowCashLimit||5000,whatsappTemplate:store.notificationSettings?.whatsappTemplate||"",monthlyAccountWhatsAppEnabled:Boolean(store.notificationSettings?.monthlyAccountWhatsAppEnabled??store.notificationSettings?.monthlyAccountMessagesEnabled),monthlyAccountMessageDay:store.notificationSettings?.monthlyAccountMessageDay||19,monthlyAccountMessageTime:store.notificationSettings?.monthlyAccountMessageTime||"09:00",monthlyAccountMessageTemplate:store.notificationSettings?.monthlyAccountMessageTemplate||"",automaticTransferWhatsAppEnabled:Boolean(store.notificationSettings?.automaticTransferWhatsAppEnabled),zeroBalanceWhatsAppEnabled:Boolean(store.notificationSettings?.zeroBalanceWhatsAppEnabled),timeZone:store.notificationSettings?.timeZone||"America/Toronto"};
     }
   });
 }
@@ -491,15 +513,23 @@ function normalizePhone(value="") {
 }
 
 function audit(store, userId, action, entityType, entityId, details = {}) {
-  const logs=store.auditLogs||[]; const previous=logs.length?logs[logs.length-1].integrityHash||"":"GENESIS";
+  const logs=store.auditLogs||[];
   const user=(store.users||[]).find(item=>item.id===userId)||{};
   const safeDetails={...(details||{})};
+  const auditCompanyId=user.companyId||safeDetails.companyId||null;
+  const auditBranchId=safeDetails.branchId||null;
+  const scopedLogs=Array.from(logs||[]).filter(item=>{
+    if(auditCompanyId&&String(item?.companyId||"")!==String(auditCompanyId))return false;
+    if(auditBranchId&&String(item?.branchId||"")!==String(auditBranchId))return false;
+    return true;
+  });
+  const previous=scopedLogs.length?scopedLogs[scopedLogs.length-1].integrityHash||"":"GENESIS";
   if(safeDetails.password)delete safeDetails.password;
   if(safeDetails.passwordEncrypted)delete safeDetails.passwordEncrypted;
   if(safeDetails.twoFactorSecret)delete safeDetails.twoFactorSecret;
   if(safeDetails.authenticatorCode)delete safeDetails.authenticatorCode;
   const entry={
-    id:id(), userId, userName:user.name||user.email||userId, action, entityType, entityId,
+    id:id(), companyId:auditCompanyId, userId, userName:user.name||user.email||userId, action, entityType, entityId,
     details:safeDetails, ip:safeDetails.ip||null, branchId:safeDetails.branchId||null,
     branchName:safeDetails.branchName||null, createdAt:now(), previousHash:previous
   };
@@ -589,6 +619,7 @@ function safeNumber(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
 }
+
 
 function legacyPaymentGroupKey(payment) {
   const timestamp = String(payment.date || payment.createdAt || payment.paymentDate || "").slice(0, 19);
@@ -881,7 +912,7 @@ app.get("/api/auth/account-verification",auth,(req,res)=>{
     emailVerifiedAt:user.emailVerifiedAt||null,phoneVerifiedAt:user.phoneVerifiedAt||null,
     preferredChannel:normalizeChannel(user.preferredVerificationChannel)||"EMAIL",
     maskedEmail:maskEmail(email),maskedPhone:maskPhone(phone),
-    providers:{email:Boolean(mailTransport),sms:Boolean(process.env.RASEL_API_KEY||process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_SMS_FROM),whatsapp:Boolean(process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_WHATSAPP_FROM)}
+    providers:{email:Boolean(mailTransport),sms:Boolean(process.env.RASEL_API_KEY||process.env.TWILIO_ACCOUNT_SID&&process.env.TWILIO_AUTH_TOKEN&&process.env.TWILIO_SMS_FROM),whatsapp:isWhatsappProviderConfigured()}
   });
 });
 
@@ -1062,7 +1093,7 @@ app.post("/api/auth/register-company",rateLimit("register-company",5,60*60*1000)
       const user={id:id(),companyId:company.id,name:ownerName,email,passwordHash:hashPassword(password),role:"ADMIN",active:true,createdAt:now()};
       store.companies.push(company);
       store.users.push(user);
-      store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:""};
+      store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,timeZone:"America/Toronto"};
       return {company,user};
     });
     const session=await issueSession(result.user,result.company,{ip:req.ip,userAgent:req.get("user-agent")});
@@ -1183,163 +1214,10 @@ app.post("/api/auth/logout-all", auth, async (req,res)=>{
   res.json({message:"تم إنهاء الجلسات",revoked:count});
 });
 
-app.get("/api/security/permissions", auth, (req,res)=>res.json({role:req.user.role,permissions:req.user.permissions||[]}));
-
-app.get("/api/audit-logs", auth, requirePermission("audit.read"), (req,res)=>{
-  const limit=Math.min(500,Math.max(1,Number(req.query.limit)||100));
-  const action=String(req.query.action||"").toUpperCase();
-  const entityType=String(req.query.entityType||"").toUpperCase();
-  const auditStore=readStore();
-  const userMap=new Map((auditStore.users||[]).map(user=>[user.id,user.name||user.email||user.id]));
-  let logs=(auditStore.auditLogs||[]).slice().map(item=>({...item,userName:item.userName||userMap.get(item.userId)||item.userId}));
-  if(action)logs=logs.filter(item=>String(item.action||"").toUpperCase()===action);
-  if(entityType)logs=logs.filter(item=>String(item.entityType||"").toUpperCase()===entityType);
-  res.json(logs.sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,limit));
+registerOrganizationRoutes(app,{
+  auth,requirePermission,readStore,readRootStore,branchSummary,mutateDurable,createBranch,now,audit,
+  passwordPolicy,hashPassword,id,revokeUserSessions,revokeBiometricForUser
 });
-
-// v22.8.0 — Multi-Branch management
-app.get("/api/branches",auth,(req,res)=>{
-  const root=readRootStore();const user=root.users.find(x=>x.id===req.user.id)||req.user;
-  const allowed=(root.branches||[]).filter(x=>x.companyId===req.user.companyId&&x.active!==false&&(!Array.isArray(user.branchIds)||!user.branchIds.length||user.branchIds.includes(x.id)));
-  res.json(allowed.map(branch=>branchSummary(root,branch)));
-});
-app.post("/api/branches",auth,async (req,res)=>{
-  if(!["ADMIN","MANAGER"].includes(req.user.role))return res.status(403).json({message:"إنشاء الفروع متاح للمدير فقط"});
-  try{let branch;await mutateDurable(root=>{branch=createBranch(root,{companyId:req.user.companyId,name:req.body?.name,code:req.body?.code,address:req.body?.address,phone:req.body?.phone,currency:req.body?.currency,isMain:req.body?.isMain,createdBy:req.user.id,now});audit(root,req.user.id,"CREATE","BRANCH",branch.id,{name:branch.name,code:branch.code});});res.status(201).json(branch);}catch(error){const messages={BRANCH_NAME_REQUIRED:"اسم الفرع مطلوب",BRANCH_CODE_REQUIRED:"رمز الفرع مطلوب",BRANCH_CODE_EXISTS:"رمز الفرع مستخدم مسبقًا"};res.status(400).json({message:messages[error.message]||error.message});}
-});
-app.patch("/api/branches/:id",auth,async (req,res)=>{
-  if(!["ADMIN","MANAGER"].includes(req.user.role))return res.status(403).json({message:"تعديل الفروع متاح للمدير فقط"});let branch;await mutateDurable(root=>{branch=(root.branches||[]).find(x=>x.id===req.params.id&&x.companyId===req.user.companyId);if(!branch)return;if(req.body?.isMain){for(const x of root.branches)if(x.companyId===req.user.companyId)x.isMain=false;}for(const key of ["name","address","phone","currency","active","isMain"])if(req.body?.[key]!==undefined)branch[key]=req.body[key];branch.updatedAt=now();audit(root,req.user.id,"UPDATE","BRANCH",branch.id,{name:branch.name});});if(!branch)return res.status(404).json({message:"الفرع غير موجود"});res.json(branch);
-});
-app.get("/api/branches/current",auth,(req,res)=>res.json(req.branch));
-app.get("/api/branches/network-summary",auth,(req,res)=>{const root=readRootStore();const rows=(root.branches||[]).filter(x=>x.companyId===req.user.companyId&&x.active!==false).map(x=>branchSummary(root,x));res.json({branches:rows,totals:rows.reduce((a,x)=>({customers:a.customers+x.metrics.customers,transactions:a.transactions+x.metrics.transactions,transactionValueCad:+(a.transactionValueCad+x.metrics.transactionValueCad).toFixed(2),expensesCad:+(a.expensesCad+x.metrics.expensesCad).toFixed(2)}),{customers:0,transactions:0,transactionValueCad:0,expensesCad:0})});});
-
-app.get("/api/company-profile", auth, (req,res)=>{
-  const store=readStore();
-  const company=store.companies.find(item=>item.id===req.user.companyId);
-  if(!company)return res.status(404).json({message:"الشركة غير موجودة"});
-  res.json({id:company.id,name:company.name,phone:company.phone||"",logoDataUrl:company.logoDataUrl||""});
-});
-
-app.patch("/api/company-profile", auth, async (req,res)=>{
-  if(req.user.role!=="ADMIN")return res.status(403).json({message:"تعديل هوية الشركة متاح للمسؤول الكامل فقط"});
-  const name=String(req.body?.name||"").trim();
-  const phone=String(req.body?.phone||"").trim();
-  const logoDataUrl=String(req.body?.logoDataUrl||"");
-  if(!name)return res.status(400).json({message:"اسم الشركة مطلوب"});
-  if(logoDataUrl && !/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(logoDataUrl)){
-    return res.status(400).json({message:"صيغة الشعار غير مدعومة"});
-  }
-  if(logoDataUrl.length>1500000)return res.status(400).json({message:"حجم الشعار كبير جدًا"});
-  const company=await mutateDurable(store=>{
-    const item=store.companies.find(company=>company.id===req.user.companyId);
-    if(!item)throw new Error("الشركة غير موجودة");
-    item.name=name; item.phone=phone; item.logoDataUrl=logoDataUrl; item.updatedAt=now();
-    return {id:item.id,name:item.name,phone:item.phone||"",logoDataUrl:item.logoDataUrl||""};
-  });
-  res.json(company);
-});
-
-app.post("/api/users", auth, async (req,res)=>{
-  if(req.user.role!=="ADMIN"){
-    return res.status(403).json({message:"إنشاء الحسابات متاح للمدير فقط"});
-  }
-
-  const name=String(req.body?.name||"").trim();
-  const email=String(req.body?.email||"").trim().toLowerCase();
-  const password=String(req.body?.password||"");
-  const role=["ADMIN","MANAGER","ACCOUNTANT","USER","VIEWER"].includes(String(req.body?.role||"").toUpperCase())
-    ? String(req.body.role).toUpperCase()
-    : "USER";
-
-  if(!name||!email||!email.includes("@")){
-    return res.status(400).json({message:"الاسم والبريد الإلكتروني مطلوبان"});
-  }
-  { const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message}); }
-
-  try{
-    const created=await mutateDurable((store)=>{
-      if(store.users.some(item=>String(item.email||"").toLowerCase()===email)){
-        throw new Error("البريد الإلكتروني مستخدم مسبقًا");
-      }
-      const user={
-        id:id(),
-        companyId:req.user.companyId,
-        name,
-        email,
-        passwordHash:hashPassword(password),
-        role,
-        active:true,
-        createdAt:now()
-      };
-      store.users.push(user);
-      audit(store,req.user.id,"CREATE","USER",user.id,{name,email,role});
-      return {id:user.id,name:user.name,email:user.email,role:user.role,active:user.active};
-    });
-    res.status(201).json(created);
-  }catch(error){
-    res.status(400).json({message:error.message||"تعذر إنشاء الحساب"});
-  }
-});
-
-app.get("/api/users", auth, (req,res)=>{
-  if(req.user.role!=="ADMIN")return res.status(403).json({message:"إدارة المستخدمين متاحة للمدير فقط"});
-  const users=readStore().users.map(user=>({id:user.id,name:user.name,email:user.email,role:user.role,active:user.active!==false,createdAt:user.createdAt,lastLoginAt:user.lastLoginAt||null}));
-  res.json(users);
-});
-
-app.patch("/api/users/:id", auth, async (req,res)=>{
-  if(req.user.role!=="ADMIN")return res.status(403).json({message:"إدارة المستخدمين متاحة للمدير فقط"});
-  try{
-    const updated=await mutateDurable(store=>{
-      const user=store.users.find(item=>item.id===req.params.id);
-      if(!user)throw new Error("المستخدم غير موجود");
-      if(user.id===req.user.id&&req.body?.active===false)throw new Error("لا يمكنك تعطيل حسابك الحالي");
-      if(req.body?.name!==undefined)user.name=String(req.body.name||"").trim()||user.name;
-      if(req.body?.role!==undefined&&["ADMIN","MANAGER","ACCOUNTANT","USER","VIEWER"].includes(String(req.body.role).toUpperCase()))user.role=String(req.body.role).toUpperCase();
-      if(req.body?.active!==undefined)user.active=Boolean(req.body.active);
-      let revokedSessions=0,revokedBiometric=0;
-      if(req.body?.password!==undefined){
-        const policy=passwordPolicy(String(req.body.password));
-        if(!policy.ok)throw new Error(policy.message);
-        user.passwordHash=hashPassword(String(req.body.password));
-        user.mustChangePassword=true;
-        revokedSessions=revokeUserSessions(store,user.id,req.user.id,null);
-        revokedBiometric=revokeBiometricForUser(store,user.id);
-      }else if(req.body?.active===false){
-        revokedSessions=revokeUserSessions(store,user.id,req.user.id,null);
-        revokedBiometric=revokeBiometricForUser(store,user.id);
-      }
-      user.updatedAt=now();
-      audit(store,req.user.id,"UPDATE","USER",user.id,{role:user.role,active:user.active,revokedSessions,revokedBiometric});
-      return {id:user.id,name:user.name,email:user.email,role:user.role,active:user.active!==false,lastLoginAt:user.lastLoginAt||null};
-    });
-    res.json(updated);
-  }catch(error){res.status(400).json({message:error.message||"تعذر تحديث المستخدم"})}
-});
-
-app.get("/api/devices", auth, (req,res)=>{
-  if(req.user.role!=="ADMIN")return res.status(403).json({message:"إدارة الأجهزة متاحة للمدير فقط"});
-  res.json((readStore().devices||[]).slice().sort((a,b)=>String(b.lastSeenAt||"").localeCompare(String(a.lastSeenAt||""))));
-});
-
-app.patch("/api/devices/:id", auth, async (req,res)=>{
-  if(req.user.role!=="ADMIN")return res.status(403).json({message:"إدارة الأجهزة متاحة للمدير فقط"});
-  try{
-    const device=await mutateDurable(store=>{
-      const item=(store.devices||[]).find(row=>row.id===req.params.id);
-      if(!item)throw new Error("الجهاز غير موجود");
-      if(req.body?.active!==undefined)item.active=Boolean(req.body.active);
-      if(req.body?.deviceName!==undefined)item.deviceName=String(req.body.deviceName||"").slice(0,120);
-      item.updatedAt=now();
-      audit(store,req.user.id,"UPDATE","DEVICE",item.id,{active:item.active});
-      return item;
-    });
-    res.json(device);
-  }catch(error){res.status(400).json({message:error.message||"تعذر تحديث الجهاز"})}
-});
-
-app.get("/api/legal/privacy", (_req,res)=>res.json({version:"1.0",updatedAt:"2026-07-18",title:"سياسة الخصوصية",content:"يجمع النظام معلومات الحساب ومعرّف التثبيت ونوع الجهاز وإصدار التطبيق وتاريخ أول وآخر استخدام لأغراض الأمان وإدارة التراخيص فقط. لا تُباع البيانات ولا تُشارك مع جهات خارجية، ولا يتم جمع كلمات المرور بصورتها الأصلية. يتحمل مدير الشركة مسؤولية بيانات العملاء المسجلة داخل النظام."}));
-app.get("/api/legal/terms", (_req,res)=>res.json({version:"1.0",updatedAt:"2026-07-18",title:"شروط الاستخدام",content:"استخدام البرنامج مخصص للحسابات والأجهزة المصرح بها. يمنع نسخ البرنامج أو إعادة بيعه أو محاولة تجاوز الحماية دون إذن. المستخدم مسؤول عن صحة البيانات والنسخ الاحتياطية والالتزام بالقوانين المحلية."}));
 
 
 const dashboardSummaryCache=new Map();
@@ -1366,9 +1244,16 @@ app.get("/api/dashboard", auth, (req,res)=>{
 
 
 
+const runMonthlyCustomerBalanceMessages=registerMonthlyAccountMessagesJob(app,{crypto,readRootStore,readStore,runWithTenant,mutateDurable,id,now,customerSummary,inventoryLocalDate,isScheduledRunDue,executeMonthlyAccountMessages,sendWhatsApp:sendWhatsAppMessage,isServiceReady:()=>serviceReady});
 registerNotificationRoutes(app,{
   auth,requirePermission,readStore,mutateDurable,safeNumber,audit,id,now,
-  customerSummary,capitalCadAmount
+  customerSummary,capitalCadAmount,
+  previewMonthlyMessages:()=>{
+    const store=readStore();
+    const local=inventoryLocalDate(store.notificationSettings||{});
+    return selectMonthlyBalanceRecipients(store,{customerSummary}).map(recipient=>({...recipient,messageText:monthlyBalanceMessage(recipient,local.date,store.notificationSettings?.monthlyAccountMessageTemplate)}));
+  },
+  sendMonthlyMessagesNow:async req=>(await runMonthlyCustomerBalanceMessages({triggerType:"MANUAL",companyId:req.user.companyId,branchId:req.user.branchId,force:true})).results
 });
 
 app.get("/api/capital-overview", auth, (req,res)=>{
@@ -1474,8 +1359,27 @@ app.get("/api/capital-overview", auth, (req,res)=>{
     monthlyProfit,
     monthlyExpenses
   });
-  const estimatedCapital=accounting.comprehensiveNetCapital;
-  const totalCapital=accounting.comprehensiveNetCapital;
+  const latestInventory=(Array.isArray(store.monthlyInventories)?store.monthlyInventories:[])
+    .filter(item=>item&&!item.isDeleted&&Number.isFinite(Number(item.finalInventory??item.finalValue)))
+    .sort((a,b)=>String(b.inventoryDate||b.fixedAt||b.month||"").localeCompare(String(a.inventoryDate||a.fixedAt||a.month||"")))[0]||null;
+  const originalCapitalDate=latestInventory?String(latestInventory.originalCapitalDate||latestInventory.inventoryDate||latestInventory.fixedAt||"").slice(0,10):null;
+  const originalCapitalApprovedAt=latestInventory?.originalCapitalApprovedAt||null;
+  const afterInventory=item=>isAfterInventoryApproval(item,{approvedAt:originalCapitalApprovedAt,inventoryDate:originalCapitalDate});
+  const capitalContributionsAfterInventory=latestInventory?capitalMovements.filter(item=>item.type==="IN"&&afterInventory(item)).reduce((sum,item)=>sum+capitalCadAmount(store,item),0):0;
+  const capitalWithdrawalsAfterInventory=latestInventory?capitalMovements.filter(item=>item.type!=="IN"&&afterInventory(item)).reduce((sum,item)=>sum+capitalCadAmount(store,item),0):0;
+  const profitAfterInventory=latestInventory?transactions.filter(afterInventory).reduce((sum,item)=>sum+transactionFinancials(item).totalProfit,0):0;
+  const expensesAfterInventory=latestInventory?expenses.filter(afterInventory).reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0):0;
+  const inventoryCapital=resolveInventoryCapital({
+    latestInventory,
+    legacyCurrentCapital:accounting.comprehensiveNetCapital,
+    capitalContributionsAfterInventory,
+    capitalWithdrawalsAfterInventory,
+    netProfitAfterInventory:profitAfterInventory-expensesAfterInventory,
+    profitDistributionsAfterInventory:0
+  });
+  const currentCapital=inventoryCapital.currentCapital;
+  const estimatedCapital=currentCapital;
+  const totalCapital=currentCapital;
   const turnoverBase=Math.abs(capitalBalance)>0?Math.abs(capitalBalance):Math.abs(estimatedCapital);
   const turnoverRate=turnoverBase>0?monthlyTransferValue/turnoverBase:0;
   const averageTransfer=monthTransactions.length?monthlyTransferValue/monthTransactions.length:0;
@@ -1561,9 +1465,22 @@ app.get("/api/capital-overview", auth, (req,res)=>{
     profitDistributions:accounting.profitDistributions,
     totalMoney:+totalMoney.toFixed(2),
     totalLiabilities:+totalLiabilities.toFixed(2),
-    netCapital:accounting.comprehensiveNetCapital,
-    comprehensiveNetCapital:accounting.comprehensiveNetCapital,
-    equityNetCapital:accounting.equityNetCapital,
+    netCapital:currentCapital,
+    comprehensiveNetCapital:currentCapital,
+    equityNetCapital:latestInventory?inventoryCapital.currentCapital:accounting.equityNetCapital,
+    currentCapital,
+    capitalBasis:inventoryCapital.capitalBasis,
+    originalCapital:latestInventory?inventoryCapital.originalCapital:null,
+    originalCapitalDate,
+    originalCapitalApprovedAt,
+    originalCapitalInventoryId:latestInventory?latestInventory.originalCapitalInventoryId||latestInventory.id:null,
+    capitalContributionsAfterInventory:latestInventory?inventoryCapital.capitalContributionsAfterInventory:null,
+    capitalWithdrawalsAfterInventory:latestInventory?inventoryCapital.capitalWithdrawalsAfterInventory:null,
+    netProfitAfterInventory:latestInventory?inventoryCapital.netProfitAfterInventory:null,
+    accumulatedProfitAfterInventory:latestInventory?+profitAfterInventory.toFixed(2):null,
+    accumulatedExpensesAfterInventory:latestInventory?+expensesAfterInventory.toFixed(2):null,
+    profitDistributionsAfterInventory:latestInventory?inventoryCapital.profitDistributionsAfterInventory:null,
+    legacyComprehensiveNetCapital:accounting.comprehensiveNetCapital,
     totalReceivables:accounting.totalReceivables,
     totalPayables:accounting.totalPayables,
     customerReceivable:+receivables.toFixed(2),
@@ -1598,12 +1515,12 @@ app.get("/api/capital-overview", auth, (req,res)=>{
 function inventoryLocalDate(settings={}){
   const timeZone=String(settings.timeZone||"America/Toronto");
   try{
-    const parts=new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+    const parts=new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(new Date());
     const values=Object.fromEntries(parts.map(part=>[part.type,part.value]));
-    return {date:`${values.year}-${values.month}-${values.day}`,year:Number(values.year),month:Number(values.month),day:Number(values.day),timeZone};
+    return {date:`${values.year}-${values.month}-${values.day}`,time:`${values.hour}:${values.minute}`,year:Number(values.year),month:Number(values.month),day:Number(values.day),timeZone};
   }catch(_error){
     const date=new Date();
-    return {date:date.toISOString().slice(0,10),year:date.getUTCFullYear(),month:date.getUTCMonth()+1,day:date.getUTCDate(),timeZone:"UTC"};
+    return {date:date.toISOString().slice(0,10),time:date.toISOString().slice(11,16),year:date.getUTCFullYear(),month:date.getUTCMonth()+1,day:date.getUTCDate(),timeZone:"UTC"};
   }
 }
 
@@ -1651,7 +1568,7 @@ function calculateInventoryNetCapital(store){
   };
 }
 
-function monthlyInventoryDraft(store,{vaultCash=0}={}){
+function monthlyInventoryDraft(store,{vaultCash=0,vaultCashByCurrency=null,vaultCashExchangeRates=null}={}){
   const capital=calculateInventoryNetCapital(store);
   const missingRates=new Set(capital.missingRates);
   const toCad=(amount,currency="CAD")=>{
@@ -1672,6 +1589,9 @@ function monthlyInventoryDraft(store,{vaultCash=0}={}){
   });
   return {
     ...snapshot,
+    ...calculateInventoryPresentation(snapshot,capital.realizedNetProfit),
+    ...(vaultCashByCurrency?{vaultCashByCurrency}:{}),
+    ...(vaultCashExchangeRates?{vaultCashExchangeRates}:{}),
     companyLocalPayables:position.companyLocalPayables,
     partnerPayables:position.partnerPayables,
     excludedManualDuplicateCount:position.excludedManualDuplicateCount,
@@ -1709,11 +1629,22 @@ app.get("/api/monthly-inventory", auth, (req,res)=>{
     .map(item=>{
       const componentKeys=["netCapital","vaultCash","partnerAssets","customerReceivables","companyReceivables","manualReceivables","customerPayables","companyPayables","manualPayables"];
       const hasCompleteBreakdown=componentKeys.every(key=>Number.isFinite(Number(item[key])));
-      return hasCompleteBreakdown?{...item,...calculateInventorySnapshot(item)}:item;
+      const stableSnapshot=hasCompleteBreakdown?calculateInventorySnapshot(item):item;
+      const stableItem={...item,...stableSnapshot,...calculateInventoryPresentation(stableSnapshot,item.realizedNetProfit)};
+      return stableItem.vaultCashByCurrency?stableItem:{...stableItem,...legacyVaultCashDetails(stableItem.vaultCash)};
     })
     .sort((a,b)=>String(b.month).localeCompare(String(a.month)));
-  const current=monthlyInventoryDraft(store,{vaultCash:0});
-  res.json({scheduleDay,alert:inventoryAlert(store),current,rows});
+  const vaultCashCurrencies=["CAD","USD","EUR","GBP","SAR","AED","TRY","SYP"];
+  for(const rate of (Array.isArray(store.exchangeRates)?store.exchangeRates:[])){
+    for(const code of [rate?.baseCurrency,rate?.quoteCurrency]){
+      const normalized=String(code||"").toUpperCase();
+      if(/^[A-Z]{3}$/.test(normalized)&&!vaultCashCurrencies.includes(normalized))vaultCashCurrencies.push(normalized);
+    }
+  }
+  const emptyVaultBalances=Object.fromEntries(vaultCashCurrencies.map(code=>[code,0]));
+  const currentVault=calculateVaultCashSnapshot(emptyVaultBalances,(from,to)=>currencyConversion(store,from,to));
+  const current=monthlyInventoryDraft(store,currentVault);
+  res.json({scheduleDay,alert:inventoryAlert(store),current,rows,vaultCashCurrencies});
 });
 
 app.patch("/api/monthly-inventory/settings", auth, async (req,res)=>{
@@ -1723,57 +1654,66 @@ app.patch("/api/monthly-inventory/settings", auth, async (req,res)=>{
   res.json({message:"تم حفظ يوم الجرد الشهري",day});
 });
 
+app.post("/api/monthly-inventory/preview", auth, (req,res)=>{
+  const store=readStore();
+  const balances=req.body?.vaultCashByCurrency&&typeof req.body.vaultCashByCurrency==="object"&&!Array.isArray(req.body.vaultCashByCurrency)
+    ?req.body.vaultCashByCurrency
+    :{};
+  const vaultSnapshot=calculateVaultCashSnapshot(balances,(from,to)=>currencyConversion(store,from,to));
+  if(vaultSnapshot.invalidCurrencies.length)return res.status(400).json({message:`قيمة غير صالحة لرصيد الخزنة: ${vaultSnapshot.invalidCurrencies.join(", ")}`});
+  if(vaultSnapshot.missingRates.length)return res.status(400).json({message:`ينقص سعر تحويل رصيد الخزنة: ${vaultSnapshot.missingRates.join(", ")}`});
+  res.json(monthlyInventoryDraft(store,vaultSnapshot));
+});
+
 app.post("/api/monthly-inventory/close", auth, async (req,res)=>{
-  const vaultCash=safeNumber(req.body?.vaultCash);
-  if(vaultCash<0)return res.status(400).json({message:"قيمة الكاش في الخزنة لا يمكن أن تكون سالبة"});
+  const hasCurrencyBreakdown=req.body?.vaultCashByCurrency&&typeof req.body.vaultCashByCurrency==="object"&&!Array.isArray(req.body.vaultCashByCurrency);
+  const legacyVaultCash=safeNumber(req.body?.vaultCash);
+  if(!hasCurrencyBreakdown&&legacyVaultCash<0)return res.status(400).json({message:"قيمة الكاش في الخزنة لا يمكن أن تكون سالبة"});
   const result=await mutateDurable(store=>{
     const local=inventoryLocalDate(store.notificationSettings||{});
     const month=`${local.year}-${String(local.month).padStart(2,"0")}`;
     const existing=(store.monthlyInventories||[]).find(item=>item&&item.month===month&&!item.isDeleted);
     if(existing){const error=new Error("تم تثبيت جرد هذا الشهر مسبقًا");error.statusCode=409;throw error;}
-    const draft=monthlyInventoryDraft(store,{vaultCash});
+    const vaultSnapshot=hasCurrencyBreakdown
+      ?calculateVaultCashSnapshot(req.body.vaultCashByCurrency,(from,to)=>currencyConversion(store,from,to))
+      :{vaultCash:legacyVaultCash,...legacyVaultCashDetails(legacyVaultCash),missingRates:[],invalidCurrencies:[]};
+    if(vaultSnapshot.invalidCurrencies.length){const error=new Error(`قيمة غير صالحة لرصيد الخزنة: ${vaultSnapshot.invalidCurrencies.join(", ")}`);error.statusCode=400;throw error;}
+    if(vaultSnapshot.missingRates.length){const error=new Error(`لا يمكن تثبيت الجرد قبل إضافة أسعار تحويل الخزنة: ${vaultSnapshot.missingRates.join(", ")}`);error.statusCode=400;throw error;}
+    const draft=monthlyInventoryDraft(store,vaultSnapshot);
     if(draft.missingRates.length){const error=new Error(`لا يمكن تثبيت الجرد قبل إضافة أسعار تحويل العملات: ${draft.missingRates.join(", ")}`);error.statusCode=400;throw error;}
-    const item={id:id(),month,inventoryDate:local.date,scheduleDay:Math.max(1,Math.min(28,Math.trunc(safeNumber(store.notificationSettings?.inventoryDay,20)||20))),...draft,notes:String(req.body?.notes||"").trim().slice(0,1000),fixedAt:now(),fixedBy:req.user.id,fixedByName:req.user.name||"",createdAt:now()};
+    const inventoryId=id();
+    const approvedAt=now();
+    const item={id:inventoryId,month,inventoryDate:local.date,scheduleDay:Math.max(1,Math.min(28,Math.trunc(safeNumber(store.notificationSettings?.inventoryDay,20)||20))),...draft,originalCapital:draft.finalInventory??draft.finalValue,originalCapitalDate:local.date,originalCapitalApprovedAt:approvedAt,originalCapitalInventoryId:inventoryId,notes:String(req.body?.notes||"").trim().slice(0,1000),fixedAt:approvedAt,fixedBy:req.user.id,fixedByName:req.user.name||"",createdAt:approvedAt};
     store.monthlyInventories.push(item);
-    audit(store,req.user.id,"CREATE","MONTHLY_INVENTORY",item.id,{month,finalValue:item.finalValue,vaultCash:item.vaultCash});
+    audit(store,req.user.id,"CREATE","MONTHLY_INVENTORY",item.id,{month,finalValue:item.finalValue,vaultCash:item.vaultCash,vaultCashByCurrency:item.vaultCashByCurrency});
     return item;
   });
   res.status(201).json({message:"تم تثبيت جرد الشهر بنجاح",inventory:result});
 });
-
 app.get("/api/monthly-report", auth, (req,res)=>{
   const store=readStore();
   const month=String(req.query.month||new Date().toISOString().slice(0,7));
-
   const transactions=(Array.isArray(store.transactions)?store.transactions:[])
     .filter(item=>item&&!item.isDeleted&&item.status!=="CANCELLED")
     .filter(item=>String(item.transferDate||item.createdAt||"").slice(0,7)===month);
-
   const expenses=(Array.isArray(store.expenses)?store.expenses:[])
     .filter(item=>String(item.date||item.createdAt||"").slice(0,7)===month);
-
   const capitalMovements=(Array.isArray(store.capitalMovements)?store.capitalMovements:[])
     .filter(item=>String(item.date||item.createdAt||"").slice(0,7)===month);
-
   const payments=(Array.isArray(store.payments)?store.payments:[])
     .filter(item=>item&&!item.isDeleted)
     .filter(item=>String(item.paymentDate||item.date||item.createdAt||"").slice(0,7)===month);
-
   const transferTotal=transactions.reduce((sum,item)=>sum+transactionFinancials(item).convertedCad,0);
-  const feesTotal=transactions.reduce((sum,item)=>sum+transactionFinancials(item).transferFee,0);
-  const exchangeProfit=transactions.reduce((sum,item)=>sum+transactionFinancials(item).exchangeProfit,0);
-  const grossProfit=transactions.reduce((sum,item)=>sum+transactionFinancials(item).totalProfit,0);
+  const {transferFees:feesTotal,customerFees:customerFeesTotal,providerFees:providerFeesTotal,exchangeProfit,grossProfitBeforeProviderFees,grossProfit}=summarizeTransactionProfits(transactions);
   const expenseTotal=expenses.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
   const netProfit=grossProfit-expenseTotal;
   const paidTotal=customerReceiptsTotal(payments);
-
   const capitalIn=capitalMovements
     .filter(item=>item.type==="IN")
     .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
   const capitalOut=capitalMovements
     .filter(item=>item.type!=="IN")
     .reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-
   const customerMap=new Map();
   for(const transaction of transactions){
     customerMap.set(
@@ -1781,7 +1721,6 @@ app.get("/api/monthly-report", auth, (req,res)=>{
       safeNumber(customerMap.get(transaction.customerId))+safeNumber(transaction.amount)
     );
   }
-
   const topCustomers=Array.from(customerMap.entries())
     .map(([customerId,total])=>({
       customerId,
@@ -1790,7 +1729,6 @@ app.get("/api/monthly-report", auth, (req,res)=>{
     }))
     .sort((a,b)=>b.total-a.total)
     .slice(0,10);
-
   const dailyMap={};
   for(const transaction of transactions){
     const date=String(transaction.transferDate||transaction.createdAt||"").slice(0,10);
@@ -1800,7 +1738,6 @@ app.get("/api/monthly-report", auth, (req,res)=>{
     dailyMap[date].total+=financials.convertedCad;
     dailyMap[date].profit+=financials.totalProfit;
   }
-
   const daily=Object.values(dailyMap)
     .map(item=>({
       ...item,
@@ -1808,7 +1745,6 @@ app.get("/api/monthly-report", auth, (req,res)=>{
       profit:+item.profit.toFixed(2)
     }))
     .sort((a,b)=>a.date.localeCompare(b.date));
-
   res.json({
     month,
     generatedAt:now(),
@@ -1819,7 +1755,10 @@ app.get("/api/monthly-report", auth, (req,res)=>{
       largestTransfer:+(transactions.length?Math.max(...transactions.map(item=>safeNumber(item.amount))):0).toFixed(2),
       smallestTransfer:+(transactions.length?Math.min(...transactions.map(item=>safeNumber(item.amount))):0).toFixed(2),
       feesTotal:+feesTotal.toFixed(2),
+      customerFeesTotal:+customerFeesTotal.toFixed(2),
+      providerFeesTotal:+providerFeesTotal.toFixed(2),
       exchangeProfit:+exchangeProfit.toFixed(2),
+      grossProfitBeforeProviderFees:+grossProfitBeforeProviderFees.toFixed(2),
       grossProfit:+grossProfit.toFixed(2),
       expenses:+expenseTotal.toFixed(2),
       netProfit:+netProfit.toFixed(2),
@@ -1837,12 +1776,7 @@ app.get("/api/monthly-report", auth, (req,res)=>{
         const financials=transactionFinancials(item);
         return {
           ...item,
-          transferFee:financials.transferFee,
-          feeMethod:financials.feeMethod,
-          beneficiaryReceives:financials.beneficiaryReceives,
-          exchangeProfit:financials.exchangeProfit,
-          totalProfit:financials.totalProfit,
-          totalCustomerDue:financials.totalCustomerDue
+          ...transactionFinancialView(financials)
         };
       })
   });
@@ -2025,7 +1959,7 @@ app.patch("/api/customers/:id", auth, async (req,res)=>{
 
 app.post("/api/customers/:id/reset-account", auth, async (req,res)=>{
   try{
-    const result=await mutateDurable((store)=>{
+    const previousStore=readStore(),previousCustomer=previousStore.customers.find(item=>item.id===req.params.id),previousBalance=previousCustomer?customerSummary(previousStore,previousCustomer).finalBalance:0; const result=await mutateDurable((store)=>{
       const customer=(Array.isArray(store.customers)?store.customers:[])
         .find(item=>item?.id===req.params.id && !item?.isDeleted);
       if(!customer)return null;
@@ -2102,11 +2036,7 @@ app.get("/api/customers/:id", auth, (req,res)=>{
         return {
           ...transaction,
           number: String(transaction.number || transaction.id || "-"),
-          transferFee:financials.transferFee,
-          feeMethod:financials.feeMethod,
-          beneficiaryReceives:financials.beneficiaryReceives,
-          exchangeProfit:financials.exchangeProfit,
-          totalProfit:financials.totalProfit,
+          ...transactionFinancialView(financials),
           totalCustomerDue: +due.toFixed(2),
           paid: +paid.toFixed(2),
           remaining: +Math.max(due - paid, 0).toFixed(2),
@@ -2128,14 +2058,16 @@ app.get("/api/customers/:id", auth, (req,res)=>{
 
 app.get("/api/transactions", auth, async (req,res)=>{
   const s=readStore();
-  const [transactions,payments,customers]=await Promise.all([
+  const [transactions,payments,customers,partners]=await Promise.all([
     branchSafeRead(req,"transactions",()=>nativeRepositories.transactions.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.transactions).filter(t=>!t.isDeleted).reverse()),
     branchSafeRead(req,"payments",()=>nativeRepositories.payments.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.payments).filter(p=>!p.isDeleted)),
-    branchSafeRead(req,"transaction-customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.customers).filter(c=>!c.isDeleted))
+    branchSafeRead(req,"transaction-customers",()=>nativeRepositories.customers.listByCompany(req.user.companyId,{orderBy:"created_at DESC",includeDeleted:false}),()=>Array.from(s.customers).filter(c=>!c.isDeleted)),
+    branchSafeRead(req,"transaction-partners",()=>nativeRepositories.partners.listByCompany(req.user.companyId,{orderBy:"name ASC"}),()=>Array.from(s.partners||[]))
   ]);
   const paidByTransaction=new Map();
   for(const payment of payments){if(payment.isDeleted||!payment.transactionId)continue;paidByTransaction.set(payment.transactionId,(paidByTransaction.get(payment.transactionId)||0)+safeNumber(payment.amount));}
   const customerNameById=new Map(customers.map(c=>[c.id,c.name||"-"]));
+  const partnerNameById=new Map(partners.map(item=>[item.id,item.name||""]));
   const search=String(req.query.search||"").trim().toLowerCase();
   const status=String(req.query.status||"").toUpperCase();
   const currency=String(req.query.currency||"").toUpperCase();
@@ -2147,13 +2079,9 @@ app.get("/api/transactions", auth, async (req,res)=>{
     const remaining=Math.max(financials.totalCustomerDue-paidAmount,0);
     return {
       ...t,
-      transferFee:financials.transferFee,
-      feeMethod:financials.feeMethod,
-      beneficiaryReceives:financials.beneficiaryReceives,
-      exchangeProfit:financials.exchangeProfit,
-      totalProfit:financials.totalProfit,
-      totalCustomerDue:financials.totalCustomerDue,
+      ...transactionFinancialView(financials),
       customerName:customerNameById.get(t.customerId)||"-",
+      partnerName:partnerNameById.get(t.partnerId)||financials.providerFeeCompany||t.partnerName||"",
       paidAmount:+paidAmount.toFixed(2),
       remaining:+remaining.toFixed(2),
       paymentStatus:remaining<=0.001?"PAID":"UNPAID"
@@ -2201,11 +2129,16 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     paymentStatus="UNPAID",
     transferFee=0,
     feeMethod="",
+    partnerId="",
+    providerFeeCompany="",
+    providerFeeAmount=0,
+    providerFeeCurrency="",
+    providerFeeRateCad=0,providerFeeMode="MANUAL",providerFeePer100=0,
     transferDate=""
   }=req.body||{};
 
-  const nums=[amount,costRate,finalRate,transferFee].map(Number);
-  if(nums.some(n=>!Number.isFinite(n))||nums[0]<=0||nums[1]<=0||nums[2]<=0||nums[3]<0){
+  const nums=[amount,costRate,finalRate,transferFee,providerFeeAmount,providerFeeRateCad].map(Number);
+  if(nums.some(n=>!Number.isFinite(n))||nums[0]<=0||nums[1]<=0||nums[2]<=0||nums[3]<0||nums[4]<0||nums[5]<0){
     return res.status(400).json({message:"قيم الحوالة غير صحيحة"});
   }
 
@@ -2214,10 +2147,25 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     return res.status(400).json({message:"نوع أجور الحوالة غير صحيح"});
   }
 
-  const [a,cost,clientRate,fee]=nums;
+  const [a,cost,clientRate,fee,executionFeeAmount,executionFeeRate]=nums;
   const normalizedCurrency=String(currency||"USD").toUpperCase();
+  const normalizedProviderFeeCurrency=String(providerFeeCurrency||normalizedCurrency).toUpperCase();
   const normalizedFeeMethod=normalizeFeeMethod({feeMethod:rawFeeMethod,transferFee:fee});
-  const financials=transactionFinancials({amount:a,costRate:cost,finalRate:clientRate,transferFee:fee,feeMethod:normalizedFeeMethod});
+  const financials=transactionFinancials({
+    amount:a,
+    currency:normalizedCurrency,
+    costRate:cost,
+    finalRate:clientRate,
+    transferFee:fee,
+    feeMethod:normalizedFeeMethod,
+    providerFeeCompany,
+    providerFeeAmount:executionFeeAmount,
+    providerFeeCurrency:normalizedProviderFeeCurrency,
+    providerFeeRateCad:executionFeeRate
+  });
+  if(executionFeeAmount>0&&!financials.valid){
+    return res.status(400).json({message:"أدخل سعر تحويل أجور الشركة إلى CAD أو اختر نفس عملة الحوالة"});
+  }
   // In PAID mode the sender pays a separate CAD fee above the converted
   // amount. In SPREAD mode the fee is already embedded in the customer rate.
   assertBalancedEntry([
@@ -2225,9 +2173,11 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     {account:"TRANSFER_AT_CUSTOMER_RATE",credit:+financials.convertedCad.toFixed(2)},
     {account:"TRANSFER_FEE_REVENUE",credit:+financials.paidFee.toFixed(2)}
   ]);
+  assertProviderFeeBalanced(financials);
 
-  const tx=await mutateDurable((s)=>{
+  const previousStore=readStore(),previousCustomer=previousStore.customers.find(item=>item.id===customerId),previousBalance=previousCustomer?customerSummary(previousStore,previousCustomer).finalBalance:0; const tx=await mutateDurable((s)=>{
     if(!s.customers.some(c=>c.id===customerId))throw new Error("Customer not found");
+    const selectedPartner=resolveProviderPartner(s.partners||[],partnerId);
     const n=s.transactions.length+1;
     const t={
       id:id(),
@@ -2240,6 +2190,9 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
       finalRate:clientRate,
       rateSource,
       rateUpdatedAt,
+      partnerId:selectedPartner?.id||null,
+      ...providerFeeStoredFields(financials,selectedPartner?.name||providerFeeCompany),
+      providerFeeMode:String(providerFeeMode||"MANUAL").toUpperCase()==="AUTO"?"AUTO":"MANUAL",providerFeePer100:+Math.max(0,safeNumber(providerFeePer100,0)).toFixed(4),
       transferFee:financials.transferFee,
       feeMethod:financials.feeMethod,
       destinationAmount:financials.beneficiaryReceives,
@@ -2282,13 +2235,14 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     };
   });
 
-  res.status(201).json(tx);
+  await transferWhatsAppDispatcher.dispatchSafely({companyId:req.user.companyId,branchId:req.user.branchId,transactionId:tx.id,previousBalance}); res.status(201).json(tx);
 });
 
 app.post("/api/customers/:id/payments", auth, requireIdempotencyKey, async (req,res)=>{
   try{
     const {amount,method="CASH",notes="",paymentDate="",reference=""}=req.body||{};
     const requested=Number(amount);
+    const previousStore=readStore(),previousCustomer=previousStore.customers.find(item=>item.id===req.params.id),previousBalance=previousCustomer?customerSummary(previousStore,previousCustomer).finalBalance:0;
     if(!Number.isFinite(requested)||requested<=0){
       return res.status(400).json({message:"مبلغ الدفعة غير صحيح"});
     }
@@ -2406,7 +2360,7 @@ app.post("/api/customers/:id/payments", auth, requireIdempotencyKey, async (req,
       return {customerId:customer.id,payment:receipt,amount:+requested.toFixed(2),oldBalanceAllocation:+oldBalanceAllocation.toFixed(2),allocations};
     });
 
-    res.status(201).json(result);
+    await transferWhatsAppDispatcher.dispatchZeroSafely({companyId:req.user.companyId,branchId:req.user.branchId,customerId:result.customerId,operationId:result.payment.id,previousBalance}); res.status(201).json(result);
   }catch(error){
     if(isRecoverableOperationalError(error))return res.status(Number(error?.status||error?.statusCode||503)).json({message:error?.publicMessage||"تم تحديث البيانات قبل اكتمال الحفظ. لم يتم اعتماد الدفعة؛ أعد المحاولة مرة واحدة.",code:error?.code||"DATABASE_TEMPORARILY_UNAVAILABLE",retryable:true});
     res.status(400).json({message:error.message||"تعذر إضافة الدفعة"});
@@ -2419,7 +2373,7 @@ app.post("/api/transactions/:id/payments", auth, requireIdempotencyKey, async (r
     const n=Number(amount);
     if(!Number.isFinite(n)||n<=0)return res.status(400).json({message:"Invalid amount"});
 
-    const payment=await mutateDurable((s)=>{
+    const previousStore=readStore(),previousTransaction=previousStore.transactions.find(item=>item.id===req.params.id),previousCustomer=previousStore.customers.find(item=>item.id===previousTransaction?.customerId),previousBalance=previousCustomer?customerSummary(previousStore,previousCustomer).finalBalance:0; const payment=await mutateDurable((s)=>{
       const t=s.transactions.find(x=>x.id===req.params.id);
       if(!t)throw new Error("Transaction not found");
       const already=s.payments.filter(p=>p.transactionId===t.id&&!p.isDeleted).reduce((a,p)=>a+Number(p.amount),0);
@@ -2442,7 +2396,7 @@ app.post("/api/transactions/:id/payments", auth, requireIdempotencyKey, async (r
       return p;
     });
 
-    res.status(201).json(payment);
+    if(previousTransaction?.customerId)await transferWhatsAppDispatcher.dispatchZeroSafely({companyId:req.user.companyId,branchId:req.user.branchId,customerId:previousTransaction.customerId,operationId:payment.id,transactionId:req.params.id,previousBalance}); res.status(201).json(payment);
   }catch(error){
     const message=String(error?.message||"تعذر إضافة الدفعة");
     if(isRecoverableOperationalError(error))return res.status(Number(error?.status||error?.statusCode||503)).json({message:error?.publicMessage||"تم تحديث البيانات قبل اكتمال الحفظ. لم يتم اعتماد الدفعة؛ أعد المحاولة مرة واحدة.",code:error?.code||"DATABASE_TEMPORARILY_UNAVAILABLE",retryable:true});
@@ -2452,7 +2406,7 @@ app.post("/api/transactions/:id/payments", auth, requireIdempotencyKey, async (r
 });
 
 app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=>{
-  try{
+  try{const previousStore=readStore(),previousTransaction=previousStore.transactions.find(item=>item.id===req.params.id),previousCustomer=previousStore.customers.find(item=>item.id===previousTransaction?.customerId),previousBalance=previousCustomer?customerSummary(previousStore,previousCustomer).finalBalance:0;
     // Soft-delete uses PATCH intentionally. In production the normal PATCH
     // durable-write path is stable, while some proxies/connections were
     // repeatedly aborting HTTP DELETE requests. Since deletion is logical
@@ -2480,7 +2434,7 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
       const transaction=s.transactions.find(item=>item.id===req.params.id&&!item.isDeleted);
       if(!transaction)return null;
 
-      const allowed=["currency","amount","costRate","finalRate","transferFee","feeMethod","transferDate","status","rateSource","rateUpdatedAt"];
+      const allowed=["currency","amount","costRate","finalRate","transferFee","feeMethod","partnerId","providerFeeCompany","providerFeeAmount","providerFeeCurrency","providerFeeRateCad","providerFeeMode","providerFeePer100","transferDate","status","rateSource","rateUpdatedAt"];
       const oldData={...transaction};
 
       const requestedFeeMethod=String(req.body?.feeMethod||"").trim().toUpperCase();
@@ -2499,18 +2453,25 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
       const cost=Number(transaction.costRate);
       const finalRate=Number(transaction.finalRate);
       const fee=Number(transaction.transferFee||0);
+      const executionFeeAmount=Number(transaction.providerFeeAmount||0);
+      const executionFeeRate=Number(transaction.providerFeeRateCad||0);
       const normalizedFeeMethod=normalizeFeeMethod(transaction);
 
-      if(![amount,cost,finalRate,fee].every(Number.isFinite)||amount<=0||cost<=0||finalRate<=0||(normalizedFeeMethod==="PAID"&&fee<0)){
+      if(![amount,cost,finalRate,fee,executionFeeAmount,executionFeeRate].every(Number.isFinite)||amount<=0||cost<=0||finalRate<=0||(normalizedFeeMethod==="PAID"&&fee<0)||executionFeeAmount<0||executionFeeRate<0){
         throw new Error("قيم الحوالة غير صحيحة");
       }
-
-      const financials=transactionFinancials({amount,costRate:cost,finalRate,transferFee:fee,feeMethod:normalizedFeeMethod});
+      const selectedPartner=resolveProviderPartner(s.partners||[],transaction.partnerId);
 
       transaction.currency=String(transaction.currency||"USD").toUpperCase();
+      transaction.providerFeeCurrency=String(transaction.providerFeeCurrency||transaction.currency).toUpperCase();
+      if(selectedPartner)transaction.providerFeeCompany=selectedPartner.name;
+      const financials=transactionFinancials(transaction);
+      if(executionFeeAmount>0&&!financials.valid)throw new Error("أدخل سعر تحويل أجور الشركة إلى CAD أو اختر نفس عملة الحوالة");
+
       transaction.direction=`${transaction.currency}_TO_CAD`;
       transaction.destinationAmount=financials.beneficiaryReceives;
       transaction.beneficiaryReceives=financials.beneficiaryReceives;
+      Object.assign(transaction,providerFeeStoredFields(financials,selectedPartner?.name||transaction.providerFeeCompany));
       transaction.transferFee=financials.transferFee;
       transaction.feeMethod=financials.feeMethod;
       transaction.exchangeProfit=financials.exchangeProfit;
@@ -2521,6 +2482,7 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
         {account:"TRANSFER_AT_CUSTOMER_RATE",credit:financials.convertedCad},
         {account:"TRANSFER_FEE_REVENUE",credit:financials.paidFee}
       ]);
+      assertProviderFeeBalanced(financials);
       transaction.updatedAt=now();
       transaction.updatedBy=req.user.id;
 
@@ -2536,7 +2498,7 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
     });
 
     if(!updated)return res.status(404).json({message:"الحوالة غير موجودة"});
-    res.json(updated);
+    if(previousCustomer)await transferWhatsAppDispatcher.dispatchZeroSafely({companyId:req.user.companyId,branchId:req.user.branchId,customerId:previousCustomer.id,operationId:`TRANSACTION_EDIT:${updated.id}:${updated.updatedAt||now()}`,transactionId:updated.id,previousBalance}); res.json(updated);
   }catch(error){
     if(isTransientDatabaseError(error)||Number(error?.status||error?.statusCode||0)===503){
       return res.status(503).json({
@@ -2587,29 +2549,16 @@ app.delete("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)
 
 app.patch("/api/payments/:id", auth, requireIdempotencyKey, async (req,res)=>{
   try{
-    const updated=await mutateDurable((s)=>{
+    const previousStore=readStore(),previousPayment=previousStore.payments.find(item=>item.id===req.params.id),previousTransaction=previousStore.transactions.find(item=>item.id===previousPayment?.transactionId),previousCustomer=previousStore.customers.find(item=>item.id===(previousPayment?.customerId||previousTransaction?.customerId)),previousBalance=previousCustomer?customerSummary(previousStore,previousCustomer).finalBalance:0; const updated=await mutateDurable((s)=>{
       const payment=s.payments.find(item=>item.id===req.params.id&&!item.isDeleted);
       if(!payment)return null;
 
       if(payment.recordType==="CUSTOMER_PAYMENT_RECEIPT" || payment.paymentBatchId){
-        const batchId=payment.paymentBatchId;
-        const batchRows=(s.payments||[]).filter(item=>!item.isDeleted&&(
-          (batchId&&item.paymentBatchId===batchId) || item.id===payment.id
-        ));
-        const receipt=batchRows.find(item=>item.recordType==="CUSTOMER_PAYMENT_RECEIPT")||payment;
-        if(req.body.amount!==undefined && Math.abs(Number(req.body.amount)-safeNumber(receipt.originalAmount,receipt.amount))>0.001){
-          throw new Error("لا يمكن تغيير مبلغ دفعة موزعة. احذف الدفعة وسجلها من جديد.");
-        }
-        for(const item of batchRows){
-          if(req.body.method!==undefined)item.method=req.body.method;
-          if(req.body.notes!==undefined)item.notes=req.body.notes;
-          if(req.body.reference!==undefined)item.reference=req.body.reference;
-          if(req.body.paymentDate!==undefined)item.paymentDate=req.body.paymentDate;
-          item.updatedAt=now();
-          item.updatedBy=req.user.id;
-        }
-        audit(s,req.user.id,"UPDATE","PAYMENT",receipt.id,{paymentBatchId:batchId,newData:{...receipt}});
-        return {...receipt,amount:+safeNumber(receipt.originalAmount,receipt.amount).toFixed(2)};
+        const result=editGroupedCustomerPayment({
+          store:s,payment,body:req.body||{},user:req.user,id,now,isAfterCustomerReset
+        });
+        audit(s,req.user.id,"UPDATE","PAYMENT",result.updated.id,result.auditData);
+        return result.updated;
       }
 
       const transaction=s.transactions.find(item=>item.id===payment.transactionId&&!item.isDeleted);
@@ -2631,14 +2580,15 @@ app.patch("/api/payments/:id", auth, requireIdempotencyKey, async (req,res)=>{
       return payment;
     });
     if(!updated)return res.status(404).json({message:"الدفعة غير موجودة"});
-    res.json(updated);
+    if(previousCustomer)await transferWhatsAppDispatcher.dispatchZeroSafely({companyId:req.user.companyId,branchId:req.user.branchId,customerId:previousCustomer.id,operationId:`PAYMENT_EDIT:${updated.id}:${updated.updatedAt||now()}`,transactionId:previousTransaction?.id||null,previousBalance}); res.json(updated);
   }catch(error){
     res.status(400).json({message:error.message||"تعذر تعديل الدفعة"});
   }
 });
 
+
 app.delete("/api/payments/:id", auth, requireIdempotencyKey, async (req,res)=>{
-  const deleted=await mutateDurable((s)=>{
+  const previousStore=readStore(),previousPayment=previousStore.payments.find(item=>item.id===req.params.id),previousTransaction=previousStore.transactions.find(item=>item.id===previousPayment?.transactionId),previousCustomer=previousStore.customers.find(item=>item.id===(previousPayment?.customerId||previousTransaction?.customerId)),previousBalance=previousCustomer?customerSummary(previousStore,previousCustomer).finalBalance:0; const deleted=await mutateDurable((s)=>{
     const payment=s.payments.find(item=>item.id===req.params.id&&!item.isDeleted);
     if(!payment)return null;
     const batchId=payment.paymentBatchId;
@@ -2661,6 +2611,7 @@ app.delete("/api/payments/:id", auth, requireIdempotencyKey, async (req,res)=>{
     audit(s,req.user.id,"DELETE","PAYMENT",payment.id,{softDelete:true,paymentBatchId:batchId,deletedCount:targets.length});
     return payment;
   });
+  if(previousCustomer&&deleted)await transferWhatsAppDispatcher.dispatchZeroSafely({companyId:req.user.companyId,branchId:req.user.branchId,customerId:previousCustomer.id,operationId:`PAYMENT_DELETE:${deleted.id}:${deleted.deletedAt||now()}`,transactionId:previousTransaction?.id||null,previousBalance});
   if(!deleted)return res.status(404).json({message:"الدفعة غير موجودة"});
   res.json({message:"تم حذف الدفعة كاملة مع توزيعها"});
 });
@@ -2784,30 +2735,28 @@ app.get("/api/profits", auth, (req,res)=>{
   const transactions = s.transactions.filter((t)=>t&&!t.isDeleted&&t.status!=="CANCELLED" && inRange(t.transferDate||t.createdAt));
   const expenses = s.expenses.filter((e)=>e&&!e.isDeleted&&inRange(e.date || e.createdAt));
 
-  const exchangeProfit = transactions.reduce((a,t)=>a+transactionFinancials(t).exchangeProfit,0);
-  const transferFees = transactions.reduce((a,t)=>a+transactionFinancials(t).transferFee,0);
-  const grossProfit = transactions.reduce((a,t)=>a+transactionFinancials(t).totalProfit,0);
+  const {exchangeProfit,transferFees,customerFees,providerFees,grossProfitBeforeProviderFees,grossProfit}=summarizeTransactionProfits(transactions);
   const totalExpenses = expenses.reduce((a,e)=>a+Number(e.cadAmount??e.amount??0),0);
   const netProfit = grossProfit-totalExpenses;
 
   const byMonthMap = {};
   for (const t of transactions) {
     const month = String(t.transferDate||t.createdAt||"").slice(0,7);
-    byMonthMap[month] ||= {month,exchangeProfit:0,transferFees:0,grossProfit:0,expenses:0,netProfit:0};
-    const financials=transactionFinancials(t);
-    byMonthMap[month].exchangeProfit += financials.exchangeProfit;
-    byMonthMap[month].transferFees += financials.transferFee;
-    byMonthMap[month].grossProfit += financials.totalProfit;
+    byMonthMap[month] ||= {month,exchangeProfit:0,transferFees:0,customerFees:0,providerFees:0,grossProfitBeforeProviderFees:0,grossProfit:0,expenses:0,netProfit:0};
+    addTransactionProfitToBucket(byMonthMap[month],t);
   }
   for (const e of expenses) {
     const month = String(e.date || e.createdAt).slice(0,7);
-    byMonthMap[month] ||= {month,exchangeProfit:0,transferFees:0,grossProfit:0,expenses:0,netProfit:0};
+    byMonthMap[month] ||= {month,exchangeProfit:0,transferFees:0,customerFees:0,providerFees:0,grossProfitBeforeProviderFees:0,grossProfit:0,expenses:0,netProfit:0};
     byMonthMap[month].expenses += Number(e.cadAmount??e.amount??0);
   }
   const monthly = Object.values(byMonthMap)
     .map((x)=>({...x,
       exchangeProfit:+x.exchangeProfit.toFixed(2),
       transferFees:+x.transferFees.toFixed(2),
+      customerFees:+x.customerFees.toFixed(2),
+      providerFees:+x.providerFees.toFixed(2),
+      grossProfitBeforeProviderFees:+x.grossProfitBeforeProviderFees.toFixed(2),
       grossProfit:+x.grossProfit.toFixed(2),
       expenses:+x.expenses.toFixed(2),
       netProfit:+(x.grossProfit-x.expenses).toFixed(2)
@@ -2820,11 +2769,14 @@ app.get("/api/profits", auth, (req,res)=>{
     transactionCount: transactions.length,
     exchangeProfit:+exchangeProfit.toFixed(2),
     transferFees:+transferFees.toFixed(2),
+    customerFees:+customerFees.toFixed(2),
+    providerFees:+providerFees.toFixed(2),
+    grossProfitBeforeProviderFees:+grossProfitBeforeProviderFees.toFixed(2),
     grossProfit:+grossProfit.toFixed(2),
     expenses:+totalExpenses.toFixed(2),
     netProfit:+netProfit.toFixed(2),
     monthly,
-    transactions: transactions.slice().reverse()
+    transactions: transactions.slice().reverse().map(item=>({...item,...transactionFinancialView(transactionFinancials(item))}))
   });
 });
 
@@ -5876,112 +5828,9 @@ app.post("/api/ai/assistant",auth,(req,res)=>{
   res.json({answer,data,action,overview:a});
 });
 
-app.get("/api/expenses", auth, async (req,res)=>{const store=readStore();const rows=await branchSafeRead(req,"expenses",()=>nativeRepositories.expenses.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.expenses).reverse());res.json(paginate(req,rows));});
-app.post("/api/expenses", auth, requireIdempotencyKey, async (req,res)=>{const {title,amount,currency="CAD",exchangeRate=1,category="Other",date=new Date().toISOString().slice(0,10)}=req.body||{};const n=Number(amount),rate=Number(exchangeRate);const normalizedCurrency=String(currency||"CAD").toUpperCase();if(!title||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"Invalid expense"});const e=await mutateDurable(s=>{const x={id:id(),title,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,createdAt:now(),createdBy:req.user.id};assertBalancedEntry([{account:"EXPENSE_CAD",debit:x.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*rate).toFixed(2)}]);s.expenses.push(x);audit(s,req.user.id,"CREATE","EXPENSE",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;});res.status(201).json(e);});
-app.put("/api/expenses/:id", auth, requireIdempotencyKey, async (req,res)=>{
-  const {title,amount,currency="CAD",exchangeRate=1,category="Other",date}=req.body||{};
-  const n=Number(amount),rate=Number(exchangeRate),normalizedCurrency=String(currency||"CAD").toUpperCase();
-  if(!title||!date||!Number.isFinite(n)||n<=0||!Number.isFinite(rate)||rate<=0)return res.status(400).json({message:"بيانات المصروف غير صحيحة"});
-  const updated=await mutateDurable(s=>{
-    const rows=Array.from(s.expenses||[]);
-    const index=rows.findIndex(x=>String(x.id)===String(req.params.id));
-    if(index<0)return null;
-    const previous=rows[index];
-    const next={...previous,title:String(title).trim(),amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+rate.toFixed(6),cadAmount:+(n*rate).toFixed(2),category,date,updatedAt:now(),updatedBy:req.user.id};
-    assertBalancedEntry([{account:"EXPENSE_CAD",debit:next.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*rate).toFixed(2)}]);
-    rows[index]=next;
-    s.expenses=rows;
-    audit(s,req.user.id,"UPDATE","EXPENSE",next.id,{before:{title:previous.title,amount:previous.amount,currency:previous.currency},after:{title:next.title,amount:next.amount,currency:next.currency}});
-    return next;
-  });
-  if(!updated)return res.status(404).json({message:"المصروف غير موجود"});
-  res.json(updated);
-});
-app.delete("/api/expenses/:id", auth, requireIdempotencyKey, async (req,res)=>{
-  const removed=await mutateDurable(s=>{
-    const rows=Array.from(s.expenses||[]);
-    const index=rows.findIndex(x=>String(x.id)===String(req.params.id));
-    if(index<0)return null;
-    const expense=rows[index];
-    s.expenses=rows.filter((_,rowIndex)=>rowIndex!==index);
-    audit(s,req.user.id,"DELETE","EXPENSE",expense.id,{title:expense.title,amount:expense.amount,currency:expense.currency});
-    return expense;
-  });
-  if(!removed)return res.status(404).json({message:"المصروف غير موجود"});
-  res.json({ok:true,expense:removed});
-});
-app.get("/api/capital", auth, async (req,res)=>{
-  const store=readStore();
-  const nativeRows=await branchSafeRead(req,"capital",()=>nativeRepositories.capitalMovements.listByCompany(req.user.companyId,{orderBy:"created_at DESC"}),()=>Array.from(store.capitalMovements||[]).reverse());
-  const rows=nativeRows.map(item=>{
-    const currency=String(item.currency||"CAD").toUpperCase();
-    const conversion=currencyConversion(store,currency,"CAD");
-    const exchangeRate=Number.isFinite(Number(item.exchangeRate))?Number(item.exchangeRate):(conversion?.factor||null);
-    const cadAmount=Number.isFinite(Number(item.cadAmount))?Number(item.cadAmount):(exchangeRate?safeNumber(item.amount)*exchangeRate:(currency==="CAD"?safeNumber(item.amount):null));
-    return {...item,currency,baseCurrency:"CAD",exchangeRate,cadAmount:Number.isFinite(cadAmount)?+cadAmount.toFixed(2):null};
-  });
-  res.json(rows);
-});
-app.post("/api/capital", auth, requireIdempotencyKey, async (req,res)=>{
-  const {type="IN",amount,currency="CAD",description="",date=new Date().toISOString().slice(0,10)}=req.body||{};
-  const n=Number(amount), normalizedCurrency=String(currency||"CAD").toUpperCase();
-  if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0)return res.status(400).json({message:"بيانات حركة رأس المال غير صحيحة"});
-  const m=await mutateDurable(s=>{
-    const conversion=currencyConversion(s,normalizedCurrency,"CAD");
-    if(!conversion)return {error:"لا يوجد سعر صرف لهذه العملة إلى CAD. يرجى تحديث أسعار الصرف أولًا."};
-    const exchangeRate=conversion.factor;
-    const x={id:id(),type,amount:+n.toFixed(2),currency:normalizedCurrency,exchangeRate:+exchangeRate.toFixed(6),baseCurrency:"CAD",cadAmount:+(n*exchangeRate).toFixed(2),conversionPath:conversion.path,rateUpdatedAt:conversion.updatedAt||null,description:String(description||""),date,createdAt:now(),createdBy:req.user.id};
-    assertBalancedEntry([{account:"CAPITAL_CAD",debit:x.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*exchangeRate).toFixed(2)}]);
-    s.capitalMovements.push(x);audit(s,req.user.id,"CREATE","CAPITAL",x.id,{currency:x.currency,exchangeRate:x.exchangeRate,cadAmount:x.cadAmount});return x;
-  });
-  if(m?.error)return res.status(400).json({message:m.error});
-  res.status(201).json(m);
-});
-
-app.patch("/api/capital/:id", auth, requireIdempotencyKey, async (req,res)=>{
-  const {type,amount,currency,description,date}=req.body||{};
-  const n=Number(amount);
-  if(!["IN","OUT"].includes(type)||!Number.isFinite(n)||n<=0){
-    return res.status(400).json({message:"بيانات حركة رأس المال غير صحيحة"});
-  }
-  const updated=await mutateDurable(store=>{
-    const item=store.capitalMovements.find(entry=>entry.id===req.params.id);
-    if(!item)return null;
-    const normalizedCurrency=String(currency||"CAD").toUpperCase();
-    const conversion=currencyConversion(store,normalizedCurrency,"CAD");
-    if(!conversion)return {error:"لا يوجد سعر صرف لهذه العملة إلى CAD. يرجى تحديث أسعار الصرف أولًا."};
-    item.type=type;
-    item.amount=+n.toFixed(2);
-    item.currency=normalizedCurrency;
-    item.exchangeRate=+conversion.factor.toFixed(6);
-    item.baseCurrency="CAD";
-    item.cadAmount=+(n*conversion.factor).toFixed(2);
-    assertBalancedEntry([{account:"CAPITAL_CAD",debit:item.cadAmount},{account:"SOURCE_AMOUNT_CONVERTED",credit:+(n*conversion.factor).toFixed(2)}]);
-    item.conversionPath=conversion.path;
-    item.rateUpdatedAt=conversion.updatedAt||null;
-    item.description=String(description||"");
-    item.date=date||new Date().toISOString().slice(0,10);
-    item.updatedAt=now();
-    item.updatedBy=req.user.id;
-    audit(store,req.user.id,"UPDATE","CAPITAL",item.id,{type:item.type,amount:item.amount});
-    return item;
-  });
-  if(!updated)return res.status(404).json({message:"حركة رأس المال غير موجودة"});
-  if(updated.error)return res.status(400).json({message:updated.error});
-  res.json(updated);
-});
-
-app.delete("/api/capital/:id", auth, requireIdempotencyKey, async (req,res)=>{
-  const removed=await mutateDurable(store=>{
-    const rows=Array.from(store.capitalMovements||[]);
-    const item=rows.find(entry=>entry.id===req.params.id);
-    if(!item)return null;
-    store.capitalMovements=rows.filter(entry=>entry.id!==req.params.id);
-    audit(store,req.user.id,"DELETE","CAPITAL",item.id,{type:item.type,amount:item.amount});
-    return item;
-  });
-  if(!removed)return res.status(404).json({message:"حركة رأس المال غير موجودة"});
-  res.json({message:"تم حذف حركة رأس المال",id:removed.id});
+registerFinanceOperationsRoutes(app,{
+  auth,requireIdempotencyKey,readStore,branchSafeRead,nativeRepositories,paginate,mutateDurable,id,now,
+  assertBalancedEntry,audit,currencyConversion,safeNumber
 });
 
 const publicDir = path.resolve(__dirname, "../public");
@@ -5992,63 +5841,11 @@ if (!fs.existsSync(indexFile)) {
 }
 
 
-const BACKUP_ARRAYS=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","monthlyInventories"];
-
-app.get("/api/backup", auth, requirePermission("admin.only"), (req,res)=>{
-  const store=readStore();
-  const company=(store.companies||[]).find(item=>item.id===req.user.companyId);
-  const data={};
-  for(const key of BACKUP_ARRAYS)data[key]=Array.from(store[key]||[]).map(item=>({...item}));
-  data.notificationSettings={...(store.notificationSettings||{})};
-  const payload=createBackupEnvelope({
-    company:{id:req.user.companyId,name:company?.name||""},
-    data,
-    createdAt:now()
-  });
-  const filename=`alaboud-backup-${new Date().toISOString().replace(/[:.]/g,"-")}.json`;
-  res.setHeader("Content-Type","application/json; charset=utf-8");
-  res.setHeader("Content-Disposition",`attachment; filename="${filename}"`);
-  res.send(JSON.stringify(payload,null,2));
-});
-
-app.get("/api/security/status", auth, (req,res)=>{
-  if(req.user.role!=="ADMIN")return res.status(403).json({message:"متاح للمدير فقط"});
-  const store=readStore(); const logs=store.auditLogs||[]; let chainValid=true,prev="GENESIS";
-  for(const item of logs){const copy={...item};delete copy.integrityHash;if(item.previousHash!==prev||sha256(JSON.stringify(copy))!==item.integrityHash){chainValid=false;break;}prev=item.integrityHash;}
-  res.json({version:APP_VERSION,passwordHashing:"scrypt",sessionHours:+(DEFAULT_IDLE_MS/3600000).toFixed(2),httpsRequired:IS_PROD,auditIntegrity:chainValid,activeDevices:(store.devices||[]).filter(x=>x.active!==false).length,failedLogins24h:logs.filter(x=>x.action==="LOGIN_FAILED"&&Date.now()-new Date(x.createdAt).getTime()<86400000).length,securityScore:[IS_PROD,JWT_SECRET!=="LOCAL_TRIAL_CHANGE_ME_6_0",chainValid].filter(Boolean).length===3?95:78});
-});
-
-app.post("/api/backup/encrypted", auth, requirePermission("admin.only"), rateLimit("backup",10,60*60*1000),async (req,res)=>{ const password=String(req.body?.password||""); const policy=passwordPolicy(password); if(!policy.ok)return res.status(400).json({message:policy.message});
-  const store=readStore(),data={};for(const key of BACKUP_ARRAYS)data[key]=Array.from(store[key]||[]).map(item=>({...item})); const payload=createBackupEnvelope({company:{id:req.user.companyId},data,createdAt:now()}); const encrypted=encryptJson(payload,password);
-  await mutateDurable(root=>audit(root,req.user.id,"EXPORT_ENCRYPTED","BACKUP",id(),{ip:req.ip})); res.setHeader("Content-Disposition",`attachment; filename="alaboud-secure-backup-${Date.now()}.abs"`);res.json(encrypted);
-});
-
-app.post("/api/backup/restore", auth, requirePermission("admin.only"), async (req,res)=>{
-  try{
-    const payload=req.body||{};
-    const verification=verifyBackupEnvelope(payload);
-    if(!verification.ok){
-      return res.status(400).json({message:verification.message});
-    }
-    await mutateDurable(store=>{
-      for(const key of BACKUP_ARRAYS){
-        const existing=Array.from(store[key]||[]);
-        for(const item of existing)item.companyId=`RESTORED_OLD_${req.user.companyId}`;
-        const rows=Array.isArray(payload.data[key])?payload.data[key]:[];
-        for(const row of rows){
-          const clean={...row};delete clean.companyId;
-          store[key].push(clean);
-        }
-      }
-      if(payload.data.notificationSettings&&typeof payload.data.notificationSettings==="object"){
-        store.notificationSettings={...payload.data.notificationSettings};
-      }
-      audit(store,req.user.id,"RESTORE","BACKUP",id(),{sourceVersion:payload.version||"unknown",createdAt:payload.createdAt||null});
-    });
-    res.json({message:"تمت استعادة النسخة الاحتياطية بنجاح"});
-  }catch(error){
-    res.status(400).json({message:error.message||"تعذر استعادة النسخة الاحتياطية"});
-  }
+registerBackupRoutes(app,{
+  auth,requirePermission,readRootStore,readStore,buildCompanyOperationalBackup,createBackupEnvelope,
+  COMPANY_OPERATIONAL_BACKUP_SCOPE,now,sendJsonAttachmentChunked,APP_VERSION,sha256,DEFAULT_IDLE_MS,IS_PROD,
+  JWT_SECRET,rateLimit,passwordPolicy,encryptJson,mutateDurable,audit,id,verifyBackupEnvelope,
+  isCompanyWideOperationalBackup,runWithTenant,restoreCompanyOperationalBackup,validateBackupRestoreSchema
 });
 
 app.use(express.static(publicDir, {

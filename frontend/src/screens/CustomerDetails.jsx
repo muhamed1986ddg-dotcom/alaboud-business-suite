@@ -4,6 +4,7 @@ import {APP_VERSION} from "../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction,revealAppEditor} from "../shared";
 import {AppTable} from "../components/ui";
 import {authoritativeCustomerRate} from "../customerRate";
+import {transferFinancialPreview} from "../transferFinancialPreview";
 
 
 export function Customer({id,back,onStatement,onAddTransfer}){
@@ -28,7 +29,11 @@ export function Customer({id,back,onStatement,onAddTransfer}){
     setEditingTransaction({
       ...transaction,
       feeMethod:transaction.feeMethod==="PAID"?"PAID":"SPREAD",
-      transferFee:transaction.feeMethod==="PAID"?String(transaction.transferFee??""):""
+      transferFee:transaction.feeMethod==="PAID"?String(transaction.transferFee??""):"",
+      providerFeeCompany:transaction.providerFeeCompany||transaction.partnerName||"",
+      providerFeeAmount:String(transaction.providerFeeAmount??""),
+      providerFeeCurrency:transaction.providerFeeCurrency||transaction.currency||"USD",
+      providerFeeRateCad:String(transaction.providerFeeRateCad??"")
     });
     revealAppEditor('[data-app-editor="customer-transaction"]');
   }
@@ -324,9 +329,14 @@ export function Customer({id,back,onStatement,onAddTransfer}){
   async function saveTransaction(event){
     event.preventDefault();
     try{
+      const preview=transferFinancialPreview(editingTransaction);
       await api.patch(`/transactions/${editingTransaction.id}`,{
         ...editingTransaction,
-        transferFee:editingTransaction.feeMethod==="PAID"?Number(editingTransaction.transferFee||0):0
+        transferFee:editingTransaction.feeMethod==="PAID"?Number(editingTransaction.transferFee||0):0,
+        providerFeeCompany:String(editingTransaction.providerFeeCompany||"").trim(),
+        providerFeeAmount:Number(editingTransaction.providerFeeAmount||0),
+        providerFeeCurrency:String(editingTransaction.providerFeeCurrency||editingTransaction.currency||"USD").toUpperCase(),
+        providerFeeRateCad:preview.providerFeeRateCad
       });
       setEditingTransaction(null);
       void load();
@@ -383,6 +393,8 @@ export function Customer({id,back,onStatement,onAddTransfer}){
   });
   const totalTransactionUsd=transactionRows.reduce((sum,row)=>sum+row.usdAmount,0);
   const totalTransactionCad=transactionRows.reduce((sum,row)=>sum+row.cadValue,0);
+  const editPreview=editingTransaction?transferFinancialPreview(editingTransaction):null;
+  const editProviderCurrencies=editingTransaction?[...new Set([editingTransaction.currency,"CAD","USD","EUR","TRY","SYP","SAR","JOD"].filter(Boolean))]:[];
 
   return <div className="customer-details-page">
     <div className="card no-print form customer-account-actions" role="toolbar" aria-label="إجراءات حساب العميل">
@@ -454,10 +466,19 @@ export function Customer({id,back,onStatement,onAddTransfer}){
           <option value="SPREAD">الأجور من فرق سعر التحويل</option>
           <option value="PAID">أجور مدفوعة بشكل مستقل</option>
         </select>
-        {editingTransaction.feeMethod==="PAID"&&<input type="number" min="0" step=".01" value={editingTransaction.transferFee} onChange={e=>setEditingTransaction({...editingTransaction,transferFee:e.target.value})} placeholder="الأجور المدفوعة (CAD)" required/>}
-        <div className="transaction-edit-preview"><span>أجور الحوالة</span><strong>{(editingTransaction.feeMethod==="PAID"?(Number(editingTransaction.transferFee)||0):((Number(editingTransaction.amount)||0)*((Number(editingTransaction.finalRate)||0)-(Number(editingTransaction.costRate)||0)))).toFixed(2)} CAD</strong></div>
-        <div className="transaction-edit-preview"><span>المجموع النهائي</span><strong>{(((Number(editingTransaction.amount)||0)*(Number(editingTransaction.finalRate)||0))+(editingTransaction.feeMethod==="PAID"?(Number(editingTransaction.transferFee)||0):0)).toFixed(2)} CAD</strong></div>
-        <small>المستفيد يستلم مبلغ الحوالة كاملاً، ولا تُخصم الأجور منه.</small>
+        {editingTransaction.feeMethod==="PAID"&&<input type="number" min="0" step=".01" value={editingTransaction.transferFee} onChange={e=>setEditingTransaction({...editingTransaction,transferFee:e.target.value})} placeholder="أجور مأخوذة من العميل (CAD)" required/>}
+        <input value={editingTransaction.providerFeeCompany||""} onChange={e=>setEditingTransaction({...editingTransaction,providerFeeCompany:e.target.value})} placeholder="الشركة المنفذة (دهب / جاد)"/>
+        <div className="provider-fee-inline">
+          <input type="number" min="0" step=".01" value={editingTransaction.providerFeeAmount||""} onChange={e=>setEditingTransaction({...editingTransaction,providerFeeAmount:e.target.value})} placeholder="أجور الشركة"/>
+          <select value={editingTransaction.providerFeeCurrency||editingTransaction.currency||"USD"} onChange={e=>setEditingTransaction({...editingTransaction,providerFeeCurrency:e.target.value,providerFeeRateCad:""})}>{editProviderCurrencies.map(code=><option key={code} value={code}>{code}</option>)}</select>
+        </div>
+        {editingTransaction.providerFeeCurrency!=="CAD"&&editingTransaction.providerFeeCurrency!==editingTransaction.currency&&<input type="number" min=".0000001" step=".0000001" value={editingTransaction.providerFeeRateCad||""} onChange={e=>setEditingTransaction({...editingTransaction,providerFeeRateCad:e.target.value})} placeholder="سعر عملة الأجور إلى CAD" required={Number(editingTransaction.providerFeeAmount||0)>0}/>} 
+        <div className="transaction-edit-preview"><span>ربح فرق السعر</span><strong>{editPreview.exchangeProfit.toFixed(2)} CAD</strong></div>
+        <div className="transaction-edit-preview"><span>أجور العميل</span><strong>{editPreview.customerFee.toFixed(2)} CAD</strong></div>
+        <div className="transaction-edit-preview"><span>أجور الشركة</span><strong>- {editPreview.providerFeeCad.toFixed(2)} CAD</strong></div>
+        <div className="transaction-edit-preview"><span>صافي ربح الحوالة</span><strong>{editPreview.netProfit.toFixed(2)} CAD</strong></div>
+        <div className="transaction-edit-preview"><span>المجموع النهائي</span><strong>{editPreview.totalCustomerDue.toFixed(2)} CAD</strong></div>
+        <small>صافي الربح = ربح فرق السعر + أجور العميل − أجور الشركة. المستفيد يستلم مبلغ الحوالة كاملًا.</small>
         <button>حفظ التعديل</button>
         <button type="button" onClick={()=>setEditingTransaction(null)}>إلغاء</button>
       </form>
@@ -466,8 +487,9 @@ export function Customer({id,back,onStatement,onAddTransfer}){
     {editingPayment&&
       <form className="card form edit-panel" data-app-editor="customer-payment" onSubmit={savePayment}>
         <h3>تعديل الدفعة</h3>
-        <input type="number" min=".01" step=".01" value={editingPayment.amount} readOnly={Boolean(editingPayment.isGroupedPayment)} onChange={e=>setEditingPayment({...editingPayment,amount:e.target.value})}/>
-        {editingPayment.isGroupedPayment&&<small className="payment-auto-note">مبلغ الدفعة الأصلية ثابت لأنه موزع على عدة حوالات. يمكنك تعديل التاريخ والطريقة والمرجع والملاحظات، أو حذف الدفعة وتسجيلها من جديد.</small>}
+        <input type="number" min=".01" step=".01" inputMode="decimal" value={editingPayment.amount ?? ""} readOnly={Boolean(editingPayment.isGroupedPayment&&editingPayment.recordType!=="CUSTOMER_PAYMENT_RECEIPT")} onChange={e=>setEditingPayment({...editingPayment,amount:e.target.value})} placeholder="مبلغ الدفعة"/>
+        {editingPayment.isGroupedPayment&&editingPayment.recordType==="CUSTOMER_PAYMENT_RECEIPT"&&<small className="payment-auto-note">يمكنك تعديل مبلغ الدفعة مباشرة. عند الحفظ سيعيد النظام توزيع المبلغ تلقائيًا على الحوالات المستحقة أولًا، ثم الحساب القديم إن وجد.</small>}
+        {editingPayment.isGroupedPayment&&editingPayment.recordType!=="CUSTOMER_PAYMENT_RECEIPT"&&<small className="payment-auto-note">هذه دفعة قديمة موزعة ولا يمكن إعادة توزيع مبلغها تلقائيًا. احذف الدفعة وسجلها من جديد إذا أردت تغيير المبلغ.</small>}
         <input type="date" value={editingPayment.paymentDate||String(editingPayment.date||"").slice(0,10)} onChange={e=>setEditingPayment({...editingPayment,paymentDate:e.target.value})}/>
         <select value={editingPayment.method||"CASH"} onChange={e=>setEditingPayment({...editingPayment,method:e.target.value})}>
           <option value="CASH">نقدي</option>
