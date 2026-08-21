@@ -1,31 +1,25 @@
-# CI/CD — v25.14.73
+# CI/CD — Production Master v25.14.106
 
-المسار المعتمد لهذا الإصدار هو GitHub Actions للتحقق، ثم نشر مراجعة معزولة إلى Google Cloud Run بدون تحويل حركة الإنتاج تلقائيًا.
+The production workflow uses one source tree and one release gate.
 
-## فحوص GitHub Actions
+## Validation
 
-- `Backend CI`: فحص الصياغة وكل ملفات اختبارات الخادم واختباراته الذاتية.
-- `Frontend CI`: جميع اختبارات الواجهة وبناء الإنتاج.
-- `Dependency Security`: تدقيق أسبوعي وعند كل تغيير لثغرات التبعيات العالية والحرجة.
-- `Verify Project`: فحص الملفات الحساسة وبوابة المشروع المتكاملة.
-- `Build Android Enterprise APK`: بناء APK اختباري عند تغيير مصدر Android.
-
-يوصى بحماية فرع `main` واشتراط نجاح هذه الفحوص قبل الدمج.
-
-## التحقق المحلي
-
-```bash
+```powershell
 npm run install:all
 npm test
 npm run build
 ```
 
-## نشر Cloud Run الآمن
+The build runs the sensitive-file check, current-release checks, reliability gates, financial regressions, and the frontend production build.
 
-1. خزّن `DATABASE_URL` و`JWT_SECRET` و`INITIAL_ADMIN_PASSWORD` في Secret Manager، ولا تضع قيمها في المستودع أو سطر الأوامر المسجل.
-2. اترك `PUBLIC_COMPANY_REGISTRATION_ENABLED=false` ما لم يكن التسجيل العام قرارًا مقصودًا.
-3. نفّذ `DEPLOY_CLOUD_RUN_V25_14_73.ps1`. السكربت يشغل بوابة الإصدار ثم ينشئ مراجعة موسومة `v251473-security` مع `--no-traffic`.
-4. اختبر `/api/health` وتسجيل الدخول والعزل بين الشركات وتغيير كلمة المرور وتكاملات الشركاء على رابط المراجعة.
-5. حوّل نسبة صغيرة من الحركة أولًا، راقب الأخطاء، ثم ارفعها تدريجيًا. لا تحذف المراجعة السابقة قبل اكتمال المراقبة وخطة الرجوع.
+## Cloud Run
 
-إعدادات Render القديمة أزيلت عمدًا من المصدر لتفادي وجود مساري نشر متعارضين.
+Use:
+
+```powershell
+.\DEPLOY_CLOUD_RUN.ps1
+```
+
+The script reads the version from `package.json`, creates a matching tag, and deploys a **no-traffic** revision first. Test the tagged URL and `/api/health` before routing traffic. Keep the previous known-good revision available for rollback until the new revision is verified.
+
+Production secrets belong in Google Secret Manager / Cloud Run configuration, not in source files or shell history.

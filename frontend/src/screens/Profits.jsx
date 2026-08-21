@@ -19,9 +19,11 @@ function Profits(){
     </div>
     <div className="stats">
       <div className="card metric-card metric-count"><span>عدد الحوالات</span><strong>{data.transactionCount}</strong></div>
-      <div className="card metric-card metric-fees"><span>أجور الحوالات</span><strong>{money(data.transferFees)}</strong></div>
-      <div className="card metric-card metric-total"><span>إجمالي الربح</span><strong>{money(data.grossProfit)}</strong></div>
-      <div className="card metric-card metric-expense"><span>المصروفات</span><strong>{money(data.expenses)}</strong></div>
+      <div className="card metric-card metric-fees"><span>ربح فرق السعر</span><strong>{money(data.exchangeProfit)}</strong></div>
+      <div className="card metric-card metric-fees"><span>أجور العميل</span><strong>{money(data.customerFees)}</strong></div>
+      <div className="card metric-card metric-expense"><span>أجور دهب/جاد والشركات</span><strong>{money(data.providerFees)}</strong></div>
+      <div className="card metric-card metric-total"><span>ربح الحوالات بعد الأجور</span><strong>{money(data.grossProfit)}</strong></div>
+      <div className="card metric-card metric-expense"><span>المصروفات العامة</span><strong>{money(data.expenses)}</strong></div>
       <div className={`card final metric-card metric-net ${Number(data.netProfit||0)<0?"value-negative":"value-positive"}`}><span>صافي الربح</span><strong>{money(data.netProfit)}</strong></div>
     </div>
     <div className="card">
@@ -32,9 +34,11 @@ function Profits(){
         emptyText="لا توجد بيانات أرباح ضمن الفترة المحددة."
         columns={[
           {key:"month",label:"الشهر"},
-          {key:"transferFees",label:"أجور الحوالات",render:row=>money(row.transferFees)},
-          {key:"grossProfit",label:"إجمالي الربح",render:row=>money(row.grossProfit)},
-          {key:"expenses",label:"المصروفات",render:row=>money(row.expenses)},
+          {key:"exchangeProfit",label:"ربح فرق السعر",render:row=>money(row.exchangeProfit)},
+          {key:"customerFees",label:"أجور العميل",render:row=>money(row.customerFees)},
+          {key:"providerFees",label:"أجور الشركات",render:row=>money(row.providerFees)},
+          {key:"grossProfit",label:"ربح الحوالات بعد الأجور",render:row=>money(row.grossProfit)},
+          {key:"expenses",label:"المصروفات العامة",render:row=>money(row.expenses)},
           {key:"netProfit",label:"صافي الربح",render:row=><b className={`table-total-value ${Number(row.netProfit||0)<0?"value-negative":"value-positive"}`}>{money(row.netProfit)}</b>},
         ]}
       />

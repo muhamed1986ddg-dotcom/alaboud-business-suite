@@ -3,6 +3,8 @@ const assert = require("assert");
 const fs = require("fs");
 const path = require("path");
 const server = fs.readFileSync(path.join(__dirname,"server.js"),"utf8");
+const financeRoutes = fs.readFileSync(path.join(__dirname,"routes","finance-operations.js"),"utf8");
+const financialSource = `${server}\n${financeRoutes}`;
 assert(server.includes('const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity")'));
 const requiredMarkers = [
   'account:"CUSTOMER_RECEIVABLE"',
@@ -12,7 +14,7 @@ const requiredMarkers = [
   'account:"EXPENSE_CAD"',
   'account:"CAPITAL_CAD"'
 ];
-for(const marker of requiredMarkers) assert(server.includes(marker),`missing financial integrity marker: ${marker}`);
+for(const marker of requiredMarkers) assert(financialSource.includes(marker),`missing financial integrity marker: ${marker}`);
 assert(server.includes('feeMethod:financials.feeMethod'),"transactions must persist the canonical fee method");
 assert(server.includes('beneficiaryReceives:financials.beneficiaryReceives'),"transactions must preserve the full beneficiary amount");
 assert(!server.includes('feeMethod==="DEDUCT"?Math.max(amount-fee,0):amount'),"legacy fee deduction formula must not return");

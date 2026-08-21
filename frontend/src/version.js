@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.90 PostgreSQL Transaction Recovery";
+export const APP_VERSION="v25.14.106 WhatsApp Quick Send";

@@ -1,15 +1,19 @@
 import React,{useEffect,useMemo,useRef,useState} from "react";
 import api,{cachedGet,clearApiGetCache,isTransientReadFailure} from "../api";
 import {APP_VERSION} from "../version";
-import {AppPagination} from "../components/ui";
+import {AppButton,AppModal,AppPagination} from "../components/ui";
 import {CustomerToolbar,CustomerListControls} from "../components/customers/CustomerToolbar";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction,revealAppEditor} from "../shared";
 import {authoritativeCustomerRate} from "../customerRate";
+import {transferFinancialPreview} from "../transferFinancialPreview";
+import {compactWhatsAppLines,openWhatsAppMessage} from "../whatsapp";
 
 
 export function Customers({open,initialTransferRequest,onTransferRequestHandled,onTransferSaved}){
   const [list,setList]=useState([]);
   const [customerOptions,setCustomerOptions]=useState([]);
+  const [partnerOptions,setPartnerOptions]=useState([]);
+  const [providerFeeSettings,setProviderFeeSettings]=useState({enabled:true,feePer100:0.40});
   const [search,setSearch]=useState("");
   const [page,setPage]=useState(1);
   const pageSize=20;
@@ -20,6 +24,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     try{return localStorage.getItem("alaboud_customer_sort")||"name-asc"}catch{return "name-asc"}
   });
   const [error,setError]=useState("");
+  const [whatsAppSuccess,setWhatsAppSuccess]=useState(null);
   const retryTimerRef=useRef(null);
   const retryAttemptRef=useRef(0);
 
@@ -35,6 +40,13 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     finalRate:"",
     feeMethod:"SPREAD",
     transferFee:"",
+    partnerId:"",
+    providerFeeCompany:"",
+    providerFeeAmount:"",
+    providerFeeCurrency:"USD",
+    providerFeeRateCad:"",
+    providerFeeAuto:true,
+    providerFeePer100:0.40,
     paymentStatus:"UNPAID",
     transferDate:new Date().toISOString().slice(0,10),
     rateMode:"auto",
@@ -115,13 +127,32 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     }
   }
 
-  useEffect(()=>{loadCustomerOptions()},[]);
+  async function loadPartnerOptions(){
+    try{
+      const response=await cachedGet("/partners",{cacheTtl:2*60*1000,persistCache:true,staleOnError:true,transientRetries:2});
+      const rows=Array.isArray(response.data?.rows)?response.data.rows:[];
+      setPartnerOptions(rows.map(item=>({id:item.id,name:item.name,accountCurrency:item.accountCurrency||"USD"})));
+    }catch{
+      // أجور الشركة اختيارية؛ لا نعطل نموذج الحوالة إذا تعذر تحميل الشركات مؤقتًا.
+    }
+  }
+
+  async function loadProviderFeeSettings(){
+    try{
+      const response=await cachedGet("/transfer-fee-settings",{cacheTtl:60*1000});
+      const next={enabled:response.data?.enabled!==false,feePer100:Number(response.data?.feePer100??0.40)};
+      setProviderFeeSettings(next);
+      setTransferForm(current=>({...current,providerFeeAuto:next.enabled,providerFeePer100:next.feePer100}));
+    }catch{ /* use safe defaults */ }
+  }
+
+  useEffect(()=>{loadCustomerOptions();loadPartnerOptions();loadProviderFeeSettings()},[]);
 
   useEffect(()=>()=>{if(retryTimerRef.current)clearTimeout(retryTimerRef.current)},[]);
 
 
   useEffect(()=>{
-    const recovered=()=>{load(sortMode,search,page);loadCustomerOptions();};
+    const recovered=()=>{load(sortMode,search,page);loadCustomerOptions();loadPartnerOptions();};
     window.addEventListener("alaboud-database-recovered",recovered);
     return()=>window.removeEventListener("alaboud-database-recovered",recovered);
   },[sortMode,search,page]);
@@ -136,6 +167,13 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       finalRate:"",
       feeMethod:"SPREAD",
       transferFee:"",
+      partnerId:"",
+      providerFeeCompany:"",
+      providerFeeAmount:"",
+      providerFeeCurrency:"USD",
+      providerFeeRateCad:"",
+      providerFeeAuto:providerFeeSettings.enabled,
+      providerFeePer100:providerFeeSettings.feePer100,
       paymentStatus:"UNPAID",
       transferDate:new Date().toISOString().slice(0,10),
       rateMode:"auto",
@@ -290,7 +328,17 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       clearApiGetCache();
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
       void Promise.allSettled([load(),loadDebtSummary()]);
-      window.alert("تم تصفير الحساب وبدء حساب جديد بنجاح. الحساب السابق محفوظ في الأرشيف.");
+      setWhatsAppSuccess({
+        title:"تم تحديث حساب العميل بنجاح",
+        phone:customer.whatsapp||customer.mobile||customer.phone,
+        message:compactWhatsAppLines([
+          `مرحباً ${customer.name||""}`,
+          "تم تسديد الحساب بالكامل وتحديث الرصيد بنجاح.",
+          "الرصيد الحالي: 0.00 CAD",
+          `التاريخ: ${new Date().toLocaleDateString("en-CA")}`,
+          "شكراً لتعاملكم معنا.","شركة العبود"
+        ])
+      });
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تصفير حساب العميل");
     }
@@ -307,6 +355,13 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       finalRate:"",
       feeMethod:"SPREAD",
       transferFee:"",
+      partnerId:"",
+      providerFeeCompany:"",
+      providerFeeAmount:"",
+      providerFeeCurrency:"USD",
+      providerFeeRateCad:"",
+      providerFeeAuto:providerFeeSettings.enabled,
+      providerFeePer100:providerFeeSettings.feePer100,
       paymentStatus:"UNPAID",
       transferDate:new Date().toISOString().slice(0,10),
       rateMode:"auto",
@@ -320,7 +375,9 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
   async function addTransfer(event){
     event.preventDefault();
     const savedCustomerId=transferForm.customerId;
+    const savedForm={...transferForm};
     try{
+      const preview=transferFinancialPreview(transferForm);
       const transactionResponse=await api.post("/transactions",{
         ...transferForm,
         amount:Number(transferForm.amount),
@@ -328,6 +385,13 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         finalRate:Number(transferForm.finalRate),
         feeMethod:transferForm.feeMethod,
         transferFee:transferForm.feeMethod==="PAID"?Number(transferForm.transferFee||0):0,
+        partnerId:transferForm.partnerId||"",
+        providerFeeCompany:String(transferForm.providerFeeCompany||"").trim(),
+        providerFeeAmount:Number(transferForm.providerFeeAmount||0),
+        providerFeeCurrency:String(transferForm.providerFeeCurrency||transferForm.currency||"USD").toUpperCase(),
+        providerFeeRateCad:preview.providerFeeRateCad,
+        providerFeeMode:transferForm.providerFeeAuto?"AUTO":"MANUAL",
+        providerFeePer100:Number(transferForm.providerFeePer100||providerFeeSettings.feePer100||0),
         rateSource:transferForm.rateMode==="auto"?"exchange-rates":"manual",
         rateUpdatedAt:transferForm.rateUpdatedAt||selectedRateMeta?.createdAt||null
       });
@@ -335,6 +399,24 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       // The backend creates the initial full payment atomically when paymentStatus=PAID.
       // Do not POST a second payment here; doing so exceeds the already-zero remaining balance.
       const createdTransaction=transactionResponse.data;
+      const customer=customerOptions.find(item=>item.id===savedCustomerId)||list.find(item=>item.id===savedCustomerId)||{};
+      let currentBalance="";
+      try{
+        const {data}=await cachedGet(`/customers/${savedCustomerId}/statement`,{cacheTtl:0});
+        currentBalance=data?.customer?.finalBalance??"";
+      }catch{/* The transfer is saved; omit an unavailable balance. */}
+      setWhatsAppSuccess({
+        title:"تم حفظ الحوالة بنجاح",
+        phone:customer.whatsapp||customer.mobile||customer.phone,
+        message:compactWhatsAppLines([
+          `مرحباً ${customer.name||transferCustomerName||""}`,
+          "تم تسجيل حوالة جديدة على حسابكم.",
+          `المبلغ: ${savedForm.amount||createdTransaction?.amount||""} ${savedForm.currency||createdTransaction?.currency||""}`,
+          `التاريخ: ${savedForm.transferDate||createdTransaction?.transferDate||""}`,
+          currentBalance!==""?`الرصيد الحالي: ${money(currentBalance)} CAD`:"",
+          "شركة العبود"
+        ])
+      });
 
       setTransferForm({
         customerId:"",
@@ -344,6 +426,11 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         finalRate:"",
         feeMethod:"SPREAD",
         transferFee:"",
+        partnerId:"",
+        providerFeeCompany:"",
+        providerFeeAmount:"",
+        providerFeeCurrency:"USD",
+        providerFeeRateCad:"",
         paymentStatus:"UNPAID",
         transferDate:new Date().toISOString().slice(0,10),
         rateMode:"auto",
@@ -375,6 +462,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
 
   async function addPayment(event){
     event.preventDefault();
+    const savedPayment={...paymentForm};
     try{
       if(!paymentForm.customerId)throw new Error("اختر العميل");
       await api.post(`/customers/${paymentForm.customerId}/payments`,{
@@ -382,6 +470,24 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         paymentDate:paymentForm.paymentDate,
         method:paymentForm.method,
         reference:paymentForm.reference
+      });
+      const customer=customerOptions.find(item=>item.id===savedPayment.customerId)||list.find(item=>item.id===savedPayment.customerId)||{};
+      let currentBalance="";
+      try{
+        const {data}=await cachedGet(`/customers/${savedPayment.customerId}/statement`,{cacheTtl:0});
+        currentBalance=data?.customer?.finalBalance??"";
+      }catch{/* The payment is saved; omit an unavailable balance. */}
+      const zeroBalance=currentBalance!==""&&Math.abs(Number(currentBalance))<0.005;
+      setWhatsAppSuccess({
+        title:"تم تحديث حساب العميل بنجاح",
+        phone:customer.whatsapp||customer.mobile||customer.phone,
+        message:compactWhatsAppLines([
+          `مرحباً ${customer.name||""}`,
+          zeroBalance?"تم تسديد الحساب بالكامل وتحديث الرصيد بنجاح.":"تم تسجيل الدفعة وتحديث حسابكم بنجاح.",
+          currentBalance!==""?`الرصيد الحالي: ${money(currentBalance)} CAD`:"",
+          `التاريخ: ${savedPayment.paymentDate||""}`,
+          "شكراً لتعاملكم معنا.","شركة العبود"
+        ])
       });
       setPaymentForm({
         customerId:"",
@@ -541,8 +647,18 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
   useEffect(()=>{if(page>effectiveTotalPages)setPage(effectiveTotalPages)},[page,effectiveTotalPages]);
 
   const customerActionFocus=activePanel==="transfer"||activePanel==="payment";
+  const transferPreview=transferFinancialPreview(transferForm);
+  const providerFeeSelection=transferForm.partnerId||(transferForm.providerFeeCompany?"__OTHER__":"");
+  const providerFeeCurrencies=[...new Set([transferForm.currency,"CAD","USD","EUR","TRY","SYP","SAR","JOD"].filter(Boolean))];
 
   return <>
+    <AppModal open={Boolean(whatsAppSuccess)} title={whatsAppSuccess?.title||"تمت العملية بنجاح"} onClose={()=>setWhatsAppSuccess(null)} actions={<>
+      <AppButton type="button" variant="secondary" onClick={()=>setWhatsAppSuccess(null)}>إغلاق</AppButton>
+      <AppButton type="button" className="whatsapp-quick-send-button" onClick={()=>{
+        const result=openWhatsAppMessage(whatsAppSuccess?.phone,whatsAppSuccess?.message);
+        if(!result.ok)setError("لا يوجد رقم واتساب مسجل لهذا العميل أو أن الرقم غير صالح");
+      }}>إرسال عبر واتساب</AppButton>
+    </>}><p>يمكنك فتح الرسالة الجاهزة في واتساب، أو إغلاق النافذة والمتابعة.</p></AppModal>
     <h2>قائمة العملاء</h2>
     {error&&<div className="card customer-error">{error}</div>}
     {duplicateCustomer&&<div className="card duplicate-customer-alert">
@@ -593,12 +709,12 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     }
 
     {activePanel==="transfer"&&
-      <div className="customer-action-focus-page">
+      <div className="customer-action-focus-page customer-transfer-focus-page">
         <div className="customer-action-focus-header">
           <div><span>⇄</span><h2>إضافة حوالة</h2></div>
           <button type="button" onClick={()=>setActivePanel("")}>✕ إغلاق</button>
         </div>
-      <form className="card form edit-panel customer-action-focus-form" onSubmit={addTransfer}>
+      <form className="card form edit-panel customer-action-focus-form customer-transfer-form" onSubmit={addTransfer}>
         <h3>إضافة حوالة</h3>
         {transferCustomerLocked?
           <div className="locked-transfer-customer">
@@ -617,7 +733,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         <label className="currency-field">
           <span className="currency-field-title">عملة الحوالة</span>
           <span className="currency-badge">{transferForm.currency}</span>
-          <select value={transferForm.currency} onChange={e=>setTransferForm({...transferForm,currency:e.target.value,costRate:"",finalRate:""})}>
+          <select value={transferForm.currency} onChange={e=>{const next=e.target.value;setTransferForm(current=>({...current,currency:next,costRate:"",finalRate:"",providerFeeCurrency:(!current.providerFeeCurrency||current.providerFeeCurrency===current.currency)?next:current.providerFeeCurrency}))}}>
             {["USD","EUR","SYP","AED","GBP","CAD"].map(code=><option key={code} value={code}>{code}</option>)}
           </select>
           <small>اختر العملة المرسلة، وسيتم جلب سعر التكلفة مقابل CAD تلقائيًا</small>
@@ -625,7 +741,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         <label className="currency-field">
           <span className="currency-field-title">مبلغ الحوالة</span>
           <span className="currency-badge">{transferForm.currency}</span>
-          <input type="number" inputMode="decimal" min=".01" step=".01" value={transferForm.amount} onChange={e=>setTransferForm({...transferForm,amount:e.target.value})} placeholder="0.00" required/>
+          <input type="number" inputMode="decimal" min=".01" step=".01" value={transferForm.amount} onChange={e=>{const amount=e.target.value;setTransferForm(current=>({...current,amount,providerFeeAmount:(current.providerFeeAuto&&providerFeeSelection)?((Number(amount||0)/100)*Number(current.providerFeePer100||providerFeeSettings.feePer100||0)).toFixed(2):current.providerFeeAmount}))}} placeholder="0.00" required/>
           <small>المبلغ بعملة {transferForm.currency}</small>
         </label>
         <label className="currency-field">
@@ -658,21 +774,53 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           <input type="number" inputMode="decimal" min="0" step=".01" value={transferForm.transferFee} onChange={e=>setTransferForm({...transferForm,transferFee:e.target.value})} placeholder="0.00" required/>
           <small>يدفعها العميل فوق قيمة الحوالة، ولا تُخصم من مبلغ المستفيد</small>
         </label>}
-        <div className="transfer-calculation-grid">
-          <div className="transfer-total-preview">
-            <span>المجموع النهائي (CAD) للعميل</span>
-            <strong>{(((Number(transferForm.amount)||0)*(Number(transferForm.finalRate)||0))+(transferForm.feeMethod==="PAID"?(Number(transferForm.transferFee)||0):0)).toFixed(2)} CAD</strong>
-          </div>
-          <div className="transfer-profit-preview">
-            <span>أجور الحوالة</span>
-            <strong>{(transferForm.feeMethod==="PAID"?(Number(transferForm.transferFee)||0):((Number(transferForm.amount)||0)*((Number(transferForm.finalRate)||0)-(Number(transferForm.costRate)||0)))).toFixed(2)} CAD</strong>
-          </div>
-          <div className="transfer-profit-preview">
-            <span>إجمالي ربح الحوالة</span>
-            <strong>{(((Number(transferForm.amount)||0)*((Number(transferForm.finalRate)||0)-(Number(transferForm.costRate)||0)))+(transferForm.feeMethod==="PAID"?(Number(transferForm.transferFee)||0):0)).toFixed(2)} CAD</strong>
-          </div>
+        <div className="provider-fee-section">
+          <label className="currency-field">
+            <span className="currency-field-title">الشركة المنفذة وأجورها</span>
+            <select value={providerFeeSelection} onChange={e=>{
+              const value=e.target.value;
+              if(!value){setTransferForm(current=>({...current,partnerId:"",providerFeeCompany:"",providerFeeAmount:"",providerFeeCurrency:current.currency,providerFeeRateCad:"",providerFeeAuto:providerFeeSettings.enabled,providerFeePer100:providerFeeSettings.feePer100}));return;}
+              if(value==="__OTHER__"){setTransferForm(current=>({...current,partnerId:"",providerFeeCompany:"",providerFeeAmount:current.providerFeeAuto?((Number(current.amount||0)/100)*Number(current.providerFeePer100||providerFeeSettings.feePer100||0)).toFixed(2):(current.providerFeeAmount||""),providerFeeCurrency:current.providerFeeCurrency||current.currency}));return;}
+              const partner=partnerOptions.find(item=>item.id===value);
+              setTransferForm(current=>({...current,partnerId:value,providerFeeCompany:partner?.name||"",providerFeeAmount:current.providerFeeAuto?((Number(current.amount||0)/100)*Number(current.providerFeePer100||providerFeeSettings.feePer100||0)).toFixed(2):current.providerFeeAmount,providerFeeCurrency:current.providerFeeCurrency||current.currency}));
+            }}>
+              <option value="">لا توجد أجور شركة منفذة</option>
+              {partnerOptions.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
+              <option value="__OTHER__">شركة أخرى</option>
+            </select>
+            <small>اختر دهب أو جاد أو الشركة التي تخصم منك أجور تنفيذ هذه الحوالة.</small>
+          </label>
+          {providerFeeSelection==="__OTHER__"&&<label className="currency-field">
+            <span className="currency-field-title">اسم الشركة المنفذة</span>
+            <input value={transferForm.providerFeeCompany||""} onChange={e=>setTransferForm({...transferForm,providerFeeCompany:e.target.value})} placeholder="مثال: دهب / جاد"/>
+          </label>}
+          {providerFeeSelection&&<>
+            <label className="currency-field">
+              <span className="currency-field-title">أجور الشركة</span>
+              <div className="provider-fee-inline">
+                <input type="number" inputMode="decimal" min="0" step=".01" value={transferForm.providerFeeAmount||""} onChange={e=>setTransferForm({...transferForm,providerFeeAmount:e.target.value,providerFeeAuto:false})} placeholder="0.00"/>
+                <select value={transferForm.providerFeeCurrency||transferForm.currency} onChange={e=>setTransferForm({...transferForm,providerFeeCurrency:e.target.value,providerFeeRateCad:""})}>
+                  {providerFeeCurrencies.map(code=><option key={code} value={code}>{code}</option>)}
+                </select>
+              </div>
+              <small>{transferForm.providerFeeAuto?`تلقائي: ${Number(transferForm.providerFeePer100||providerFeeSettings.feePer100||0).toFixed(2)} لكل 100. يمكنك تعديل الرقم يدويًا.`:"تم تعديل الأجرة يدويًا لهذه الحوالة."}</small>
+              {!transferForm.providerFeeAuto&&providerFeeSettings.enabled&&<button type="button" className="provider-fee-auto-button" onClick={()=>setTransferForm(current=>({...current,providerFeeAuto:true,providerFeePer100:providerFeeSettings.feePer100,providerFeeAmount:((Number(current.amount||0)/100)*Number(providerFeeSettings.feePer100||0)).toFixed(2),providerFeeCurrency:current.currency,providerFeeRateCad:""}))}>استخدام الأجرة التلقائية</button>}
+            </label>
+            {transferForm.providerFeeCurrency!=="CAD"&&transferForm.providerFeeCurrency!==transferForm.currency&&<label className="currency-field">
+              <span className="currency-field-title">سعر عملة الأجور إلى CAD</span>
+              <input type="number" inputMode="decimal" min=".0000001" step=".0000001" value={transferForm.providerFeeRateCad||""} onChange={e=>setTransferForm({...transferForm,providerFeeRateCad:e.target.value})} placeholder="0.0000" required={Number(transferForm.providerFeeAmount||0)>0}/>
+              <small>مطلوب فقط إذا كانت عملة الأجور مختلفة عن عملة الحوالة وCAD.</small>
+            </label>}
+          </>}
         </div>
-        <small>المستفيد يستلم مبلغ الحوالة كاملاً في الحالتين. لا يوجد خصم للأجور من مبلغ المستفيد.</small>
+        <div className="transfer-calculation-grid">
+          <div className="transfer-total-preview"><span>المجموع النهائي (CAD) للعميل</span><strong>{transferPreview.totalCustomerDue.toFixed(2)} CAD</strong></div>
+          <div className="transfer-profit-preview"><span>ربح فرق السعر</span><strong>{transferPreview.exchangeProfit.toFixed(2)} CAD</strong></div>
+          <div className="transfer-profit-preview"><span>أجور مأخوذة من العميل</span><strong>{transferPreview.customerFee.toFixed(2)} CAD</strong></div>
+          <div className="transfer-profit-preview"><span>أجور الشركة المنفذة</span><strong>- {transferPreview.providerFeeCad.toFixed(2)} CAD</strong></div>
+          <div className="transfer-profit-preview final"><span>صافي ربح الحوالة</span><strong>{transferPreview.netProfit.toFixed(2)} CAD</strong></div>
+        </div>
+        <small>صافي ربح الحوالة = ربح فرق السعر + أجور العميل − أجور دهب/جاد. أجور الشركة لا تُسجل كمصروف عام مرة ثانية، ولا تُخصم من مبلغ المستفيد.</small>
         <div className="transfer-payment-status">
           <div className="transfer-payment-status-title">حالة الحوالة</div>
           <div className="transfer-payment-status-buttons">

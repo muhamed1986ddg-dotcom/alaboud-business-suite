@@ -1,7 +1,8 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title AlAboud Business Suite v25.14.82 - Install
+for /f "delims=" %%v in ('node -p "require('./package.json').version" 2^>nul') do set VERSION=%%v
+title AlAboud Business Suite v%VERSION% - Install
 
 where node >nul 2>nul
 if errorlevel 1 (

@@ -6,6 +6,7 @@
 import React from "react";
 import {createRoot} from "react-dom/client";
 import {AppButton,AppModal} from "./components/ui";
+import {openWhatsAppMessage} from "./whatsapp";
 
 export function CurrencyFlag({code,className=""}){
   const normalized=String(code||"").toUpperCase();
@@ -28,20 +29,7 @@ export const money = n => Number(n || 0).toFixed(2);
 export const cad = n => `${money(n)} CAD`;
 
 export function openRegularWhatsApp(phone, message) {
-  const cleanPhone = String(phone || "").replace(/\D/g, "");
-  const encodedText = encodeURIComponent(String(message || ""));
-
-  if (!cleanPhone) return false;
-
-  const isAndroid = /Android/i.test(navigator.userAgent || "");
-  if (isAndroid) {
-    const intentUrl = `intent://send?phone=${cleanPhone}&text=${encodedText}#Intent;scheme=whatsapp;package=com.whatsapp;end`;
-    window.location.href = intentUrl;
-    return true;
-  }
-
-  window.open(`https://wa.me/${cleanPhone}?text=${encodedText}`, "_blank");
-  return true;
+  return openWhatsAppMessage(phone,message).ok;
 }
 
 export const currencyFlag = code => String(code || "").toUpperCase();

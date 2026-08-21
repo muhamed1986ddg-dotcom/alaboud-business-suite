@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.resolve(__dirname, "../..");
+const currentVersion = require(path.join(root, "package.json")).version;
 const android = fs.readFileSync(
   path.join(root, "app/src/main/java/com/alaboud/businesssuite/MainActivity.kt"),
   "utf8",
@@ -36,8 +37,8 @@ assert(
   "SSL failures must clear trust, detach the bridge and cancel navigation",
 );
 assert(
-  android.includes('CLIENT_VERSION = "25.14.90"'),
-  "Android hotfix client version mismatch",
+  android.includes(`CLIENT_VERSION = "${currentVersion}"`),
+  "Android client version must match the current package version",
 );
 
-console.log("Android WebView bridge thread-safety regression on v25.14.84: OK");
+console.log("Android WebView bridge thread-safety regression: OK");

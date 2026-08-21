@@ -178,6 +178,15 @@ function CapitalOverview({navigate}){
   const netDebt=Number(data.netDebt ?? (debtForUs-debtOnUs));
   const equityNetCapital=Number(data.equityNetCapital ?? (capitalContributions-capitalWithdrawals+realizedNetProfit-profitDistributions));
   const netCapital=Number(data.comprehensiveNetCapital ?? data.netCapital ?? (equityNetCapital+netDebt));
+  const usesInventoryCapital=data.capitalBasis==="LAST_APPROVED_INVENTORY"&&Number.isFinite(Number(data.originalCapital));
+  const originalCapital=usesInventoryCapital?Number(data.originalCapital):capitalContributions-capitalWithdrawals;
+  const originalCapitalDate=usesInventoryCapital?data.originalCapitalDate:null;
+  const contributionsInCurrentPeriod=usesInventoryCapital?Number(data.capitalContributionsAfterInventory||0):capitalContributions;
+  const withdrawalsInCurrentPeriod=usesInventoryCapital?Number(data.capitalWithdrawalsAfterInventory||0):capitalWithdrawals;
+  const profitInCurrentPeriod=usesInventoryCapital?Number(data.netProfitAfterInventory||0):realizedNetProfit;
+  const grossProfitInCurrentPeriod=usesInventoryCapital?Number(data.accumulatedProfitAfterInventory||0):accumulatedProfit;
+  const expensesInCurrentPeriod=usesInventoryCapital?Number(data.accumulatedExpensesAfterInventory||0):accumulatedExpenses;
+  const distributionsInCurrentPeriod=usesInventoryCapital?Number(data.profitDistributionsAfterInventory||0):profitDistributions;
   const estimatedCapital=Number(data.estimatedCapital ?? data.totalCapital ?? netCapital);
   const netWorth=estimatedCapital;
   const closedInventory=(Array.isArray(inventory?.rows)?inventory.rows:[]).find(item=>item?.month===month&&!item.isDeleted);
@@ -188,7 +197,7 @@ function CapitalOverview({navigate}){
     <div className="page-title-row budget-title-row">
       <div>
         <h2>⚖️ الميزانية</h2>
-        <p>صافي رأس المال الشامل يضم رأس المال والأرباح وصافي ديون العملاء والشركات</p>
+        <p>{usesInventoryCapital?"صافي رأس المال الحالي يبدأ من آخر جرد معتمد ويضم حركات الفترة اللاحقة فقط":"صافي رأس المال الشامل يضم رأس المال والأرباح وصافي ديون العملاء والشركات"}</p>
       </div>
       <div className="budget-title-actions no-print">
         <input type="month" value={month} onChange={e=>setMonth(e.target.value)}/>
@@ -210,43 +219,41 @@ function CapitalOverview({navigate}){
     <section className="financial-summary-grid" aria-label="ملخص الميزانية">
       <button type="button" className="card financial-summary-card assets-card" onClick={()=>setFinancialDetails("assets")}>
         <span className="financial-card-icon">💰</span>
-        <div><small>حقوق الملكية</small><h3>رأس المال 💰</h3></div>
-        <strong>{money(capitalContributions-capitalWithdrawals)} CAD</strong>
-        <p>المضاف − المسحوبات</p>
+        <div><small>{usesInventoryCapital?`تاريخ آخر جرد: ${originalCapitalDate}`:"لم يعتمد جرد بعد"}</small><h3>رأس المال الأصلي — آخر جرد معتمد</h3></div>
+        <strong>{money(originalCapital)} CAD</strong>
+        <p>{usesInventoryCapital?"ثابت حتى اعتماد جرد جديد":"يستخدم المنطق التراكمي القديم مؤقتًا"}</p>
         <em>اضغط لعرض التفاصيل</em>
       </button>
-      <button type="button" className={`card financial-summary-card profit-card ${realizedNetProfit<0?"is-negative":""}`} onClick={()=>setFinancialDetails("profit")}>
+      <button type="button" className={`card financial-summary-card profit-card ${profitInCurrentPeriod<0?"is-negative":""}`} onClick={()=>setFinancialDetails("profit")}>
         <span className="financial-card-icon">📈</span>
-        <div><small>تراكمي — الحوالات غير الملغاة</small><h3>صافي الربح المسجل</h3></div>
-        <strong>{money(realizedNetProfit)} CAD</strong>
-        <p>أرباح الحوالات المسجلة − المصروفات</p>
+        <div><small>{usesInventoryCapital?"بعد آخر جرد معتمد":"تراكمي — الحوالات غير الملغاة"}</small><h3>صافي الربح المسجل</h3></div>
+        <strong>{money(profitInCurrentPeriod)} CAD</strong>
+        <p>{usesInventoryCapital?"أرباح ومصروفات الفترة الجديدة فقط":"أرباح الحوالات المسجلة − المصروفات"}</p>
         <em>اضغط لعرض التفاصيل</em>
       </button>
       <button type="button" className={`card financial-summary-card net-capital-card ${netCapital<0?"is-negative":""}`} onClick={()=>setFinancialDetails("net")}>
         <span className="financial-card-icon">💎</span>
-        <div><small>يشمل صافي الذمم</small><h3>صافي رأس المال الشامل</h3></div>
+        <div><small>{usesInventoryCapital?"منذ آخر جرد معتمد":"يشمل صافي الذمم"}</small><h3>صافي رأس المال الحالي</h3></div>
         <strong>{money(netCapital)} CAD</strong>
-        <p>حقوق الملكية + الدين لنا − الدين علينا</p>
+        <p>{usesInventoryCapital?"الجرد المعتمد + حركات الفترة اللاحقة":"حقوق الملكية + الدين لنا − الدين علينا"}</p>
         <em>اضغط لعرض الحساب الكامل</em>
       </button>
     </section>
 
     <section className="card financial-equation-card">
-      <div className="section-heading"><h3>🧮 معادلة صافي رأس المال الشامل</h3><small>جميع القيم محوّلة إلى الدولار الكندي CAD</small></div>
+      <div className="section-heading"><h3>🧮 معادلة صافي رأس المال الحالي</h3><small>{usesInventoryCapital?`الحركات بعد جرد ${originalCapitalDate} فقط`:"المنطق التراكمي القديم حتى اعتماد أول جرد"}</small></div>
       <div className="financial-equation-row">
-        <span><small>رأس المال المضاف</small><b>{money(capitalContributions)}</b></span>
+        {usesInventoryCapital&&<><span><small>رأس المال الأصلي</small><b>{money(originalCapital)}</b></span><i>+</i></>}
+        <span><small>رأس المال المضاف</small><b>{money(contributionsInCurrentPeriod)}</b></span>
         <i>−</i>
-        <span><small>المسحوبات</small><b>{money(capitalWithdrawals)}</b></span>
+        <span><small>المسحوبات</small><b>{money(withdrawalsInCurrentPeriod)}</b></span>
         <i>+</i>
-        <span><small>صافي الربح المسجل</small><b>{money(realizedNetProfit)}</b></span>
+        <span><small>صافي الربح المسجل</small><b>{money(profitInCurrentPeriod)}</b></span>
         <i>−</i>
-        <span><small>توزيعات الأرباح</small><b>{money(profitDistributions)}</b></span>
-        <i>+</i>
-        <span><small>الدين لنا</small><b>{money(debtForUs)}</b></span>
-        <i>−</i>
-        <span><small>الدين علينا</small><b>{money(debtOnUs)}</b></span>
+        <span><small>توزيعات الأرباح</small><b>{money(distributionsInCurrentPeriod)}</b></span>
+        {!usesInventoryCapital&&<><i>+</i><span><small>الدين لنا</small><b>{money(debtForUs)}</b></span><i>−</i><span><small>الدين علينا</small><b>{money(debtOnUs)}</b></span></>}
         <i>=</i>
-        <span className={netCapital>=0?"equation-result positive":"equation-result negative"}><small>صافي رأس المال الشامل</small><b>{money(netCapital)} CAD</b></span>
+        <span className={netCapital>=0?"equation-result positive":"equation-result negative"}><small>صافي رأس المال الحالي</small><b>{money(netCapital)} CAD</b></span>
       </div>
     </section>
 
@@ -261,25 +268,27 @@ function CapitalOverview({navigate}){
         </div>
         {(financialDetails==="assets"||financialDetails==="net")&&<div className="financial-detail-group assets-detail-group">
           <h4>رأس المال</h4>
-          <p><span>رأس المال المضاف</span><b>+ {money(capitalContributions)} CAD</b></p>
-          <p><span>المسحوبات</span><b>− {money(capitalWithdrawals)} CAD</b></p>
-          <p className="detail-total"><span>رأس المال الحالي</span><strong>{money(capitalContributions-capitalWithdrawals)} CAD</strong></p>
+          {usesInventoryCapital&&<p><span>رأس المال الأصلي — آخر جرد معتمد</span><b>{money(originalCapital)} CAD</b></p>}
+          {usesInventoryCapital&&<p><span>تاريخ آخر جرد</span><b>{originalCapitalDate}</b></p>}
+          <p><span>رأس المال المضاف {usesInventoryCapital?"بعد الجرد":""}</span><b>+ {money(contributionsInCurrentPeriod)} CAD</b></p>
+          <p><span>المسحوبات {usesInventoryCapital?"بعد الجرد":""}</span><b>− {money(withdrawalsInCurrentPeriod)} CAD</b></p>
+          <p className="detail-total"><span>رأس المال الحالي</span><strong>{money(usesInventoryCapital?originalCapital+contributionsInCurrentPeriod-withdrawalsInCurrentPeriod:capitalContributions-capitalWithdrawals)} CAD</strong></p>
         </div>}
         {(financialDetails==="profit"||financialDetails==="net")&&<div className="financial-detail-group liabilities-detail-group">
           <h4>الأرباح والمصروفات</h4>
-          <p><span>أرباح الحوالات غير الملغاة</span><b>+ {money(accumulatedProfit)} CAD</b></p>
-          <p><span>المصروفات</span><b>− {money(accumulatedExpenses)} CAD</b></p>
-          <p className="detail-total"><span>صافي الربح المسجل</span><strong>{money(realizedNetProfit)} CAD</strong></p>
+          <p><span>أرباح الحوالات غير الملغاة {usesInventoryCapital?"بعد الجرد":""}</span><b>+ {money(grossProfitInCurrentPeriod)} CAD</b></p>
+          <p><span>المصروفات {usesInventoryCapital?"بعد الجرد":""}</span><b>− {money(expensesInCurrentPeriod)} CAD</b></p>
+          <p className="detail-total"><span>صافي الربح المسجل</span><strong>{money(profitInCurrentPeriod)} CAD</strong></p>
         </div>}
-        {financialDetails==="net"&&<div className="financial-detail-group assets-detail-group">
+        {financialDetails==="net"&&!usesInventoryCapital&&<div className="financial-detail-group assets-detail-group">
           <h4>ديون العملاء والشركات</h4>
           <p><span>إجمالي الدين لنا</span><b>+ {money(debtForUs)} CAD</b></p>
           <p><span>إجمالي الدين علينا</span><b>− {money(debtOnUs)} CAD</b></p>
           <p className="detail-total"><span>صافي الذمم</span><strong>{money(netDebt)} CAD</strong></p>
         </div>}
         {financialDetails==="net"&&<div className={`financial-final-result ${netCapital>=0?"positive":"negative"}`}>
-          <span>{money(capitalContributions)} − {money(capitalWithdrawals)} + {money(realizedNetProfit)} − {money(profitDistributions)} + {money(debtForUs)} − {money(debtOnUs)}</span>
-          <strong>صافي رأس المال الشامل: {money(netCapital)} CAD</strong>
+          <span>{usesInventoryCapital?`${money(originalCapital)} + ${money(contributionsInCurrentPeriod)} − ${money(withdrawalsInCurrentPeriod)} + ${money(profitInCurrentPeriod)} − ${money(distributionsInCurrentPeriod)}`:`${money(capitalContributions)} − ${money(capitalWithdrawals)} + ${money(realizedNetProfit)} − ${money(profitDistributions)} + ${money(debtForUs)} − ${money(debtOnUs)}`}</span>
+          <strong>صافي رأس المال الحالي: {money(netCapital)} CAD</strong>
         </div>}
       </section>
     </div>}

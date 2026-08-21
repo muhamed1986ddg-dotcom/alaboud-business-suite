@@ -33,9 +33,12 @@ const EXACT_PERMISSION = Object.freeze([
   ["POST", "/api/backup/restore", "admin.only"],
   ["GET", "/api/notification-settings", "dashboard.read"],
   ["PATCH", "/api/notification-settings", "admin.only"],
+  ["GET", "/api/transfer-fee-settings", "dashboard.read"],
+  ["PATCH", "/api/transfer-fee-settings", "admin.only"],
   ["GET", "/api/profits", "reports.read"],
   ["GET", "/api/monthly-report", "reports.read"],
   ["GET", "/api/monthly-inventory", "reports.read"],
+  ["POST", "/api/monthly-inventory/preview", "reports.read"],
   ["PATCH", "/api/monthly-inventory/settings", "capital.write"],
   ["POST", "/api/monthly-inventory/close", "capital.write"],
   ["GET", "/api/capital-overview", "reports.read"],
@@ -44,7 +47,7 @@ const EXACT_PERMISSION = Object.freeze([
   ["POST", "/api/ai/assistant", "reports.read"],
   ["PATCH", "/api/company-profile", "admin.only"],
   ["GET", "/api/security/permissions", "dashboard.read"],
-  ["GET", "/api/operations/:id/status", "dashboard.read"]
+  ["GET", "/api/operations/:key/status", "dashboard.read"]
 ]);
 
 const ADMIN_API_PREFIXES = Object.freeze([
@@ -97,7 +100,7 @@ function requiredPermissionForRequest(method, requestPath){
   }
   const exact=EXACT_PERMISSION.find(([exactMethod, exactPath]) => {
     if(exactMethod!==verb)return false;
-    const pattern="^"+exactPath.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/:id/g,"[^/]+")+"$";
+    const pattern="^"+exactPath.replace(/[.*+?^${}()|[\]\\]/g,"\\$&").replace(/:[A-Za-z][A-Za-z0-9_]*/g,"[^/]+")+"$";
     return new RegExp(pattern).test(pathname);
   });
   if (exact) return exact[2];

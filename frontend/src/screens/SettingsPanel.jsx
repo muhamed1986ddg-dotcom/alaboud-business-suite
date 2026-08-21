@@ -5,8 +5,9 @@ import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,
 import {AppModal} from "../components/ui";
 
 function NotificationSettings({embedded=false}){
-  const [settings,setSettings]=useState({overdueDays:7,lowCashLimit:5000,whatsappTemplate:""});
+  const [settings,setSettings]=useState({overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,timeZone:"America/Toronto"});
   const [message,setMessage]=useState("");
+  const [preview,setPreview]=useState(null),[logs,setLogs]=useState([]),[busy,setBusy]=useState(false);
 
   useEffect(()=>{
     cachedGet("/notification-settings").then(response=>setSettings(response.data));
@@ -21,6 +22,23 @@ function NotificationSettings({embedded=false}){
     }catch(error){
       setMessage(error.response?.data?.message||"تعذر حفظ الإعدادات");
     }
+  }
+
+  async function loadPreview(){
+    setBusy(true);setMessage("");
+    try{const {data}=await api.get("/monthly-account-messages/preview");setPreview(data);return data;}
+    catch(error){setMessage(error.response?.data?.message||"تعذر تحميل المعاينة");return null;}
+    finally{setBusy(false);}
+  }
+  async function loadLogs(){try{const {data}=await api.get("/monthly-account-messages/logs");setLogs(data);}catch(error){setMessage(error.response?.data?.message||"تعذر تحميل سجل الرسائل");}}
+  async function sendNow(){
+    const currentPreview=preview||await loadPreview();
+    const count=currentPreview?.count||0;
+    if(count>1&&!window.confirm(`سيتم إرسال رسائل WhatsApp إلى ${count} عملاء. هل تريد المتابعة؟`))return;
+    setBusy(true);setMessage("");
+    try{const {data}=await api.post("/monthly-account-messages/send-now",{confirmed:true});setMessage(`تم الإرسال: ${data.sent}، فشل: ${data.failed}، متجاوز كمكرر: ${data.skipped}`);await loadLogs();}
+    catch(error){setMessage(error.response?.data?.message||"تعذر إرسال الرسائل");}
+    finally{setBusy(false);}
   }
 
   return <div className={embedded?"notification-settings-embedded":"notification-settings-page"}>
@@ -38,6 +56,22 @@ function NotificationSettings({embedded=false}){
         onChange={e=>setSettings({...settings,whatsappTemplate:e.target.value})}
         placeholder="يمكن استخدام: {name} {balance} {days}"/>
       <button>حفظ الإعدادات</button>
+      <fieldset className="monthly-account-message-settings">
+        <legend>رسائل الحساب الشهرية التلقائية عبر WhatsApp</legend>
+        <label className="settings-toggle"><input type="checkbox" checked={Boolean(settings.monthlyAccountWhatsAppEnabled)} onChange={e=>setSettings({...settings,monthlyAccountWhatsAppEnabled:e.target.checked})}/> تشغيل الرسائل الشهرية</label>
+        <div className="monthly-message-schedule">
+          <label>يوم الإرسال (1–28)<input type="number" min="1" max="28" value={settings.monthlyAccountMessageDay} onChange={e=>setSettings({...settings,monthlyAccountMessageDay:e.target.value})}/></label>
+          <label>وقت الإرسال<input type="time" value={settings.monthlyAccountMessageTime} onChange={e=>setSettings({...settings,monthlyAccountMessageTime:e.target.value})}/></label>
+        </div>
+        <label>المنطقة الزمنية<select value={settings.timeZone||"America/Toronto"} onChange={e=>setSettings({...settings,timeZone:e.target.value})}><option value="America/Toronto">America/Toronto</option><option value="America/New_York">America/New_York</option><option value="Asia/Damascus">Asia/Damascus</option><option value="Asia/Dubai">Asia/Dubai</option><option value="Europe/Istanbul">Europe/Istanbul</option></select></label>
+        <label>قالب الرسالة الشهري</label>
+        <textarea rows="7" value={settings.monthlyAccountMessageTemplate||""} onChange={e=>setSettings({...settings,monthlyAccountMessageTemplate:e.target.value})} placeholder="اتركه فارغًا لاستخدام القالب الرسمي. المتغيرات: {customerName} {date} {balance} {balanceDirection}"/>
+        <label className="settings-toggle"><input type="checkbox" checked={Boolean(settings.automaticTransferWhatsAppEnabled)} onChange={e=>setSettings({...settings,automaticTransferWhatsAppEnabled:e.target.checked})}/> إرسال رسالة WhatsApp تلقائيًا بعد كل حوالة جديدة</label>
+        <label className="settings-toggle"><input type="checkbox" checked={Boolean(settings.zeroBalanceWhatsAppEnabled)} onChange={e=>setSettings({...settings,zeroBalanceWhatsAppEnabled:e.target.checked})}/> إرسال رسالة WhatsApp تلقائيًا عند تصفير حساب العميل</label>
+        <div className="monthly-message-actions"><button type="button" onClick={loadPreview} disabled={busy}>معاينة رسائل هذا الشهر</button><button type="button" onClick={sendNow} disabled={busy}>إرسال الآن</button><button type="button" onClick={loadLogs}>سجل الرسائل السابقة</button></div>
+        {preview&&<div className="monthly-message-preview"><strong>العملاء المستهدفون: {preview.count}</strong>{preview.recipients.map(item=><article key={item.customerId}><b>{item.name}</b><span dir="ltr">{item.whatsappNumber}</span><span>{item.amount.toFixed(2)} CAD — {item.direction==="CUSTOMER_OWES_US"?"المبلغ المستحق لنا":"المبلغ المستحق لكم"}</span><pre>{item.messageText}</pre></article>)}</div>}
+        {logs.length>0&&<div className="monthly-message-log"><strong>آخر محاولات الإرسال</strong>{logs.slice(0,20).map(item=><div key={item.id}><span>{item.customerName}</span><span>{item.yearMonth}</span><span>{item.status||item.deliveryStatus}</span></div>)}</div>}
+      </fieldset>
     </form>
     <div className={embedded?"settings-help":"card"}>
       <strong>ملاحظة:</strong>
@@ -46,6 +80,33 @@ function NotificationSettings({embedded=false}){
   </div>;
 }
 
+
+
+function TransferFeeSettings(){
+  const [settings,setSettings]=useState({enabled:true,feePer100:0.40});
+  const [message,setMessage]=useState("");
+  useEffect(()=>{cachedGet("/transfer-fee-settings",{cacheTtl:0}).then(response=>setSettings(response.data)).catch(()=>{});},[]);
+  async function save(event){
+    event.preventDefault();
+    setMessage("");
+    try{
+      const response=await api.patch("/transfer-fee-settings",{enabled:Boolean(settings.enabled),feePer100:Number(settings.feePer100||0)});
+      setSettings(response.data);
+      setMessage("تم حفظ أجور الحوالة الافتراضية");
+    }catch(error){setMessage(error.response?.data?.message||"تعذر حفظ أجور الحوالة");}
+  }
+  const example=(1000/100)*Number(settings.feePer100||0);
+  return <article data-panel="transferFees" className="settings-card settings-wide-card">
+    <div className="settings-card-title"><span>💸</span><h3>أجور الحوالة التلقائية</h3></div>
+    <p className="settings-help">يحسب البرنامج أجور الشركة المنفذة تلقائيًا لكل حوالة. يمكنك تعديل الأجرة يدويًا داخل الحوالة إذا دفعت مبلغًا مختلفًا.</p>
+    {message&&<div className="settings-message">{message}</div>}
+    <form className="settings-form-modern" onSubmit={save}>
+      <label><span>التفعيل التلقائي</span><select value={settings.enabled?"YES":"NO"} onChange={e=>setSettings({...settings,enabled:e.target.value==="YES"})}><option value="YES">مفعّل</option><option value="NO">متوقف</option></select></label>
+      <label><span>الأجور لكل 100 من مبلغ الحوالة</span><input type="number" inputMode="decimal" min="0" max="100" step="0.01" value={settings.feePer100} onChange={e=>setSettings({...settings,feePer100:e.target.value})}/><small>القيمة الافتراضية 0.40. مثال: حوالة 1,000 → أجور {example.toFixed(2)} من نفس عملة الحوالة.</small></label>
+      <button className="settings-primary-button">حفظ أجور الحوالة</button>
+    </form>
+  </article>;
+}
 
 
 function BranchManagement({activeBranchId,onActiveBranchChange}){
@@ -268,7 +329,7 @@ function SettingsPanel({activeBranchId,onActiveBranchChange}){
       const savedAt=new Date().toISOString();
       localStorage.setItem("alaboud_last_backup_at",savedAt);
       setLastBackupAt(savedAt);
-      setMessage("تم إنشاء وتنزيل النسخة الاحتياطية بنجاح");
+      setMessage("تم إنشاء وتنزيل نسخة جميع فروع الشركة بنجاح");
     }catch(error){setMessage(error.response?.data?.message||"تعذر إنشاء النسخة الاحتياطية")}
     finally{setBackupBusy(false)}
   }
@@ -277,7 +338,7 @@ function SettingsPanel({activeBranchId,onActiveBranchChange}){
     const file=event.target.files?.[0];
     event.target.value="";
     if(!file)return;
-    if(!await confirmAction({title:"استعادة نسخة احتياطية",message:"سيتم استبدال بيانات هذه الشركة بمحتوى النسخة الاحتياطية. هل تريد المتابعة؟",confirmText:"استعادة النسخة",tone:"warning"}))return;
+    if(!await confirmAction({title:"استعادة نسخة احتياطية",message:"سيتم استبدال البيانات التشغيلية لجميع فروع هذه الشركة بمحتوى النسخة الاحتياطية. هل تريد المتابعة؟",confirmText:"استعادة النسخة",tone:"warning"}))return;
     setBackupBusy(true);setMessage("");
     try{
       const payload=JSON.parse(await file.text());
@@ -330,6 +391,7 @@ function SettingsPanel({activeBranchId,onActiveBranchChange}){
 
     <div className="settings-launch-grid" aria-label="أقسام الإعدادات">
       {savedUser.role==="ADMIN"&&<button type="button" onClick={()=>setActivePanel("branches")}><span>🏢</span><strong>إدارة الفروع</strong><small>الفروع ومؤشراتها</small></button>}
+      {savedUser.role==="ADMIN"&&<button type="button" onClick={()=>setActivePanel("transferFees")}><span>💸</span><strong>أجور الحوالة</strong><small>الأجرة التلقائية لكل 100</small></button>}
       <button type="button" onClick={()=>setActivePanel("security")}><span>🔐</span><strong>الأمان وتسجيل الدخول</strong><small>Authenticator والبصمة أو الوجه</small></button>
       <button type="button" onClick={()=>setActivePanel("verification")}><span>✅</span><strong>تأكيد الحساب</strong><small>SMS عبر Rasel أو واتساب أو البريد الإلكتروني</small></button>
       <button type="button" onClick={()=>setActivePanel("backup")}><span>💾</span><strong>النسخ الاحتياطي</strong><small>إنشاء نسخة أو استعادتها</small></button>
@@ -350,6 +412,7 @@ function SettingsPanel({activeBranchId,onActiveBranchChange}){
         {message&&<div className="card settings-message settings-modal-message" role="status" aria-live="polite">{message}</div>}
         <div className="settings-grid">
     {savedUser.role==="ADMIN"&&<BranchManagement activeBranchId={activeBranchId} onActiveBranchChange={onActiveBranchChange}/>}
+    {savedUser.role==="ADMIN"&&<TransferFeeSettings/>}
     <article data-panel="security" className="settings-card security-access-card"><div className="settings-card-title"><span>🔐</span><h3>حماية تسجيل الدخول</h3></div><p className="settings-help">التحقق بخطوتين بواسطة Google Authenticator أو Microsoft Authenticator.</p>{twoFactorInfo.enabled?<button type="button" className="danger" onClick={disableTwoFactor}>تعطيل التحقق بخطوتين</button>:<>{!twoFactorInfo.secret?<button type="button" className="settings-primary-button" onClick={beginTwoFactor}>بدء التفعيل</button>:<div className="two-factor-setup"><label>المفتاح السري<input readOnly value={twoFactorInfo.secret}/></label><small>انسخ المفتاح إلى تطبيق Authenticator.</small><label>رمز التحقق<input inputMode="numeric" maxLength="6" value={twoFactorInfo.code} onChange={e=>setTwoFactorInfo({...twoFactorInfo,code:e.target.value.replace(/\D/g,"").slice(0,6)})}/></label><button type="button" disabled={twoFactorInfo.code.length!==6} onClick={enableTwoFactor}>تأكيد التفعيل</button></div>}</>}<div className="biometric-settings-block"><div><strong>👆 الدخول بالبصمة أو الوجه</strong><small>{biometricAvailable?(biometricEnabled?"مفعّل على هذا الهاتف":"غير مفعّل على هذا الهاتف"):"متاح داخل تطبيق الهاتف فقط"}</small></div>{biometricAvailable&&(biometricEnabled?<button type="button" className="danger" onClick={disableBiometric}>تعطيل البصمة أو الوجه</button>:<button type="button" className="settings-primary-button" onClick={enableBiometric}>تفعيل البصمة أو الوجه</button>)}</div><p className="security-note">بعد التفعيل، سيظهر زر الدخول بالبصمة أو الوجه في شاشة تسجيل الدخول.</p></article>
 
       <article data-panel="verification" className="settings-card settings-wide-card account-verification-card">
@@ -377,7 +440,7 @@ function SettingsPanel({activeBranchId,onActiveBranchChange}){
 
       <article data-panel="backup" className="settings-card settings-backup-card">
         <div className="settings-card-title"><span>💾</span><h3>النسخ الاحتياطي</h3></div>
-        <p className="settings-help">تنزيل نسخة كاملة من بيانات شركتك أو استعادتها لاحقًا.</p>
+        <p className="settings-help">تنزيل نسخة تشغيلية شاملة لجميع فروع الشركة أو استعادتها لاحقًا. لا تتضمن كلمات المرور أو الجلسات أو مفاتيح API.</p>
         <div className="settings-backup-actions">
           <button type="button" className="settings-primary-button" onClick={downloadBackup} disabled={backupBusy}>{backupBusy?"جاري التنفيذ...":"إنشاء نسخة احتياطية"}</button>
           <label className="settings-restore-button">استعادة نسخة احتياطية

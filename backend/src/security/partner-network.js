@@ -5,14 +5,51 @@ const http = require("http");
 const https = require("https");
 const net = require("net");
 
+function isPrivateIpv4(value){
+  const p=String(value||"").split(".").map(Number);
+  if(p.length!==4||p.some(part=>!Number.isInteger(part)||part<0||part>255))return true;
+  return p[0]===10
+    ||p[0]===127
+    ||p[0]===0
+    ||(p[0]===169&&p[1]===254)
+    ||(p[0]===172&&p[1]>=16&&p[1]<=31)
+    ||(p[0]===192&&p[1]===168)
+    ||(p[0]===100&&p[1]>=64&&p[1]<=127)
+    ||p[0]>=224;
+}
+
+function mappedIpv4FromIpv6(value){
+  const dotted=String(value||"").match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  if(dotted&&net.isIP(dotted[1])===4)return dotted[1];
+
+  const hex=String(value||"").match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if(!hex)return null;
+
+  const high=parseInt(hex[1],16);
+  const low=parseInt(hex[2],16);
+  return `${(high>>8)&255}.${high&255}.${(low>>8)&255}.${low&255}`;
+}
+
 function isPrivateIp(address){
-  const value=String(address||"").toLowerCase();
+  const value=String(address||"").trim().toLowerCase();
   if(!value)return true;
-  if(net.isIP(value)===4){
-    const p=value.split(".").map(Number);
-    return p[0]===10||p[0]===127||p[0]===0||(p[0]===169&&p[1]===254)||(p[0]===172&&p[1]>=16&&p[1]<=31)||(p[0]===192&&p[1]===168)||(p[0]===100&&p[1]>=64&&p[1]<=127)||(p[0]>=224);
+
+  if(net.isIP(value)===4)return isPrivateIpv4(value);
+
+  if(net.isIP(value)===6){
+    const mapped=mappedIpv4FromIpv6(value);
+    if(mapped)return isPrivateIpv4(mapped);
+
+    return value==="::1"
+      ||value==="::"
+      ||value.startsWith("fc")
+      ||value.startsWith("fd")
+      ||value.startsWith("fe8")
+      ||value.startsWith("fe9")
+      ||value.startsWith("fea")
+      ||value.startsWith("feb");
   }
-  if(net.isIP(value)===6)return value==="::1"||value==="::"||value.startsWith("fc")||value.startsWith("fd")||value.startsWith("fe8")||value.startsWith("fe9")||value.startsWith("fea")||value.startsWith("feb")||value.startsWith("::ffff:127.")||value.startsWith("::ffff:10.")||value.startsWith("::ffff:192.168.");
+
   return true;
 }
 

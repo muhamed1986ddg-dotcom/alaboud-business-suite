@@ -32,7 +32,7 @@ async function runHandler(route,req){
 (async()=>{
   const today=new Date().toISOString().slice(0,10);
   const root={
-    notificationSettings:{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello"},
+    notificationSettings:{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true},
     customers:[{id:"customer-1",name:"Customer",phone:"+15190000000"}],
     capitalMovements:[{id:"capital-1",type:"IN",cadAmount:100}],
     transactions:[{id:"transaction-1",customerId:"customer-1",status:"PENDING"}],
@@ -60,12 +60,19 @@ async function runHandler(route,req){
     id:()=>"generated-action",
     now:()=>"2026-08-12T12:00:00.000Z",
     customerSummary:(_store,customer)=>({...customer,overdue:true,overdueDays:61,finalBalance:100}),
-    capitalCadAmount:(_store,item)=>Number(item.cadAmount||0)
+    capitalCadAmount:(_store,item)=>Number(item.cadAmount||0),
+    previewMonthlyMessages:()=>[{customerId:"customer-1"}],
+    sendMonthlyMessagesNow:async()=>[{customerId:"customer-1",status:"SENT"}]
   });
 
   const expected=[
     "get /api/notification-settings",
     "patch /api/notification-settings",
+    "get /api/monthly-account-messages/preview",
+    "post /api/monthly-account-messages/send-now",
+    "get /api/monthly-account-messages/logs",
+    "get /api/transfer-fee-settings",
+    "patch /api/transfer-fee-settings",
     "get /api/notifications",
     "post /api/notification-actions",
     "get /api/notification-actions/:customerId",
@@ -73,15 +80,16 @@ async function runHandler(route,req){
   ];
   assert.deepStrictEqual(routes.map(route=>`${route.method} ${route.path}`),expected);
   assert(routes.every(route=>route.handlers[0]===auth),"all notification routes must remain authenticated");
-  assert.deepStrictEqual(requiredPermissions,["admin.only"]);
-  assert.strictEqual(routes.find(route=>route.method==="patch").handlers[1],adminPermission,"settings write must keep admin permission middleware");
+  assert.deepStrictEqual(requiredPermissions,["admin.only","admin.only","admin.only","admin.only","admin.only"]);
+  assert.strictEqual(routes.find(route=>route.method==="patch"&&route.path==="/api/notification-settings").handlers[1],adminPermission,"settings write must keep admin permission middleware");
+  assert.strictEqual(routes.find(route=>route.method==="patch"&&route.path==="/api/transfer-fee-settings").handlers[1],adminPermission,"transfer fee settings write must keep admin permission middleware");
 
   const settings=await runHandler(routes.find(route=>route.method==="get"&&route.path==="/api/notification-settings"),{});
-  assert.deepStrictEqual(settings.body,{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello"});
+  assert.deepStrictEqual(settings.body,{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true,timeZone:"America/Toronto"});
 
   const patchSettings=routes.find(route=>route.method==="patch"&&route.path==="/api/notification-settings");
   const updated=await runHandler(patchSettings,{user:{id:"admin"},body:{overdueDays:15,lowCashLimit:750,whatsappTemplate:"updated"}});
-  assert.deepStrictEqual(updated.body,{overdueDays:15,lowCashLimit:750,whatsappTemplate:"updated"});
+  assert.deepStrictEqual(updated.body,{overdueDays:15,lowCashLimit:750,whatsappTemplate:"updated",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true});
   assert.strictEqual(audits.at(-1)[1],"UPDATE");
 
   const notifications=await runHandler(routes.find(route=>route.path==="/api/notifications"),{});

@@ -115,3 +115,7 @@ blob-report/
 
 # Keep source-controlled SQL migrations even though SQL dumps are ignored above.
 !backend/migrations/*.sql
+
+# Local release packages
+*PRODUCTION-MASTER*.zip
+*.sha256

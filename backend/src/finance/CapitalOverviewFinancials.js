@@ -67,8 +67,56 @@ function calculateCapitalOverviewFinancials({
   });
 }
 
+function calculateInventoryBasedCapital({
+  originalCapital=0,
+  capitalContributionsAfterInventory=0,
+  capitalWithdrawalsAfterInventory=0,
+  netProfitAfterInventory=0,
+  profitDistributionsAfterInventory=0
+}={}){
+  const baseline=toCents(originalCapital);
+  const contributions=toCents(capitalContributionsAfterInventory);
+  const withdrawals=toCents(capitalWithdrawalsAfterInventory);
+  const profit=toCents(netProfitAfterInventory);
+  const distributions=toCents(profitDistributionsAfterInventory);
+  const currentCapital=baseline+contributions-withdrawals+profit-distributions;
+  return Object.freeze({
+    originalCapital:centsToNumber(baseline),
+    capitalContributionsAfterInventory:centsToNumber(contributions),
+    capitalWithdrawalsAfterInventory:centsToNumber(withdrawals),
+    netProfitAfterInventory:centsToNumber(profit),
+    profitDistributionsAfterInventory:centsToNumber(distributions),
+    currentCapital:centsToNumber(currentCapital)
+  });
+}
+
+function resolveInventoryCapital({latestInventory=null,legacyCurrentCapital=0,...period}={}){
+  if(!latestInventory)return Object.freeze({capitalBasis:"LEGACY_CUMULATIVE",currentCapital:centsToNumber(toCents(legacyCurrentCapital))});
+  const calculated=calculateInventoryBasedCapital({
+    originalCapital:latestInventory.originalCapital??latestInventory.finalInventory??latestInventory.finalValue,
+    ...period
+  });
+  return Object.freeze({capitalBasis:"LAST_APPROVED_INVENTORY",...calculated});
+}
+
+function isAfterInventoryApproval(item,{approvedAt=null,inventoryDate=null}={}){
+  if(approvedAt){
+    const cutoff=Date.parse(String(approvedAt));
+    const transactionTimestamp=Date.parse(String(item?.createdAt||item?.timestamp||item?.date||item?.transferDate||""));
+    return Number.isFinite(cutoff)&&Number.isFinite(transactionTimestamp)&&transactionTimestamp>cutoff;
+  }
+  // Legacy snapshots have a calendar date but no trustworthy approval time.
+  // Preserve their previous day-boundary behavior instead of inventing a time.
+  const cutoffDate=String(inventoryDate||"").slice(0,10);
+  const effectiveDate=String(item?.date||item?.transferDate||item?.createdAt||"").slice(0,10);
+  return Boolean(cutoffDate&&effectiveDate&&effectiveDate>cutoffDate);
+}
+
 module.exports={
   calculateCapitalOverviewFinancials,
+  calculateInventoryBasedCapital,
+  resolveInventoryCapital,
+  isAfterInventoryApproval,
   toCents,
   centsToNumber
 };

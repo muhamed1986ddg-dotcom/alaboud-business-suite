@@ -35,10 +35,11 @@ test("heuristic indicators are removed from the accounting surface",()=>{
   assert.match(screen,/تم إيقاف توقع نهاية الشهر/);
 });
 
-test("backend publishes cent-reconciled capital, debt and monthly totals",()=>{
+test("backend publishes cent-reconciled inventory-based capital, debt and monthly totals",()=>{
   assert.match(server,/calculateCapitalOverviewFinancials\(\{/);
   assert.match(server,/netDebt:accounting\.netDebt/);
-  assert.match(server,/netCapital:accounting\.comprehensiveNetCapital/);
-  assert.match(server,/equityNetCapital:accounting\.equityNetCapital/);
+  assert.match(server,/netCapital:currentCapital/);
+  assert.match(server,/capitalBasis:inventoryCapital\.capitalBasis/);
+  assert.match(server,/legacyComprehensiveNetCapital:accounting\.comprehensiveNetCapital/);
   assert.match(server,/monthlyNet:accounting\.monthlyNet/);
 });

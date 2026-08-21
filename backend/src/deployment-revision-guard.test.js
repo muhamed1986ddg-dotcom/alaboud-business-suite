@@ -1,0 +1,13 @@
+"use strict";
+const fs = require("fs");
+const path = require("path");
+const assert = require("assert");
+const root = path.resolve(__dirname, "../..");
+const deployPath = path.join(root, "DEPLOY_CLOUD_RUN.ps1");
+assert.ok(fs.existsSync(deployPath), "DEPLOY_CLOUD_RUN.ps1 must exist");
+const source = fs.readFileSync(deployPath, "utf8");
+assert.match(source, /gcloud\s+run\s+deploy/i, "deploy script must use gcloud run deploy");
+assert.match(source, /--source\s+\./i, "deploy script must deploy the current source tree");
+assert.match(source, /--no-traffic/i, "deploy script must create a no-traffic revision first");
+assert.match(source, /--tag\s+\$Tag/i, "deploy script must use a version tag");
+console.log("deployment revision guard: OK");

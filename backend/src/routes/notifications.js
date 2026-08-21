@@ -2,14 +2,21 @@
 
 function registerNotificationRoutes(app,{
   auth,requirePermission,readStore,mutateDurable,safeNumber,audit,id,now,
-  customerSummary,capitalCadAmount
+  customerSummary,capitalCadAmount,previewMonthlyMessages=()=>[],sendMonthlyMessagesNow=async()=>[]
 }){
   app.get("/api/notification-settings", auth, (_req,res)=>{
     const store=readStore();
     res.json({
       overdueDays:Math.max(1,safeNumber(store.notificationSettings?.overdueDays,7)),
       lowCashLimit:Math.max(0,safeNumber(store.notificationSettings?.lowCashLimit,5000)),
-      whatsappTemplate:String(store.notificationSettings?.whatsappTemplate||"")
+      whatsappTemplate:String(store.notificationSettings?.whatsappTemplate||""),
+      monthlyAccountWhatsAppEnabled:Boolean(store.notificationSettings?.monthlyAccountWhatsAppEnabled??store.notificationSettings?.monthlyAccountMessagesEnabled),
+      monthlyAccountMessageDay:Math.max(1,Math.min(28,Math.trunc(safeNumber(store.notificationSettings?.monthlyAccountMessageDay,19)||19))),
+      monthlyAccountMessageTime:/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(store.notificationSettings?.monthlyAccountMessageTime||""))?String(store.notificationSettings.monthlyAccountMessageTime):"09:00",
+      monthlyAccountMessageTemplate:String(store.notificationSettings?.monthlyAccountMessageTemplate||""),
+      automaticTransferWhatsAppEnabled:Boolean(store.notificationSettings?.automaticTransferWhatsAppEnabled),
+      zeroBalanceWhatsAppEnabled:Boolean(store.notificationSettings?.zeroBalanceWhatsAppEnabled),
+      timeZone:String(store.notificationSettings?.timeZone||"America/Toronto")
     });
   });
 
@@ -29,8 +36,74 @@ function registerNotificationRoutes(app,{
       if(req.body?.whatsappTemplate!==undefined){
         store.notificationSettings.whatsappTemplate=String(req.body.whatsappTemplate||"");
       }
+      if(req.body?.monthlyAccountWhatsAppEnabled!==undefined)store.notificationSettings.monthlyAccountWhatsAppEnabled=Boolean(req.body.monthlyAccountWhatsAppEnabled);
+      else if(req.body?.monthlyAccountMessagesEnabled!==undefined)store.notificationSettings.monthlyAccountWhatsAppEnabled=Boolean(req.body.monthlyAccountMessagesEnabled);
+      if(req.body?.monthlyAccountMessageDay!==undefined){
+        const value=Number(req.body.monthlyAccountMessageDay);
+        if(!Number.isInteger(value)||value<1||value>28)throw new Error("يوم الرسائل الشهرية يجب أن يكون بين 1 و28");
+        store.notificationSettings.monthlyAccountMessageDay=value;
+      }
+      if(req.body?.monthlyAccountMessageTime!==undefined){
+        const value=String(req.body.monthlyAccountMessageTime||"");
+        if(!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value))throw new Error("وقت الرسائل الشهرية غير صالح");
+        store.notificationSettings.monthlyAccountMessageTime=value;
+      }
+      if(req.body?.monthlyAccountMessageTemplate!==undefined)store.notificationSettings.monthlyAccountMessageTemplate=String(req.body.monthlyAccountMessageTemplate||"").slice(0,4000);
+      if(req.body?.automaticTransferWhatsAppEnabled!==undefined)store.notificationSettings.automaticTransferWhatsAppEnabled=Boolean(req.body.automaticTransferWhatsAppEnabled);
+      if(req.body?.zeroBalanceWhatsAppEnabled!==undefined)store.notificationSettings.zeroBalanceWhatsAppEnabled=Boolean(req.body.zeroBalanceWhatsAppEnabled);
+      if(req.body?.timeZone!==undefined){
+        const value=String(req.body.timeZone||"").trim();
+        try{new Intl.DateTimeFormat("en",{timeZone:value}).format();}catch{throw new Error("المنطقة الزمنية غير صالحة");}
+        store.notificationSettings.timeZone=value;
+      }
       audit(store,req.user.id,"UPDATE","NOTIFICATION_SETTINGS","global",store.notificationSettings);
       return store.notificationSettings;
+    });
+    res.json(updated);
+  });
+
+  app.get("/api/monthly-account-messages/preview",auth,requirePermission("admin.only"),(_req,res)=>{
+    const recipients=previewMonthlyMessages();
+    res.json({count:recipients.length,recipients});
+  });
+
+  app.post("/api/monthly-account-messages/send-now",auth,requirePermission("admin.only"),async(req,res)=>{
+    const recipients=previewMonthlyMessages();
+    if(recipients.length>1&&req.body?.confirmed!==true)return res.status(409).json({code:"CONFIRMATION_REQUIRED",count:recipients.length,message:"يلزم تأكيد الإرسال لأكثر من عميل"});
+    const results=await sendMonthlyMessagesNow(req);
+    res.json({count:results.length,sent:results.filter(item=>item.status==="SENT").length,failed:results.filter(item=>item.status==="FAILED").length,skipped:results.filter(item=>item.status==="SKIPPED_DUPLICATE").length,results});
+  });
+
+  app.get("/api/monthly-account-messages/logs",auth,requirePermission("admin.only"),(_req,res)=>{
+    const rows=(Array.isArray(readStore().notificationActions)?readStore().notificationActions:[])
+      .filter(item=>item?.action==="MONTHLY_BALANCE_MESSAGE")
+      .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+    res.json(rows);
+  });
+
+  app.get("/api/transfer-fee-settings", auth, (_req,res)=>{
+    const store=readStore();
+    res.json({
+      enabled:store.notificationSettings?.automaticProviderFeeEnabled!==false,
+      feePer100:Math.max(0,safeNumber(store.notificationSettings?.providerFeePer100,0.40))
+    });
+  });
+
+  app.patch("/api/transfer-fee-settings", auth, requirePermission("admin.only"), async (req,res)=>{
+    const updated=await mutateDurable((store)=>{
+      store.notificationSettings ||= {};
+      if(req.body?.enabled!==undefined)store.notificationSettings.automaticProviderFeeEnabled=Boolean(req.body.enabled);
+      if(req.body?.feePer100!==undefined){
+        const value=Number(req.body.feePer100);
+        if(!Number.isFinite(value)||value<0||value>100)throw new Error("أجور الحوالة لكل 100 يجب أن تكون بين 0 و100");
+        store.notificationSettings.providerFeePer100=+value.toFixed(4);
+      }
+      const result={
+        enabled:store.notificationSettings.automaticProviderFeeEnabled!==false,
+        feePer100:Math.max(0,safeNumber(store.notificationSettings.providerFeePer100,0.40))
+      };
+      audit(store,req.user.id,"UPDATE","TRANSFER_FEE_SETTINGS","global",result);
+      return result;
     });
     res.json(updated);
   });
@@ -130,7 +203,7 @@ function registerNotificationRoutes(app,{
 
     const latestActionByCustomer=new Map();
     for(const action of actions){
-      if(!action?.customerId)continue;
+      if(!action?.customerId||["MONTHLY_BALANCE_MESSAGE","TRANSFER_WHATSAPP_MESSAGE","ZERO_BALANCE_WHATSAPP_MESSAGE"].includes(action.action))continue;
       const current=latestActionByCustomer.get(action.customerId);
       if(!current||String(action.createdAt)>String(current.createdAt)){
         latestActionByCustomer.set(action.customerId,action);

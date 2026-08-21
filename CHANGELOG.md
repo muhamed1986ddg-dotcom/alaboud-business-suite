@@ -1,3 +1,84 @@
+# Changelog
+
+## 25.14.106 — WhatsApp Quick Send
+
+- Added optional WhatsApp quick-send actions after successful transfer, payment, and account-reset operations.
+- Centralized safe `wa.me` URL generation and phone normalization for web and Android WebView.
+- Kept message composition client-side without tokens, automatic delivery, backend logging, or financial changes.
+
+## 25.14.105
+
+- Simplified Monthly Inventory to its official summary values without changing `finalInventory`.
+- Based original capital on the latest approved inventory and separated later movements using the precise approval timestamp.
+- Preserved multi-currency vault cash, legacy records and double-counting protections.
+
+## 25.14.104
+
+- Added an on-demand currency picker for Monthly Inventory vault cash.
+- Added compact removal controls and an empty state while preserving the existing CAD total and snapshot logic.
+
+## 25.14.103
+
+- Added backward-compatible multi-currency vault cash details to Monthly Inventory.
+- Stored the exchange-rate snapshot while retaining `vaultCash` as the only CAD value used by the inventory equation.
+- Preserved legacy inventory values and prevented double counting.
+
+## 25.14.102
+
+- Restored compact transfer result cards on mobile below 640px.
+- Added a two-column result grid on wider phones and a single-column layout on very narrow screens.
+- Preserved the v25.14.101 tablet/desktop layout and all financial, backend and API behavior.
+
+## 25.14.101
+
+- Fixed overlapping cards, fields and profit values in the add-transfer interface.
+- Added responsive three-, two- and one-column layouts for desktop, tablet and mobile widths.
+- Preserved all financial calculations, provider-fee behavior, backend logic and API contracts.
+
+## 25.14.100
+
+- Added bounded large-backup restore parsing, restore rate limiting and restore schema validation.
+- Preserved ADMIN-only branch administration and corrected operation-status permission matching.
+- Added automatic JS/MJS source checks and regression coverage for frontend test-runner failures.
+
+## 25.14.99
+- Refactored backend route organization without changing API behavior.
+- Moved organization, branch, company-profile, users, devices, audit and legal routes to `routes/organization.js`.
+- Moved expenses and capital CRUD routes to `routes/finance-operations.js`.
+- Moved backup export/restore and security-status routes to `routes/backup.js`.
+- Added a route-boundary regression test to prevent these domains from drifting back into the main server file.
+- Preserved v25.14.98 provider-fee accounting and all financial formulas.
+
+
+## 25.14.98
+- Added configurable automatic transfer execution fee (`fee per 100`), default 0.40.
+- Added Settings panel to enable/disable automatic fee and change the rate.
+- New transfers calculate provider fee automatically when an execution company is selected.
+- Manual per-transfer provider fee override remains available and is preserved on edit.
+- Stored fee mode/rate on transactions for auditability.
+# v25.14.98 — صافي ربح الحوالة بعد أجور الشركة المنفذة
+
+- إضافة الشركة المنفذة للحوالة (دهب / جاد / غيرها) وأجورها وعملة الأجور إلى إضافة وتعديل الحوالات.
+- تحويل أجور الشركة إلى CAD بسعر التكلفة الفعلي عندما تكون بعملة الحوالة، أو بسعر تحويل صريح عند اختلاف العملة.
+- اعتماد المعادلة المركزية: صافي ربح الحوالة = ربح فرق السعر + أجور العميل − أجور الشركة المنفذة.
+- تمرير صافي ربح الحوالة بعد الخصم فقط إلى الأرباح الشهرية ورأس المال والجرد والتقارير، من دون تسجيل أجور الشركة كمصروف عام مرة ثانية.
+- إظهار ربح فرق السعر، أجور العميل، أجور الشركة، وصافي ربح الحوالة بشكل منفصل في الواجهة والتقارير.
+- إضافة اختبارات Backend وFrontend خاصة بأجور دهب/جاد ومنع الخصم المزدوج.
+- لا يوجد migration لقاعدة البيانات؛ الحقول الجديدة محفوظة ضمن بيانات الحوالة و`raw_payload` الحالية.
+
+# v25.14.96
+- Fixed large company backup downloads on Cloud Run by switching plain JSON backup responses to chunked streaming.
+- Added explicit backup export success/failure logging and BigInt-safe backup serialization.
+- Added >32 MiB streaming regression coverage.
+
+## v25.14.96 — تعديل مبلغ الدفعة الموزعة
+
+- جعل مبلغ الدفعة في شاشة «تعديل الدفعة» قابلًا للمسح والكتابة حتى عندما تكون الدفعة موزعة على عدة حوالات.
+- إعادة توزيع المبلغ المعدل ذريًا على الحوالات المستحقة ثم الحساب القديم إن وجد، بدل إجبار المستخدم على حذف الدفعة وإعادة تسجيلها.
+- حفظ التوزيعات السابقة كحذف منطقي داخل سجل التدقيق ومنع الاحتساب المزدوج.
+- منع المبلغ غير الصحيح أو الأكبر من الرصيد المتبقي، مع فحص توازن القيد بعد إعادة التوزيع.
+- إضافة اختبارات Backend وFrontend خاصة بهذا السيناريو.
+
 ## 25.14.85 — رأس المال ودورانه حسب العملة
 
 - تغيير عنوان بطاقة «حركة رأس المال» إلى «رأس المال 💰».

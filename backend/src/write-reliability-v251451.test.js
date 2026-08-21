@@ -63,6 +63,8 @@ function response() {
 }
 
 const server = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
+const financeRoutes = fs.readFileSync(path.join(__dirname, "routes", "finance-operations.js"), "utf8");
+const routingSource = `${server}\n${financeRoutes}`;
 const store = fs.readFileSync(path.join(__dirname, "store.js"), "utf8");
 const financialRoutes = [
   'app.post("/api/transactions", auth, requireIdempotencyKey, async',
@@ -76,7 +78,7 @@ const financialRoutes = [
   'app.post("/api/capital", auth, requireIdempotencyKey, async',
   'app.post("/api/partners/:id/payments", auth, requireIdempotencyKey, async'
 ];
-for (const route of financialRoutes) assert(server.includes(route), `missing idempotency guard: ${route}`);
+for (const route of financialRoutes) assert(routingSource.includes(route), `missing idempotency guard: ${route}`);
 
 // All durable mutations are serialized on one chain, so two simultaneous balance-changing
 // requests cannot both calculate from the same pre-commit in-memory snapshot.
