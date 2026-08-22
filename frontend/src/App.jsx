@@ -15,7 +15,8 @@ const screenLoaders={
   simple:()=>import("./screens/Simple"),
   customers:()=>import("./screens/Customers"),
   customerDetails:()=>import("./screens/CustomerDetails"),
-  transactions:()=>import("./screens/Transactions")
+  transactions:()=>import("./screens/Transactions"),
+  treasury:()=>import("./screens/Treasury")
 };
 const ExchangeRates=React.lazy(()=>screenLoaders.exchangeRates().then(m=>({default:m.ExchangeRates})));
 const GeneralDebts=React.lazy(()=>screenLoaders.debts().then(m=>({default:m.GeneralDebts})));
@@ -32,6 +33,7 @@ const Customer=React.lazy(()=>screenLoaders.customerDetails().then(m=>({default:
 const Invoice=React.lazy(()=>screenLoaders.customerDetails().then(m=>({default:m.Invoice})));
 const Statement=React.lazy(()=>screenLoaders.customerDetails().then(m=>({default:m.Statement})));
 const Transactions=React.lazy(()=>screenLoaders.transactions().then(m=>({default:m.Transactions})));
+const Treasury=React.lazy(()=>screenLoaders.treasury().then(m=>({default:m.Treasury})));
 
 function warmScreenForPage(page){
   const loader=
@@ -39,6 +41,7 @@ function warmScreenForPage(page){
     ["partners","company-balances","company-sync","company-connections","company-sync-logs"].includes(page)?screenLoaders.companies:
     ["transactions","transactions-unpaid","transactions-paid","transactions-overdue","transaction-payments"].includes(page)?screenLoaders.transactions:
     ["profits","monthly-report","reports-profits"].includes(page)?screenLoaders.reports:
+    page==="treasury"?screenLoaders.treasury:
     page==="rates"?screenLoaders.exchangeRates:
     page==="debts"?screenLoaders.debts:
     ["capital-overview","capital"].includes(page)?screenLoaders.capital:
@@ -366,6 +369,8 @@ export default function App({onAuthExpired=()=>{}}){
     content=<CompaniesList open={setPartnerId}/>;
   }else if(["transactions","transactions-unpaid","transactions-paid","transactions-overdue","transaction-payments"].includes(page)){
     content=<Transactions openInvoice={setInvoiceId}/>;
+  }else if(page==="treasury"){
+    content=<Treasury/>;
   }else if(page==="profits"||page==="monthly-report"||page==="reports-profits"){
     content=<ReportsProfits/>;
   }else if(page==="rates"){
@@ -399,6 +404,7 @@ export default function App({onAuthExpired=()=>{}}){
     ["overdue-customers",`⏰ العملاء المتأخرون${overdueCount?` (${overdueCount})`:""}`],
     ["partners","🏢 الشركات والربط الخارجي"],
     ["transactions","⇄ الحوالات"],
+    ["treasury","🏦 الخزنة"],
     ["expenses","🧾 المصروفات"],
     ["reports-profits","📊 التقارير والأرباح"],
     ["rates","💱 العملات وأسعار الصرف"],

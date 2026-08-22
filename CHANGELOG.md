@@ -1,5 +1,11 @@
 # Changelog
 
+## 25.14.107 — Treasury
+
+- Added per-currency treasury balances, weighted-average cost, and a complete movement ledger.
+- Added IN, OUT, and NONE transfer effects with safe edit, cancellation, idempotency, and negative-balance protection.
+- Added realized treasury FX profit/loss to final net profit without changing original transfer profit.
+
 ## 25.14.106 — WhatsApp Quick Send
 
 - Added optional WhatsApp quick-send actions after successful transfer, payment, and account-reset operations.

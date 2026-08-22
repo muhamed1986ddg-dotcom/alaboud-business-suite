@@ -38,6 +38,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     amount:"",
     costRate:"",
     finalRate:"",
+    treasuryEffect:"OUT",
+    deliveryRate:"",
     feeMethod:"SPREAD",
     transferFee:"",
     partnerId:"",
@@ -165,6 +167,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       amount:"",
       costRate:"",
       finalRate:"",
+      treasuryEffect:"OUT",
+      deliveryRate:"",
       feeMethod:"SPREAD",
       transferFee:"",
       partnerId:"",
@@ -424,6 +428,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         amount:"",
         costRate:"",
         finalRate:"",
+        treasuryEffect:"OUT",
+        deliveryRate:"",
         feeMethod:"SPREAD",
         transferFee:"",
         partnerId:"",
@@ -760,6 +766,18 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           <input type="number" inputMode="decimal" min=".0001" step=".0001" value={transferForm.finalRate} onChange={e=>setTransferForm({...transferForm,finalRate:e.target.value})} placeholder="0.0000" required/>
           <small>السعر الذي يُحاسب عليه العميل مقابل كل وحدة من عملة الحوالة</small>
         </label>
+        <label className="currency-field">
+          <span className="currency-field-title">أثر الحوالة على الخزنة</span>
+          <select value={transferForm.treasuryEffect||"OUT"} onChange={e=>setTransferForm({...transferForm,treasuryEffect:e.target.value})}>
+            <option value="IN">دخول كاش إلى الخزنة</option><option value="OUT">خروج كاش من الخزنة</option><option value="NONE">لا تؤثر على الكاش</option>
+          </select>
+          <small>الدخول يستخدم سعر تكلفة الحوالة لإعادة حساب المتوسط، والخروج يستخدم سعر التسليم.</small>
+        </label>
+        {(transferForm.treasuryEffect||"OUT")==="OUT"&&<label className="currency-field">
+          <span className="currency-field-title">سعر الصرف الفعلي وقت التسليم</span>
+          <input type="number" inputMode="decimal" min=".00000001" step=".00000001" value={transferForm.deliveryRate||""} onChange={e=>setTransferForm({...transferForm,deliveryRate:e.target.value})} placeholder="0.00000000" required/>
+          <small>يُستخدم فقط لحساب ربح/خسارة فرق سعر الخزنة ولا يغيّر ربح الحوالة.</small>
+        </label>}
         <label className="currency-field">
           <span className="currency-field-title">طريقة احتساب أجور الحوالة</span>
           <select value={transferForm.feeMethod} onChange={e=>setTransferForm({...transferForm,feeMethod:e.target.value,transferFee:e.target.value==="PAID"?transferForm.transferFee:""})}>

@@ -1,4 +1,5 @@
 "use strict";
+const { treasuryProfitForRange } = require("./Treasury");
 
 const { money, moneyToNumber, roundedDivide } = require("./Money");
 const { partitionManualDebts } = require("./DebtLinking");
@@ -212,7 +213,8 @@ function calculateInventoryMonthProfit(store,{month,transactionFinancials}){
     .filter(item=>item&&!item.isDeleted&&String(item.date||item.createdAt||"").slice(0,7)===month);
   const grossProfit=transactions.reduce((sum,item)=>sum+finite(transactionFinancials(item).totalProfit),0);
   const totalExpenses=expenses.reduce((sum,item)=>sum+finite(item.cadAmount??item.amount),0);
-  return {grossProfit,expenses:totalExpenses,netProfit:grossProfit-totalExpenses};
+  const treasuryFxProfit=treasuryProfitForRange(store,{from:`${month}-01`,to:`${month}-31`});
+  return {grossProfit,treasuryFxProfit,expenses:totalExpenses,netProfit:grossProfit+treasuryFxProfit-totalExpenses};
 }
 
 module.exports={

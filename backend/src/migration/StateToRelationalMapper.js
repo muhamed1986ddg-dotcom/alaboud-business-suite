@@ -1,9 +1,10 @@
 const crypto = require("crypto");
+const { rebuildTreasury } = require("../finance/Treasury");
 
 const TABLE_ORDER = [
   "companies", "users", "customers", "partners", "transactions", "payments",
   "debts", "debt_payments", "expenses", "capital_movements", "exchange_rates",
-  "settings", "audit_logs"
+  "settings", "treasury_movements", "treasury_balances", "audit_logs"
 ];
 
 function value(...items) {
@@ -54,7 +55,7 @@ function mapState(input) {
   const companies = Array.isArray(state.companies) ? state.companies : [];
   const users = Array.isArray(state.users) ? state.users : [];
   const inferredCompanyIds = new Set();
-  for (const key of ["customers", "transactions", "payments", "expenses", "capitalMovements", "exchangeRates", "generalDebts", "generalDebtPayments", "partners", "auditLogs"]) {
+  for (const key of ["customers", "transactions", "payments", "expenses", "capitalMovements", "exchangeRates", "generalDebts", "generalDebtPayments", "partners", "auditLogs", "treasuryMovements"]) {
     for (const row of Array.isArray(state[key]) ? state[key] : []) if (row?.companyId) inferredCompanyIds.add(String(row.companyId));
   }
   for (const row of users) if (row?.companyId) inferredCompanyIds.add(String(row.companyId));
@@ -142,6 +143,21 @@ function mapState(input) {
   for (const row of Array.isArray(state.exchangeRates) ? state.exchangeRates : []) collections.exchange_rates.push({
     id: id(row.id, "rate"), company_id: text(row.companyId, [...inferredCompanyIds][0]), base_currency: currency(row.baseCurrency), quote_currency: currency(row.quoteCurrency), buy_rate: number(row.buyRate), sell_rate: number(row.sellRate),
     source: text(row.source), effective_at: date(value(row.effectiveAt, row.sourceDate, row.createdAt), new Date().toISOString()), created_at: date(row.createdAt, new Date().toISOString()), raw_payload: raw(row)
+  });
+
+  for (const row of Array.isArray(state.treasuryMovements) ? state.treasuryMovements : []) collections.treasury_movements.push({
+    id:id(row.id,"treasury"),company_id:text(row.companyId,[...inferredCompanyIds][0]),branch_id:text(row.branchId),source_key:text(row.sourceKey,`LEGACY:${row.id}`),source_type:text(row.sourceType,"LEGACY"),source_label:text(row.sourceLabel),transaction_id:row.transactionId&&transactionIds.has(String(row.transactionId))?String(row.transactionId):null,
+    movement_type:["IN","OUT","ADJUSTMENT"].includes(String(row.movementType).toUpperCase())?String(row.movementType).toUpperCase():"ADJUSTMENT",direction:String(row.direction).toUpperCase()==="IN"?"IN":"OUT",currency:currency(row.currency),quantity:number(row.quantity,0),cost_rate_cad:number(row.costRate),average_cost_before_cad:number(row.averageCostBefore,0),average_cost_after_cad:number(row.averageCostAfter,0),delivery_rate_cad:number(row.deliveryRate),realized_fx_cad:number(row.realizedFx,0),balance_after:number(row.balanceAfter,0),total_cost_after_cad:number(row.totalCostAfter,0),reason:text(row.reason),occurred_at:date(row.occurredAt,row.createdAt||new Date().toISOString()),created_by:safeUser(row.createdBy),created_at:date(row.createdAt,new Date().toISOString()),is_cancelled:bool(row.isCancelled,false),cancelled_at:date(row.cancelledAt),cancelled_by:safeUser(row.cancelledBy),cancellation_reason:text(row.cancellationReason),raw_payload:raw(row)
+  });
+  const treasuryGroups=new Map();
+  for(const row of Array.isArray(state.treasuryMovements)?state.treasuryMovements:[]){
+    const companyId=text(row.companyId,[...inferredCompanyIds][0]),branchId=text(row.branchId,"");
+    const key=`${companyId}\u0000${branchId}`;
+    if(!treasuryGroups.has(key))treasuryGroups.set(key,{companyId,branchId,rows:[]});
+    treasuryGroups.get(key).rows.push({...row});
+  }
+  for(const group of treasuryGroups.values())for(const balance of rebuildTreasury({treasuryMovements:group.rows}))collections.treasury_balances.push({
+    company_id:group.companyId,branch_id:group.branchId,currency:balance.currency,balance:balance.balance,total_cost_cad:balance.totalCost,average_cost_cad:balance.averageCost,realized_profit_cad:balance.realizedProfit,realized_loss_cad:balance.realizedLoss,updated_at:new Date().toISOString()
   });
 
   const settingsByCompany = state.companySettings && typeof state.companySettings === "object" ? state.companySettings : {};

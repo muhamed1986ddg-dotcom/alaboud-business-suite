@@ -34,6 +34,8 @@ export function Customer({id,back,onStatement,onAddTransfer}){
       providerFeeAmount:String(transaction.providerFeeAmount??""),
       providerFeeCurrency:transaction.providerFeeCurrency||transaction.currency||"USD",
       providerFeeRateCad:String(transaction.providerFeeRateCad??"")
+      ,treasuryEffect:transaction.treasuryEffect||"NONE"
+      ,deliveryRate:String(transaction.deliveryRate??transaction.costRate??"")
     });
     revealAppEditor('[data-app-editor="customer-transaction"]');
   }
@@ -337,6 +339,8 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         providerFeeAmount:Number(editingTransaction.providerFeeAmount||0),
         providerFeeCurrency:String(editingTransaction.providerFeeCurrency||editingTransaction.currency||"USD").toUpperCase(),
         providerFeeRateCad:preview.providerFeeRateCad
+        ,treasuryEffect:editingTransaction.treasuryEffect||"NONE"
+        ,deliveryRate:editingTransaction.treasuryEffect==="OUT"?Number(editingTransaction.deliveryRate):null
       });
       setEditingTransaction(null);
       void load();
@@ -462,6 +466,8 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         <input type="number" step=".01" value={editingTransaction.amount} onChange={e=>setEditingTransaction({...editingTransaction,amount:e.target.value})} placeholder="المبلغ"/>
         <input type="number" step=".0001" value={editingTransaction.costRate} onChange={e=>setEditingTransaction({...editingTransaction,costRate:e.target.value})} placeholder="سعر التكلفة (CAD)"/>
         <input type="number" step=".0001" value={editingTransaction.finalRate} onChange={e=>setEditingTransaction({...editingTransaction,finalRate:e.target.value})} placeholder="سعر الحوالة (CAD)"/>
+        <select value={editingTransaction.treasuryEffect||"NONE"} onChange={e=>setEditingTransaction({...editingTransaction,treasuryEffect:e.target.value})}><option value="IN">دخول كاش إلى الخزنة</option><option value="OUT">خروج كاش من الخزنة</option><option value="NONE">لا يؤثر على الكاش</option></select>
+        {editingTransaction.treasuryEffect==="OUT"&&<input type="number" min=".00000001" step=".00000001" value={editingTransaction.deliveryRate||""} onChange={e=>setEditingTransaction({...editingTransaction,deliveryRate:e.target.value})} placeholder="سعر الصرف الفعلي وقت التسليم" required/>}
         <select value={editingTransaction.feeMethod} onChange={e=>setEditingTransaction({...editingTransaction,feeMethod:e.target.value,transferFee:e.target.value==="PAID"?editingTransaction.transferFee:""})}>
           <option value="SPREAD">الأجور من فرق سعر التحويل</option>
           <option value="PAID">أجور مدفوعة بشكل مستقل</option>

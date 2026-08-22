@@ -5,6 +5,8 @@ const path=require("path");
 const {registerOrganizationRoutes}=require("./routes/organization");
 const {registerFinanceOperationsRoutes}=require("./routes/finance-operations");
 const {registerBackupRoutes}=require("./routes/backup");
+const {registerTreasuryRoutes}=require("./routes/treasury");
+const {registerProfitRoutes}=require("./routes/profits");
 
 function routeRecorder(){
   const routes=[];
@@ -24,12 +26,18 @@ const common={
   sha256:noop,DEFAULT_IDLE_MS:1,IS_PROD:false,JWT_SECRET:"test",rateLimit:()=>noop,encryptJson:noop,
   verifyBackupEnvelope:noop,isCompanyWideOperationalBackup:noop,runWithTenant:noop,restoreCompanyOperationalBackup:noop,
   validateBackupRestoreSchema:()=>({ok:true})
+  ,rebuildTreasury:()=>[],summarizeTransactionProfits:()=>({}),treasuryProfitForRange:()=>0,addTransactionProfitToBucket:noop,activeMovements:()=>[],transactionFinancials:noop,transactionFinancialView:noop
 };
 
 {
   const {app,routes}=routeRecorder();
   registerOrganizationRoutes(app,common);
   for(const expected of ["GET /api/branches","PATCH /api/company-profile","POST /api/users","GET /api/devices","GET /api/audit-logs"]){assert(routes.includes(expected),expected);}
+}
+{
+  const {app,routes}=routeRecorder();
+  registerTreasuryRoutes(app,common);registerProfitRoutes(app,common);
+  for(const expected of ["GET /api/treasury","POST /api/treasury/adjustments","GET /api/profits"]){assert(routes.includes(expected),expected);}
 }
 {
   const {app,routes}=routeRecorder();
@@ -47,9 +55,13 @@ const server=fs.readFileSync(serverPath,"utf8");
 assert(server.includes("registerOrganizationRoutes(app"));
 assert(server.includes("registerFinanceOperationsRoutes(app"));
 assert(server.includes("registerBackupRoutes(app"));
+assert(server.includes("registerTreasuryRoutes(app"));
+assert(server.includes("registerProfitRoutes(app"));
 assert(!server.includes('app.get("/api/backup"'));
 assert(!server.includes('app.get("/api/expenses"'));
 assert(!server.includes('app.get("/api/branches"'));
+assert(!server.includes('app.get("/api/treasury"'));
+assert(!server.includes('app.get("/api/profits"'));
 const lines=server.split(/\r?\n/).length;
 assert(lines<6000,`server.js should remain below 6000 lines after modularization; got ${lines}`);
 console.log(`v25.14.100 route modularization: OK (${lines} server lines)`);

@@ -109,6 +109,7 @@ function ReportsProfits(){
     providerFees:profits?.providerFees??summary.providerFeesTotal??0,
     grossProfitBeforeProviderFees:profits?.grossProfitBeforeProviderFees??summary.grossProfitBeforeProviderFees??0,
     grossProfit:profits?.grossProfit??summary.grossProfit??0,
+    treasuryFxProfit:profits?.treasuryFxProfit??summary.treasuryFxProfit??0,
     expenses:profits?.expenses??summary.expenses??0,
     netProfit:profits?.netProfit??summary.netProfit??0,
   };
@@ -135,6 +136,7 @@ function ReportsProfits(){
     {key:"customerFees",label:"أجور العميل",render:row=>money(row.customerFees)},
     {key:"providerFees",label:"أجور الشركات",render:row=>money(row.providerFees)},
     {key:"grossProfit",label:"ربح الحوالات بعد الأجور",render:row=>money(row.grossProfit)},
+    {key:"treasuryFxProfit",label:"ربح/خسارة فرق سعر الخزنة",render:row=>money(row.treasuryFxProfit)},
     {key:"expenses",label:"المصروفات العامة",render:row=>money(row.expenses)},
     {key:"netProfit",label:"صافي الربح",render:row=><strong className={Number(row.netProfit||0)<0?"value-negative":"value-positive"}>{money(row.netProfit)}</strong>},
   ],[]);
@@ -175,11 +177,12 @@ function ReportsProfits(){
           <AppStatCard label="أجور مأخوذة من العملاء" value={money(overview.customerFees)} tone="success"/>
           <AppStatCard label="أجور دهب/جاد والشركات" value={money(overview.providerFees)} tone="danger"/>
           <AppStatCard label="ربح الحوالات بعد أجور الشركات" value={money(overview.grossProfit)} tone={Number(overview.grossProfit)<0?"danger":"success"}/>
+          <AppStatCard label="ربح/خسارة فرق سعر الخزنة" value={money(overview.treasuryFxProfit)} tone={Number(overview.treasuryFxProfit)<0?"danger":"success"}/>
           <AppStatCard label="المصروفات العامة" value={money(overview.expenses)} tone="danger"/>
           <AppStatCard label="صافي الربح" value={money(overview.netProfit)} tone={Number(overview.netProfit)<0?"danger":"success"}/>
         </div>
         <AppCard className="profits-monthly-table-card" title="الأرباح الشهرية"><AppTable columns={monthlyColumns} rows={profits?.monthly||[]} rowKey="month" emptyText="لا توجد بيانات للفترة المحددة."/></AppCard>
-        <div className="profits-mobile-cards">{(profits?.monthly||[]).length?(profits?.monthly||[]).map(row=><article className="transaction-mobile-card profit-mobile-card" key={`profit-mobile-${row.month}`}><header className="transaction-mobile-card__head"><div><strong>{row.month}</strong><small>الأرباح الشهرية</small></div></header><div className="transaction-mobile-card__grid"><div><span>ربح فرق السعر</span><strong>{money(row.exchangeProfit)}</strong></div><div><span>أجور العميل</span><strong>{money(row.customerFees)}</strong></div><div><span>أجور الشركات</span><strong>- {money(row.providerFees)}</strong></div><div><span>ربح الحوالات بعد الأجور</span><strong>{money(row.grossProfit)}</strong></div><div><span>المصروفات العامة</span><strong>{money(row.expenses)}</strong></div><div className="transaction-mobile-card__total"><span>صافي الربح</span><strong className={Number(row.netProfit||0)<0?"value-negative":"value-positive"}>{money(row.netProfit)}</strong></div></div></article>):<div className="transaction-mobile-empty">لا توجد بيانات للفترة المحددة.</div>}</div>
+        <div className="profits-mobile-cards">{(profits?.monthly||[]).length?(profits?.monthly||[]).map(row=><article className="transaction-mobile-card profit-mobile-card" key={`profit-mobile-${row.month}`}><header className="transaction-mobile-card__head"><div><strong>{row.month}</strong><small>الأرباح الشهرية</small></div></header><div className="transaction-mobile-card__grid"><div><span>ربح فرق السعر</span><strong>{money(row.exchangeProfit)}</strong></div><div><span>أجور العميل</span><strong>{money(row.customerFees)}</strong></div><div><span>أجور الشركات</span><strong>- {money(row.providerFees)}</strong></div><div><span>ربح الحوالات بعد الأجور</span><strong>{money(row.grossProfit)}</strong></div><div><span>فرق سعر الخزنة</span><strong>{money(row.treasuryFxProfit)}</strong></div><div><span>المصروفات العامة</span><strong>{money(row.expenses)}</strong></div><div className="transaction-mobile-card__total"><span>صافي الربح</span><strong className={Number(row.netProfit||0)<0?"value-negative":"value-positive"}>{money(row.netProfit)}</strong></div></div></article>):<div className="transaction-mobile-empty">لا توجد بيانات للفترة المحددة.</div>}</div>
       </>}
     </>}
 
@@ -202,6 +205,7 @@ function ReportsProfits(){
           <AppStatCard label="أجور مأخوذة من العملاء" value={money(summary.customerFeesTotal)} tone="success"/>
           <AppStatCard label="أجور دهب/جاد والشركات" value={money(summary.providerFeesTotal)} tone="danger"/>
           <AppStatCard label="ربح الحوالات بعد أجور الشركات" value={money(summary.grossProfit)} tone={Number(summary.grossProfit||0)<0?"danger":"success"}/>
+          <AppStatCard label="ربح/خسارة فرق سعر الخزنة" value={money(summary.treasuryFxProfit)} tone={Number(summary.treasuryFxProfit||0)<0?"danger":"success"}/>
           <AppStatCard label="المصروفات العامة" value={money(summary.expenses)} tone="danger"/>
           <AppStatCard label="صافي الربح" value={money(summary.netProfit)} tone={Number(summary.netProfit||0)<0?"danger":"success"}/>
           <AppStatCard label="الدفعات المستلمة" value={money(summary.paymentsReceived)}/>

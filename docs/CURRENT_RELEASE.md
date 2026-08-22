@@ -1,6 +1,11 @@
 # Current Production Master
 
-**Version:** 25.14.106
+**Version:** 25.14.107
+
+## Treasury
+
+- Added per-currency treasury balances, weighted-average cost, and realized treasury FX profit/loss.
+- Linked cash-affecting transfers through IN, OUT, and NONE effects with idempotent update and cancellation behavior.
 
 ## Inventory and capital baseline
 
