@@ -129,7 +129,8 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
       state.balance += quantity;
       state.totalCost += roundedDivide(quantity * costRate, RATE_SCALE);
     } else if (direction === "OUT") {
-      deliveryRate = safeRate(row.deliveryRate, "سعر الصرف وقت التسليم");
+      const isBaseCurrencyDelivery=row.baseCurrencyDelivery===true&&currency==="CAD";
+      deliveryRate = safeRate(isBaseCurrencyDelivery?1:row.deliveryRate, "سعر الصرف وقت التسليم");
       if (deliveryRate <= 0n) throw new Error("سعر الصرف وقت التسليم يجب أن يكون أكبر من صفر");
       const preservesHistoricalNegative = row.allowNegative === true || Number(row.balanceAfter) < 0;
       if (!allowNegative && !preservesHistoricalNegative && quantity > state.balance) {
@@ -138,7 +139,7 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
         throw error;
       }
       const releasedCost = roundedDivide(quantity * averageBefore, RATE_SCALE);
-      realized = roundedDivide(quantity * (deliveryRate - averageBefore), RATE_SCALE);
+      realized = isBaseCurrencyDelivery?0n:roundedDivide(quantity * (deliveryRate - averageBefore), RATE_SCALE);
       state.balance -= quantity;
       state.totalCost -= releasedCost;
       if (state.balance === 0n) state.totalCost = 0n;
@@ -223,6 +224,33 @@ function upsertCashDeliveryMovement(store, transaction, { id, now, userId, quant
   return next;
 }
 
+function createGeneralCashDeliveryMovement(store,{currency,quantity,deliveryRate,occurredAt,note=""}={}, {id,now,userId}={}){
+  if(!Array.isArray(store.treasuryMovements))store.treasuryMovements=[];
+  const normalizedCurrency=String(currency||"").trim().toUpperCase();
+  if(!/^[A-Z]{3}$/.test(normalizedCurrency)){
+    const error=new Error("عملة التسليم مطلوبة");error.code="TREASURY_DELIVERY_CURRENCY_REQUIRED";throw error;
+  }
+  const amount=safeMoney(quantity,"كمية التسليم الكاش");
+  if(amount<=0n){const error=new Error("كمية التسليم يجب أن تكون أكبر من صفر");error.code="TREASURY_DELIVERY_AMOUNT_REQUIRED";throw error;}
+  const isBaseCurrencyDelivery=normalizedCurrency==="CAD";
+  const rateValue=safeRate(isBaseCurrencyDelivery?1:deliveryRate,"سعر الصرف وقت التسليم");
+  if(rateValue<=0n){const error=new Error("سعر التسليم يجب أن يكون أكبر من صفر");error.code="TREASURY_DELIVERY_RATE_REQUIRED";throw error;}
+  const movementId=id();
+  const timestamp=occurredAt||now();
+  const movement={
+    id:movementId,sourceKey:`CASH_DELIVERY:GENERAL:${movementId}`,sourceType:"CASH_DELIVERY",sourceLabel:"تسليم كاش فعلي",
+    movementType:"OUT",direction:"OUT",currency:normalizedCurrency,quantity:moneyToNumber(amount),costRate:null,
+    deliveryRate:rateToNumber(rateValue),baseCurrencyDelivery:isBaseCurrencyDelivery,occurredAt:timestamp,note:String(note||"").trim().slice(0,500),
+    transactionId:null,isCancelled:false,createdAt:now(),createdBy:userId
+  };
+  // Validate the complete ledger before touching the durable state. This keeps
+  // insufficient-balance and other validation failures mutation-free.
+  rebuildTreasury({treasuryMovements:[...store.treasuryMovements.map(row=>({...row})),{...movement}]});
+  store.treasuryMovements.push(movement);
+  rebuildTreasury(store);
+  return movement;
+}
+
 function cancelCashDeliveryMovement(store, transactionId, { now, userId, reason = "إلغاء حوالة مرتبطة بتسليم كاش" } = {}) {
   const movement=(store.treasuryMovements||[]).find(row=>row&&row.sourceKey===`CASH_DELIVERY:${transactionId}`&&!row.isCancelled);
   if(!movement)return null;
@@ -277,4 +305,4 @@ function treasuryInventorySnapshot(store,period,{inventoryId="",finalizedAt=""}=
   });
 }
 
-module.exports = { rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements };
+module.exports = { rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements };

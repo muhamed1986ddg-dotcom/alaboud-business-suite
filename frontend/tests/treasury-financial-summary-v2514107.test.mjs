@@ -44,3 +44,17 @@ test("Treasury financial cards are responsive at phone and desktop widths",()=>{
   assert.match(styles,/\.treasury-finalized-periods__grid\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(styles,/@media\(max-width:768px\)\{[\s\S]*?\.treasury-finalized-periods__grid\{grid-template-columns:minmax\(0,1fr\)\}/);
 });
+
+test("cash delivery uses the general currency balance without selecting a transfer",()=>{
+  assert.match(treasury,/api\.post\("\/treasury\/cash-deliveries"/);
+  assert.doesNotMatch(treasury,/delivery\.transactionId/);
+  assert.doesNotMatch(treasury,/transactions\.map/);
+  assert.match(treasury,/deliveryBalance\.averageCost/);
+  assert.match(treasury,/treasury-delivery-preview/);
+  assert.match(treasury,/USD — دولار أمريكي/);
+  assert.match(treasury,/CAD — دولار كندي/);
+  assert.match(treasury,/delivery\.currency==="CAD"\?1/);
+  assert.match(treasury,/delivery\.currency==="CAD"\?0/);
+  assert.match(styles,/\.treasury-delivery-preview\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(styles,/@media\(max-width:768px\)\{[\s\S]*?\.treasury-delivery-preview\{grid-template-columns:minmax\(0,1fr\)\}/);
+});

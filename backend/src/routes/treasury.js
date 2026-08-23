@@ -1,7 +1,7 @@
 "use strict";
 const APPROVED_TREASURY_REPAIR_MOVEMENT_ID="5a9ff1cb-859f-4c0c-a669-f78ac2fc0c5f";
 
-function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, currentInventoryPeriod, treasuryRealizedForInventoryPeriod, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertCashDeliveryMovement }) {
+function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, currentInventoryPeriod, treasuryRealizedForInventoryPeriod, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement }) {
   app.get("/api/treasury/diagnostics/invalid-in", auth, (_req,res)=>{
     res.json(diagnoseInvalidTreasuryInMovements(readStore()));
   });
@@ -73,6 +73,27 @@ function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempoten
     }catch(error){res.status(400).json({message:error.message||"تعذر حفظ تسوية الخزنة",code:error.code||null});}
   });
 
+  app.post("/api/treasury/cash-deliveries",auth,requireIdempotencyKey,async(req,res)=>{
+    try{
+      const currency=String(req.body?.currency||"").trim().toUpperCase();
+      const quantity=Number(req.body?.quantity);
+      const deliveryRate=currency==="CAD"?1:Number(req.body?.deliveryRate);
+      if(!["USD","CAD"].includes(currency)||!Number.isFinite(quantity)||quantity<=0||!Number.isFinite(deliveryRate)||deliveryRate<=0){
+        return res.status(400).json({code:"TREASURY_CASH_DELIVERY_INVALID",message:"العملة والكمية وسعر التسليم قيم مطلوبة ويجب أن تكون أكبر من صفر"});
+      }
+      const movement=await mutateDurable(store=>{
+        const item=createGeneralCashDeliveryMovement(store,{currency,quantity,deliveryRate,occurredAt:req.body?.occurredAt||now(),note:req.body?.note},{id,now,userId:req.user.id});
+        audit(store,req.user.id,"CASH_DELIVERY","TREASURY_MOVEMENT",item.id,{currency:item.currency,quantity:item.quantity,deliveryRate:item.deliveryRate,realizedFx:item.realizedFx});
+        return item;
+      });
+      res.status(201).json(movement);
+    }catch(error){
+      const status=error?.code==="TREASURY_INSUFFICIENT_BALANCE"?409:400;
+      res.status(status).json({message:error.message||"تعذر تنفيذ التسليم الكاش",code:error.code||null});
+    }
+  });
+
+  // Backward-compatible endpoint for historical transaction-linked deliveries.
   app.post("/api/transactions/:id/cash-delivery",auth,requireIdempotencyKey,async(req,res)=>{
     try{
       const requestedQuantity=req.body?.quantity;

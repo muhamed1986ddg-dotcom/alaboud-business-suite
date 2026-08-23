@@ -1,6 +1,6 @@
 "use strict";
 const assert=require("assert");
-const {rebuildTreasury,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,upsertTransferMovement,cancelTransferMovement,upsertCashDeliveryMovement,treasuryProfitForRange,treasuryRealizedForInventoryPeriod,treasuryInventorySnapshot}=require("./Treasury");
+const {rebuildTreasury,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,upsertTransferMovement,cancelTransferMovement,upsertCashDeliveryMovement,createGeneralCashDeliveryMovement,treasuryProfitForRange,treasuryRealizedForInventoryPeriod,treasuryInventorySnapshot}=require("./Treasury");
 const {transactionFinancials}=require("./TransactionFinancials");
 let sequence=0;
 const helpers={id:()=>`m${++sequence}`,now:()=>`2026-01-10T00:00:${String(sequence).padStart(2,"0")}Z`,userId:"u1"};
@@ -116,6 +116,55 @@ treasuryRealizedForInventoryPeriod(periodStore,period);
 const averageAfter=rebuildTreasury({treasuryMovements:[incoming(250,1.40,"period-average-after")]})[0].averageCost;
 assert.equal(averageBefore,averageAfter);
 
+const generalDeliveryStore={treasuryMovements:[incoming(6769,1.376141,"general-opening")]};
+const transactionState=JSON.stringify([{id:"legacy-transfer",amount:2692,costRate:1.2}]);
+const generalDelivery=createGeneralCashDeliveryMovement(generalDeliveryStore,{currency:"USD",quantity:2692,deliveryRate:1.4,occurredAt:"2026-08-25T12:00:00Z",note:"delivery"},helpers);
+const generalBalance=rebuildTreasury(generalDeliveryStore)[0];
+assert.equal(generalDelivery.transactionId,null);
+assert.equal(generalDelivery.sourceType,"CASH_DELIVERY");
+assert.match(generalDelivery.sourceKey,/^CASH_DELIVERY:GENERAL:/);
+assert.equal(generalBalance.balance,4077);
+assert(Math.abs(generalDelivery.realizedFx-(2692*(1.4-1.376141)))<0.001);
+assert(Math.abs(generalBalance.averageCost-1.376141)<1e-6);
+assert.equal(JSON.stringify([{id:"legacy-transfer",amount:2692,costRate:1.2}]),transactionState);
+
+for(const invalid of [{quantity:0,deliveryRate:1.4},{quantity:-1,deliveryRate:1.4},{quantity:1,deliveryRate:0},{quantity:1,deliveryRate:-1}]){
+  const invalidStore={treasuryMovements:[incoming(10,1.4,`invalid-general-${invalid.quantity}-${invalid.deliveryRate}`)]};
+  const beforeInvalid=JSON.stringify(invalidStore);
+  assert.throws(()=>createGeneralCashDeliveryMovement(invalidStore,{currency:"USD",...invalid},helpers));
+  assert.equal(JSON.stringify(invalidStore),beforeInvalid);
+}
+const insufficientStore={treasuryMovements:[incoming(10,1.4,"insufficient-general")]};
+const insufficientBefore=JSON.stringify(insufficientStore);
+assert.throws(()=>createGeneralCashDeliveryMovement(insufficientStore,{currency:"USD",quantity:11,deliveryRate:1.5},helpers),error=>error.code==="TREASURY_INSUFFICIENT_BALANCE");
+assert.equal(JSON.stringify(insufficientStore),insufficientBefore);
+
+for(const rateValue of [1.5,1.3,1.4]){
+  const caseStore={treasuryMovements:[incoming(10,1.4,`rate-case-${rateValue}`)]};
+  const row=createGeneralCashDeliveryMovement(caseStore,{currency:"USD",quantity:10,deliveryRate:rateValue},helpers);
+  assert.equal(rebuildTreasury(caseStore)[0].balance,0);
+  assert.equal(Math.sign(row.realizedFx),Math.sign(rateValue-1.4));
+}
+const cadOpening={...incoming(5000,1,"cad-opening"),currency:"CAD"};
+const multiCurrencyStore={treasuryMovements:[incoming(6769,1.376141,"usd-multi-opening"),cadOpening]};
+const cadDelivery=createGeneralCashDeliveryMovement(multiCurrencyStore,{currency:"CAD",quantity:1200,deliveryRate:99,occurredAt:"2026-08-26T12:00:00Z"},helpers);
+const multiBalances=rebuildTreasury(multiCurrencyStore);
+assert.equal(multiBalances.find(row=>row.currency==="CAD").balance,3800);
+assert.equal(multiBalances.find(row=>row.currency==="USD").balance,6769);
+assert.equal(cadDelivery.deliveryRate,1);
+assert.equal(cadDelivery.realizedFx,0);
+assert.equal(cadDelivery.currency,"CAD");
+assert.equal(treasuryRealizedForInventoryPeriod(multiCurrencyStore,period).outCount,1);
+assert.equal(treasuryProfitForRange(multiCurrencyStore,{from:"2026-08-20",to:"2026-09-19"}),0);
+
+for(const [availableCurrency,requestedCurrency] of [["CAD","USD"],["USD","CAD"]]){
+  const isolatedOpening={...incoming(100,availableCurrency==="CAD"?1:1.4,`isolated-${availableCurrency}`),currency:availableCurrency};
+  const isolatedStore={treasuryMovements:[isolatedOpening]};
+  const isolatedBefore=JSON.stringify(isolatedStore);
+  assert.throws(()=>createGeneralCashDeliveryMovement(isolatedStore,{currency:requestedCurrency,quantity:1,deliveryRate:1.5},helpers),error=>error.code==="TREASURY_INSUFFICIENT_BALANCE");
+  assert.equal(JSON.stringify(isolatedStore),isolatedBefore);
+}
+
 const editStore={treasuryMovements:[]};
 const firstEdit=transfer("edit",700),secondEdit=transfer("edit",800);
 upsertTransferMovement(editStore,firstEdit,transferOptions(firstEdit));
@@ -138,4 +187,4 @@ assert.equal(weighted.treasuryMovements[1].realizedFx,8000);assert.equal(weighte
 assert(Math.abs(weighted.treasuryMovements[2].averageCostAfter-138.63636364)<1e-8);
 assert(Math.abs(weighted.treasuryMovements[3].realizedFx-(-10909.091))<0.001);
 assert(Math.abs(weightedBalances[0].averageCost-138.63636364)<1e-8);
-console.log("Treasury tests passed: A-N");
+console.log("Treasury tests passed: A-P");

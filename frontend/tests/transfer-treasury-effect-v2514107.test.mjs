@@ -11,7 +11,9 @@ test("transfer forms do not expose or submit cash-delivery controls",()=>{
   for(const source of [customers,transactions,customerDetails]){
     assert.doesNotMatch(source,/treasuryEffect|deliveryRate/);
   }
-  assert.match(treasury,/cash-delivery/);
-  assert.match(treasury,/deliveryRate:Number\(delivery\.deliveryRate\)/);
-  assert.match(treasury,/سعر الصرف الفعلي وقت التسليم/);
+  assert.match(treasury,/\/treasury\/cash-deliveries/);
+  assert.doesNotMatch(treasury,/delivery\.transactionId/);
+  assert.match(treasury,/deliveryRate:delivery\.currency==="CAD"\?1:Number\(delivery\.deliveryRate\)/);
+  assert.match(treasury,/سعر التسليم مقابل CAD/);
+  assert.match(treasury,/سعر CAD مقابل CAD/);
 });
