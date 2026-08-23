@@ -13,7 +13,7 @@ export function Treasury(){
   async function load(){try{const treasuryResponse=await cachedGet("/treasury",{cacheTtl:0});setData(treasuryResponse.data||{balances:[],movements:[]});}catch(e){setError(e.response?.data?.message||"تعذر تحميل الخزنة");}}
   useEffect(()=>{void load();},[]);
   async function submit(event){event.preventDefault();setSaving(true);setError("");try{await api.post("/treasury/adjustments",{direction:form.direction,currency:form.currency,quantity:Number(form.quantity),costRate:form.direction==="IN"?Number(form.rate):null,deliveryRate:form.direction==="OUT"?Number(form.rate):null,reason:form.reason,occurredAt:form.occurredAt});clearApiGetCache();setForm(current=>({...current,quantity:"",rate:"",reason:""}));await load();}catch(e){setError(e.response?.data?.message||"تعذر حفظ التسوية");}finally{setSaving(false);}}
-  async function deliverCash(event){event.preventDefault();setSaving(true);setError("");try{await api.post("/treasury/cash-deliveries",{currency:delivery.currency,quantity:Number(delivery.quantity),deliveryRate:delivery.currency==="CAD"?1:Number(delivery.deliveryRate),occurredAt:delivery.occurredAt,note:delivery.note});clearApiGetCache();setDelivery(current=>({...current,quantity:"",deliveryRate:"",note:""}));await load();}catch(e){setError(e.response?.data?.message||"تعذر تنفيذ التسليم الكاش");}finally{setSaving(false);}}
+  async function deliverCash(event){event.preventDefault();setSaving(true);setError("");try{await api.post("/treasury/cash-deliveries",{currency:delivery.currency,quantity:Number(delivery.quantity),deliveryRate:Number(delivery.deliveryRate),occurredAt:delivery.occurredAt,note:delivery.note});clearApiGetCache();setDelivery(current=>({...current,quantity:"",deliveryRate:"",note:""}));await load();}catch(e){setError(e.response?.data?.message||"تعذر تنفيذ التسليم الكاش");}finally{setSaving(false);}}
   const columns=[
     {key:"occurredAt",label:"التاريخ والوقت",render:r=>String(r.occurredAt||r.createdAt||"").replace("T"," ").slice(0,19)},
     {key:"movementType",label:"نوع الحركة",render:r=>r.movementType==="ADJUSTMENT"?`تسوية (${r.direction==="IN"?"دخول":"خروج"})`:r.direction==="IN"?"دخول":"خروج"},
@@ -29,12 +29,18 @@ export function Treasury(){
   const movementRows=data.movements||[];
   const deliveryBalance=(data.balances||[]).find(row=>row.currency===delivery.currency)||{balance:0,averageCost:0,totalCost:0};
   const deliveryQuantity=Number(delivery.quantity||0);
-  const deliveryRate=delivery.currency==="CAD"?1:Number(delivery.deliveryRate||0);
+  const deliveryRate=Number(delivery.deliveryRate||0);
+  const deliveryAverage=Number(delivery.currency==="CAD"?(deliveryBalance.averageRateCadPerUsd??deliveryBalance.averageCost):deliveryBalance.averageCost)||0;
+  const cadDelivery=delivery.currency==="CAD"&&deliveryQuantity>0&&deliveryRate>0&&deliveryAverage>0;
+  const deliveryUsd=cadDelivery?deliveryQuantity/deliveryRate:0;
+  const costUsd=cadDelivery?deliveryQuantity/deliveryAverage:0;
+  const realizedFxUsd=cadDelivery?deliveryUsd-costUsd:0;
   const deliveryPreview={
     balance:Number(deliveryBalance.balance||0),
-    averageCost:Number(deliveryBalance.averageCost||0),
+    averageCost:deliveryAverage,
     expectedBalance:Number(deliveryBalance.balance||0)-deliveryQuantity,
-    realizedFx:delivery.currency==="CAD"?0:deliveryQuantity*(deliveryRate-Number(deliveryBalance.averageCost||0))
+    realizedFx:delivery.currency==="CAD"?realizedFxUsd*deliveryRate:deliveryQuantity*(deliveryRate-deliveryAverage),
+    deliveryUsd,costUsd,realizedFxUsd
   };
   const averageCostRows=treasuryAverageCostRows(data.balances);
   const realizedSummary=treasuryRealizedSummary(data.currentInventoryPeriod);
@@ -65,7 +71,7 @@ export function Treasury(){
         <h3>متوسط تكلفة الخزنة</h3>
         <div className="treasury-average-list">
           {averageCostRows.length?averageCostRows.map(row=><div className="treasury-average-item" key={row.currency}>
-            <strong>{row.averageCost.toFixed(6)} CAD</strong>
+            <strong>{row.averageCost.toFixed(6)} CAD/USD</strong>
             <small>الرصيد الحالي: {money(row.balance)} {row.currency}</small>
           </div>):<div className="treasury-summary-empty">لا توجد أرصدة خزنة.</div>}
         </div>
@@ -95,20 +101,25 @@ export function Treasury(){
         }):<div className="treasury-summary-empty">لا توجد نتائج جرد مثبتة حتى الآن.</div>}
       </div>
     </section>
-    <section className="transaction-summary-grid">{data.balances.map(row=><div className="card transaction-summary-card" key={row.currency}><span>{row.currency}</span><strong>{money(row.balance)}</strong><small>التكلفة: {money(row.totalCost)} CAD · المتوسط: {Number(row.averageCost||0).toFixed(6)}</small><small>ربح محقق: {money(row.realizedProfit)} · خسارة: {money(row.realizedLoss)}</small></div>)}</section>
+    <section className="transaction-summary-grid">{data.balances.map(row=><div className="card transaction-summary-card" key={row.currency}><span>{row.currency}</span><strong>{money(row.balance)}</strong><small>{row.currency==="CAD"?`أساس التكلفة: ${money(row.totalUsdBasis)} USD · المتوسط: ${Number(row.averageRateCadPerUsd||0).toFixed(6)} CAD/USD`:`التكلفة: ${money(row.totalCost)} CAD · المتوسط: ${Number(row.averageCost||0).toFixed(6)} CAD/USD`}</small><small>ربح محقق: {money(row.realizedProfit)} CAD · خسارة: {money(row.realizedLoss)} CAD</small></div>)}</section>
     <form className="card form no-print" onSubmit={deliverCash}><h3>تسليم كاش فعلي</h3>
-      <label className="treasury-delivery-currency"><span>نوع العملة</span><select value={delivery.currency} onChange={e=>setDelivery({...delivery,currency:e.target.value,deliveryRate:e.target.value==="CAD"?"1":""})} required><option value="USD">USD — دولار أمريكي</option><option value="CAD">CAD — دولار كندي</option></select></label>
-      <div className="treasury-delivery-availability"><span>الرصيد العام المتاح</span><strong>{money(deliveryPreview.balance)} {delivery.currency}</strong><small>متوسط التكلفة الحالي: {deliveryPreview.averageCost.toFixed(6)} CAD</small></div>
+      <label className="treasury-delivery-currency"><span>نوع العملة</span><select value={delivery.currency} onChange={e=>setDelivery({...delivery,currency:e.target.value,deliveryRate:""})} required><option value="USD">USD — دولار أمريكي</option><option value="CAD">CAD — دولار كندي</option></select></label>
+      <div className="treasury-delivery-availability"><span>الرصيد العام المتاح</span><strong>{money(deliveryPreview.balance)} {delivery.currency}</strong><small>متوسط التكلفة الحالي: {deliveryPreview.averageCost.toFixed(6)} CAD/USD</small></div>
       <input type="number" min=".0001" max={deliveryPreview.balance||undefined} step=".0001" value={delivery.quantity} onChange={e=>setDelivery({...delivery,quantity:e.target.value})} placeholder="الكمية المسلّمة" required/>
-      {delivery.currency==="CAD"?<input type="number" value="1" readOnly aria-label="سعر CAD مقابل CAD"/>:<input type="number" min=".00000001" step=".00000001" value={delivery.deliveryRate} onChange={e=>setDelivery({...delivery,deliveryRate:e.target.value})} placeholder="سعر التسليم مقابل CAD" required/>}
+      <input type="number" min=".00000001" step=".00000001" value={delivery.deliveryRate} onChange={e=>setDelivery({...delivery,deliveryRate:e.target.value})} placeholder={delivery.currency==="CAD"?"سعر الشركة CAD لكل USD":"سعر التسليم مقابل CAD"} required/>
       <input type="datetime-local" value={delivery.occurredAt} onChange={e=>setDelivery({...delivery,occurredAt:e.target.value})} required/>
       <input value={delivery.note} maxLength="500" onChange={e=>setDelivery({...delivery,note:e.target.value})} placeholder="ملاحظة اختيارية"/>
       <div className="treasury-delivery-preview" aria-label="معاينة التسليم">
         <div><span>الرصيد الحالي</span><strong>{money(deliveryPreview.balance)} {delivery.currency}</strong></div>
         <div><span>الكمية المسلّمة</span><strong>{money(deliveryQuantity)} {delivery.currency}</strong></div>
         <div><span>الرصيد المتوقع</span><strong className={deliveryPreview.expectedBalance<0?"value-negative":""}>{money(deliveryPreview.expectedBalance)} {delivery.currency}</strong></div>
-        <div><span>متوسط التكلفة</span><strong>{deliveryPreview.averageCost.toFixed(6)} CAD</strong></div>
-        <div><span>سعر التسليم</span><strong>{deliveryRate>0?deliveryRate.toFixed(6):"—"} CAD</strong></div>
+        <div><span>متوسط التكلفة</span><strong>{deliveryPreview.averageCost.toFixed(6)} CAD/USD</strong></div>
+        <div><span>سعر التسليم</span><strong>{deliveryRate>0?deliveryRate.toFixed(6):"—"} CAD/USD</strong></div>
+        {delivery.currency==="CAD"&&<>
+          <div><span>الدولار المتوقع من الشركة</span><strong>{money(deliveryPreview.deliveryUsd)} USD</strong></div>
+          <div><span>تكلفة الكاش حسب المتوسط</span><strong>{money(deliveryPreview.costUsd)} USD</strong></div>
+          <div><span>فرق التسليم المتوقع</span><strong className={deliveryPreview.realizedFxUsd<0?"value-negative":"value-positive"}>{deliveryPreview.realizedFxUsd>0?"+":""}{money(deliveryPreview.realizedFxUsd)} USD</strong></div>
+        </>}
         <div><span>فرق التسليم المتوقع</span><strong className={deliveryPreview.realizedFx<0?"value-negative":"value-positive"}>{deliveryPreview.realizedFx>0?"+":""}{money(deliveryPreview.realizedFx)} CAD</strong></div>
       </div>
       <button disabled={saving}>{saving?"جارٍ التنفيذ…":"تنفيذ التسليم الكاش"}</button>

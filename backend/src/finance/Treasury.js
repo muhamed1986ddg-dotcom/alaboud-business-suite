@@ -13,6 +13,31 @@ function safeMoney(value, label) {
 function safeRate(value, label) {
   try { return rate(value); } catch { throw new TypeError(`${label} غير صالح`); }
 }
+
+const CAD_CASH_USD_BASIS = "CAD_CASH_USD_BASIS";
+
+function calculateTreasuryDeliveryFinancials({ currency, quantity, averageRate, deliveryRate }) {
+  const normalizedCurrency = String(currency || "").trim().toUpperCase();
+  const amount = safeMoney(quantity, "كمية التسليم الكاش");
+  const average = safeRate(averageRate, "متوسط تكلفة الخزنة");
+  const delivery = safeRate(deliveryRate, "سعر الصرف وقت التسليم");
+  if (amount <= 0n || average <= 0n || delivery <= 0n) {
+    const error = new Error("الكمية والمتوسط وسعر التسليم يجب أن تكون أكبر من صفر");
+    error.code = "TREASURY_DELIVERY_FINANCIALS_INVALID";
+    throw error;
+  }
+  if (normalizedCurrency === "CAD") {
+    const costUsd = roundedDivide(amount * RATE_SCALE, average);
+    const deliveryUsd = roundedDivide(amount * RATE_SCALE, delivery);
+    const realizedFxUsd = deliveryUsd - costUsd;
+    const realizedFxCad = roundedDivide(realizedFxUsd * delivery, RATE_SCALE);
+    return { costBasis: costUsd, costUsd, deliveryUsd, realizedFxUsd, realizedFxCad };
+  }
+  const costCad = roundedDivide(amount * average, RATE_SCALE);
+  const deliveryCad = roundedDivide(amount * delivery, RATE_SCALE);
+  const realizedFxCad = deliveryCad - costCad;
+  return { costBasis: costCad, costCad, deliveryCad, realizedFxUsd: null, realizedFxCad };
+}
 function movementTime(row) {
   const value = row.occurredAt || row.createdAt || row.date || "";
   const parsed = new Date(value).getTime();
@@ -109,7 +134,10 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
     const quantity = safeMoney(row.quantity, "كمية حركة الخزنة");
     if (quantity <= 0n) throw new Error("كمية حركة الخزنة يجب أن تكون أكبر من صفر");
     const state = balances.get(currency) || { balance: 0n, totalCost: 0n, realizedProfit: 0n, realizedLoss: 0n };
-    const averageBefore = state.balance > 0n ? roundedDivide(state.totalCost * RATE_SCALE, state.balance) : 0n;
+    const isCadAsset = currency === "CAD";
+    const averageBefore = state.balance > 0n
+      ? (isCadAsset ? roundedDivide(state.balance * RATE_SCALE, state.totalCost) : roundedDivide(state.totalCost * RATE_SCALE, state.balance))
+      : 0n;
     // A transfer creates cash in the treasury. Only an explicit cash-delivery
     // movement may take that cash out. This also repairs legacy transfer rows
     // that were incorrectly persisted as OUT without creating duplicates.
@@ -127,10 +155,13 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
         throw error;
       }
       state.balance += quantity;
-      state.totalCost += roundedDivide(quantity * costRate, RATE_SCALE);
+      const usdBasis = isCadAsset
+        ? (row.usdBasis == null ? roundedDivide(quantity * RATE_SCALE, costRate) : safeMoney(row.usdBasis, "أساس USD للحركة"))
+        : roundedDivide(quantity * costRate, RATE_SCALE);
+      if (usdBasis <= 0n) throw new Error("أساس تكلفة حركة الخزنة يجب أن يكون أكبر من صفر");
+      state.totalCost += usdBasis;
     } else if (direction === "OUT") {
-      const isBaseCurrencyDelivery=row.baseCurrencyDelivery===true&&currency==="CAD";
-      deliveryRate = safeRate(isBaseCurrencyDelivery?1:row.deliveryRate, "سعر الصرف وقت التسليم");
+      deliveryRate = safeRate(row.deliveryRate, "سعر الصرف وقت التسليم");
       if (deliveryRate <= 0n) throw new Error("سعر الصرف وقت التسليم يجب أن يكون أكبر من صفر");
       const preservesHistoricalNegative = row.allowNegative === true || Number(row.balanceAfter) < 0;
       if (!allowNegative && !preservesHistoricalNegative && quantity > state.balance) {
@@ -138,8 +169,14 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
         error.code = "TREASURY_INSUFFICIENT_BALANCE";
         throw error;
       }
-      const releasedCost = roundedDivide(quantity * averageBefore, RATE_SCALE);
-      realized = isBaseCurrencyDelivery?0n:roundedDivide(quantity * (deliveryRate - averageBefore), RATE_SCALE);
+      const historicalCadAtPar = isCadAsset && row.baseCurrencyDelivery === true;
+      const financials = averageBefore <= 0n && !isCadAsset
+        ? { costBasis: 0n, realizedFxUsd: null, realizedFxCad: roundedDivide(quantity * deliveryRate, RATE_SCALE) }
+        : historicalCadAtPar
+        ? { costBasis: roundedDivide(quantity * RATE_SCALE, averageBefore), realizedFxUsd: 0n, realizedFxCad: 0n }
+        : calculateTreasuryDeliveryFinancials({currency,quantity:moneyToNumber(quantity),averageRate:rateToNumber(averageBefore),deliveryRate:rateToNumber(deliveryRate)});
+      const releasedCost = financials.costBasis;
+      realized = financials.realizedFxCad;
       state.balance -= quantity;
       state.totalCost -= releasedCost;
       if (state.balance === 0n) state.totalCost = 0n;
@@ -149,7 +186,14 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
       throw new Error("اتجاه حركة الخزنة غير صحيح");
     }
 
-    const averageAfter = state.balance > 0n ? roundedDivide(state.totalCost * RATE_SCALE, state.balance) : averageBefore;
+    const averageAfter = state.balance > 0n
+      ? (isCadAsset ? roundedDivide(state.balance * RATE_SCALE, state.totalCost) : roundedDivide(state.totalCost * RATE_SCALE, state.balance))
+      : averageBefore;
+    const deliveryFinancials = direction === "OUT" && averageBefore > 0n
+      ? (isCadAsset && row.baseCurrencyDelivery === true
+        ? {costUsd:roundedDivide(quantity * RATE_SCALE,averageBefore),deliveryUsd:roundedDivide(quantity * RATE_SCALE,averageBefore),realizedFxUsd:0n,realizedFxCad:0n}
+        : calculateTreasuryDeliveryFinancials({currency,quantity:moneyToNumber(quantity),averageRate:rateToNumber(averageBefore),deliveryRate:rateToNumber(deliveryRate)}))
+      : null;
     Object.assign(row, {
       currency, direction,
       costRate: direction === "IN" ? rateToNumber(costRate) : null,
@@ -159,8 +203,13 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
       realizedFx: moneyToNumber(realized),
       realizedProfit: moneyToNumber(realized > 0n ? realized : 0n),
       realizedLoss: moneyToNumber(realized < 0n ? -realized : 0n),
+      realizedFxCad: moneyToNumber(realized),
+      realizedFxUsd: deliveryFinancials?.realizedFxUsd == null ? null : moneyToNumber(deliveryFinancials.realizedFxUsd),
+      deliveryUsd: deliveryFinancials?.deliveryUsd == null ? null : moneyToNumber(deliveryFinancials.deliveryUsd),
+      costUsd: deliveryFinancials?.costUsd == null ? null : moneyToNumber(deliveryFinancials.costUsd),
       balanceAfter: moneyToNumber(state.balance),
-      totalCostAfter: moneyToNumber(state.totalCost)
+      totalCostAfter: moneyToNumber(state.totalCost),
+      totalUsdBasisAfter: isCadAsset ? moneyToNumber(state.totalCost) : null
     });
     balances.set(currency, state);
   }
@@ -169,14 +218,16 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
     currency,
     balance: moneyToNumber(state.balance),
     totalCost: moneyToNumber(state.totalCost),
-    averageCost: rateToNumber(state.balance > 0n ? roundedDivide(state.totalCost * RATE_SCALE, state.balance) : 0n),
+    averageCost: rateToNumber(state.balance > 0n ? (currency === "CAD" ? roundedDivide(state.balance * RATE_SCALE, state.totalCost) : roundedDivide(state.totalCost * RATE_SCALE, state.balance)) : 0n),
+    averageRateCadPerUsd: currency === "CAD" ? rateToNumber(state.balance > 0n ? roundedDivide(state.balance * RATE_SCALE, state.totalCost) : 0n) : null,
+    totalUsdBasis: currency === "CAD" ? moneyToNumber(state.totalCost) : null,
     realizedProfit: moneyToNumber(state.realizedProfit),
     realizedLoss: moneyToNumber(state.realizedLoss),
     realizedFx: moneyToNumber(state.realizedProfit - state.realizedLoss)
   })).sort((a, b) => a.currency.localeCompare(b.currency));
 }
 
-function upsertTransferMovement(store, transaction, { id, now, userId, occurredAt, entryRate } = {}) {
+function upsertTransferMovement(store, transaction, { id, now, userId, occurredAt, entryRate, cadAmountReceived, assetCurrency } = {}) {
   const canonicalCostRate = Number(entryRate);
   if (!Number.isFinite(canonicalCostRate) || canonicalCostRate <= 0) {
     const error = new Error("سعر تكلفة الحوالة يجب أن يكون أكبر من صفر");
@@ -191,10 +242,20 @@ function upsertTransferMovement(store, transaction, { id, now, userId, occurredA
   const existing = matches[0];
   const timestamp = occurredAt || transaction.transferDate || transaction.createdAt || now();
   const next = existing || { id: id(), sourceKey, sourceType: "TRANSFER", transactionId: transaction.id, createdAt: now(), createdBy: userId };
+  const preserveLegacyModel = Boolean((existing && existing.accountingModel !== CAD_CASH_USD_BASIS) || assetCurrency === "USD");
+  const cadAmount = safeMoney(cadAmountReceived, "مبلغ CAD المقبوض من الحوالة");
+  if (!preserveLegacyModel && cadAmount <= 0n) {
+    const error = new Error("مبلغ CAD المقبوض من الحوالة يجب أن يكون أكبر من صفر");
+    error.code = "TRANSACTION_CAD_AMOUNT_REQUIRED";
+    error.statusCode = 400;
+    throw error;
+  }
   Object.assign(next, {
-    movementType: "IN", direction: "IN", currency: String(transaction.currency || "USD").toUpperCase(),
-    quantity: moneyToNumber(safeMoney(transaction.beneficiaryReceives ?? transaction.amount, "مبلغ الحوالة")),
+    movementType: "IN", direction: "IN", currency: preserveLegacyModel ? String(existing?.currency || transaction.currency || "USD").toUpperCase() : "CAD",
+    quantity: preserveLegacyModel ? moneyToNumber(safeMoney(transaction.beneficiaryReceives ?? transaction.amount, "مبلغ الحوالة")) : moneyToNumber(cadAmount),
     costRate: canonicalCostRate,
+    usdBasis: preserveLegacyModel ? existing?.usdBasis : moneyToNumber(roundedDivide(cadAmount * RATE_SCALE, safeRate(canonicalCostRate, "سعر تكلفة الحوالة"))),
+    accountingModel: preserveLegacyModel ? existing?.accountingModel : CAD_CASH_USD_BASIS,
     deliveryRate: null,
     occurredAt: timestamp, sourceLabel: transaction.number || transaction.id, isCancelled: false,
     cancelledAt: null, cancelledBy: null, cancellationReason: null,
@@ -232,15 +293,14 @@ function createGeneralCashDeliveryMovement(store,{currency,quantity,deliveryRate
   }
   const amount=safeMoney(quantity,"كمية التسليم الكاش");
   if(amount<=0n){const error=new Error("كمية التسليم يجب أن تكون أكبر من صفر");error.code="TREASURY_DELIVERY_AMOUNT_REQUIRED";throw error;}
-  const isBaseCurrencyDelivery=normalizedCurrency==="CAD";
-  const rateValue=safeRate(isBaseCurrencyDelivery?1:deliveryRate,"سعر الصرف وقت التسليم");
+  const rateValue=safeRate(deliveryRate,"سعر الصرف وقت التسليم");
   if(rateValue<=0n){const error=new Error("سعر التسليم يجب أن يكون أكبر من صفر");error.code="TREASURY_DELIVERY_RATE_REQUIRED";throw error;}
   const movementId=id();
   const timestamp=occurredAt||now();
   const movement={
     id:movementId,sourceKey:`CASH_DELIVERY:GENERAL:${movementId}`,sourceType:"CASH_DELIVERY",sourceLabel:"تسليم كاش فعلي",
     movementType:"OUT",direction:"OUT",currency:normalizedCurrency,quantity:moneyToNumber(amount),costRate:null,
-    deliveryRate:rateToNumber(rateValue),baseCurrencyDelivery:isBaseCurrencyDelivery,occurredAt:timestamp,note:String(note||"").trim().slice(0,500),
+    deliveryRate:rateToNumber(rateValue),accountingModel:normalizedCurrency==="CAD"?CAD_CASH_USD_BASIS:null,occurredAt:timestamp,note:String(note||"").trim().slice(0,500),
     transactionId:null,isCancelled:false,createdAt:now(),createdBy:userId
   };
   // Validate the complete ledger before touching the durable state. This keeps
@@ -305,4 +365,4 @@ function treasuryInventorySnapshot(store,period,{inventoryId="",finalizedAt=""}=
   });
 }
 
-module.exports = { rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements };
+module.exports = { rebuildTreasury, calculateTreasuryDeliveryFinancials, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements };

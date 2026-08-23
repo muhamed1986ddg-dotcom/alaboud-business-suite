@@ -53,8 +53,9 @@ test("cash delivery uses the general currency balance without selecting a transf
   assert.match(treasury,/treasury-delivery-preview/);
   assert.match(treasury,/USD — دولار أمريكي/);
   assert.match(treasury,/CAD — دولار كندي/);
-  assert.match(treasury,/delivery\.currency==="CAD"\?1/);
-  assert.match(treasury,/delivery\.currency==="CAD"\?0/);
+  assert.match(treasury,/deliveryRate:Number\(delivery\.deliveryRate\)/);
+  assert.match(treasury,/realizedFxUsd=cadDelivery\?deliveryUsd-costUsd:0/);
+  assert.match(treasury,/delivery\.currency==="CAD"\?realizedFxUsd\*deliveryRate/);
   assert.match(styles,/\.treasury-delivery-preview\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(styles,/@media\(max-width:768px\)\{[\s\S]*?\.treasury-delivery-preview\{grid-template-columns:minmax\(0,1fr\)\}/);
 });

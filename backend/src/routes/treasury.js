@@ -77,7 +77,7 @@ function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempoten
     try{
       const currency=String(req.body?.currency||"").trim().toUpperCase();
       const quantity=Number(req.body?.quantity);
-      const deliveryRate=currency==="CAD"?1:Number(req.body?.deliveryRate);
+      const deliveryRate=Number(req.body?.deliveryRate);
       if(!["USD","CAD"].includes(currency)||!Number.isFinite(quantity)||quantity<=0||!Number.isFinite(deliveryRate)||deliveryRate<=0){
         return res.status(400).json({code:"TREASURY_CASH_DELIVERY_INVALID",message:"العملة والكمية وسعر التسليم قيم مطلوبة ويجب أن تكون أكبر من صفر"});
       }

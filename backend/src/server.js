@@ -42,7 +42,7 @@ const {
   mirrorsExternalBalance
 } = require("./finance/CompanyDebtPosition");
 const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
-const { rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements } = require("./finance/Treasury");
+const { rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements } = require("./finance/Treasury");
 const { inventoryScheduleDay, inventoryLocalDate, currentInventoryPeriod, previousInventoryPeriod } = require("./finance/InventoryPeriod");
 const { registerHealthRoutes } = require("./routes/health");
 const { registerDeveloperRoutes } = require("./routes/developer");
@@ -2226,7 +2226,7 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     s.transactions.push(t);
     if(t.status!=="CANCELLED"){
       try{
-        upsertTransferMovement(s,t,{id,now,userId:req.user.id,occurredAt:t.transferDate,entryRate:financials.costRate});
+        upsertTransferMovement(s,t,{id,now,userId:req.user.id,occurredAt:t.transferDate,entryRate:financials.costRate,cadAmountReceived:financials.convertedCad});
       }catch(error){
         if(error?.treasuryDiagnostic)console.error("[TREASURY_ENTRY_RATE_DIAGNOSTIC]",error.treasuryDiagnostic);
         throw error;
@@ -2524,7 +2524,7 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
       }
 
       if(transaction.status!=="CANCELLED"){
-        upsertTransferMovement(s,transaction,{id,now,userId:req.user.id,occurredAt:transaction.transferDate,entryRate:financials.costRate});
+        upsertTransferMovement(s,transaction,{id,now,userId:req.user.id,occurredAt:transaction.transferDate,entryRate:financials.costRate,cadAmountReceived:financials.convertedCad});
       }else{
         cancelCashDeliveryMovement(s,transaction.id,{now,userId:req.user.id,reason:"إلغاء حوالة مرتبطة بتسليم كاش"});
         cancelTransferMovement(s,transaction.id,{now,userId:req.user.id,reason:"تعديل أثر الحوالة على الخزنة"});
@@ -2762,7 +2762,7 @@ async function refreshAutomaticRates(userId="SYSTEM") {
   }
   return results;
 }
-registerTreasuryRoutes(app,{auth,requirePermission,requireIdempotencyKey,readStore,mutateDurable,id,now,audit,rebuildTreasury,currentInventoryPeriod,treasuryRealizedForInventoryPeriod,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,upsertCashDeliveryMovement});
+registerTreasuryRoutes(app,{auth,requirePermission,requireIdempotencyKey,readStore,mutateDurable,id,now,audit,rebuildTreasury,currentInventoryPeriod,treasuryRealizedForInventoryPeriod,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,upsertCashDeliveryMovement,createGeneralCashDeliveryMovement});
 registerProfitRoutes(app,{auth,readStore,summarizeTransactionProfits,treasuryProfitForRange,addTransactionProfitToBucket,activeMovements,transactionFinancials,transactionFinancialView});
 
 

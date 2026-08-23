@@ -82,8 +82,8 @@ setTimeout(async()=>{
     assert(r.body.costRate===1.40&&r.body.exchangeProfit===21,"financial engine uses the production request cost rate",r);
 
     r=await request("GET","/api/treasury",null,token);
-    assert(r.status===200&&r.body.balances.some(row=>row.currency==="USD"&&row.balance===950&&row.totalCost===1330),"USD 250 + transfer 700 = treasury 950 and book cost increases by CAD 980",r);
-    assert(r.body.movements.some(row=>row.transactionId===transactionId&&row.direction==="IN"&&row.costRate===1.40&&row.deliveryRate===null&&row.realizedFx===0),"registration uses canonical cost rate and has no realized FX",r);
+    assert(r.status===200&&r.body.balances.some(row=>row.currency==="CAD"&&row.balance===1001&&row.totalUsdBasis===715&&row.averageRateCadPerUsd===1.4),"transfer adds customer CAD cash with its USD cost basis",r);
+    assert(r.body.movements.some(row=>row.transactionId===transactionId&&row.direction==="IN"&&row.currency==="CAD"&&row.quantity===1001&&row.usdBasis===715&&row.costRate===1.40&&row.deliveryRate===null&&row.realizedFx===0),"registration uses canonical transfer financials and has no realized FX",r);
     const movementCount=r.body.movements.length;
 
     r=await request("POST","/api/transactions",{...productionTransferRequest,costRate:0},token);
@@ -96,12 +96,12 @@ setTimeout(async()=>{
     r=await request("GET","/api/treasury/diagnostics/invalid-in",null,token);
     assert(r.status===200&&r.body.total===0&&Array.isArray(r.body.invalidTransfers)&&Array.isArray(r.body.invalidOther),"read-only treasury invalid-IN diagnostic",r);
 
-    r=await request("POST",`/api/transactions/${transactionId}/cash-delivery`,{deliveryRate:1.45,quantity:300},token);
-    assert(r.status===201&&r.body.direction==="OUT","partial cash delivery creates treasury OUT",r);
+    r=await request("POST","/api/treasury/cash-deliveries",{currency:"CAD",deliveryRate:1.38,quantity:300,occurredAt:"2026-08-25T12:00:00Z"},token);
+    assert(r.status===201&&r.body.direction==="OUT"&&r.body.transactionId===null,"general CAD cash delivery creates treasury OUT",r);
 
     r=await request("GET","/api/treasury",null,token);
-    assert(r.status===200&&r.body.balances.some(row=>row.currency==="USD"&&row.balance===650),"partial cash delivery reduces treasury balance",r);
-    assert(r.body.movements.some(row=>row.transactionId===transactionId&&row.direction==="OUT"&&row.realizedFx===15),"partial cash delivery creates realized FX",r);
+    assert(r.status===200&&r.body.balances.some(row=>row.currency==="CAD"&&row.balance===701&&Math.abs(row.averageRateCadPerUsd-1.4)<0.000001),"partial CAD delivery reduces only CAD and preserves its average",r);
+    assert(r.body.movements.some(row=>row.sourceType==="CASH_DELIVERY"&&row.currency==="CAD"&&row.direction==="OUT"&&row.realizedFxUsd>0),"CAD delivery below average creates realized profit",r);
 
     r=await request("GET",`/api/transactions/${transactionId}/invoice`,null,token);
     assert(r.status===200,"invoice",r);

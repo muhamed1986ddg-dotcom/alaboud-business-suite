@@ -13,7 +13,7 @@ test("transfer forms do not expose or submit cash-delivery controls",()=>{
   }
   assert.match(treasury,/\/treasury\/cash-deliveries/);
   assert.doesNotMatch(treasury,/delivery\.transactionId/);
-  assert.match(treasury,/deliveryRate:delivery\.currency==="CAD"\?1:Number\(delivery\.deliveryRate\)/);
-  assert.match(treasury,/سعر التسليم مقابل CAD/);
-  assert.match(treasury,/سعر CAD مقابل CAD/);
+  assert.match(treasury,/deliveryRate:Number\(delivery\.deliveryRate\)/);
+  assert.match(treasury,/deliveryUsd=cadDelivery\?deliveryQuantity\/deliveryRate:0/);
+  assert.match(treasury,/costUsd=cadDelivery\?deliveryQuantity\/deliveryAverage:0/);
 });

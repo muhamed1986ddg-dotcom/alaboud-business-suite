@@ -8,7 +8,7 @@ const balance=(store,currency="USD")=>rebuildTreasury(store).find(row=>row.curre
 const incoming=(quantity,costRate=1,id=`in-${++sequence}`)=>({id,sourceKey:`ADJUSTMENT:${id}`,sourceType:"MANUAL_ADJUSTMENT",movementType:"ADJUSTMENT",direction:"IN",currency:"USD",quantity,costRate,occurredAt:"2026-01-01",createdAt:"2026-01-01"});
 const legacyNegative=(quantity,id=`legacy-${++sequence}`)=>({id,sourceKey:`LEGACY:${id}`,sourceType:"LEGACY",movementType:"OUT",direction:"OUT",currency:"USD",quantity,deliveryRate:1,allowNegative:true,occurredAt:"2025-12-31",createdAt:"2025-12-31"});
 const transfer=(id="t1",amount=700,costRate=140)=>({id,number:`TRX-${id}`,currency:"USD",amount,beneficiaryReceives:amount,costRate,transferDate:"2026-01-02"});
-const transferOptions=(transaction,overrides={})=>({...helpers,entryRate:transactionFinancials(transaction).costRate,...overrides});
+const transferOptions=(transaction,overrides={})=>({...helpers,entryRate:transactionFinancials(transaction).costRate,assetCurrency:"USD",...overrides});
 
 for(const [starting,expected] of [[250,950],[-250,450],[-1000,-300],[0,700]]){
   const store={treasuryMovements:starting>0?[incoming(starting)]:starting<0?[legacyNegative(-starting)]:[]};
@@ -147,7 +147,7 @@ for(const rateValue of [1.5,1.3,1.4]){
 }
 const cadOpening={...incoming(5000,1,"cad-opening"),currency:"CAD"};
 const multiCurrencyStore={treasuryMovements:[incoming(6769,1.376141,"usd-multi-opening"),cadOpening]};
-const cadDelivery=createGeneralCashDeliveryMovement(multiCurrencyStore,{currency:"CAD",quantity:1200,deliveryRate:99,occurredAt:"2026-08-26T12:00:00Z"},helpers);
+const cadDelivery=createGeneralCashDeliveryMovement(multiCurrencyStore,{currency:"CAD",quantity:1200,deliveryRate:1,occurredAt:"2026-08-26T12:00:00Z"},helpers);
 const multiBalances=rebuildTreasury(multiCurrencyStore);
 assert.equal(multiBalances.find(row=>row.currency==="CAD").balance,3800);
 assert.equal(multiBalances.find(row=>row.currency==="USD").balance,6769);
@@ -187,4 +187,40 @@ assert.equal(weighted.treasuryMovements[1].realizedFx,8000);assert.equal(weighte
 assert(Math.abs(weighted.treasuryMovements[2].averageCostAfter-138.63636364)<1e-8);
 assert(Math.abs(weighted.treasuryMovements[3].realizedFx-(-10909.091))<0.001);
 assert(Math.abs(weightedBalances[0].averageCost-138.63636364)<1e-8);
+
+// CAD cash model: transfers add CAD with a USD basis, and CAD deliveries use
+// division because rates are expressed as CAD per USD.
+const cadTransferStore={treasuryMovements:[]};
+const cadTransferOne={...transfer("cad-basis-1",5000,1.36),finalRate:1.36};
+const cadTransferTwo={...transfer("cad-basis-2",5000,1.38),finalRate:1.38,transferDate:"2026-01-03"};
+const cadInOne=upsertTransferMovement(cadTransferStore,cadTransferOne,{...helpers,entryRate:1.36,cadAmountReceived:6800});
+const cadInTwo=upsertTransferMovement(cadTransferStore,cadTransferTwo,{...helpers,entryRate:1.38,cadAmountReceived:6900});
+const cadWeightedBalance=rebuildTreasury(cadTransferStore).find(row=>row.currency==="CAD");
+assert.equal(cadInOne.currency,"CAD");assert.equal(cadInOne.usdBasis,5000);
+assert.equal(cadInTwo.usdBasis,5000);
+assert.equal(cadWeightedBalance.balance,13700);
+assert.equal(cadWeightedBalance.totalUsdBasis,10000);
+assert.equal(cadWeightedBalance.averageRateCadPerUsd,1.37);
+
+const cadCase=(averageRate,deliveryRate)=>{
+  const opening={id:`cad-${averageRate}-${deliveryRate}`,sourceKey:`CAD:${averageRate}:${deliveryRate}`,sourceType:"MANUAL_ADJUSTMENT",direction:"IN",movementType:"IN",currency:"CAD",quantity:9600,costRate:averageRate,usdBasis:9600/averageRate,accountingModel:"CAD_CASH_USD_BASIS",occurredAt:"2026-08-23T10:00:00Z",createdAt:"2026-08-23T10:00:00Z"};
+  const store={treasuryMovements:[opening]};
+  const row=createGeneralCashDeliveryMovement(store,{currency:"CAD",quantity:9600,deliveryRate,occurredAt:"2026-08-23T16:00:00Z"},helpers);
+  return {row,balance:rebuildTreasury(store).find(item=>item.currency==="CAD")};
+};
+const cadProfit=cadCase(1.40,1.38);
+assert(Math.abs(cadProfit.row.deliveryUsd-6956.521739)<0.001);
+assert(Math.abs(cadProfit.row.costUsd-6857.142857)<0.001);
+assert(cadProfit.row.realizedFxUsd>99.37&&cadProfit.row.realizedFxUsd<99.39);
+assert(cadProfit.row.realizedFxCad>0);assert.equal(cadProfit.balance.balance,0);
+const cadLoss=cadCase(1.36,1.38);
+assert(cadLoss.row.realizedFxUsd<0);assert(cadLoss.row.realizedFxCad<0);
+const cadEven=cadCase(1.38,1.38);
+assert.equal(cadEven.row.realizedFxUsd,0);assert.equal(cadEven.row.realizedFxCad,0);
+
+const cadPartialStore={treasuryMovements:[{id:"cad-partial-in",sourceKey:"CAD:PARTIAL",sourceType:"MANUAL_ADJUSTMENT",direction:"IN",currency:"CAD",quantity:12000,costRate:1.4,usdBasis:12000/1.4,accountingModel:"CAD_CASH_USD_BASIS",occurredAt:"2026-08-22",createdAt:"2026-08-22"}]};
+createGeneralCashDeliveryMovement(cadPartialStore,{currency:"CAD",quantity:9600,deliveryRate:1.38,occurredAt:"2026-08-23"},helpers);
+const cadPartialBalance=rebuildTreasury(cadPartialStore).find(row=>row.currency==="CAD");
+assert.equal(cadPartialBalance.balance,2400);
+assert(Math.abs(cadPartialBalance.averageRateCadPerUsd-1.4)<1e-6);
 console.log("Treasury tests passed: A-P");
