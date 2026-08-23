@@ -24,6 +24,43 @@ function activeMovements(store) {
     .sort((a, b) => movementTime(a) - movementTime(b) || String(a.createdAt || "").localeCompare(String(b.createdAt || "")) || String(a.id).localeCompare(String(b.id)));
 }
 
+function treasuryMovementDiagnostic(row, direction) {
+  return {
+    movementId: String(row?.id || ""),
+    sourceType: String(row?.sourceType || ""),
+    sourceKey: String(row?.sourceKey || ""),
+    direction,
+    currency: String(row?.currency || "").trim().toUpperCase(),
+    amount: Number(row?.quantity || 0),
+    costRate: row?.costRate == null ? null : Number(row.costRate),
+    createdAt: row?.createdAt || null
+  };
+}
+
+function diagnoseInvalidTreasuryInMovements(store) {
+  const transactions = Array.isArray(store?.transactions) ? store.transactions : [];
+  const invalidTransfers = [];
+  const invalidOther = [];
+  for (const row of activeMovements(store)) {
+    const direction = row.sourceType === "TRANSFER" ? "IN" : String(row.direction || row.movementType || "").toUpperCase();
+    const currentCostRate = Number(row.costRate);
+    if (direction !== "IN" || (Number.isFinite(currentCostRate) && currentCostRate > 0)) continue;
+    const diagnostic = treasuryMovementDiagnostic(row, direction);
+    if (row.sourceType === "TRANSFER" || String(row.sourceKey || "").startsWith("TRANSFER:")) {
+      const transactionId = String(row.transactionId || String(row.sourceKey || "").slice("TRANSFER:".length));
+      const transaction = transactions.find(item => item && String(item.id) === transactionId);
+      invalidTransfers.push({
+        ...diagnostic,
+        transactionId,
+        currentCostRate: diagnostic.costRate,
+        expectedCostRate: transaction ? transactionFinancials(transaction).costRate : null,
+        transactionFound: Boolean(transaction)
+      });
+    } else invalidOther.push(diagnostic);
+  }
+  return { total: invalidTransfers.length + invalidOther.length, invalidTransfers, invalidOther };
+}
+
 function rebuildTreasury(store, { allowNegative = false } = {}) {
   const balances = new Map();
   const rows = activeMovements(store);
@@ -44,7 +81,12 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
 
     if (direction === "IN") {
       costRate = safeRate(row.costRate, "سعر تكلفة الدخول");
-      if (costRate <= 0n) throw new Error("سعر تكلفة الدخول يجب أن يكون أكبر من صفر");
+      if (costRate <= 0n) {
+        const error = new Error("سعر تكلفة الدخول يجب أن يكون أكبر من صفر");
+        error.code = "TREASURY_INVALID_ENTRY_RATE";
+        error.treasuryDiagnostic = treasuryMovementDiagnostic(row, direction);
+        throw error;
+      }
       state.balance += quantity;
       state.totalCost += roundedDivide(quantity * costRate, RATE_SCALE);
     } else if (direction === "OUT") {
@@ -94,15 +136,15 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
   })).sort((a, b) => a.currency.localeCompare(b.currency));
 }
 
-function upsertTransferMovement(store, transaction, { id, now, userId, occurredAt } = {}) {
-  if (!Array.isArray(store.treasuryMovements)) store.treasuryMovements = [];
-  const canonicalCostRate = transactionFinancials(transaction).costRate;
+function upsertTransferMovement(store, transaction, { id, now, userId, occurredAt, entryRate } = {}) {
+  const canonicalCostRate = Number(entryRate);
   if (!Number.isFinite(canonicalCostRate) || canonicalCostRate <= 0) {
     const error = new Error("سعر تكلفة الحوالة يجب أن يكون أكبر من صفر");
     error.code = "TRANSACTION_COST_RATE_REQUIRED";
     error.statusCode = 400;
     throw error;
   }
+  if (!Array.isArray(store.treasuryMovements)) store.treasuryMovements = [];
   const sourceKey = `TRANSFER:${transaction.id}`;
   const matches = store.treasuryMovements.filter(row => row && row.sourceKey === sourceKey);
   if (matches.length > 1) throw new Error("يوجد أكثر من حركة خزنة للحوالة نفسها");
@@ -166,4 +208,4 @@ function treasuryProfitForRange(store, { from = "", to = "" } = {}) {
   return moneyToNumber(total);
 }
 
-module.exports = { rebuildTreasury, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements };
+module.exports = { rebuildTreasury, diagnoseInvalidTreasuryInMovements, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements };

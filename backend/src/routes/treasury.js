@@ -1,6 +1,9 @@
 "use strict";
 
-function registerTreasuryRoutes(app, { auth, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, upsertCashDeliveryMovement }) {
+function registerTreasuryRoutes(app, { auth, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, diagnoseInvalidTreasuryInMovements, upsertCashDeliveryMovement }) {
+  app.get("/api/treasury/diagnostics/invalid-in", auth, (_req,res)=>{
+    res.json(diagnoseInvalidTreasuryInMovements(readStore()));
+  });
   app.get("/api/treasury", auth, (req,res)=>{
     try{
       const store=readStore();
@@ -31,7 +34,7 @@ function registerTreasuryRoutes(app, { auth, requireIdempotencyKey, readStore, m
     }catch(error){res.status(400).json({message:error.message||"تعذر حفظ تسوية الخزنة",code:error.code||null});}
   });
 
-  app.post("/api/transactions/:id/cash-delivery", auth, requireIdempotencyKey, async (req,res)=>{
+  app.post("/api/transactions/:id/cash-delivery",auth,requireIdempotencyKey,async(req,res)=>{
     try{
       const requestedQuantity=req.body?.quantity;
       const deliveryRate=Number(req.body?.deliveryRate);

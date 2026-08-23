@@ -42,7 +42,7 @@ const {
   mirrorsExternalBalance
 } = require("./finance/CompanyDebtPosition");
 const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
-const { rebuildTreasury, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements } = require("./finance/Treasury");
+const { rebuildTreasury, diagnoseInvalidTreasuryInMovements, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements } = require("./finance/Treasury");
 const { registerHealthRoutes } = require("./routes/health");
 const { registerDeveloperRoutes } = require("./routes/developer");
 const { registerNotificationRoutes } = require("./routes/notifications");
@@ -79,6 +79,8 @@ const {
 } = require("./company-backup");
 
 const PORT = Number(process.env.PORT || 5000);
+const BUILD_IDENTIFIER=String(process.env.GIT_SHA||process.env.COMMIT_SHA||process.env.SOURCE_VERSION||process.env.K_REVISION||`${APP_VERSION}:local`).slice(0,128);
+const SOURCE_FINGERPRINT=crypto.createHash("sha256").update(fs.readFileSync(path.join(__dirname,"finance","Treasury.js"))).digest("hex").slice(0,16);
 const IS_PROD = process.env.NODE_ENV === "production";
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
 if (IS_PROD && JWT_SECRET === "LOCAL_TRIAL_CHANGE_ME_6_0") { throw new Error("JWT_SECRET قوي ومخصص مطلوب في الإنتاج"); }
@@ -819,7 +821,7 @@ function customerSummary(store, customer) {
 
 registerHealthRoutes(app,{
   databaseHealth,productionReadiness,nativeRepositories,now,
-  version:APP_VERSION,openApiDocument,docsHtml,telemetryHealth:()=>telemetryWriter.health(),
+  version:APP_VERSION,buildIdentifier:BUILD_IDENTIFIER,sourceFingerprint:SOURCE_FINGERPRINT,openApiDocument,docsHtml,telemetryHealth:()=>telemetryWriter.health(),
   getServiceState:()=>({serviceReady,startupAttempt,startupError:serviceStartupError?.message||null})
 });
 registerDeveloperRoutes(app,{
@@ -2142,6 +2144,10 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     transferDate=""
   }=req.body||{};
 
+  const requestedCostRate=Number(costRate);
+  if(!Number.isFinite(requestedCostRate)||requestedCostRate<=0){
+    return res.status(400).json({code:"TRANSACTION_COST_RATE_REQUIRED",message:"TRANSACTION_COST_RATE_REQUIRED"});
+  }
   const nums=[amount,costRate,finalRate,transferFee,providerFeeAmount,providerFeeRateCad].map(Number);
   if(nums.some(n=>!Number.isFinite(n))||nums[0]<=0||nums[1]<=0||nums[2]<=0||nums[3]<0||nums[4]<0||nums[5]<0){
     return res.status(400).json({message:"قيم الحوالة غير صحيحة"});
@@ -2168,6 +2174,9 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     providerFeeCurrency:normalizedProviderFeeCurrency,
     providerFeeRateCad:executionFeeRate
   });
+  if(!Number.isFinite(financials.costRate)||financials.costRate<=0){
+    return res.status(400).json({code:"TRANSACTION_COST_RATE_REQUIRED",message:"TRANSACTION_COST_RATE_REQUIRED"});
+  }
   if(executionFeeAmount>0&&!financials.valid){
     return res.status(400).json({message:"أدخل سعر تحويل أجور الشركة إلى CAD أو اختر نفس عملة الحوالة"});
   }
@@ -2214,7 +2223,12 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     };
     s.transactions.push(t);
     if(t.status!=="CANCELLED"){
-      upsertTransferMovement(s,t,{id,now,userId:req.user.id,occurredAt:t.transferDate});
+      try{
+        upsertTransferMovement(s,t,{id,now,userId:req.user.id,occurredAt:t.transferDate,entryRate:financials.costRate});
+      }catch(error){
+        if(error?.treasuryDiagnostic)console.error("[TREASURY_ENTRY_RATE_DIAGNOSTIC]",error.treasuryDiagnostic);
+        throw error;
+      }
     }
 
     const normalizedPaymentStatus=String(paymentStatus||"UNPAID").toUpperCase();
@@ -2508,7 +2522,7 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
       }
 
       if(transaction.status!=="CANCELLED"){
-        upsertTransferMovement(s,transaction,{id,now,userId:req.user.id,occurredAt:transaction.transferDate});
+        upsertTransferMovement(s,transaction,{id,now,userId:req.user.id,occurredAt:transaction.transferDate,entryRate:financials.costRate});
       }else{
         cancelCashDeliveryMovement(s,transaction.id,{now,userId:req.user.id,reason:"إلغاء حوالة مرتبطة بتسليم كاش"});
         cancelTransferMovement(s,transaction.id,{now,userId:req.user.id,reason:"تعديل أثر الحوالة على الخزنة"});
@@ -2746,7 +2760,7 @@ async function refreshAutomaticRates(userId="SYSTEM") {
   }
   return results;
 }
-registerTreasuryRoutes(app,{auth,requireIdempotencyKey,readStore,mutateDurable,id,now,audit,rebuildTreasury,upsertCashDeliveryMovement});
+registerTreasuryRoutes(app,{auth,requireIdempotencyKey,readStore,mutateDurable,id,now,audit,rebuildTreasury,diagnoseInvalidTreasuryInMovements,upsertCashDeliveryMovement});
 registerProfitRoutes(app,{auth,readStore,summarizeTransactionProfits,treasuryProfitForRange,addTransactionProfitToBucket,activeMovements,transactionFinancials,transactionFinancialView});
 
 
@@ -5909,7 +5923,7 @@ async function initializeApplicationWithRetry(){
 }
 async function startServer(){
   serverInstance=app.listen(PORT,"0.0.0.0",()=>{
-    console.log(`AlAboud Enterprise Cloud v${APP_VERSION} running on port ${PORT}`);
+    console.log(`AlAboud Enterprise Cloud v${APP_VERSION} build=${BUILD_IDENTIFIER} source=${SOURCE_FINGERPRINT} running on port ${PORT}`);
     console.log(`Frontend directory: ${publicDir}`);
     console.log("HTTP service is live; database initialization is running");
   });

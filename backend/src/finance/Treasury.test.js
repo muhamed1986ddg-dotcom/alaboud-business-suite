@@ -1,6 +1,6 @@
 "use strict";
 const assert=require("assert");
-const {rebuildTreasury,upsertTransferMovement,cancelTransferMovement,upsertCashDeliveryMovement,treasuryProfitForRange}=require("./Treasury");
+const {rebuildTreasury,diagnoseInvalidTreasuryInMovements,upsertTransferMovement,cancelTransferMovement,upsertCashDeliveryMovement,treasuryProfitForRange}=require("./Treasury");
 const {transactionFinancials}=require("./TransactionFinancials");
 let sequence=0;
 const helpers={id:()=>`m${++sequence}`,now:()=>`2026-01-10T00:00:${String(sequence).padStart(2,"0")}Z`,userId:"u1"};
@@ -8,10 +8,12 @@ const balance=(store,currency="USD")=>rebuildTreasury(store).find(row=>row.curre
 const incoming=(quantity,costRate=1,id=`in-${++sequence}`)=>({id,sourceKey:`ADJUSTMENT:${id}`,sourceType:"MANUAL_ADJUSTMENT",movementType:"ADJUSTMENT",direction:"IN",currency:"USD",quantity,costRate,occurredAt:"2026-01-01",createdAt:"2026-01-01"});
 const legacyNegative=(quantity,id=`legacy-${++sequence}`)=>({id,sourceKey:`LEGACY:${id}`,sourceType:"LEGACY",movementType:"OUT",direction:"OUT",currency:"USD",quantity,deliveryRate:1,allowNegative:true,occurredAt:"2025-12-31",createdAt:"2025-12-31"});
 const transfer=(id="t1",amount=700,costRate=140)=>({id,number:`TRX-${id}`,currency:"USD",amount,beneficiaryReceives:amount,costRate,transferDate:"2026-01-02"});
+const transferOptions=(transaction,overrides={})=>({...helpers,entryRate:transactionFinancials(transaction).costRate,...overrides});
 
 for(const [starting,expected] of [[250,950],[-250,450],[-1000,-300],[0,700]]){
   const store={treasuryMovements:starting>0?[incoming(starting)]:starting<0?[legacyNegative(-starting)]:[]};
-  const movement=upsertTransferMovement(store,transfer(`start-${starting}`),helpers);
+  const row=transfer(`start-${starting}`);
+  const movement=upsertTransferMovement(store,row,transferOptions(row));
   assert.equal(movement.direction,"IN");assert.equal(movement.realizedFx,0);
   assert.equal(balance(store),expected,`${starting} + 700 must equal ${expected}`);
 }
@@ -21,7 +23,7 @@ for(const [starting,expected] of [[250,950],[-250,450],[-1000,-300],[0,700]]){
 // FX is created only by a later, explicit partial cash delivery.
 const deliveryStore={treasuryMovements:[incoming(250,140)]};
 const deliveredTransfer=transfer("delivery");
-const registered=upsertTransferMovement(deliveryStore,deliveredTransfer,helpers);
+const registered=upsertTransferMovement(deliveryStore,deliveredTransfer,transferOptions(deliveredTransfer));
 assert.equal(balance(deliveryStore),950);
 assert.equal(registered.direction,"IN");assert.equal(registered.deliveryRate,null);assert.equal(registered.realizedFx,0);
 const originalProfit=transactionFinancials({...deliveredTransfer,finalRate:145}).totalProfit;
@@ -36,7 +38,7 @@ assert.throws(()=>upsertCashDeliveryMovement({treasuryMovements:[incoming(250)]}
 const costRateStore={treasuryMovements:[incoming(250,1.40,"cost-rate-opening")]};
 const costRateTransfer=transfer("cost-rate",700,1.40);
 const costBefore=rebuildTreasury(costRateStore)[0].totalCost;
-const costRateMovement=upsertTransferMovement(costRateStore,costRateTransfer,helpers);
+const costRateMovement=upsertTransferMovement(costRateStore,costRateTransfer,transferOptions(costRateTransfer));
 const costRateBalance=rebuildTreasury(costRateStore)[0];
 assert.equal(costRateMovement.costRate,transactionFinancials(costRateTransfer).costRate);
 assert.equal(costRateMovement.costRate,1.40);
@@ -48,15 +50,32 @@ for(const missingCostRate of [undefined,0]){
   const invalidStore={treasuryMovements:[incoming(250,1.40,`invalid-opening-${missingCostRate}`)]};
   const before=invalidStore.treasuryMovements.map(row=>({...row}));
   assert.throws(
-    ()=>upsertTransferMovement(invalidStore,{...transfer(`invalid-${missingCostRate}`,700),costRate:missingCostRate},helpers),
+    ()=>upsertTransferMovement(invalidStore,{...transfer(`invalid-${missingCostRate}`,700),costRate:missingCostRate},{...helpers,entryRate:missingCostRate}),
     error=>error.statusCode===400&&error.code==="TRANSACTION_COST_RATE_REQUIRED"&&/سعر تكلفة الحوالة/.test(error.message)
   );
   assert.deepEqual(invalidStore.treasuryMovements,before);
 }
 
+const diagnosticStore={
+  treasuryMovements:[
+    {id:"legacy-transfer-in",sourceKey:"TRANSFER:legacy-transaction",sourceType:"TRANSFER",direction:"IN",currency:"USD",quantity:700,costRate:0,createdAt:"2025-01-01"},
+    {id:"legacy-manual-in",sourceKey:"ADJUSTMENT:legacy-manual-in",sourceType:"MANUAL_ADJUSTMENT",direction:"IN",currency:"EUR",quantity:50,createdAt:"2025-01-02"},
+    incoming(25,1.40,"valid-in")
+  ],
+  transactions:[{id:"legacy-transaction",amount:700,currency:"USD",costRate:1.40,finalRate:1.43}]
+};
+const diagnosticReport=diagnoseInvalidTreasuryInMovements(diagnosticStore);
+assert.equal(diagnosticReport.total,2);
+assert.deepEqual(diagnosticReport.invalidTransfers.map(row=>({movementId:row.movementId,transactionId:row.transactionId,currentCostRate:row.currentCostRate,expectedCostRate:row.expectedCostRate})),[
+  {movementId:"legacy-transfer-in",transactionId:"legacy-transaction",currentCostRate:0,expectedCostRate:1.40}
+]);
+assert.deepEqual(diagnosticReport.invalidOther.map(row=>row.movementId),["legacy-manual-in"]);
+assert.equal(diagnosticStore.treasuryMovements[0].costRate,0);
+
 const editStore={treasuryMovements:[]};
-upsertTransferMovement(editStore,transfer("edit",700),helpers);
-upsertTransferMovement(editStore,transfer("edit",800),helpers);
+const firstEdit=transfer("edit",700),secondEdit=transfer("edit",800);
+upsertTransferMovement(editStore,firstEdit,transferOptions(firstEdit));
+upsertTransferMovement(editStore,secondEdit,transferOptions(secondEdit));
 assert.equal(editStore.treasuryMovements.filter(row=>row.sourceKey==="TRANSFER:edit").length,1);
 assert.equal(balance(editStore),800);
 cancelTransferMovement(editStore,"edit",helpers);
