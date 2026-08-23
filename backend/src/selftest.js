@@ -59,19 +59,25 @@ setTimeout(async()=>{
     assert(r.status===201&&r.body.id,"customer",r);
     const customerId=r.body.id;
 
-    r=await request("POST","/api/treasury/adjustments",{direction:"IN",currency:"USD",quantity:250,costRate:1.35,reason:"selftest opening fixture",occurredAt:"2026-07-12"},token);
+    r=await request("POST","/api/treasury/adjustments",{direction:"IN",currency:"USD",quantity:250,costRate:1.40,reason:"selftest opening fixture",occurredAt:"2026-07-12"},token);
     assert(r.status===201&&r.body.direction==="IN","treasury test fixture",r);
 
-    r=await request("POST","/api/transactions",{customerId,amount:700,costRate:1.35,finalRate:1.38,transferFee:15,transferDate:"2026-07-13",treasuryEffect:"OUT",deliveryRate:99},token);
+    r=await request("POST","/api/transactions",{customerId,amount:700,costRate:1.40,finalRate:1.43,transferFee:15,transferDate:"2026-07-13",treasuryEffect:"OUT",deliveryRate:99},token);
     assert(r.status===201&&r.body.id,"transaction",r);
     const transactionId=r.body.id;
     assert(r.body.treasuryEffect==="IN"&&r.body.deliveryRate===null,"new transfer is always treasury IN",r);
 
     r=await request("GET","/api/treasury",null,token);
-    assert(r.status===200&&r.body.balances.some(row=>row.currency==="USD"&&row.balance===950),"USD 250 + transfer 700 = treasury 950",r);
-    assert(r.body.movements.some(row=>row.transactionId===transactionId&&row.direction==="IN"&&row.deliveryRate===null&&row.realizedFx===0),"registration has no realized FX",r);
+    assert(r.status===200&&r.body.balances.some(row=>row.currency==="USD"&&row.balance===950&&row.totalCost===1330),"USD 250 + transfer 700 = treasury 950 and book cost increases by CAD 980",r);
+    assert(r.body.movements.some(row=>row.transactionId===transactionId&&row.direction==="IN"&&row.costRate===1.40&&row.deliveryRate===null&&row.realizedFx===0),"registration uses canonical cost rate and has no realized FX",r);
+    const movementCount=r.body.movements.length;
 
-    r=await request("POST",`/api/transactions/${transactionId}/cash-delivery`,{deliveryRate:1.40,quantity:300},token);
+    r=await request("POST","/api/transactions",{customerId,amount:700,costRate:0,finalRate:1.43,transferDate:"2026-07-13"},token);
+    assert(r.status===400&&/قيم الحوالة غير صحيحة/.test(r.body.message||""),"zero transaction cost rate is a validation error",r);
+    r=await request("GET","/api/treasury",null,token);
+    assert(r.status===200&&r.body.movements.length===movementCount,"invalid cost rate creates no treasury movement",r);
+
+    r=await request("POST",`/api/transactions/${transactionId}/cash-delivery`,{deliveryRate:1.45,quantity:300},token);
     assert(r.status===201&&r.body.direction==="OUT","partial cash delivery creates treasury OUT",r);
 
     r=await request("GET","/api/treasury",null,token);
@@ -132,4 +138,4 @@ setTimeout(async()=>{
     fs.rmSync(dataDir,{recursive:true,force:true});
     process.exit(1);
   }
-},1200);
+},3000);

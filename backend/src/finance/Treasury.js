@@ -4,6 +4,7 @@ const {
   money, rate, roundedDivide, MONEY_SCALE, RATE_SCALE,
   moneyToNumber, rateToNumber
 } = require("./Money");
+const { transactionFinancials } = require("./TransactionFinancials");
 
 function safeMoney(value, label) {
   try { return money(value); } catch { throw new TypeError(`${label} غير صالح`); }
@@ -33,6 +34,9 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
     if (quantity <= 0n) throw new Error("كمية حركة الخزنة يجب أن تكون أكبر من صفر");
     const state = balances.get(currency) || { balance: 0n, totalCost: 0n, realizedProfit: 0n, realizedLoss: 0n };
     const averageBefore = state.balance > 0n ? roundedDivide(state.totalCost * RATE_SCALE, state.balance) : 0n;
+    // A transfer creates cash in the treasury. Only an explicit cash-delivery
+    // movement may take that cash out. This also repairs legacy transfer rows
+    // that were incorrectly persisted as OUT without creating duplicates.
     const direction = row.sourceType === "TRANSFER" ? "IN" : String(row.direction || row.movementType || "").toUpperCase();
     let realized = 0n;
     let costRate = 0n;
@@ -48,7 +52,7 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
       if (deliveryRate <= 0n) throw new Error("سعر الصرف وقت التسليم يجب أن يكون أكبر من صفر");
       const preservesHistoricalNegative = row.allowNegative === true || Number(row.balanceAfter) < 0;
       if (!allowNegative && !preservesHistoricalNegative && quantity > state.balance) {
-        const error = new Error(`لا يمكن إخراج ${moneyToNumber(quantity).toFixed(4)} ${currency}: الرصيد المتاح ${moneyToNumber(state.balance).toFixed(4)}`);
+        const error = new Error(`لا يمكن تنفيذ التسليم الكاش: الرصيد المتاح ${moneyToNumber(state.balance).toFixed(4)} ${currency} والمطلوب ${moneyToNumber(quantity).toFixed(4)} ${currency}.`);
         error.code = "TREASURY_INSUFFICIENT_BALANCE";
         throw error;
       }
@@ -92,17 +96,23 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
 
 function upsertTransferMovement(store, transaction, { id, now, userId, occurredAt } = {}) {
   if (!Array.isArray(store.treasuryMovements)) store.treasuryMovements = [];
+  const canonicalCostRate = transactionFinancials(transaction).costRate;
+  if (!Number.isFinite(canonicalCostRate) || canonicalCostRate <= 0) {
+    const error = new Error("سعر تكلفة الحوالة يجب أن يكون أكبر من صفر");
+    error.code = "TRANSACTION_COST_RATE_REQUIRED";
+    error.statusCode = 400;
+    throw error;
+  }
   const sourceKey = `TRANSFER:${transaction.id}`;
   const matches = store.treasuryMovements.filter(row => row && row.sourceKey === sourceKey);
   if (matches.length > 1) throw new Error("يوجد أكثر من حركة خزنة للحوالة نفسها");
   const existing = matches[0];
   const timestamp = occurredAt || transaction.transferDate || transaction.createdAt || now();
   const next = existing || { id: id(), sourceKey, sourceType: "TRANSFER", transactionId: transaction.id, createdAt: now(), createdBy: userId };
-  const transactionCostRate = rateToNumber(safeRate(transaction.costRate, "سعر تكلفة الحوالة"));
   Object.assign(next, {
     movementType: "IN", direction: "IN", currency: String(transaction.currency || "USD").toUpperCase(),
     quantity: moneyToNumber(safeMoney(transaction.beneficiaryReceives ?? transaction.amount, "مبلغ الحوالة")),
-    costRate: transactionCostRate,
+    costRate: canonicalCostRate,
     deliveryRate: null,
     occurredAt: timestamp, sourceLabel: transaction.number || transaction.id, isCancelled: false,
     cancelledAt: null, cancelledBy: null, cancellationReason: null,
@@ -119,24 +129,23 @@ function upsertCashDeliveryMovement(store, transaction, { id, now, userId, quant
   const matches = store.treasuryMovements.filter(row => row && row.sourceKey === sourceKey);
   if (matches.length > 1) throw new Error("يوجد أكثر من حركة تسليم كاش للحوالة نفسها");
   const existing = matches[0];
-  const next = existing || { id: id(), sourceKey, sourceType: "CASH_DELIVERY", transactionId: transaction.id, createdAt: now(), createdBy: userId };
-  Object.assign(next, {
-    movementType: "OUT", direction: "OUT", currency: String(transaction.currency || "USD").toUpperCase(),
-    quantity: moneyToNumber(safeMoney(quantity ?? transaction.beneficiaryReceives ?? transaction.amount, "كمية التسليم الكاش")),
-    costRate: null, deliveryRate: rateToNumber(safeRate(deliveryRate, "سعر الصرف وقت التسليم")),
-    occurredAt: occurredAt || now(), sourceLabel: transaction.number || transaction.id, isCancelled: false,
-    cancelledAt: null, cancelledBy: null, cancellationReason: null,
-    updatedAt: existing ? now() : undefined, updatedBy: existing ? userId : undefined
+  const next = existing || { id:id(),sourceKey,sourceType:"CASH_DELIVERY",transactionId:transaction.id,createdAt:now(),createdBy:userId };
+  Object.assign(next,{
+    movementType:"OUT",direction:"OUT",currency:String(transaction.currency||"USD").toUpperCase(),
+    quantity:moneyToNumber(safeMoney(quantity ?? transaction.beneficiaryReceives ?? transaction.amount,"كمية التسليم الكاش")),
+    costRate:null,deliveryRate:rateToNumber(safeRate(deliveryRate,"سعر الصرف وقت التسليم")),
+    occurredAt:occurredAt||now(),sourceLabel:transaction.number||transaction.id,isCancelled:false,
+    cancelledAt:null,cancelledBy:null,cancellationReason:null,updatedAt:existing?now():undefined,updatedBy:existing?userId:undefined
   });
-  if (!existing) store.treasuryMovements.push(next);
+  if(!existing)store.treasuryMovements.push(next);
   rebuildTreasury(store);
   return next;
 }
 
-function cancelCashDeliveryMovement(store, transactionId, { now, userId, reason = "إلغاء تسليم كاش مرتبط بحوالة" } = {}) {
-  const movement = (store.treasuryMovements || []).find(row => row && row.sourceKey === `CASH_DELIVERY:${transactionId}` && !row.isCancelled);
-  if (!movement) return null;
-  Object.assign(movement, { isCancelled: true, cancelledAt: now(), cancelledBy: userId, cancellationReason: reason });
+function cancelCashDeliveryMovement(store, transactionId, { now, userId, reason = "إلغاء حوالة مرتبطة بتسليم كاش" } = {}) {
+  const movement=(store.treasuryMovements||[]).find(row=>row&&row.sourceKey===`CASH_DELIVERY:${transactionId}`&&!row.isCancelled);
+  if(!movement)return null;
+  Object.assign(movement,{isCancelled:true,cancelledAt:now(),cancelledBy:userId,cancellationReason:reason});
   rebuildTreasury(store);
   return movement;
 }
@@ -157,4 +166,4 @@ function treasuryProfitForRange(store, { from = "", to = "" } = {}) {
   return moneyToNumber(total);
 }
 
-module.exports = { rebuildTreasury, upsertTransferMovement, upsertCashDeliveryMovement, cancelTransferMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements };
+module.exports = { rebuildTreasury, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements };

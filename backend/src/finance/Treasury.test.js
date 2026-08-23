@@ -32,6 +32,28 @@ assert.equal(transactionFinancials({...deliveredTransfer,finalRate:145,deliveryR
 assert.equal(treasuryProfitForRange(deliveryStore,{from:"2026-01-01",to:"2026-01-31"}),600);
 assert.throws(()=>upsertCashDeliveryMovement({treasuryMovements:[incoming(250)]},transfer("too-large"),{...helpers,quantity:700,deliveryRate:2}),error=>error.code==="TREASURY_INSUFFICIENT_BALANCE"&&/التسليم الكاش/.test(error.message));
 
+// v25.14.107 regression: Treasury IN uses the canonical transaction cost rate.
+const costRateStore={treasuryMovements:[incoming(250,1.40,"cost-rate-opening")]};
+const costRateTransfer=transfer("cost-rate",700,1.40);
+const costBefore=rebuildTreasury(costRateStore)[0].totalCost;
+const costRateMovement=upsertTransferMovement(costRateStore,costRateTransfer,helpers);
+const costRateBalance=rebuildTreasury(costRateStore)[0];
+assert.equal(costRateMovement.costRate,transactionFinancials(costRateTransfer).costRate);
+assert.equal(costRateMovement.costRate,1.40);
+assert.equal(costRateMovement.realizedFx,0);
+assert.equal(costRateBalance.balance,950);
+assert.equal(costRateBalance.totalCost-costBefore,980);
+
+for(const missingCostRate of [undefined,0]){
+  const invalidStore={treasuryMovements:[incoming(250,1.40,`invalid-opening-${missingCostRate}`)]};
+  const before=invalidStore.treasuryMovements.map(row=>({...row}));
+  assert.throws(
+    ()=>upsertTransferMovement(invalidStore,{...transfer(`invalid-${missingCostRate}`,700),costRate:missingCostRate},helpers),
+    error=>error.statusCode===400&&error.code==="TRANSACTION_COST_RATE_REQUIRED"&&/سعر تكلفة الحوالة/.test(error.message)
+  );
+  assert.deepEqual(invalidStore.treasuryMovements,before);
+}
+
 const editStore={treasuryMovements:[]};
 upsertTransferMovement(editStore,transfer("edit",700),helpers);
 upsertTransferMovement(editStore,transfer("edit",800),helpers);
