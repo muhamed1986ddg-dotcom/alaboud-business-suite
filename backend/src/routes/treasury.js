@@ -1,9 +1,45 @@
 "use strict";
 const APPROVED_TREASURY_REPAIR_MOVEMENT_ID="5a9ff1cb-859f-4c0c-a669-f78ac2fc0c5f";
 
-function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, currentInventoryPeriod, treasuryRealizedForInventoryPeriod, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement }) {
+function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, currentInventoryPeriod, treasuryRealizedForInventoryPeriod, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, planCadTreasuryBackfill, applyCadTreasuryBackfill, planLegacyUsdToCadConversion, applyLegacyUsdToCadConversion, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement }) {
   app.get("/api/treasury/diagnostics/invalid-in", auth, (_req,res)=>{
     res.json(diagnoseInvalidTreasuryInMovements(readStore()));
+  });
+
+  app.get("/api/admin/treasury/backfill/cad-from-transfers",auth,requirePermission("admin.only"),(_req,res)=>{
+    res.json(planCadTreasuryBackfill(readStore()));
+  });
+
+  app.post("/api/admin/treasury/backfill/cad-from-transfers",auth,requirePermission("admin.only"),requireIdempotencyKey,async(req,res)=>{
+    if(req.body?.confirm!==true)return res.status(400).json({code:"EXPLICIT_CONFIRMATION_REQUIRED",message:"EXPLICIT_CONFIRMATION_REQUIRED"});
+    try{
+      const result=await mutateDurable(store=>{
+        const applied=applyCadTreasuryBackfill(store,{fingerprint:String(req.body?.fingerprint||""),id,now,userId:req.user.id});
+        if(applied.status==="APPLIED")audit(store,req.user.id,"BACKFILL","TREASURY_MOVEMENT","CAD_FROM_TRANSFERS",{fingerprint:applied.fingerprint,applied:applied.applied,cadToAdd:applied.cadToAdd,usdBasisToAdd:applied.usdBasisToAdd});
+        return applied;
+      });
+      res.status(200).json(result);
+    }catch(error){
+      res.status(409).json({code:error.code||"TREASURY_CAD_BACKFILL_FAILED",message:error.message||"TREASURY_CAD_BACKFILL_FAILED"});
+    }
+  });
+
+  app.get("/api/admin/treasury/legacy-usd-to-cad",auth,requirePermission("admin.only"),(_req,res)=>{
+    res.json(planLegacyUsdToCadConversion(readStore()));
+  });
+
+  app.post("/api/admin/treasury/legacy-usd-to-cad",auth,requirePermission("admin.only"),requireIdempotencyKey,async(req,res)=>{
+    if(req.body?.confirm!==true)return res.status(400).json({code:"EXPLICIT_CONFIRMATION_REQUIRED",message:"EXPLICIT_CONFIRMATION_REQUIRED"});
+    try{
+      const result=await mutateDurable(store=>{
+        const applied=applyLegacyUsdToCadConversion(store,{fingerprint:String(req.body?.fingerprint||""),expectedCount:req.body?.expectedCount,summary:req.body?.summary,now,userId:req.user.id});
+        if(applied.status==="APPLIED")audit(store,req.user.id,"CONVERT","TREASURY_MOVEMENT","LEGACY_USD_TO_CAD",{fingerprint:applied.fingerprint,applied:applied.applied,legacyUsdTotalBefore:applied.legacyUsdTotalBefore,convertedCadTotal:applied.convertedCadTotal,convertedUsdBasisTotal:applied.convertedUsdBasisTotal});
+        return applied;
+      });
+      res.status(200).json(result);
+    }catch(error){
+      res.status(409).json({code:error.code||"TREASURY_LEGACY_CONVERSION_FAILED",message:error.message||"TREASURY_LEGACY_CONVERSION_FAILED",plan:error.plan||undefined});
+    }
   });
 
   app.get("/api/admin/treasury/repairs/:movementId",auth,requirePermission("admin.only"),(req,res)=>{

@@ -1,6 +1,6 @@
 "use strict";
 const assert=require("assert");
-const {rebuildTreasury,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,upsertTransferMovement,cancelTransferMovement,upsertCashDeliveryMovement,createGeneralCashDeliveryMovement,treasuryProfitForRange,treasuryRealizedForInventoryPeriod,treasuryInventorySnapshot}=require("./Treasury");
+const {rebuildTreasury,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,planCadTreasuryBackfill,applyCadTreasuryBackfill,planLegacyUsdToCadConversion,applyLegacyUsdToCadConversion,upsertTransferMovement,cancelTransferMovement,upsertCashDeliveryMovement,createGeneralCashDeliveryMovement,treasuryProfitForRange,treasuryRealizedForInventoryPeriod,treasuryInventorySnapshot}=require("./Treasury");
 const {transactionFinancials}=require("./TransactionFinancials");
 let sequence=0;
 const helpers={id:()=>`m${++sequence}`,now:()=>`2026-01-10T00:00:${String(sequence).padStart(2,"0")}Z`,userId:"u1"};
@@ -223,4 +223,77 @@ createGeneralCashDeliveryMovement(cadPartialStore,{currency:"CAD",quantity:9600,
 const cadPartialBalance=rebuildTreasury(cadPartialStore).find(row=>row.currency==="CAD");
 assert.equal(cadPartialBalance.balance,2400);
 assert(Math.abs(cadPartialBalance.averageRateCadPerUsd-1.4)<1e-6);
+
+const backfillTransactions=[
+  {id:"backfill-1",amount:1000,costRate:1.36,finalRate:1.36,status:"COMPLETED",transferDate:"2026-01-01",totalProfit:111},
+  {id:"backfill-2",amount:1000,costRate:1.38,finalRate:1.38,status:"COMPLETED",transferDate:"2026-01-02",totalProfit:222},
+  {id:"backfill-3",amount:500,costRate:1.40,finalRate:1.40,status:"PENDING",transferDate:"2026-01-03",totalProfit:333},
+  {id:"backfill-present",amount:700,costRate:1.37,finalRate:1.39,status:"COMPLETED",transferDate:"2026-01-04"},
+  {id:"backfill-invalid",amount:100,costRate:0,finalRate:1.40,status:"COMPLETED",transferDate:"2026-01-05"},
+  {id:"backfill-cancelled",amount:100,costRate:1.35,finalRate:1.40,status:"CANCELLED",transferDate:"2026-01-06"}
+];
+const legacyLinked={id:"legacy-linked-usd",sourceKey:"TRANSFER:backfill-present",sourceType:"TRANSFER",transactionId:"backfill-present",direction:"IN",currency:"USD",quantity:700,costRate:1.37,occurredAt:"2026-01-04",createdAt:"2026-01-04"};
+const backfillStore={transactions:backfillTransactions.map(row=>({...row})),treasuryMovements:[legacyLinked]};
+const transactionsBeforeBackfill=JSON.stringify(backfillStore.transactions);
+const storeBeforeDryRun=JSON.stringify(backfillStore);
+const backfillPlan=planCadTreasuryBackfill(backfillStore);
+assert.equal(JSON.stringify(backfillStore),storeBeforeDryRun);
+assert.equal(backfillPlan.examined,5);assert.equal(backfillPlan.eligible,3);assert.equal(backfillPlan.alreadyPresent,1);assert.equal(backfillPlan.invalid,1);
+assert.equal(backfillPlan.legacyUsdConversionRequired,true);assert.equal(backfillPlan.legacyUsdTransferCount,1);assert.equal(backfillPlan.legacyUsdQuantity,700);
+assert.equal(backfillPlan.cadToAdd,3440);assert.equal(backfillPlan.usdBasisToAdd,2500);assert.equal(backfillPlan.expectedAverageRate,1.376);
+const appliedBackfill=applyCadTreasuryBackfill(backfillStore,{fingerprint:backfillPlan.fingerprint,...helpers});
+assert.equal(appliedBackfill.status,"APPLIED");assert.equal(appliedBackfill.applied,3);
+assert.equal(JSON.stringify(backfillStore.transactions),transactionsBeforeBackfill);
+const backfillCadBalance=rebuildTreasury(backfillStore).find(row=>row.currency==="CAD");
+assert.equal(backfillCadBalance.balance,3440);assert.equal(backfillCadBalance.totalUsdBasis,2500);assert.equal(backfillCadBalance.averageRateCadPerUsd,1.376);
+const backfillRows=backfillStore.treasuryMovements.filter(row=>row.sourceType==="TRANSFER_BACKFILL");
+assert.equal(backfillRows.length,3);assert(backfillRows.every(row=>row.realizedFx===0&&row.realizedProfit===0&&row.realizedLoss===0));
+assert.equal(backfillStore.treasuryMovements.filter(row=>row.sourceKey==="TRANSFER:backfill-present").length,1);
+const secondBackfill=applyCadTreasuryBackfill(backfillStore,{fingerprint:backfillPlan.fingerprint,...helpers});
+assert.equal(secondBackfill.status,"ALREADY_APPLIED");assert.equal(secondBackfill.applied,0);assert.equal(backfillStore.treasuryMovements.filter(row=>row.sourceType==="TRANSFER_BACKFILL").length,3);
+
+const conversionTransaction={id:"legacy-convert",amount:700,costRate:1.4,finalRate:1.43,status:"COMPLETED",transferDate:"2026-02-10",totalProfit:21};
+const legacyMovement={id:"legacy-convert-movement",sourceKey:"TRANSFER:legacy-convert",sourceType:"TRANSFER",transactionId:"legacy-convert",direction:"IN",movementType:"IN",currency:"USD",quantity:700,costRate:1.4,occurredAt:"2026-02-10",createdAt:"2026-02-10",createdBy:"old-user"};
+const manualUsd=incoming(50,1.4,"manual-usd-preserved");
+const conversionStore={transactions:[conversionTransaction],treasuryMovements:[manualUsd,legacyMovement]};
+const conversionDryBefore=JSON.stringify(conversionStore);
+const conversionPlan=planLegacyUsdToCadConversion(conversionStore);
+assert.equal(JSON.stringify(conversionStore),conversionDryBefore);
+assert.equal(conversionPlan.repairable,true);assert.equal(conversionPlan.repairableCount,1);assert.equal(conversionPlan.legacyUsdTotalBefore,700);
+assert.equal(conversionPlan.convertedCadTotal,1001);assert.equal(conversionPlan.convertedUsdBasisTotal,715);
+assert.equal(conversionPlan.expectedUsdBalanceAfterConversion,50);assert.equal(conversionPlan.expectedUsdLegacyBalanceAfterConversion,0);
+const transactionBeforeConversion=JSON.stringify(conversionTransaction);
+const conversionApplied=applyLegacyUsdToCadConversion(conversionStore,{fingerprint:conversionPlan.fingerprint,expectedCount:1,summary:conversionPlan.summary,...helpers});
+assert.equal(conversionApplied.status,"APPLIED");assert.equal(conversionApplied.applied,1);
+assert.equal(JSON.stringify(conversionTransaction),transactionBeforeConversion);
+assert.equal(legacyMovement.id,"legacy-convert-movement");assert.equal(legacyMovement.sourceKey,"TRANSFER:legacy-convert");assert.equal(legacyMovement.occurredAt,"2026-02-10");
+assert.equal(legacyMovement.currency,"CAD");assert.equal(legacyMovement.quantity,1001);assert.equal(legacyMovement.costRate,1.4);assert.equal(legacyMovement.usdBasis,715);
+assert.equal(legacyMovement.accountingModel,"CAD_CASH_USD_BASIS");assert.equal(legacyMovement.legacyCurrency,"USD");assert.equal(legacyMovement.legacyQuantity,700);
+assert.equal(legacyMovement.realizedFx,0);assert.equal(legacyMovement.realizedProfit,0);assert.equal(legacyMovement.realizedLoss,0);
+assert.equal(manualUsd.currency,"USD");assert.equal(manualUsd.quantity,50);
+assert.equal(planCadTreasuryBackfill(conversionStore).legacyUsdTransferCount,0);
+assert.equal(planCadTreasuryBackfill(conversionStore).alreadyPresent,1);
+assert.equal(applyLegacyUsdToCadConversion(conversionStore,{fingerprint:conversionPlan.fingerprint,expectedCount:1,summary:conversionPlan.summary,...helpers}).status,"ALREADY_APPLIED");
+
+const mismatchStore={transactions:[{...conversionTransaction,id:"mismatch"}],treasuryMovements:[{...legacyMovement,id:"mismatch-movement",transactionId:"mismatch",sourceKey:"TRANSFER:mismatch",currency:"USD",quantity:700,legacyConversion:false,conversionVersion:null}]};
+const mismatchPlan=planLegacyUsdToCadConversion(mismatchStore);
+assert.throws(()=>applyLegacyUsdToCadConversion(mismatchStore,{fingerprint:"wrong",expectedCount:1,summary:mismatchPlan.summary,...helpers}),error=>error.code==="TREASURY_LEGACY_CONVERSION_FINGERPRINT_MISMATCH");
+assert.equal(mismatchStore.treasuryMovements[0].currency,"USD");
+
+const duplicateStore={transactions:[{...conversionTransaction,id:"duplicate"}],treasuryMovements:[
+  {...legacyMovement,id:"duplicate-usd",transactionId:"duplicate",sourceKey:"TRANSFER:duplicate",currency:"USD",quantity:700,legacyConversion:false,conversionVersion:null},
+  {id:"duplicate-cad",sourceKey:"TRANSFER_BACKFILL:duplicate",sourceType:"TRANSFER_BACKFILL",transactionId:"duplicate",direction:"IN",currency:"CAD",quantity:1001,costRate:1.4,usdBasis:715,occurredAt:"2026-02-11",createdAt:"2026-02-11"}
+]};
+const duplicatePlan=planLegacyUsdToCadConversion(duplicateStore);
+assert.equal(duplicatePlan.repairable,false);assert.equal(duplicatePlan.duplicateCadRepresentations,1);assert.equal(duplicatePlan.nonRepairable[0].reason,"DUPLICATE_CAD_REPRESENTATION");
+
+const rollbackStore={transactions:[{...conversionTransaction,id:"rollback"}],treasuryMovements:[
+  {...legacyMovement,id:"rollback-transfer",transactionId:"rollback",sourceKey:"TRANSFER:rollback",currency:"USD",quantity:700,legacyConversion:false,conversionVersion:null},
+  {id:"blocking-out",sourceKey:"CASH_DELIVERY:blocking",sourceType:"CASH_DELIVERY",direction:"OUT",currency:"EUR",quantity:10,deliveryRate:1.5,occurredAt:"2026-01-01",createdAt:"2026-01-01"}
+]};
+const rollbackBefore=JSON.stringify(rollbackStore);
+const rollbackPlan=planLegacyUsdToCadConversion(rollbackStore);
+assert.equal(rollbackPlan.repairable,false);assert(rollbackPlan.rebuildError);
+assert.throws(()=>applyLegacyUsdToCadConversion(rollbackStore,{fingerprint:rollbackPlan.fingerprint,expectedCount:1,summary:rollbackPlan.summary,...helpers}),error=>error.code==="TREASURY_LEGACY_CONVERSION_NOT_REPAIRABLE");
+assert.equal(JSON.stringify(rollbackStore),rollbackBefore);
 console.log("Treasury tests passed: A-P");

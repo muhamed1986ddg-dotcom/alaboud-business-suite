@@ -1,5 +1,7 @@
 "use strict";
 
+const crypto = require("crypto");
+
 const {
   money, rate, roundedDivide, MONEY_SCALE, RATE_SCALE,
   moneyToNumber, rateToNumber
@@ -51,7 +53,7 @@ function activeMovements(store) {
 }
 
 function treasuryMovementDiagnostic(row, direction) {
-  return {
+  const result = {
     movementId: String(row?.id || ""),
     sourceType: String(row?.sourceType || ""),
     sourceKey: String(row?.sourceKey || ""),
@@ -61,6 +63,7 @@ function treasuryMovementDiagnostic(row, direction) {
     costRate: row?.costRate == null ? null : Number(row.costRate),
     createdAt: row?.createdAt || null
   };
+  return result;
 }
 
 function diagnoseInvalidTreasuryInMovements(store) {
@@ -123,6 +126,194 @@ function applyTreasuryEntryRateRepair(store, movementId, { confirmedExpectedCost
   // other historical movements remain byte-for-byte untouched.
   rebuildTreasury({treasuryMovements:Array.from(store.treasuryMovements || []).map(row => ({...row}))});
   return {...plan,status:"APPLIED",applied:true};
+}
+
+function cadBackfillFingerprint(proposals) {
+  const canonical = proposals.map(row => [row.transactionId,row.quantity,row.costRate,row.usdBasis]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
+  return crypto.createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+function planCadTreasuryBackfill(store) {
+  const transactions = Array.isArray(store?.transactions) ? store.transactions : [];
+  const movements = Array.from(store?.treasuryMovements || []);
+  const proposals = [];
+  const invalid = [];
+  const alreadyPresentRows = [];
+  const legacyUsdTransfers = [];
+  let examined = 0;
+  for (const transaction of transactions) {
+    if (!transaction || transaction.isDeleted || transaction.status === "CANCELLED") continue;
+    examined += 1;
+    const transactionId = String(transaction.id || "");
+    const transferKey = `TRANSFER:${transactionId}`;
+    const backfillKey = `TRANSFER_BACKFILL:${transactionId}`;
+    const linked = movements.find(row=>row&&(row.sourceKey===transferKey||row.sourceKey===backfillKey));
+    if (linked) {
+      alreadyPresentRows.push({transactionId,movementId:String(linked.id||""),sourceKey:String(linked.sourceKey),currency:String(linked.currency||"").toUpperCase()});
+      if (linked.sourceKey===transferKey&&String(linked.currency||"").toUpperCase()==="USD") {
+        const financials=transactionFinancials(transaction);
+        legacyUsdTransfers.push({movementId:String(linked.id||""),transactionId,legacyUsdQuantity:Number(linked.quantity||0),expectedCad:Number(financials.convertedCad||0),expectedUsdBasis:Number(financials.costRate)>0?Number(financials.convertedCad||0)/Number(financials.costRate):null});
+      }
+      continue;
+    }
+    const financials = transactionFinancials(transaction);
+    const convertedCad = Number(financials.convertedCad);
+    const costRate = Number(financials.costRate);
+    if (!transactionId || !Number.isFinite(convertedCad) || convertedCad <= 0 || !Number.isFinite(costRate) || costRate <= 0) {
+      invalid.push({transactionId,convertedCad:Number.isFinite(convertedCad)?convertedCad:null,costRate:Number.isFinite(costRate)?costRate:null,reason:"INVALID_TRANSACTION_FINANCIALS"});
+      continue;
+    }
+    const usdBasis = convertedCad / costRate;
+    if (!Number.isFinite(usdBasis) || usdBasis <= 0) {
+      invalid.push({transactionId,convertedCad,costRate,reason:"INVALID_USD_BASIS"});
+      continue;
+    }
+    proposals.push({transactionId,sourceKey:backfillKey,quantity:convertedCad,costRate,usdBasis,originalTransactionDate:transaction.transferDate||transaction.createdAt||null});
+  }
+  const cadToAdd = proposals.reduce((sum,row)=>sum+row.quantity,0);
+  const usdBasisToAdd = proposals.reduce((sum,row)=>sum+row.usdBasis,0);
+  let currentCadBalance=0,currentCadUsdBasis=0,rebuildError=null;
+  try {
+    const balances=rebuildTreasury({treasuryMovements:movements.map(row=>({...row}))});
+    const cad=balances.find(row=>row.currency==="CAD");
+    currentCadBalance=Number(cad?.balance||0);currentCadUsdBasis=Number(cad?.totalUsdBasis||0);
+  } catch(error) { rebuildError=error.code||error.message||"TREASURY_REBUILD_FAILED"; }
+  const expectedBalance=currentCadBalance+cadToAdd;
+  const expectedBasis=currentCadUsdBasis+usdBasisToAdd;
+  const result = {
+    examined,eligible:proposals.length,alreadyPresent:alreadyPresentRows.length,invalid:invalid.length,
+    cadToAdd:+cadToAdd.toFixed(3),usdBasisToAdd:+usdBasisToAdd.toFixed(3),
+    expectedCadBalance:+expectedBalance.toFixed(3),expectedTotalUsdBasis:+expectedBasis.toFixed(3),
+    expectedAverageRate:expectedBasis>0?+(expectedBalance/expectedBasis).toFixed(8):0,
+    fingerprint:cadBackfillFingerprint(proposals),repairable:!rebuildError,
+    rebuildError,legacyUsdConversionRequired:legacyUsdTransfers.length>0,
+    legacyUsdTransferCount:legacyUsdTransfers.length,
+    legacyUsdQuantity:legacyUsdTransfers.reduce((sum,row)=>sum+row.legacyUsdQuantity,0),
+    proposals:proposals.slice(0,100),invalidTransactions:invalid.slice(0,100),
+    alreadyPresentRows:alreadyPresentRows.slice(0,100),legacyUsdTransfers:legacyUsdTransfers.slice(0,100)
+  };
+  Object.defineProperty(result,"_proposals",{value:proposals,enumerable:false});
+  return result;
+}
+
+function applyCadTreasuryBackfill(store,{fingerprint,id,now,userId}={}) {
+  const plan=planCadTreasuryBackfill(store);
+  if(plan.eligible===0 && (store.treasuryMovements||[]).some(row=>String(row?.sourceKey||"").startsWith("TRANSFER_BACKFILL:"))) return {...plan,status:"ALREADY_APPLIED",applied:0};
+  if(!plan.repairable){const error=new Error("TREASURY_BACKFILL_REBUILD_BLOCKED");error.code="TREASURY_BACKFILL_REBUILD_BLOCKED";throw error;}
+  if(!fingerprint||fingerprint!==plan.fingerprint){const error=new Error("TREASURY_BACKFILL_FINGERPRINT_MISMATCH");error.code="TREASURY_BACKFILL_FINGERPRINT_MISMATCH";throw error;}
+  const backfilledAt=now();
+  const additions=plan._proposals.map(row=>({
+    id:id(),sourceKey:row.sourceKey,sourceType:"TRANSFER_BACKFILL",sourceLabel:"رصيد افتتاحي من حوالة تاريخية",transactionId:row.transactionId,
+    movementType:"IN",direction:"IN",currency:"CAD",quantity:row.quantity,costRate:row.costRate,usdBasis:row.usdBasis,
+    accountingModel:CAD_CASH_USD_BASIS,originalTransactionDate:row.originalTransactionDate,backfilledAt,occurredAt:backfilledAt,
+    deliveryRate:null,realizedFx:0,realizedProfit:0,realizedLoss:0,isCancelled:false,createdAt:backfilledAt,createdBy:userId
+  }));
+  rebuildTreasury({treasuryMovements:[...Array.from(store.treasuryMovements||[]).map(row=>({...row})),...additions.map(row=>({...row}))]});
+  if(!Array.isArray(store.treasuryMovements))store.treasuryMovements=[];
+  store.treasuryMovements.push(...additions);
+  rebuildTreasury(store);
+  return {...plan,status:"APPLIED",applied:additions.length,movementIds:additions.map(row=>row.id)};
+}
+
+function legacyUsdConversionFingerprint(rows) {
+  const canonical=rows.map(row=>[row.movementId,row.transactionId,row.currentQuantityUsd,row.expectedCad,row.expectedUsdBasis,row.expectedCostRate]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
+  return crypto.createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+function legacyUsdConversionSummary(plan) {
+  return {
+    expectedCount:plan.repairableCount,
+    legacyUsdTotalBefore:plan.legacyUsdTotalBefore,
+    convertedCadTotal:plan.convertedCadTotal,
+    convertedUsdBasisTotal:plan.convertedUsdBasisTotal
+  };
+}
+
+function planLegacyUsdToCadConversion(store) {
+  const movements=Array.from(store?.treasuryMovements||[]);
+  const transactions=Array.isArray(store?.transactions)?store.transactions:[];
+  const transactionById=new Map(transactions.map(row=>[String(row?.id||""),row]));
+  const candidates=[];
+  const nonRepairable=[];
+  for(const movement of movements){
+    if(!movement||movement.isCancelled||movement.sourceType!=="TRANSFER"||String(movement.currency||"").toUpperCase()!=="USD")continue;
+    const transactionId=String(movement.transactionId||String(movement.sourceKey||"").slice("TRANSFER:".length));
+    if(!transactionId||movement.sourceKey!==`TRANSFER:${transactionId}`)continue;
+    const base={movementId:String(movement.id||""),transactionId,currentCurrency:"USD",currentQuantityUsd:Number(movement.quantity||0),originalOccurredAt:movement.occurredAt||null};
+    const transaction=transactionById.get(transactionId);
+    if(!transaction||transaction.isDeleted||transaction.status==="CANCELLED"){
+      nonRepairable.push({...base,repairable:false,reason:"TRANSACTION_NOT_FOUND_OR_INACTIVE"});continue;
+    }
+    const duplicate=movements.find(row=>row&&row!==movement&&!row.isCancelled&&String(row.transactionId||"")===transactionId&&String(row.currency||"").toUpperCase()==="CAD");
+    if(duplicate){
+      nonRepairable.push({...base,repairable:false,reason:"DUPLICATE_CAD_REPRESENTATION",duplicateMovementId:String(duplicate.id||""),duplicateSourceKey:String(duplicate.sourceKey||"")});continue;
+    }
+    const financials=transactionFinancials(transaction);
+    const expectedCad=Number(financials.convertedCad),expectedCostRate=Number(financials.costRate);
+    const expectedUsdBasis=expectedCostRate>0?expectedCad/expectedCostRate:0;
+    if(!Number.isFinite(expectedCad)||expectedCad<=0||!Number.isFinite(expectedCostRate)||expectedCostRate<=0||!Number.isFinite(expectedUsdBasis)||expectedUsdBasis<=0){
+      nonRepairable.push({...base,expectedCad:Number.isFinite(expectedCad)?expectedCad:null,expectedCostRate:Number.isFinite(expectedCostRate)?expectedCostRate:null,expectedUsdBasis:Number.isFinite(expectedUsdBasis)?expectedUsdBasis:null,repairable:false,reason:"INVALID_TRANSACTION_FINANCIALS"});continue;
+    }
+    candidates.push({...base,expectedCad,expectedUsdBasis,expectedCostRate,repairable:true});
+  }
+  const legacyUsdTotalBefore=candidates.reduce((sum,row)=>sum+row.currentQuantityUsd,0);
+  const convertedCadTotal=candidates.reduce((sum,row)=>sum+row.expectedCad,0);
+  const convertedUsdBasisTotal=candidates.reduce((sum,row)=>sum+row.expectedUsdBasis,0);
+  let expectedCadBalanceAfterConversion=null,expectedUsdLegacyBalanceAfterConversion=0,expectedUsdBalanceAfterConversion=null,rebuildError=null;
+  if(nonRepairable.length===0){
+    const verification=movements.map(row=>({...row}));
+    for(const candidate of candidates){
+      const row=verification.find(item=>String(item?.id||"")===candidate.movementId);
+      Object.assign(row,{currency:"CAD",quantity:candidate.expectedCad,costRate:candidate.expectedCostRate,usdBasis:candidate.expectedUsdBasis,accountingModel:CAD_CASH_USD_BASIS,realizedFx:0,realizedProfit:0,realizedLoss:0});
+    }
+    try{
+      const balances=rebuildTreasury({treasuryMovements:verification});
+      expectedCadBalanceAfterConversion=Number(balances.find(row=>row.currency==="CAD")?.balance||0);
+      expectedUsdBalanceAfterConversion=Number(balances.find(row=>row.currency==="USD")?.balance||0);
+    }catch(error){rebuildError=error.code||error.message||"TREASURY_REBUILD_FAILED";}
+  }
+  const fingerprint=legacyUsdConversionFingerprint(candidates);
+  const plan={
+    candidateCount:candidates.length,repairableCount:candidates.length,nonRepairableCount:nonRepairable.length,
+    duplicateCadRepresentations:nonRepairable.filter(row=>row.reason==="DUPLICATE_CAD_REPRESENTATION").length,
+    legacyUsdTotalBefore:+legacyUsdTotalBefore.toFixed(3),convertedCadTotal:+convertedCadTotal.toFixed(3),convertedUsdBasisTotal:+convertedUsdBasisTotal.toFixed(3),
+    expectedCadBalanceAfterConversion,expectedUsdLegacyBalanceAfterConversion,expectedUsdBalanceAfterConversion,
+    fingerprint,repairable:nonRepairable.length===0&&!rebuildError,rebuildError,
+    movements:candidates.slice(0,100),nonRepairable:nonRepairable.slice(0,100)
+  };
+  plan.summary=legacyUsdConversionSummary(plan);
+  Object.defineProperty(plan,"_candidates",{value:candidates,enumerable:false});
+  return plan;
+}
+
+function applyLegacyUsdToCadConversion(store,{fingerprint,expectedCount,summary,now,userId}={}){
+  const plan=planLegacyUsdToCadConversion(store);
+  if(plan.candidateCount===0&&(store.treasuryMovements||[]).some(row=>row?.legacyConversion===true&&row?.conversionVersion==="v25.14.107"))return {...plan,status:"ALREADY_APPLIED",applied:0};
+  if(!plan.repairable){const error=new Error("TREASURY_LEGACY_CONVERSION_NOT_REPAIRABLE");error.code="TREASURY_LEGACY_CONVERSION_NOT_REPAIRABLE";error.plan=plan;throw error;}
+  const suppliedSummary=summary&&typeof summary==="object"?summary:{};
+  const summaryMatches=JSON.stringify({expectedCount:Number(expectedCount),legacyUsdTotalBefore:Number(suppliedSummary.legacyUsdTotalBefore),convertedCadTotal:Number(suppliedSummary.convertedCadTotal),convertedUsdBasisTotal:Number(suppliedSummary.convertedUsdBasisTotal)})===JSON.stringify(plan.summary);
+  if(fingerprint!==plan.fingerprint||Number(expectedCount)!==plan.repairableCount||!summaryMatches){const error=new Error("TREASURY_LEGACY_CONVERSION_FINGERPRINT_MISMATCH");error.code="TREASURY_LEGACY_CONVERSION_FINGERPRINT_MISMATCH";throw error;}
+  const convertedAt=now();
+  const verification=Array.from(store.treasuryMovements||[]).map(row=>({...row}));
+  for(const candidate of plan._candidates){
+    const row=verification.find(item=>String(item?.id||"")===candidate.movementId);
+    Object.assign(row,{currency:"CAD",quantity:candidate.expectedCad,costRate:candidate.expectedCostRate,usdBasis:candidate.expectedUsdBasis,accountingModel:CAD_CASH_USD_BASIS,legacyConversion:true,legacyCurrency:"USD",legacyQuantity:candidate.currentQuantityUsd,convertedAt,conversionVersion:"v25.14.107",realizedFx:0,realizedProfit:0,realizedLoss:0});
+  }
+  rebuildTreasury({treasuryMovements:verification});
+  const originals=[];
+  try{
+    for(const candidate of plan._candidates){
+      const row=(store.treasuryMovements||[]).find(item=>String(item?.id||"")===candidate.movementId);
+      originals.push({row,value:{...row}});
+      Object.assign(row,verification.find(item=>String(item?.id||"")===candidate.movementId));
+      row.convertedBy=userId;
+    }
+    rebuildTreasury(store);
+  }catch(error){
+    for(const original of originals){for(const key of Object.keys(original.row))delete original.row[key];Object.assign(original.row,original.value);}
+    throw error;
+  }
+  return {...plan,status:"APPLIED",applied:plan._candidates.length,movementIds:plan._candidates.map(row=>row.movementId)};
 }
 
 function rebuildTreasury(store, { allowNegative = false } = {}) {
@@ -365,4 +556,4 @@ function treasuryInventorySnapshot(store,period,{inventoryId="",finalizedAt=""}=
   });
 }
 
-module.exports = { rebuildTreasury, calculateTreasuryDeliveryFinancials, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements };
+module.exports = { rebuildTreasury, calculateTreasuryDeliveryFinancials, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, planCadTreasuryBackfill, applyCadTreasuryBackfill, planLegacyUsdToCadConversion, applyLegacyUsdToCadConversion, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements };
