@@ -1,6 +1,6 @@
 "use strict";
 
-function registerTreasuryRoutes(app, { auth, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury }) {
+function registerTreasuryRoutes(app, { auth, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, upsertCashDeliveryMovement }) {
   app.get("/api/treasury", auth, (req,res)=>{
     try{
       const store=readStore();
@@ -29,6 +29,29 @@ function registerTreasuryRoutes(app, { auth, requireIdempotencyKey, readStore, m
       });
       res.status(201).json(movement);
     }catch(error){res.status(400).json({message:error.message||"تعذر حفظ تسوية الخزنة",code:error.code||null});}
+  });
+
+  app.post("/api/transactions/:id/cash-delivery", auth, requireIdempotencyKey, async (req,res)=>{
+    try{
+      const requestedQuantity=req.body?.quantity;
+      const deliveryRate=Number(req.body?.deliveryRate);
+      const quantity=requestedQuantity===undefined||requestedQuantity===""?null:Number(requestedQuantity);
+      if((quantity!==null&&(!Number.isFinite(quantity)||quantity<=0))||!Number.isFinite(deliveryRate)||deliveryRate<=0){
+        return res.status(400).json({message:"كمية التسليم وسعر الصرف الفعلي غير صالحين"});
+      }
+      const movement=await mutateDurable(store=>{
+        const transaction=(store.transactions||[]).find(item=>item&&item.id===req.params.id&&!item.isDeleted&&item.status!=="CANCELLED");
+        if(!transaction)return null;
+        const item=upsertCashDeliveryMovement(store,transaction,{id,now,userId:req.user.id,quantity:quantity??transaction.beneficiaryReceives??transaction.amount,deliveryRate,occurredAt:req.body?.occurredAt||now()});
+        audit(store,req.user.id,"CASH_DELIVERY","TRANSACTION",transaction.id,{movementId:item.id,quantity:item.quantity,currency:item.currency,deliveryRate:item.deliveryRate});
+        return item;
+      });
+      if(!movement)return res.status(404).json({message:"الحوالة غير موجودة"});
+      res.status(201).json(movement);
+    }catch(error){
+      const status=error?.code==="TREASURY_INSUFFICIENT_BALANCE"?409:400;
+      res.status(status).json({message:error.message||"تعذر تنفيذ التسليم الكاش",code:error.code||null});
+    }
   });
 }
 

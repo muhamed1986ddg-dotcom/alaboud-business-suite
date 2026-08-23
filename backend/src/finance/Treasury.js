@@ -33,7 +33,7 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
     if (quantity <= 0n) throw new Error("كمية حركة الخزنة يجب أن تكون أكبر من صفر");
     const state = balances.get(currency) || { balance: 0n, totalCost: 0n, realizedProfit: 0n, realizedLoss: 0n };
     const averageBefore = state.balance > 0n ? roundedDivide(state.totalCost * RATE_SCALE, state.balance) : 0n;
-    const direction = String(row.direction || row.movementType || "").toUpperCase();
+    const direction = row.sourceType === "TRANSFER" ? "IN" : String(row.direction || row.movementType || "").toUpperCase();
     let realized = 0n;
     let costRate = 0n;
     let deliveryRate = 0n;
@@ -46,7 +46,8 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
     } else if (direction === "OUT") {
       deliveryRate = safeRate(row.deliveryRate, "سعر الصرف وقت التسليم");
       if (deliveryRate <= 0n) throw new Error("سعر الصرف وقت التسليم يجب أن يكون أكبر من صفر");
-      if (!allowNegative && quantity > state.balance) {
+      const preservesHistoricalNegative = row.allowNegative === true || Number(row.balanceAfter) < 0;
+      if (!allowNegative && !preservesHistoricalNegative && quantity > state.balance) {
         const error = new Error(`لا يمكن إخراج ${moneyToNumber(quantity).toFixed(4)} ${currency}: الرصيد المتاح ${moneyToNumber(state.balance).toFixed(4)}`);
         error.code = "TREASURY_INSUFFICIENT_BALANCE";
         throw error;
@@ -89,7 +90,7 @@ function rebuildTreasury(store, { allowNegative = false } = {}) {
   })).sort((a, b) => a.currency.localeCompare(b.currency));
 }
 
-function upsertTransferMovement(store, transaction, { id, now, userId, deliveryRate, occurredAt } = {}) {
+function upsertTransferMovement(store, transaction, { id, now, userId, occurredAt } = {}) {
   if (!Array.isArray(store.treasuryMovements)) store.treasuryMovements = [];
   const sourceKey = `TRANSFER:${transaction.id}`;
   const matches = store.treasuryMovements.filter(row => row && row.sourceKey === sourceKey);
@@ -97,14 +98,12 @@ function upsertTransferMovement(store, transaction, { id, now, userId, deliveryR
   const existing = matches[0];
   const timestamp = occurredAt || transaction.transferDate || transaction.createdAt || now();
   const next = existing || { id: id(), sourceKey, sourceType: "TRANSFER", transactionId: transaction.id, createdAt: now(), createdBy: userId };
-  const direction = String(transaction.treasuryEffect || "OUT").toUpperCase();
-  if (!["IN", "OUT"].includes(direction)) throw new Error("أثر الحوالة على الخزنة غير صحيح");
   const transactionCostRate = rateToNumber(safeRate(transaction.costRate, "سعر تكلفة الحوالة"));
   Object.assign(next, {
-    movementType: direction, direction, currency: String(transaction.currency || "USD").toUpperCase(),
+    movementType: "IN", direction: "IN", currency: String(transaction.currency || "USD").toUpperCase(),
     quantity: moneyToNumber(safeMoney(transaction.beneficiaryReceives ?? transaction.amount, "مبلغ الحوالة")),
-    costRate: direction === "IN" ? transactionCostRate : null,
-    deliveryRate: direction === "OUT" ? rateToNumber(safeRate(deliveryRate ?? transaction.deliveryRate, "سعر الصرف وقت التسليم")) : null,
+    costRate: transactionCostRate,
+    deliveryRate: null,
     occurredAt: timestamp, sourceLabel: transaction.number || transaction.id, isCancelled: false,
     cancelledAt: null, cancelledBy: null, cancellationReason: null,
     updatedAt: existing ? now() : undefined, updatedBy: existing ? userId : undefined
@@ -112,6 +111,34 @@ function upsertTransferMovement(store, transaction, { id, now, userId, deliveryR
   if (!existing) store.treasuryMovements.push(next);
   rebuildTreasury(store);
   return next;
+}
+
+function upsertCashDeliveryMovement(store, transaction, { id, now, userId, quantity, deliveryRate, occurredAt } = {}) {
+  if (!Array.isArray(store.treasuryMovements)) store.treasuryMovements = [];
+  const sourceKey = `CASH_DELIVERY:${transaction.id}`;
+  const matches = store.treasuryMovements.filter(row => row && row.sourceKey === sourceKey);
+  if (matches.length > 1) throw new Error("يوجد أكثر من حركة تسليم كاش للحوالة نفسها");
+  const existing = matches[0];
+  const next = existing || { id: id(), sourceKey, sourceType: "CASH_DELIVERY", transactionId: transaction.id, createdAt: now(), createdBy: userId };
+  Object.assign(next, {
+    movementType: "OUT", direction: "OUT", currency: String(transaction.currency || "USD").toUpperCase(),
+    quantity: moneyToNumber(safeMoney(quantity ?? transaction.beneficiaryReceives ?? transaction.amount, "كمية التسليم الكاش")),
+    costRate: null, deliveryRate: rateToNumber(safeRate(deliveryRate, "سعر الصرف وقت التسليم")),
+    occurredAt: occurredAt || now(), sourceLabel: transaction.number || transaction.id, isCancelled: false,
+    cancelledAt: null, cancelledBy: null, cancellationReason: null,
+    updatedAt: existing ? now() : undefined, updatedBy: existing ? userId : undefined
+  });
+  if (!existing) store.treasuryMovements.push(next);
+  rebuildTreasury(store);
+  return next;
+}
+
+function cancelCashDeliveryMovement(store, transactionId, { now, userId, reason = "إلغاء تسليم كاش مرتبط بحوالة" } = {}) {
+  const movement = (store.treasuryMovements || []).find(row => row && row.sourceKey === `CASH_DELIVERY:${transactionId}` && !row.isCancelled);
+  if (!movement) return null;
+  Object.assign(movement, { isCancelled: true, cancelledAt: now(), cancelledBy: userId, cancellationReason: reason });
+  rebuildTreasury(store);
+  return movement;
 }
 
 function cancelTransferMovement(store, transactionId, { now, userId, reason = "إلغاء الحوالة" } = {}) {
@@ -130,4 +157,4 @@ function treasuryProfitForRange(store, { from = "", to = "" } = {}) {
   return moneyToNumber(total);
 }
 
-module.exports = { rebuildTreasury, upsertTransferMovement, cancelTransferMovement, treasuryProfitForRange, activeMovements };
+module.exports = { rebuildTreasury, upsertTransferMovement, upsertCashDeliveryMovement, cancelTransferMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements };

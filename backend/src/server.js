@@ -42,7 +42,7 @@ const {
   mirrorsExternalBalance
 } = require("./finance/CompanyDebtPosition");
 const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
-const { rebuildTreasury, upsertTransferMovement, cancelTransferMovement, treasuryProfitForRange, activeMovements } = require("./finance/Treasury");
+const { rebuildTreasury, upsertTransferMovement, cancelTransferMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements, upsertCashDeliveryMovement } = require("./finance/Treasury");
 const { registerHealthRoutes } = require("./routes/health");
 const { registerDeveloperRoutes } = require("./routes/developer");
 const { registerNotificationRoutes } = require("./routes/notifications");
@@ -2212,16 +2212,14 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
       totalProfit:financials.totalProfit,
       totalCustomerDue:financials.totalCustomerDue,
       status,
-      treasuryEffect:normalizedTreasuryEffect,
-      deliveryRate:normalizedTreasuryEffect==="OUT"?effectiveDeliveryRate:null,
+      treasuryEffect:"IN",
+      deliveryRate:null,
       transferDate:transferDate||new Date().toISOString().slice(0,10),
       createdAt:now(),
       createdBy:req.user.id
     };
     s.transactions.push(t);
-    if(["IN","OUT"].includes(t.treasuryEffect)&&t.status!=="CANCELLED"){
-      upsertTransferMovement(s,t,{id,now,userId:req.user.id,deliveryRate:t.deliveryRate,occurredAt:t.transferDate});
-    }
+    if(t.status!=="CANCELLED")upsertTransferMovement(s,t,{id,now,userId:req.user.id,occurredAt:t.transferDate});
 
     const normalizedPaymentStatus=String(paymentStatus||"UNPAID").toUpperCase();
     if(normalizedPaymentStatus==="PAID"){
@@ -2434,6 +2432,7 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
         const deletedAt=now();
         const reason=String(req.body?.reason||"حذف الحوالة");
         markSoftDeleted(transaction,{userId:req.user.id,reason,at:deletedAt});
+        cancelCashDeliveryMovement(state,transaction.id,{now,userId:req.user.id,reason});
         cancelTransferMovement(state,transaction.id,{now,userId:req.user.id,reason});
         for(const payment of state.payments||[]){
           if(payment.transactionId===transaction.id&&!payment.isDeleted){
@@ -2480,9 +2479,8 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
       const selectedPartner=resolveProviderPartner(s.partners||[],transaction.partnerId);
 
       transaction.currency=String(transaction.currency||"USD").toUpperCase();
-      transaction.treasuryEffect=String(transaction.treasuryEffect||"NONE").toUpperCase();
-      if(!["NONE","IN","OUT"].includes(transaction.treasuryEffect))throw new Error("أثر الخزنة غير صحيح");
-      if(transaction.treasuryEffect==="OUT"&&(!Number.isFinite(Number(transaction.deliveryRate))||Number(transaction.deliveryRate)<=0))throw new Error("سعر الصرف الفعلي وقت التسليم مطلوب");
+      transaction.treasuryEffect="IN";
+      transaction.deliveryRate=null;
       transaction.providerFeeCurrency=String(transaction.providerFeeCurrency||transaction.currency).toUpperCase();
       if(selectedPartner)transaction.providerFeeCompany=selectedPartner.name;
       const financials=transactionFinancials(transaction);
@@ -2513,10 +2511,10 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
         throw new Error("لا يمكن جعل إجمالي الحوالة أقل من الدفعات المسجلة");
       }
 
-      if(["IN","OUT"].includes(transaction.treasuryEffect)&&transaction.status!=="CANCELLED"){
-        upsertTransferMovement(s,transaction,{id,now,userId:req.user.id,deliveryRate:transaction.deliveryRate,occurredAt:transaction.transferDate});
-      }else{
-        cancelTransferMovement(s,transaction.id,{now,userId:req.user.id,reason:"تعديل أثر الحوالة على الخزنة"});
+      if(transaction.status!=="CANCELLED")upsertTransferMovement(s,transaction,{id,now,userId:req.user.id,occurredAt:transaction.transferDate});
+      else{
+        cancelCashDeliveryMovement(s,transaction.id,{now,userId:req.user.id,reason:"إلغاء حوالة مرتبطة بتسليم كاش"});
+        cancelTransferMovement(s,transaction.id,{now,userId:req.user.id,reason:"تعديل حالة الحوالة"});
       }
 
       audit(s,req.user.id,"UPDATE","TRANSACTION",transaction.id,{before:oldData,after:{...transaction},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
@@ -2544,6 +2542,7 @@ app.delete("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)
       if(!transaction)return null;
       const deletedAt=now();
       markSoftDeleted(transaction,{userId:req.user.id,reason:req.body?.reason||"حذف الحوالة",at:deletedAt});
+      cancelCashDeliveryMovement(s,transaction.id,{now,userId:req.user.id,reason:req.body?.reason||"حذف الحوالة"});
       cancelTransferMovement(s,transaction.id,{now,userId:req.user.id,reason:req.body?.reason||"حذف الحوالة"});
 
       for(const payment of s.payments){
@@ -2750,7 +2749,7 @@ async function refreshAutomaticRates(userId="SYSTEM") {
   }
   return results;
 }
-registerTreasuryRoutes(app,{auth,requireIdempotencyKey,readStore,mutateDurable,id,now,audit,rebuildTreasury});
+registerTreasuryRoutes(app,{auth,requireIdempotencyKey,readStore,mutateDurable,id,now,audit,rebuildTreasury,upsertCashDeliveryMovement});
 registerProfitRoutes(app,{auth,readStore,summarizeTransactionProfits,treasuryProfitForRange,addTransactionProfitToBucket,activeMovements,transactionFinancials,transactionFinancialView});
 
 

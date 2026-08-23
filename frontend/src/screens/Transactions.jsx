@@ -62,8 +62,8 @@ export function Transactions({openInvoice}){
       providerFeePer100:Number(transaction.providerFeePer100??providerFeeSettings.feePer100??0.40),
       currency:transaction.currency||"USD",
       transferDate:transaction.transferDate||String(transaction.createdAt||"").slice(0,10)
-      ,treasuryEffect:transaction.treasuryEffect||"NONE"
-      ,deliveryRate:String(transaction.deliveryRate??transaction.costRate??"")
+      ,treasuryEffect:"IN"
+      ,deliveryRate:null
     });
     revealAppEditor('[data-app-editor="transaction"]');
   }
@@ -91,8 +91,8 @@ export function Transactions({openInvoice}){
         providerFeePer100:Number(editingTransaction.providerFeePer100||providerFeeSettings.feePer100||0),
         transferDate:editingTransaction.transferDate,
         status:editingTransaction.status||"COMPLETED",
-        treasuryEffect:editingTransaction.treasuryEffect||"NONE",
-        deliveryRate:editingTransaction.treasuryEffect==="OUT"?Number(editingTransaction.deliveryRate):null,
+        treasuryEffect:"IN",
+        deliveryRate:null,
         rateSource:"manual"
       });
       setEditingTransaction(null);
@@ -278,8 +278,7 @@ export function Transactions({openInvoice}){
         </>}
 
         <input type="date" value={editingTransaction.transferDate||""} onChange={e=>setEditingTransaction({...editingTransaction,transferDate:e.target.value})}/>
-        <label className="currency-field"><span className="currency-field-title">أثر الخزنة</span><select value={editingTransaction.treasuryEffect||"NONE"} onChange={e=>setEditingTransaction({...editingTransaction,treasuryEffect:e.target.value})}><option value="IN">دخول كاش</option><option value="OUT">خروج كاش</option><option value="NONE">لا يؤثر على الكاش</option></select></label>
-        {editingTransaction.treasuryEffect==="OUT"&&<label className="currency-field"><span className="currency-field-title">سعر الصرف الفعلي وقت التسليم</span><input type="number" min=".00000001" step=".00000001" value={editingTransaction.deliveryRate||""} onChange={e=>setEditingTransaction({...editingTransaction,deliveryRate:e.target.value})} required/><small>مستقل عن ربح الحوالة الأصلية.</small></label>}
+        <div className="transaction-edit-preview"><span>أثر الخزنة</span><strong>IN — دخول كاش</strong><small>التسليم الكاش يُسجل كحركة OUT مستقلة.</small></div>
 
         <div className="transaction-edit-preview"><span>المجموع بعد التعديل</span><strong>{editPreview.totalCustomerDue.toFixed(2)} CAD</strong></div>
         <div className="transaction-edit-preview"><span>ربح فرق السعر</span><strong>{editPreview.exchangeProfit.toFixed(2)} CAD</strong></div>
