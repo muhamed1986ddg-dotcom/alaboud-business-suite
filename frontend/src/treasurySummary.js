@@ -8,14 +8,21 @@ export function treasuryAverageCostRows(balances=[]){
   }));
 }
 
-export function treasuryRealizedSummary(balances=[]){
-  return (Array.isArray(balances)?balances:[]).reduce((summary,row)=>{
-    const profit=finite(row?.realizedProfit);
-    const loss=finite(row?.realizedLoss);
-    const storedNet=Number(row?.realizedFx);
-    summary.profit+=profit;
-    summary.loss+=loss;
-    summary.net+=Number.isFinite(storedNet)?storedNet:profit-loss;
-    return summary;
-  },{profit:0,loss:0,net:0,currency:"CAD"});
+export function treasuryRealizedSummary(period={}){
+  return {
+    profit:finite(period?.realizedProfit),
+    loss:finite(period?.realizedLoss),
+    net:finite(period?.realizedFx),
+    currency:"CAD"
+  };
+}
+
+export function formatTreasuryInventoryPeriod(period={}){
+  const format=value=>{
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(String(value||"")))return "";
+    return new Intl.DateTimeFormat("ar",{day:"numeric",month:"long",year:"numeric",timeZone:"UTC"}).format(new Date(`${value}T00:00:00Z`));
+  };
+  const start=format(period.start??period.periodStart);
+  const end=format(period.end??period.periodEnd);
+  return start&&end?`${start} — ${end}`:"";
 }

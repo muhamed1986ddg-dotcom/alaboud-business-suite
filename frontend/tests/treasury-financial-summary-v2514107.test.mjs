@@ -11,6 +11,11 @@ test("Treasury delivery summary includes realized OUT results only",()=>{
   assert.deepEqual(treasuryRealizedSummary({realizedProfit:160,realizedLoss:34.6,realizedFx:125.4}),{profit:160,loss:34.6,net:125.4,currency:"CAD"});
   assert.deepEqual(treasuryRealizedSummary({realizedProfit:0,realizedLoss:83.2,realizedFx:-83.2}),{profit:0,loss:83.2,net:-83.2,currency:"CAD"});
   assert.match(formatTreasuryInventoryPeriod({start:"2026-08-20",end:"2026-09-19"}),/2026|٢٠٢٦/);
+  assert.equal(
+    formatTreasuryInventoryPeriod({periodStart:"2026-08-20",periodEnd:"2026-09-19"}),
+    formatTreasuryInventoryPeriod({start:"2026-08-20",end:"2026-09-19"})
+  );
+  assert.equal(formatTreasuryInventoryPeriod({periodStart:"",periodEnd:"2026-09-19"}),"");
 });
 
 test("Treasury keeps each currency average separate",()=>{
