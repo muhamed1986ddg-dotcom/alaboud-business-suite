@@ -2,7 +2,7 @@ import React,{useEffect,useState} from "react";
 import api,{cachedGet,clearApiGetCache} from "../api";
 import {money} from "../shared";
 import {AppTable} from "../components/ui";
-import {treasuryAverageCostRows,treasuryRealizedSummary} from "../treasurySummary";
+import {formatTreasuryInventoryPeriod,treasuryAverageCostRows,treasuryRealizedSummary} from "../treasurySummary";
 
 export function Treasury(){
   const [data,setData]=useState({balances:[],movements:[]});
@@ -29,7 +29,9 @@ export function Treasury(){
   ];
   const movementRows=data.movements||[];
   const averageCostRows=treasuryAverageCostRows(data.balances);
-  const realizedSummary=treasuryRealizedSummary(data.balances);
+  const realizedSummary=treasuryRealizedSummary(data.currentInventoryPeriod);
+  const inventoryPeriodLabel=formatTreasuryInventoryPeriod(data.currentInventoryPeriod);
+  const finalizedPeriods=Array.isArray(data.finalizedInventoryPeriods)?data.finalizedInventoryPeriods:[];
   const realizedSign=realizedSummary.net>0?"+":"";
   const movementTypeLabel=row=>row.movementType==="ADJUSTMENT"?`تسوية (${row.direction==="IN"?"دخول":"خروج"})`:row.direction==="IN"?"دخول":"خروج";
   const movementStatus=row=>row.isCancelled?"ملغاة/معكوسة":row.movementType==="ADJUSTMENT"?"تسوية":"";
@@ -61,10 +63,29 @@ export function Treasury(){
         </div>
       </article>
       <article className="card treasury-financial-summary__card treasury-realized-summary">
-        <h3>ربح/خسارة فرق التسليم</h3>
+        <h3>ربح/خسارة فرق التسليم — الجرد الحالي</h3>
         <strong className={`treasury-realized-summary__net ${realizedSummary.net<0?"value-negative":"value-positive"}`}>{realizedSign}{money(realizedSummary.net)} CAD</strong>
+        {inventoryPeriodLabel&&<div className="treasury-realized-summary__period">{inventoryPeriodLabel}</div>}
         <small>الربح: {money(realizedSummary.profit)} CAD <span aria-hidden="true">|</span> الخسارة: {money(realizedSummary.loss)} CAD</small>
       </article>
+    </section>
+    <section className="treasury-finalized-periods" aria-label="نتائج الجرد السابقة">
+      <h3>نتائج الجرد السابقة</h3>
+      <div className="treasury-finalized-periods__grid">
+        {finalizedPeriods.length?finalizedPeriods.map(row=>{
+          const net=Number(row.treasuryRealizedFx||0);
+          const periodLabel=formatTreasuryInventoryPeriod({start:row.periodStart,end:row.periodEnd});
+          return <article className="card treasury-finalized-card" key={row.inventoryId||row.month}>
+            <header><strong>{row.month||"جرد مثبت"}</strong><span>{row.status==="FINALIZED"?"مثبت":row.status}</span></header>
+            {row.treasurySnapshotAvailable?<>
+              <small>{periodLabel}</small>
+              <div><span>ربح التسليم</span><strong>{money(row.treasuryRealizedProfit)} CAD</strong></div>
+              <div><span>خسارة التسليم</span><strong>{money(row.treasuryRealizedLoss)} CAD</strong></div>
+              <div className="treasury-finalized-card__net"><span>صافي فرق التسليم</span><strong className={net<0?"value-negative":"value-positive"}>{net>0?"+":""}{money(net)} CAD</strong></div>
+            </>:<small>تفاصيل Treasury غير متوفرة لهذا الجرد القديم.</small>}
+          </article>;
+        }):<div className="treasury-summary-empty">لا توجد نتائج جرد مثبتة حتى الآن.</div>}
+      </div>
     </section>
     <section className="transaction-summary-grid">{data.balances.map(row=><div className="card transaction-summary-card" key={row.currency}><span>{row.currency}</span><strong>{money(row.balance)}</strong><small>التكلفة: {money(row.totalCost)} CAD · المتوسط: {Number(row.averageCost||0).toFixed(6)}</small><small>ربح محقق: {money(row.realizedProfit)} · خسارة: {money(row.realizedLoss)}</small></div>)}</section>
     <form className="card form no-print" onSubmit={deliverCash}><h3>تسليم كاش فعلي</h3>

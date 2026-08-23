@@ -1,7 +1,7 @@
 "use strict";
 const APPROVED_TREASURY_REPAIR_MOVEMENT_ID="5a9ff1cb-859f-4c0c-a669-f78ac2fc0c5f";
 
-function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertCashDeliveryMovement }) {
+function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, currentInventoryPeriod, treasuryRealizedForInventoryPeriod, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertCashDeliveryMovement }) {
   app.get("/api/treasury/diagnostics/invalid-in", auth, (_req,res)=>{
     res.json(diagnoseInvalidTreasuryInMovements(readStore()));
   });
@@ -29,8 +29,27 @@ function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempoten
       const store=readStore();
       const snapshot={treasuryMovements:Array.from(store.treasuryMovements||[]).map(row=>({...row}))};
       const balances=rebuildTreasury(snapshot);
+      const period=currentInventoryPeriod(store.notificationSettings||{});
+      const realized=treasuryRealizedForInventoryPeriod(snapshot,period);
+      const finalizedInventoryPeriods=Array.from(store.monthlyInventories||[])
+        .filter(row=>row&&!row.isDeleted)
+        .map(row=>({
+          inventoryId:row.id,
+          month:row.month,
+          periodStart:row.periodStart||null,
+          periodEnd:row.periodEnd||null,
+          finalizedAt:row.finalizedAt||row.fixedAt||null,
+          baseCurrency:row.baseCurrency||"CAD",
+          treasuryRealizedProfit:Number(row.treasuryRealizedProfit||0),
+          treasuryRealizedLoss:Number(row.treasuryRealizedLoss||0),
+          treasuryRealizedFx:Number(row.treasuryRealizedFx||0),
+          treasuryOutCount:Number(row.treasuryOutCount||0),
+          status:row.status||"FINALIZED",
+          treasurySnapshotAvailable:Boolean(row.periodStart&&row.periodEnd&&row.treasuryRealizedFx!==undefined)
+        }))
+        .sort((a,b)=>String(b.finalizedAt||b.month||"").localeCompare(String(a.finalizedAt||a.month||"")));
       const movements=snapshot.treasuryMovements.slice().sort((a,b)=>String(b.occurredAt||b.createdAt||"").localeCompare(String(a.occurredAt||a.createdAt||"")));
-      res.json({baseCurrency:"CAD",allowNegative:false,balances,movements});
+      res.json({baseCurrency:"CAD",allowNegative:false,balances,movements,currentInventoryPeriod:{...period,...realized},finalizedInventoryPeriods});
     }catch(error){res.status(400).json({message:error.message||"تعذر تحميل الخزنة"});}
   });
 

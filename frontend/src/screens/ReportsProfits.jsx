@@ -237,7 +237,7 @@ function ReportsProfits(){
           <div className="inventory-primary-grid">
             <div className="inventory-primary-card"><span>🏢 صافي الشركات</span><strong>{money(inventoryDisplay.netCompanies)} CAD</strong></div>
             <div className="inventory-primary-card"><span>👤 صافي ديون العملاء</span><strong>{money(inventoryDisplay.netCustomers)} CAD</strong></div>
-            <div className="inventory-primary-card inventory-primary-card--info"><span>📈 صافي الأرباح</span><strong>{money(inventoryDisplay.netProfit)} CAD</strong><small>للعرض فقط — لا يُضاف مرة ثانية إلى الجرد النهائي.</small></div>
+            <div className="inventory-primary-card inventory-primary-card--info"><span>📈 صافي الأرباح</span><strong>{money(inventoryDisplay.netProfit)} CAD</strong><small>ربح/خسارة فرق التسليم للدورة: {Number(inventoryDisplay.treasuryRealizedFx||0)>0?"+":""}{money(inventoryDisplay.treasuryRealizedFx)} CAD — محتسب مرة واحدة ضمن الصافي. للعرض فقط — لا يُضاف مرة ثانية إلى الجرد النهائي.</small></div>
             <div className="inventory-primary-card inventory-primary-card--vault">
               <div className="inventory-vault-heading"><span>💵 الكاش في الخزنة</span><strong>{money(inventoryDisplay.vaultCash)} CAD</strong></div>
               {vaultCashRows.length?<div className="inventory-vault-grid">
@@ -317,6 +317,7 @@ function ReportsProfits(){
                   <div><span>صافي رأس المال</span><strong>{money(row.netCapital)}</strong></div><div><span>الكاش في الخزنة</span><strong>{money(row.vaultCash)} CAD</strong></div>
                   {row.totalAssets!==undefined&&<div><span>إجمالي الأصول</span><strong>{money(row.totalAssets)}</strong></div>}
                   {row.totalLiabilities!==undefined&&<div><span>إجمالي الالتزامات</span><strong>{money(row.totalLiabilities)}</strong></div>}
+                  {row.treasuryRealizedFx!==undefined&&<div><span>ربح/خسارة فرق التسليم</span><strong className={Number(row.treasuryRealizedFx||0)<0?"value-negative":"value-positive"}>{Number(row.treasuryRealizedFx||0)>0?"+":""}{money(row.treasuryRealizedFx)} CAD</strong></div>}
                   {row.inventoryDifference!==undefined&&<div className="transaction-mobile-card__total"><span>فرق المطابقة الرقابي</span><strong className={Math.abs(Number(row.inventoryDifference||0))<0.005?"value-positive":"value-negative"}>{Number(row.inventoryDifference||0)>=0?"+":""}{money(row.inventoryDifference)}</strong></div>}
                   {diff!==null&&<div className="transaction-mobile-card__total"><span>الفرق عن الشهر السابق</span><strong className={diff<0?"value-negative":"value-positive"}>{diff>=0?"+":""}{money(diff)}</strong></div>}
                 </div>

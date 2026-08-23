@@ -5,6 +5,7 @@ const {
   moneyToNumber, rateToNumber
 } = require("./Money");
 const { transactionFinancials } = require("./TransactionFinancials");
+const { occurredLocalDate } = require("./InventoryPeriod");
 
 function safeMoney(value, label) {
   try { return money(value); } catch { throw new TypeError(`${label} غير صالح`); }
@@ -246,4 +247,34 @@ function treasuryProfitForRange(store, { from = "", to = "" } = {}) {
   return moneyToNumber(total);
 }
 
-module.exports = { rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements };
+function treasuryRealizedForInventoryPeriod(store,{start="",nextStart="",timeZone="America/Toronto"}={}){
+  return activeMovements(store).reduce((summary,row)=>{
+    const direction=row.sourceType==="TRANSFER"?"IN":String(row.direction||row.movementType||"").toUpperCase();
+    const localDate=occurredLocalDate(row.occurredAt||row.createdAt,timeZone);
+    if(direction!=="OUT"||!localDate||localDate<start||localDate>=nextStart)return summary;
+    summary.realizedProfit+=Number(row.realizedProfit||0);
+    summary.realizedLoss+=Number(row.realizedLoss||0);
+    summary.realizedFx+=Number(row.realizedFx||0);
+    summary.outCount+=1;
+    return summary;
+  },{realizedFx:0,realizedProfit:0,realizedLoss:0,outCount:0});
+}
+
+function treasuryInventorySnapshot(store,period,{inventoryId="",finalizedAt=""}={}){
+  const summary=treasuryRealizedForInventoryPeriod(store,period);
+  return Object.freeze({
+    inventoryId,
+    periodStart:period.start,
+    periodEnd:period.end,
+    nextPeriodStart:period.nextStart,
+    baseCurrency:"CAD",
+    treasuryRealizedProfit:summary.realizedProfit,
+    treasuryRealizedLoss:summary.realizedLoss,
+    treasuryRealizedFx:summary.realizedFx,
+    treasuryOutCount:summary.outCount,
+    status:"FINALIZED",
+    finalizedAt
+  });
+}
+
+module.exports = { rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements };

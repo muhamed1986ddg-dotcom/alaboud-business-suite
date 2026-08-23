@@ -42,7 +42,8 @@ const {
   mirrorsExternalBalance
 } = require("./finance/CompanyDebtPosition");
 const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
-const { rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements } = require("./finance/Treasury");
+const { rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements } = require("./finance/Treasury");
+const { inventoryScheduleDay, inventoryLocalDate, currentInventoryPeriod, previousInventoryPeriod } = require("./finance/InventoryPeriod");
 const { registerHealthRoutes } = require("./routes/health");
 const { registerDeveloperRoutes } = require("./routes/developer");
 const { registerNotificationRoutes } = require("./routes/notifications");
@@ -1517,18 +1518,6 @@ app.get("/api/capital-overview", auth, (req,res)=>{
 });
 
 
-function inventoryLocalDate(settings={}){
-  const timeZone=String(settings.timeZone||"America/Toronto");
-  try{
-    const parts=new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(new Date());
-    const values=Object.fromEntries(parts.map(part=>[part.type,part.value]));
-    return {date:`${values.year}-${values.month}-${values.day}`,time:`${values.hour}:${values.minute}`,year:Number(values.year),month:Number(values.month),day:Number(values.day),timeZone};
-  }catch(_error){
-    const date=new Date();
-    return {date:date.toISOString().slice(0,10),time:date.toISOString().slice(11,16),year:date.getUTCFullYear(),month:date.getUTCMonth()+1,day:date.getUTCDate(),timeZone:"UTC"};
-  }
-}
-
 function calculateInventoryNetCapital(store){
   // Equity is independent from the physical inventory count. Receivables,
   // payables and vault cash belong to net assets and are reconciled separately.
@@ -1556,7 +1545,10 @@ function calculateInventoryNetCapital(store){
     .reduce((sum,item)=>sum+movementCad(item),0);
   const grossRealizedProfit=transactions.reduce((sum,item)=>sum+transactionFinancials(item).totalProfit,0);
   const operatingExpenses=expenses.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-  const realizedNetProfit=grossRealizedProfit-operatingExpenses;
+  // Treasury OUT profit is a distinct realized component and enters equity
+  // exactly once here; transactionFinancials never contains delivery FX.
+  const treasuryRealizedFx=treasuryProfitForRange(store);
+  const realizedNetProfit=grossRealizedProfit+treasuryRealizedFx-operatingExpenses;
   const netCapital=calculateNetCapital({
     capitalContributions,
     capitalWithdrawals,
@@ -1575,6 +1567,8 @@ function calculateInventoryNetCapital(store){
 
 function monthlyInventoryDraft(store,{vaultCash=0,vaultCashByCurrency=null,vaultCashExchangeRates=null}={}){
   const capital=calculateInventoryNetCapital(store);
+  const treasuryPeriod=currentInventoryPeriod(store.notificationSettings||{});
+  const treasurySummary=treasuryRealizedForInventoryPeriod(store,treasuryPeriod);
   const missingRates=new Set(capital.missingRates);
   const toCad=(amount,currency="CAD")=>{
     const normalized=String(currency||"CAD").toUpperCase();
@@ -1606,6 +1600,11 @@ function monthlyInventoryDraft(store,{vaultCash=0,vaultCashByCurrency=null,vault
     capitalContributions:capital.capitalContributions,
     capitalWithdrawals:capital.capitalWithdrawals,
     realizedNetProfit:capital.realizedNetProfit,
+    currentTreasuryPeriod:{...treasuryPeriod,...treasurySummary},
+    treasuryRealizedProfit:treasurySummary.realizedProfit,
+    treasuryRealizedLoss:treasurySummary.realizedLoss,
+    treasuryRealizedFx:treasurySummary.realizedFx,
+    treasuryOutCount:treasurySummary.outCount,
     profitDistributions:capital.profitDistributions,
     missingRates:[...missingRates]
   };
@@ -1613,7 +1612,7 @@ function monthlyInventoryDraft(store,{vaultCash=0,vaultCashByCurrency=null,vault
 
 function inventoryAlert(store){
   const settings=store.notificationSettings||{};
-  const scheduleDay=Math.max(1,Math.min(28,Math.trunc(safeNumber(settings.inventoryDay,20)||20)));
+  const scheduleDay=inventoryScheduleDay(settings);
   const local=inventoryLocalDate(settings);
   const month=`${local.year}-${String(local.month).padStart(2,"0")}`;
   const closed=(Array.isArray(store.monthlyInventories)?store.monthlyInventories:[]).some(item=>item&&item.month===month&&!item.isDeleted);
@@ -1628,7 +1627,7 @@ function inventoryAlert(store){
 app.get("/api/monthly-inventory", auth, (req,res)=>{
   const store=readStore();
   const settings=store.notificationSettings||{};
-  const scheduleDay=Math.max(1,Math.min(28,Math.trunc(safeNumber(settings.inventoryDay,20)||20)));
+  const scheduleDay=inventoryScheduleDay(settings);
   const rows=Array.from(store.monthlyInventories||[])
     .filter(item=>item&&!item.isDeleted)
     .map(item=>{
@@ -1677,7 +1676,8 @@ app.post("/api/monthly-inventory/close", auth, async (req,res)=>{
   const result=await mutateDurable(store=>{
     const local=inventoryLocalDate(store.notificationSettings||{});
     const month=`${local.year}-${String(local.month).padStart(2,"0")}`;
-    const existing=(store.monthlyInventories||[]).find(item=>item&&item.month===month&&!item.isDeleted);
+    const period=previousInventoryPeriod(store.notificationSettings||{});
+    const existing=(store.monthlyInventories||[]).find(item=>item&&!item.isDeleted&&(item.month===month||(item.periodStart===period.start&&item.periodEnd===period.end)));
     if(existing){const error=new Error("تم تثبيت جرد هذا الشهر مسبقًا");error.statusCode=409;throw error;}
     const vaultSnapshot=hasCurrencyBreakdown
       ?calculateVaultCashSnapshot(req.body.vaultCashByCurrency,(from,to)=>currencyConversion(store,from,to))
@@ -1688,7 +1688,9 @@ app.post("/api/monthly-inventory/close", auth, async (req,res)=>{
     if(draft.missingRates.length){const error=new Error(`لا يمكن تثبيت الجرد قبل إضافة أسعار تحويل العملات: ${draft.missingRates.join(", ")}`);error.statusCode=400;throw error;}
     const inventoryId=id();
     const approvedAt=now();
-    const item={id:inventoryId,month,inventoryDate:local.date,scheduleDay:Math.max(1,Math.min(28,Math.trunc(safeNumber(store.notificationSettings?.inventoryDay,20)||20))),...draft,originalCapital:draft.finalInventory??draft.finalValue,originalCapitalDate:local.date,originalCapitalApprovedAt:approvedAt,originalCapitalInventoryId:inventoryId,notes:String(req.body?.notes||"").trim().slice(0,1000),fixedAt:approvedAt,fixedBy:req.user.id,fixedByName:req.user.name||"",createdAt:approvedAt};
+    const finalizedPeriod=previousInventoryPeriod(store.notificationSettings||{},approvedAt);
+    const treasurySnapshot=treasuryInventorySnapshot(store,finalizedPeriod,{inventoryId,finalizedAt:approvedAt});
+    const item={id:inventoryId,month,inventoryDate:local.date,scheduleDay:finalizedPeriod.scheduleDay,...draft,...treasurySnapshot,originalCapital:draft.finalInventory??draft.finalValue,originalCapitalDate:local.date,originalCapitalApprovedAt:approvedAt,originalCapitalInventoryId:inventoryId,notes:String(req.body?.notes||"").trim().slice(0,1000),fixedAt:approvedAt,fixedBy:req.user.id,fixedByName:req.user.name||"",createdAt:approvedAt};
     store.monthlyInventories.push(item);
     audit(store,req.user.id,"CREATE","MONTHLY_INVENTORY",item.id,{month,finalValue:item.finalValue,vaultCash:item.vaultCash,vaultCashByCurrency:item.vaultCashByCurrency});
     return item;
@@ -2760,7 +2762,7 @@ async function refreshAutomaticRates(userId="SYSTEM") {
   }
   return results;
 }
-registerTreasuryRoutes(app,{auth,requirePermission,requireIdempotencyKey,readStore,mutateDurable,id,now,audit,rebuildTreasury,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,upsertCashDeliveryMovement});
+registerTreasuryRoutes(app,{auth,requirePermission,requireIdempotencyKey,readStore,mutateDurable,id,now,audit,rebuildTreasury,currentInventoryPeriod,treasuryRealizedForInventoryPeriod,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,upsertCashDeliveryMovement});
 registerProfitRoutes(app,{auth,readStore,summarizeTransactionProfits,treasuryProfitForRange,addTransactionProfitToBucket,activeMovements,transactionFinancials,transactionFinancialView});
 
 

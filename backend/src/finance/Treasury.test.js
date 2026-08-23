@@ -1,6 +1,6 @@
 "use strict";
 const assert=require("assert");
-const {rebuildTreasury,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,upsertTransferMovement,cancelTransferMovement,upsertCashDeliveryMovement,treasuryProfitForRange}=require("./Treasury");
+const {rebuildTreasury,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,upsertTransferMovement,cancelTransferMovement,upsertCashDeliveryMovement,treasuryProfitForRange,treasuryRealizedForInventoryPeriod,treasuryInventorySnapshot}=require("./Treasury");
 const {transactionFinancials}=require("./TransactionFinancials");
 let sequence=0;
 const helpers={id:()=>`m${++sequence}`,now:()=>`2026-01-10T00:00:${String(sequence).padStart(2,"0")}Z`,userId:"u1"};
@@ -93,6 +93,28 @@ assert.equal(applied.status,"APPLIED");assert.equal(repairStore.treasuryMovement
 assert.deepEqual(repairStore.treasuryMovements[0],untouchedBefore);
 assert.equal(diagnoseInvalidTreasuryInMovements(repairStore).total,0);
 assert.equal(applyTreasuryEntryRateRepair(repairStore,productionMovementId,{confirmedExpectedCostRate:dryRun.expectedCostRate}).status,"ALREADY_REPAIRED");
+
+const period={start:"2026-08-20",nextStart:"2026-09-20",timeZone:"America/Toronto"};
+const periodMovement=(id,direction,occurredAt,realizedFx,realizedProfit,realizedLoss)=>({id,sourceKey:`PERIOD:${id}`,sourceType:"CASH_DELIVERY",direction,movementType:direction,currency:"USD",quantity:1,occurredAt,createdAt:occurredAt,realizedFx,realizedProfit,realizedLoss});
+const periodStore={treasuryMovements:[
+  periodMovement("before","OUT","2026-08-19",100,100,0),
+  periodMovement("at-start","OUT","2026-08-20",10,10,0),
+  periodMovement("profit","OUT","2026-08-25",25,25,0),
+  periodMovement("loss","OUT","2026-09-01",-8,0,8),
+  periodMovement("last-day","OUT","2026-09-19",3,3,0),
+  periodMovement("next-cycle","OUT","2026-09-20",50,50,0),
+  periodMovement("in-period","IN","2026-08-26",999,999,0)
+]};
+assert.deepEqual(treasuryRealizedForInventoryPeriod(periodStore,period),{realizedFx:30,realizedProfit:38,realizedLoss:8,outCount:4});
+assert.deepEqual(treasuryRealizedForInventoryPeriod(periodStore,{...period,start:"2026-09-20",nextStart:"2026-10-20"}),{realizedFx:50,realizedProfit:50,realizedLoss:0,outCount:1});
+const fixedSnapshot=treasuryInventorySnapshot(periodStore,{...period,end:"2026-09-19"},{inventoryId:"inventory-aug",finalizedAt:"2026-09-20T12:00:00Z"});
+assert.deepEqual(fixedSnapshot,{inventoryId:"inventory-aug",periodStart:"2026-08-20",periodEnd:"2026-09-19",nextPeriodStart:"2026-09-20",baseCurrency:"CAD",treasuryRealizedProfit:38,treasuryRealizedLoss:8,treasuryRealizedFx:30,treasuryOutCount:4,status:"FINALIZED",finalizedAt:"2026-09-20T12:00:00Z"});
+periodStore.treasuryMovements.push(periodMovement("later","OUT","2026-09-21",900,900,0));
+assert.equal(fixedSnapshot.treasuryRealizedFx,30);
+const averageBefore=rebuildTreasury({treasuryMovements:[incoming(250,1.40,"period-average")]})[0].averageCost;
+treasuryRealizedForInventoryPeriod(periodStore,period);
+const averageAfter=rebuildTreasury({treasuryMovements:[incoming(250,1.40,"period-average-after")]})[0].averageCost;
+assert.equal(averageBefore,averageAfter);
 
 const editStore={treasuryMovements:[]};
 const firstEdit=transfer("edit",700),secondEdit=transfer("edit",800);
