@@ -61,6 +61,44 @@ function diagnoseInvalidTreasuryInMovements(store) {
   return { total: invalidTransfers.length + invalidOther.length, invalidTransfers, invalidOther };
 }
 
+function planTreasuryEntryRateRepair(store, movementId) {
+  const movement = (store?.treasuryMovements || []).find(row => row && String(row.id) === String(movementId));
+  if (!movement) return { movementId: String(movementId), repairable: false, status: "MOVEMENT_NOT_FOUND" };
+  const direction = movement.sourceType === "TRANSFER" ? "IN" : String(movement.direction || movement.movementType || "").toUpperCase();
+  const currentCostRate = movement.costRate == null ? null : Number(movement.costRate);
+  const base = { movementId: String(movement.id), currentCostRate, expectedCostRate: null, repairable: false };
+  if (movement.sourceType !== "TRANSFER" || direction !== "IN") return {...base,status:"NOT_TRANSFER_IN"};
+  if (Number.isFinite(currentCostRate) && currentCostRate > 0) return {...base,status:"ALREADY_REPAIRED"};
+  const sourceTransactionId = String(movement.transactionId || String(movement.sourceKey || "").slice("TRANSFER:".length));
+  if (!sourceTransactionId || String(movement.sourceKey || "") !== `TRANSFER:${sourceTransactionId}`) return {...base,status:"INVALID_TRANSFER_LINK"};
+  const transaction = (store.transactions || []).find(row => row && String(row.id) === sourceTransactionId);
+  if (!transaction) return {...base,transactionId:sourceTransactionId,status:"TRANSACTION_NOT_FOUND"};
+  const expectedCostRate = transactionFinancials(transaction).costRate;
+  if (!Number.isFinite(expectedCostRate) || expectedCostRate <= 0) return {...base,transactionId:sourceTransactionId,expectedCostRate,status:"TRANSACTION_COST_RATE_REQUIRED"};
+
+  const verificationMovements = structuredClone(store.treasuryMovements || []);
+  const verificationMovement = verificationMovements.find(row => row && String(row.id) === String(movement.id));
+  verificationMovement.costRate = expectedCostRate;
+  let balances;
+  try { balances = rebuildTreasury({treasuryMovements:verificationMovements}); }
+  catch (error) { return {...base,transactionId:sourceTransactionId,expectedCostRate,status:"REBUILD_BLOCKED",blockingErrorCode:error.code||null}; }
+  const expectedCurrencyBalance = balances.find(row => row.currency === String(movement.currency || "").toUpperCase()) || null;
+  return {...base,transactionId:sourceTransactionId,expectedCostRate,repairable:true,status:"READY",expectedBalanceAfterRebuild:expectedCurrencyBalance};
+}
+
+function applyTreasuryEntryRateRepair(store, movementId, { confirmedExpectedCostRate } = {}) {
+  const plan = planTreasuryEntryRateRepair(store, movementId);
+  if (plan.status === "ALREADY_REPAIRED") return plan;
+  if (!plan.repairable) return plan;
+  if (Number(confirmedExpectedCostRate) !== plan.expectedCostRate) return {...plan,repairable:false,status:"EXPECTED_COST_RATE_MISMATCH"};
+  const movement = (store.treasuryMovements || []).find(row => row && String(row.id) === String(movementId));
+  movement.costRate = plan.expectedCostRate;
+  // Verify the repaired ledger on a clone so rebuild-derived fields on all
+  // other historical movements remain byte-for-byte untouched.
+  rebuildTreasury({treasuryMovements:structuredClone(store.treasuryMovements || [])});
+  return {...plan,status:"APPLIED",applied:true};
+}
+
 function rebuildTreasury(store, { allowNegative = false } = {}) {
   const balances = new Map();
   const rows = activeMovements(store);
@@ -208,4 +246,4 @@ function treasuryProfitForRange(store, { from = "", to = "" } = {}) {
   return moneyToNumber(total);
 }
 
-module.exports = { rebuildTreasury, diagnoseInvalidTreasuryInMovements, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements };
+module.exports = { rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements };

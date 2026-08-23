@@ -1,8 +1,28 @@
 "use strict";
+const APPROVED_TREASURY_REPAIR_MOVEMENT_ID="5a9ff1cb-859f-4c0c-a669-f78ac2fc0c5f";
 
-function registerTreasuryRoutes(app, { auth, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, diagnoseInvalidTreasuryInMovements, upsertCashDeliveryMovement }) {
+function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertCashDeliveryMovement }) {
   app.get("/api/treasury/diagnostics/invalid-in", auth, (_req,res)=>{
     res.json(diagnoseInvalidTreasuryInMovements(readStore()));
+  });
+
+  app.get("/api/admin/treasury/repairs/:movementId",auth,requirePermission("admin.only"),(req,res)=>{
+    if(req.params.movementId!==APPROVED_TREASURY_REPAIR_MOVEMENT_ID)return res.status(403).json({code:"TREASURY_REPAIR_NOT_APPROVED"});
+    const plan=planTreasuryEntryRateRepair(readStore(),req.params.movementId);
+    res.status(plan.status==="MOVEMENT_NOT_FOUND"?404:200).json(plan);
+  });
+
+  app.post("/api/admin/treasury/repairs/:movementId",auth,requirePermission("admin.only"),requireIdempotencyKey,async(req,res)=>{
+    if(req.params.movementId!==APPROVED_TREASURY_REPAIR_MOVEMENT_ID)return res.status(403).json({code:"TREASURY_REPAIR_NOT_APPROVED"});
+    if(req.body?.confirm!==true)return res.status(400).json({code:"EXPLICIT_CONFIRMATION_REQUIRED",message:"EXPLICIT_CONFIRMATION_REQUIRED"});
+    const confirmedExpectedCostRate=Number(req.body?.expectedCostRate);
+    const result=await mutateDurable(store=>{
+      const repair=applyTreasuryEntryRateRepair(store,req.params.movementId,{confirmedExpectedCostRate});
+      if(repair.status==="APPLIED")audit(store,req.user.id,"REPAIR","TREASURY_MOVEMENT",repair.movementId,{transactionId:repair.transactionId,previousCostRate:repair.currentCostRate,costRate:repair.expectedCostRate});
+      return repair;
+    });
+    const status=result.status==="MOVEMENT_NOT_FOUND"?404:result.status==="APPLIED"||result.status==="ALREADY_REPAIRED"?200:409;
+    res.status(status).json(result);
   });
   app.get("/api/treasury", auth, (req,res)=>{
     try{

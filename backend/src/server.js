@@ -42,7 +42,7 @@ const {
   mirrorsExternalBalance
 } = require("./finance/CompanyDebtPosition");
 const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
-const { rebuildTreasury, diagnoseInvalidTreasuryInMovements, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements } = require("./finance/Treasury");
+const { rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements } = require("./finance/Treasury");
 const { registerHealthRoutes } = require("./routes/health");
 const { registerDeveloperRoutes } = require("./routes/developer");
 const { registerNotificationRoutes } = require("./routes/notifications");
@@ -2760,7 +2760,7 @@ async function refreshAutomaticRates(userId="SYSTEM") {
   }
   return results;
 }
-registerTreasuryRoutes(app,{auth,requireIdempotencyKey,readStore,mutateDurable,id,now,audit,rebuildTreasury,diagnoseInvalidTreasuryInMovements,upsertCashDeliveryMovement});
+registerTreasuryRoutes(app,{auth,requirePermission,requireIdempotencyKey,readStore,mutateDurable,id,now,audit,rebuildTreasury,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,upsertCashDeliveryMovement});
 registerProfitRoutes(app,{auth,readStore,summarizeTransactionProfits,treasuryProfitForRange,addTransactionProfitToBucket,activeMovements,transactionFinancials,transactionFinancialView});
 
 

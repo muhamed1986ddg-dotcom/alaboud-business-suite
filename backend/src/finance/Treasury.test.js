@@ -1,6 +1,6 @@
 "use strict";
 const assert=require("assert");
-const {rebuildTreasury,diagnoseInvalidTreasuryInMovements,upsertTransferMovement,cancelTransferMovement,upsertCashDeliveryMovement,treasuryProfitForRange}=require("./Treasury");
+const {rebuildTreasury,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,upsertTransferMovement,cancelTransferMovement,upsertCashDeliveryMovement,treasuryProfitForRange}=require("./Treasury");
 const {transactionFinancials}=require("./TransactionFinancials");
 let sequence=0;
 const helpers={id:()=>`m${++sequence}`,now:()=>`2026-01-10T00:00:${String(sequence).padStart(2,"0")}Z`,userId:"u1"};
@@ -71,6 +71,23 @@ assert.deepEqual(diagnosticReport.invalidTransfers.map(row=>({movementId:row.mov
 ]);
 assert.deepEqual(diagnosticReport.invalidOther.map(row=>row.movementId),["legacy-manual-in"]);
 assert.equal(diagnosticStore.treasuryMovements[0].costRate,0);
+
+const productionMovementId="5a9ff1cb-859f-4c0c-a669-f78ac2fc0c5f";
+const productionTransactionId="0eef944c-a766-448d-970c-3c8e98b4c256";
+const untouchedMovement=incoming(250,1.40,"repair-untouched");
+const repairStore={treasuryMovements:[
+  untouchedMovement,
+  {id:productionMovementId,sourceType:"TRANSFER",sourceKey:`TRANSFER:${productionTransactionId}`,transactionId:productionTransactionId,direction:"IN",currency:"USD",quantity:450,costRate:null,createdAt:"2026-01-02",occurredAt:"2026-01-02"}
+],transactions:[{id:productionTransactionId,amount:450,currency:"USD",costRate:1.3763,finalRate:1.41}]};
+const repairBefore=structuredClone(repairStore);
+const dryRun=planTreasuryEntryRateRepair(repairStore,productionMovementId);
+assert.equal(dryRun.repairable,true);assert.equal(dryRun.currentCostRate,null);assert.equal(dryRun.expectedCostRate,1.3763);
+assert.equal(dryRun.expectedBalanceAfterRebuild.balance,700);assert.deepEqual(repairStore,repairBefore);
+const applied=applyTreasuryEntryRateRepair(repairStore,productionMovementId,{confirmedExpectedCostRate:dryRun.expectedCostRate});
+assert.equal(applied.status,"APPLIED");assert.equal(repairStore.treasuryMovements[1].costRate,1.3763);
+assert.deepEqual(repairStore.treasuryMovements[0],repairBefore.treasuryMovements[0]);
+assert.equal(diagnoseInvalidTreasuryInMovements(repairStore).total,0);
+assert.equal(applyTreasuryEntryRateRepair(repairStore,productionMovementId,{confirmedExpectedCostRate:dryRun.expectedCostRate}).status,"ALREADY_REPAIRED");
 
 const editStore={treasuryMovements:[]};
 const firstEdit=transfer("edit",700),secondEdit=transfer("edit",800);
