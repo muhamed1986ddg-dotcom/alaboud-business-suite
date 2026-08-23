@@ -2,6 +2,7 @@ import React,{useEffect,useState} from "react";
 import api,{cachedGet,clearApiGetCache} from "../api";
 import {money} from "../shared";
 import {AppTable} from "../components/ui";
+import {treasuryAverageCostRows,treasuryRealizedSummary} from "../treasurySummary";
 
 export function Treasury(){
   const [data,setData]=useState({balances:[],movements:[]});
@@ -27,6 +28,9 @@ export function Treasury(){
     {key:"status",label:"الحالة",render:r=>r.isCancelled?"ملغاة/معكوسة":"فعالة"}
   ];
   const movementRows=data.movements||[];
+  const averageCostRows=treasuryAverageCostRows(data.balances);
+  const realizedSummary=treasuryRealizedSummary(data.balances);
+  const realizedSign=realizedSummary.net>0?"+":"";
   const movementTypeLabel=row=>row.movementType==="ADJUSTMENT"?`تسوية (${row.direction==="IN"?"دخول":"خروج"})`:row.direction==="IN"?"دخول":"خروج";
   const movementStatus=row=>row.isCancelled?"ملغاة/معكوسة":row.movementType==="ADJUSTMENT"?"تسوية":"";
   const movementFields=row=>[
@@ -46,6 +50,22 @@ export function Treasury(){
   return <div className="treasury-page">
     <div className="transactions-page-heading"><div><h2>الخزنة</h2><p>أرصدة العملات بالتكلفة المرجحة وسجل فرق السعر المحقق.</p></div></div>
     {error&&<div className="card customer-error">{error}</div>}
+    <section className="treasury-financial-summary" aria-label="ملخص الخزنة المالي">
+      <article className="card treasury-financial-summary__card">
+        <h3>متوسط تكلفة الخزنة</h3>
+        <div className="treasury-average-list">
+          {averageCostRows.length?averageCostRows.map(row=><div className="treasury-average-item" key={row.currency}>
+            <strong>{row.averageCost.toFixed(6)} CAD</strong>
+            <small>الرصيد الحالي: {money(row.balance)} {row.currency}</small>
+          </div>):<div className="treasury-summary-empty">لا توجد أرصدة خزنة.</div>}
+        </div>
+      </article>
+      <article className="card treasury-financial-summary__card treasury-realized-summary">
+        <h3>ربح/خسارة فرق التسليم</h3>
+        <strong className={`treasury-realized-summary__net ${realizedSummary.net<0?"value-negative":"value-positive"}`}>{realizedSign}{money(realizedSummary.net)} CAD</strong>
+        <small>الربح: {money(realizedSummary.profit)} CAD <span aria-hidden="true">|</span> الخسارة: {money(realizedSummary.loss)} CAD</small>
+      </article>
+    </section>
     <section className="transaction-summary-grid">{data.balances.map(row=><div className="card transaction-summary-card" key={row.currency}><span>{row.currency}</span><strong>{money(row.balance)}</strong><small>التكلفة: {money(row.totalCost)} CAD · المتوسط: {Number(row.averageCost||0).toFixed(6)}</small><small>ربح محقق: {money(row.realizedProfit)} · خسارة: {money(row.realizedLoss)}</small></div>)}</section>
     <form className="card form no-print" onSubmit={deliverCash}><h3>تسليم كاش فعلي</h3>
       <select value={delivery.transactionId} onChange={e=>setDelivery({...delivery,transactionId:e.target.value})} required><option value="">اختر الحوالة</option>{transactions.map(row=><option key={row.id} value={row.id}>{row.number||row.id} — {money(row.amount)} {row.currency}</option>)}</select>
