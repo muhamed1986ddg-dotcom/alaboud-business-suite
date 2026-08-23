@@ -59,9 +59,24 @@ setTimeout(async()=>{
     assert(r.status===201&&r.body.id,"customer",r);
     const customerId=r.body.id;
 
-    r=await request("POST","/api/transactions",{customerId,amount:1000,costRate:1.35,finalRate:1.38,transferFee:15,transferDate:"2026-07-13"},token);
+    r=await request("POST","/api/treasury/adjustments",{direction:"IN",currency:"USD",quantity:250,costRate:1.35,reason:"selftest opening fixture",occurredAt:"2026-07-12"},token);
+    assert(r.status===201&&r.body.direction==="IN","treasury test fixture",r);
+
+    r=await request("POST","/api/transactions",{customerId,amount:700,costRate:1.35,finalRate:1.38,transferFee:15,transferDate:"2026-07-13",treasuryEffect:"OUT",deliveryRate:99},token);
     assert(r.status===201&&r.body.id,"transaction",r);
     const transactionId=r.body.id;
+    assert(r.body.treasuryEffect==="IN"&&r.body.deliveryRate===null,"new transfer is always treasury IN",r);
+
+    r=await request("GET","/api/treasury",null,token);
+    assert(r.status===200&&r.body.balances.some(row=>row.currency==="USD"&&row.balance===950),"USD 250 + transfer 700 = treasury 950",r);
+    assert(r.body.movements.some(row=>row.transactionId===transactionId&&row.direction==="IN"&&row.deliveryRate===null&&row.realizedFx===0),"registration has no realized FX",r);
+
+    r=await request("POST",`/api/transactions/${transactionId}/cash-delivery`,{deliveryRate:1.40,quantity:300},token);
+    assert(r.status===201&&r.body.direction==="OUT","partial cash delivery creates treasury OUT",r);
+
+    r=await request("GET","/api/treasury",null,token);
+    assert(r.status===200&&r.body.balances.some(row=>row.currency==="USD"&&row.balance===650),"partial cash delivery reduces treasury balance",r);
+    assert(r.body.movements.some(row=>row.transactionId===transactionId&&row.direction==="OUT"&&row.realizedFx===15),"partial cash delivery creates realized FX",r);
 
     r=await request("GET",`/api/transactions/${transactionId}/invoice`,null,token);
     assert(r.status===200,"invoice",r);

@@ -34,8 +34,6 @@ export function Customer({id,back,onStatement,onAddTransfer}){
       providerFeeAmount:String(transaction.providerFeeAmount??""),
       providerFeeCurrency:transaction.providerFeeCurrency||transaction.currency||"USD",
       providerFeeRateCad:String(transaction.providerFeeRateCad??"")
-      ,treasuryEffect:"IN"
-      ,deliveryRate:null
     });
     revealAppEditor('[data-app-editor="customer-transaction"]');
   }
@@ -339,8 +337,6 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         providerFeeAmount:Number(editingTransaction.providerFeeAmount||0),
         providerFeeCurrency:String(editingTransaction.providerFeeCurrency||editingTransaction.currency||"USD").toUpperCase(),
         providerFeeRateCad:preview.providerFeeRateCad
-        ,treasuryEffect:"IN"
-        ,deliveryRate:null
       });
       setEditingTransaction(null);
       void load();
@@ -466,7 +462,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         <input type="number" step=".01" value={editingTransaction.amount} onChange={e=>setEditingTransaction({...editingTransaction,amount:e.target.value})} placeholder="المبلغ"/>
         <input type="number" step=".0001" value={editingTransaction.costRate} onChange={e=>setEditingTransaction({...editingTransaction,costRate:e.target.value})} placeholder="سعر التكلفة (CAD)"/>
         <input type="number" step=".0001" value={editingTransaction.finalRate} onChange={e=>setEditingTransaction({...editingTransaction,finalRate:e.target.value})} placeholder="سعر الحوالة (CAD)"/>
-        <div className="transaction-edit-preview"><span>أثر الخزنة</span><strong>IN — دخول كاش</strong><small>التسليم الكاش يُسجل كحركة OUT مستقلة.</small></div>
+        <div className="transaction-edit-preview"><span>أثر الخزنة</span><strong>IN — دخول كاش</strong></div>
         <select value={editingTransaction.feeMethod} onChange={e=>setEditingTransaction({...editingTransaction,feeMethod:e.target.value,transferFee:e.target.value==="PAID"?editingTransaction.transferFee:""})}>
           <option value="SPREAD">الأجور من فرق سعر التحويل</option>
           <option value="PAID">أجور مدفوعة بشكل مستقل</option>

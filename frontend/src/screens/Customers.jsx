@@ -38,8 +38,6 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     amount:"",
     costRate:"",
     finalRate:"",
-    treasuryEffect:"IN",
-    deliveryRate:null,
     feeMethod:"SPREAD",
     transferFee:"",
     partnerId:"",
@@ -167,8 +165,6 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       amount:"",
       costRate:"",
       finalRate:"",
-      treasuryEffect:"IN",
-      deliveryRate:null,
       feeMethod:"SPREAD",
       transferFee:"",
       partnerId:"",
@@ -428,8 +424,6 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         amount:"",
         costRate:"",
         finalRate:"",
-        treasuryEffect:"IN",
-        deliveryRate:null,
         feeMethod:"SPREAD",
         transferFee:"",
         partnerId:"",
@@ -766,10 +760,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           <input type="number" inputMode="decimal" min=".0001" step=".0001" value={transferForm.finalRate} onChange={e=>setTransferForm({...transferForm,finalRate:e.target.value})} placeholder="0.0000" required/>
           <small>السعر الذي يُحاسب عليه العميل مقابل كل وحدة من عملة الحوالة</small>
         </label>
-        <label className="currency-field">
-          <span className="currency-field-title">أثر الحوالة على الخزنة</span>
-          <div className="transaction-edit-preview"><strong>دخول كاش إلى الخزنة</strong><small>التسليم الكاش يُسجل كحركة خروج مستقلة.</small></div>
-        </label>
+        <div className="transaction-edit-preview"><span>أثر الخزنة</span><strong>دخول {transferForm.currency}</strong><small>تسجيل الحوالة يزيد رصيد الخزنة؛ الخروج يُسجل فقط عند التسليم الكاش.</small></div>
         <label className="currency-field">
           <span className="currency-field-title">طريقة احتساب أجور الحوالة</span>
           <select value={transferForm.feeMethod} onChange={e=>setTransferForm({...transferForm,feeMethod:e.target.value,transferFee:e.target.value==="PAID"?transferForm.transferFee:""})}>

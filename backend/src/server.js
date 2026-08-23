@@ -42,7 +42,7 @@ const {
   mirrorsExternalBalance
 } = require("./finance/CompanyDebtPosition");
 const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
-const { rebuildTreasury, upsertTransferMovement, cancelTransferMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements, upsertCashDeliveryMovement } = require("./finance/Treasury");
+const { rebuildTreasury, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, activeMovements } = require("./finance/Treasury");
 const { registerHealthRoutes } = require("./routes/health");
 const { registerDeveloperRoutes } = require("./routes/developer");
 const { registerNotificationRoutes } = require("./routes/notifications");
@@ -2139,9 +2139,7 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     providerFeeAmount=0,
     providerFeeCurrency="",
     providerFeeRateCad=0,providerFeeMode="MANUAL",providerFeePer100=0,
-    transferDate="",
-    treasuryEffect="NONE",
-    deliveryRate=null
+    transferDate=""
   }=req.body||{};
 
   const nums=[amount,costRate,finalRate,transferFee,providerFeeAmount,providerFeeRateCad].map(Number);
@@ -2156,10 +2154,6 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
 
   const [a,cost,clientRate,fee,executionFeeAmount,executionFeeRate]=nums;
   const normalizedCurrency=String(currency||"USD").toUpperCase();
-  const normalizedTreasuryEffect=String(treasuryEffect||"NONE").toUpperCase();
-  if(!["NONE","IN","OUT"].includes(normalizedTreasuryEffect))return res.status(400).json({message:"أثر الخزنة غير صحيح"});
-  const effectiveDeliveryRate=deliveryRate===null||deliveryRate===""?cost:Number(deliveryRate);
-  if(normalizedTreasuryEffect==="OUT"&&(!Number.isFinite(effectiveDeliveryRate)||effectiveDeliveryRate<=0))return res.status(400).json({message:"سعر الصرف الفعلي وقت التسليم مطلوب"});
   const normalizedProviderFeeCurrency=String(providerFeeCurrency||normalizedCurrency).toUpperCase();
   const normalizedFeeMethod=normalizeFeeMethod({feeMethod:rawFeeMethod,transferFee:fee});
   const financials=transactionFinancials({
@@ -2219,7 +2213,9 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
       createdBy:req.user.id
     };
     s.transactions.push(t);
-    if(t.status!=="CANCELLED")upsertTransferMovement(s,t,{id,now,userId:req.user.id,occurredAt:t.transferDate});
+    if(t.status!=="CANCELLED"){
+      upsertTransferMovement(s,t,{id,now,userId:req.user.id,occurredAt:t.transferDate});
+    }
 
     const normalizedPaymentStatus=String(paymentStatus||"UNPAID").toUpperCase();
     if(normalizedPaymentStatus==="PAID"){
@@ -2450,7 +2446,7 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
       const transaction=s.transactions.find(item=>item.id===req.params.id&&!item.isDeleted);
       if(!transaction)return null;
 
-      const allowed=["currency","amount","costRate","finalRate","transferFee","feeMethod","partnerId","providerFeeCompany","providerFeeAmount","providerFeeCurrency","providerFeeRateCad","providerFeeMode","providerFeePer100","transferDate","status","rateSource","rateUpdatedAt","treasuryEffect","deliveryRate"];
+      const allowed=["currency","amount","costRate","finalRate","transferFee","feeMethod","partnerId","providerFeeCompany","providerFeeAmount","providerFeeCurrency","providerFeeRateCad","providerFeeMode","providerFeePer100","transferDate","status","rateSource","rateUpdatedAt"];
       const oldData={...transaction};
 
       const requestedFeeMethod=String(req.body?.feeMethod||"").trim().toUpperCase();
@@ -2511,10 +2507,11 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
         throw new Error("لا يمكن جعل إجمالي الحوالة أقل من الدفعات المسجلة");
       }
 
-      if(transaction.status!=="CANCELLED")upsertTransferMovement(s,transaction,{id,now,userId:req.user.id,occurredAt:transaction.transferDate});
-      else{
+      if(transaction.status!=="CANCELLED"){
+        upsertTransferMovement(s,transaction,{id,now,userId:req.user.id,occurredAt:transaction.transferDate});
+      }else{
         cancelCashDeliveryMovement(s,transaction.id,{now,userId:req.user.id,reason:"إلغاء حوالة مرتبطة بتسليم كاش"});
-        cancelTransferMovement(s,transaction.id,{now,userId:req.user.id,reason:"تعديل حالة الحوالة"});
+        cancelTransferMovement(s,transaction.id,{now,userId:req.user.id,reason:"تعديل أثر الحوالة على الخزنة"});
       }
 
       audit(s,req.user.id,"UPDATE","TRANSACTION",transaction.id,{before:oldData,after:{...transaction},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});

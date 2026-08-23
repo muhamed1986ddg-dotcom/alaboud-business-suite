@@ -62,8 +62,6 @@ export function Transactions({openInvoice}){
       providerFeePer100:Number(transaction.providerFeePer100??providerFeeSettings.feePer100??0.40),
       currency:transaction.currency||"USD",
       transferDate:transaction.transferDate||String(transaction.createdAt||"").slice(0,10)
-      ,treasuryEffect:"IN"
-      ,deliveryRate:null
     });
     revealAppEditor('[data-app-editor="transaction"]');
   }
@@ -91,8 +89,6 @@ export function Transactions({openInvoice}){
         providerFeePer100:Number(editingTransaction.providerFeePer100||providerFeeSettings.feePer100||0),
         transferDate:editingTransaction.transferDate,
         status:editingTransaction.status||"COMPLETED",
-        treasuryEffect:"IN",
-        deliveryRate:null,
         rateSource:"manual"
       });
       setEditingTransaction(null);
