@@ -75,17 +75,22 @@ assert.equal(diagnosticStore.treasuryMovements[0].costRate,0);
 const productionMovementId="5a9ff1cb-859f-4c0c-a669-f78ac2fc0c5f";
 const productionTransactionId="0eef944c-a766-448d-970c-3c8e98b4c256";
 const untouchedMovement=incoming(250,1.40,"repair-untouched");
-const repairStore={treasuryMovements:[
+const untouchedBefore={...untouchedMovement};
+const repairMovements=[
   untouchedMovement,
   {id:productionMovementId,sourceType:"TRANSFER",sourceKey:`TRANSFER:${productionTransactionId}`,transactionId:productionTransactionId,direction:"IN",currency:"USD",quantity:450,costRate:null,createdAt:"2026-01-02",occurredAt:"2026-01-02"}
-],transactions:[{id:productionTransactionId,amount:450,currency:"USD",costRate:1.3763,finalRate:1.41}]};
-const repairBefore=structuredClone(repairStore);
+];
+// tenantView exposes Array-like collections through proxies. Such proxies
+// cannot be passed to structuredClone, but Array.from produces a safe snapshot.
+const repairStore={treasuryMovements:new Proxy(repairMovements,{}),transactions:new Proxy([{id:productionTransactionId,amount:450,currency:"USD",costRate:1.3763,finalRate:1.41}],{})};
+assert.throws(()=>structuredClone(repairStore.treasuryMovements),error=>error?.name==="DataCloneError");
+const repairBefore=JSON.stringify(repairStore);
 const dryRun=planTreasuryEntryRateRepair(repairStore,productionMovementId);
 assert.equal(dryRun.repairable,true);assert.equal(dryRun.currentCostRate,null);assert.equal(dryRun.expectedCostRate,1.3763);
-assert.equal(dryRun.expectedBalanceAfterRebuild.balance,700);assert.deepEqual(repairStore,repairBefore);
+assert.equal(dryRun.expectedBalanceAfterRebuild.balance,700);assert.equal(JSON.stringify(repairStore),repairBefore);
 const applied=applyTreasuryEntryRateRepair(repairStore,productionMovementId,{confirmedExpectedCostRate:dryRun.expectedCostRate});
 assert.equal(applied.status,"APPLIED");assert.equal(repairStore.treasuryMovements[1].costRate,1.3763);
-assert.deepEqual(repairStore.treasuryMovements[0],repairBefore.treasuryMovements[0]);
+assert.deepEqual(repairStore.treasuryMovements[0],untouchedBefore);
 assert.equal(diagnoseInvalidTreasuryInMovements(repairStore).total,0);
 assert.equal(applyTreasuryEntryRateRepair(repairStore,productionMovementId,{confirmedExpectedCostRate:dryRun.expectedCostRate}).status,"ALREADY_REPAIRED");
 

@@ -76,7 +76,7 @@ function planTreasuryEntryRateRepair(store, movementId) {
   const expectedCostRate = transactionFinancials(transaction).costRate;
   if (!Number.isFinite(expectedCostRate) || expectedCostRate <= 0) return {...base,transactionId:sourceTransactionId,expectedCostRate,status:"TRANSACTION_COST_RATE_REQUIRED"};
 
-  const verificationMovements = structuredClone(store.treasuryMovements || []);
+  const verificationMovements = Array.from(store.treasuryMovements || []).map(row => ({...row}));
   const verificationMovement = verificationMovements.find(row => row && String(row.id) === String(movement.id));
   verificationMovement.costRate = expectedCostRate;
   let balances;
@@ -95,7 +95,7 @@ function applyTreasuryEntryRateRepair(store, movementId, { confirmedExpectedCost
   movement.costRate = plan.expectedCostRate;
   // Verify the repaired ledger on a clone so rebuild-derived fields on all
   // other historical movements remain byte-for-byte untouched.
-  rebuildTreasury({treasuryMovements:structuredClone(store.treasuryMovements || [])});
+  rebuildTreasury({treasuryMovements:Array.from(store.treasuryMovements || []).map(row => ({...row}))});
   return {...plan,status:"APPLIED",applied:true};
 }
 
