@@ -7331,3 +7331,78 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
     grid-column:auto;
   }
 }
+/* v25.14.107 - Treasury movement ledger: mobile cards replace the wide table. */
+.treasury-movement-cards{display:none}
+@media(max-width:768px){
+  .treasury-page{
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    overflow-x:hidden;
+    padding-bottom:calc(96px + env(safe-area-inset-bottom,0px));
+  }
+  .treasury-movements-section{
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    overflow:hidden;
+    padding:14px!important;
+  }
+  .treasury-movements-desktop{display:none}
+  .treasury-movement-cards{
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:12px;
+    width:100%;
+    min-width:0;
+  }
+  .treasury-movement-card{
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    overflow:hidden;
+    padding:12px;
+    border:1px solid rgba(214,173,56,.42);
+    border-radius:14px;
+    background:linear-gradient(145deg,#151515,#0b0b0b);
+    box-shadow:0 8px 22px rgba(0,0,0,.28);
+    color:#fff8df;
+    direction:rtl;
+  }
+  .treasury-movement-card__row{
+    display:grid;
+    grid-template-columns:minmax(92px,42%) minmax(0,1fr);
+    align-items:start;
+    gap:10px;
+    width:100%;
+    min-width:0;
+    padding:9px 0;
+    border-bottom:1px solid rgba(214,173,56,.14);
+  }
+  .treasury-movement-card__row:last-child{border-bottom:0}
+  .treasury-movement-card__row>span{
+    min-width:0;
+    color:#d9c78d;
+    font-size:.78rem;
+    font-weight:700;
+    text-align:right;
+    overflow-wrap:anywhere;
+  }
+  .treasury-movement-card__value{
+    min-width:0;
+    max-width:100%;
+    color:#fff;
+    font-size:.82rem;
+    font-weight:700;
+    text-align:left;
+    direction:ltr;
+    white-space:normal;
+    overflow-wrap:anywhere;
+    word-break:break-word;
+  }
+  .treasury-movement-empty{
+    padding:18px 10px;
+    color:#cfc6a8;
+    text-align:center;
+  }
+}
