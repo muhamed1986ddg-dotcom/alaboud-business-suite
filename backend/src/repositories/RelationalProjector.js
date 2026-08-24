@@ -12,7 +12,9 @@ const TABLE_CONFIG = {
   expenses: { key: ["id"] },
   capital_movements: { key: ["id"] },
   exchange_rates: { key: ["company_id", "base_currency", "quote_currency", "effective_at"] },
-  settings: { key: ["company_id", "setting_key"] }
+  settings: { key: ["company_id", "setting_key"] },
+  treasury_movements: { key: ["id"] },
+  treasury_balances: { key: ["company_id", "branch_id", "currency"] }
 };
 
 function quote(identifier) {
@@ -66,7 +68,7 @@ class RelationalProjector {
 
     const childTables = [
       "debt_payments", "payments", "transactions", "debts", "expenses",
-      "capital_movements", "exchange_rates", "settings", "partners", "customers", "users"
+      "treasury_movements", "capital_movements", "exchange_rates", "settings", "partners", "customers", "users"
     ];
 
     for (const table of childTables) {

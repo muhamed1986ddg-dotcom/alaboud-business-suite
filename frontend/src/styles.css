@@ -7331,3 +7331,128 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
     grid-column:auto;
   }
 }
+/* v25.14.107 - Treasury movement ledger: mobile cards replace the wide table. */
+.treasury-financial-summary{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:16px;
+  width:100%;
+  min-width:0;
+}
+.treasury-financial-summary__card{
+  min-width:0;
+  border:1px solid rgba(214,173,56,.32);
+  background:linear-gradient(145deg,#151515,#0b0b0b)!important;
+  color:#fff8df!important;
+}
+.treasury-financial-summary__card h3{margin:0 0 14px;color:#f0ce68}
+.treasury-finalized-periods{min-width:0;margin:16px 0}.treasury-finalized-periods>h3{color:#f0ce68;margin:0 0 10px}.treasury-finalized-periods__grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.treasury-finalized-card{min-width:0;overflow:hidden}.treasury-finalized-card header,.treasury-finalized-card>div{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.treasury-finalized-card header{margin-bottom:10px}.treasury-finalized-card header span{color:#d5ad4d}.treasury-finalized-card small{display:block;margin-bottom:10px;color:#aaa;overflow-wrap:anywhere}.treasury-finalized-card>div{padding:7px 0;border-top:1px solid rgba(205,164,75,.14)}.treasury-finalized-card strong,.treasury-finalized-card span{min-width:0;overflow-wrap:anywhere;word-break:break-word}.treasury-finalized-card__net{margin-top:4px;font-size:1.05rem}
+.treasury-delivery-availability{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;padding:12px 14px;border:1px solid rgba(205,164,75,.3);border-radius:12px;background:rgba(205,164,75,.06);min-width:0}.treasury-delivery-availability strong,.treasury-delivery-availability small{overflow-wrap:anywhere}.treasury-delivery-availability small{flex-basis:100%;color:#aaa}.treasury-delivery-preview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;padding:1px;border-radius:12px;overflow:hidden;background:rgba(205,164,75,.18);min-width:0}.treasury-delivery-preview>div{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;background:#111;min-width:0}.treasury-delivery-preview span,.treasury-delivery-preview strong{min-width:0;overflow-wrap:anywhere;word-break:break-word}.treasury-delivery-preview span{color:#aaa}
+.treasury-carry-forward-action{display:flex;justify-content:flex-start;margin:14px 0}.treasury-carry-forward-action button{width:auto}.treasury-carry-forward-form{max-width:100%;overflow:hidden}.treasury-carry-forward-preview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;padding:1px;border-radius:12px;overflow:hidden;background:rgba(205,164,75,.18);min-width:0}.treasury-carry-forward-preview>div{display:flex;justify-content:space-between;gap:12px;padding:10px 12px;background:#111;min-width:0}.treasury-carry-forward-preview span,.treasury-carry-forward-preview strong{min-width:0;overflow-wrap:anywhere;word-break:break-word}.treasury-carry-forward-preview span{color:#aaa}.treasury-carry-forward-buttons{display:flex;flex-wrap:wrap;gap:10px}.treasury-carry-forward-buttons button{width:auto;max-width:100%}
+.treasury-average-list{display:grid;gap:10px;min-width:0}
+.treasury-average-item{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  min-width:0;
+  padding:10px 0;
+  border-bottom:1px solid rgba(214,173,56,.14);
+}
+.treasury-average-item:last-child{border-bottom:0}
+.treasury-average-item strong,.treasury-average-item small,
+.treasury-realized-summary__net,.treasury-realized-summary small{
+  min-width:0;
+  max-width:100%;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+.treasury-average-item strong{font-size:1.2rem;direction:ltr;text-align:left}
+.treasury-average-item small{color:#d9c78d;text-align:left}
+.treasury-realized-summary{display:flex;flex-direction:column;align-items:flex-start}
+.treasury-realized-summary__net{font-size:clamp(1.65rem,4vw,2.35rem);direction:ltr;text-align:left}
+.treasury-realized-summary__period{margin-top:8px;color:#f0ce68;font-size:.86rem;overflow-wrap:anywhere}
+.treasury-realized-summary small{margin-top:12px;color:#d9c78d;direction:rtl;text-align:right}
+.treasury-summary-empty{color:#cfc6a8}
+.treasury-movement-cards{display:none}
+@media(max-width:768px){
+  .treasury-financial-summary{grid-template-columns:minmax(0,1fr);gap:12px}
+  .treasury-finalized-periods__grid{grid-template-columns:minmax(0,1fr)}
+  .treasury-delivery-preview{grid-template-columns:minmax(0,1fr)}
+  .treasury-carry-forward-preview{grid-template-columns:minmax(0,1fr)}
+  .treasury-carry-forward-action button,.treasury-carry-forward-buttons button{width:100%}
+  .treasury-financial-summary__card{width:100%;max-width:100%;overflow:hidden;padding:14px!important}
+  .treasury-average-item{display:grid;grid-template-columns:minmax(0,1fr);gap:5px}
+  .treasury-average-item strong,.treasury-average-item small{text-align:right}
+  .treasury-page{
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    overflow-x:hidden;
+    padding-bottom:calc(96px + env(safe-area-inset-bottom,0px));
+  }
+  .treasury-movements-section{
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    overflow:hidden;
+    padding:14px!important;
+  }
+  .treasury-movements-desktop{display:none}
+  .treasury-movement-cards{
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:12px;
+    width:100%;
+    min-width:0;
+  }
+  .treasury-movement-card{
+    width:100%;
+    max-width:100%;
+    min-width:0;
+    overflow:hidden;
+    padding:12px;
+    border:1px solid rgba(214,173,56,.42);
+    border-radius:14px;
+    background:linear-gradient(145deg,#151515,#0b0b0b);
+    box-shadow:0 8px 22px rgba(0,0,0,.28);
+    color:#fff8df;
+    direction:rtl;
+  }
+  .treasury-movement-card__row{
+    display:grid;
+    grid-template-columns:minmax(92px,42%) minmax(0,1fr);
+    align-items:start;
+    gap:10px;
+    width:100%;
+    min-width:0;
+    padding:9px 0;
+    border-bottom:1px solid rgba(214,173,56,.14);
+  }
+  .treasury-movement-card__row:last-child{border-bottom:0}
+  .treasury-movement-card__row>span{
+    min-width:0;
+    color:#d9c78d;
+    font-size:.78rem;
+    font-weight:700;
+    text-align:right;
+    overflow-wrap:anywhere;
+  }
+  .treasury-movement-card__value{
+    min-width:0;
+    max-width:100%;
+    color:#fff;
+    font-size:.82rem;
+    font-weight:700;
+    text-align:left;
+    direction:ltr;
+    white-space:normal;
+    overflow-wrap:anywhere;
+    word-break:break-word;
+  }
+  .treasury-movement-empty{
+    padding:18px 10px;
+    color:#cfc6a8;
+    text-align:center;
+  }
+}

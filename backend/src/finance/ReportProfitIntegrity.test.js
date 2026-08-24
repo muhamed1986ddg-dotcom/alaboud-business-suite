@@ -11,6 +11,6 @@ const exchangeProfit=rows.reduce((sum,row)=>sum+transactionFinancials(row).excha
 assert.equal(+exchangeProfit.toFixed(2),184.45);
 const server=fs.readFileSync(path.join(__dirname,"..","server.js"),"utf8");
 assert(server.includes('!t.isDeleted&&t.status!=="CANCELLED"'));
-assert(server.includes('inRange(t.transferDate||t.createdAt)'));
-assert(server.includes('String(t.transferDate||t.createdAt||"").slice(0,7)'));
+assert(server.includes('aiMonthKey(t.transferDate||t.createdAt)'));
+assert(server.includes('aiDateKey(t.transferDate||t.createdAt)'));
 console.log("Report profit integrity tests passed");

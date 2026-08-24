@@ -43,9 +43,19 @@ function assert(condition,label,response){
   if(!condition)throw new Error(`${label}: ${JSON.stringify(response)}`);
 }
 
+async function waitForHealth(timeoutMs=15000){
+  const deadline=Date.now()+timeoutMs;
+  let lastError;
+  while(Date.now()<deadline){
+    try{return await request("GET","/api/health");}
+    catch(error){lastError=error;await new Promise(resolve=>setTimeout(resolve,100));}
+  }
+  throw lastError||new Error("self-test server did not become ready");
+}
+
 setTimeout(async()=>{
   try{
-    let r=await request("GET","/api/health");
+    let r=await waitForHealth();
     assert(r.status===200&&r.body.version===require("../package.json").version,"health",r);
 
     r=await request("POST","/api/auth/login",{email:"admin@alaboud.local",password:selftestInitialPassword});
@@ -59,9 +69,39 @@ setTimeout(async()=>{
     assert(r.status===201&&r.body.id,"customer",r);
     const customerId=r.body.id;
 
-    r=await request("POST","/api/transactions",{customerId,amount:1000,costRate:1.35,finalRate:1.38,transferFee:15,transferDate:"2026-07-13"},token);
+    r=await request("POST","/api/treasury/adjustments",{direction:"IN",currency:"USD",quantity:250,costRate:1.40,reason:"selftest opening fixture",occurredAt:"2026-07-12"},token);
+    assert(r.status===201&&r.body.direction==="IN","treasury test fixture",r);
+
+    // Mirrors the payload assembled by Customers.jsx addTransfer, including
+    // the UI-only fields carried by the spread form.
+    const productionTransferRequest={customerId,currency:"USD",amount:700,costRate:1.40,finalRate:1.43,feeMethod:"SPREAD",transferFee:0,partnerId:"",providerFeeCompany:"",providerFeeAmount:0,providerFeeCurrency:"USD",providerFeeRateCad:0,providerFeeMode:"AUTO",providerFeePer100:0.40,paymentStatus:"UNPAID",transferDate:"2026-07-13",rateMode:"auto",rateSource:"exchange-rates",rateUpdatedAt:null,providerFeeAuto:true};
+    r=await request("POST","/api/transactions",productionTransferRequest,token);
     assert(r.status===201&&r.body.id,"transaction",r);
     const transactionId=r.body.id;
+    assert(r.body.treasuryEffect==="IN"&&r.body.deliveryRate===null,"new transfer is always treasury IN",r);
+    assert(r.body.costRate===1.40&&r.body.exchangeProfit===21,"financial engine uses the production request cost rate",r);
+
+    r=await request("GET","/api/treasury",null,token);
+    assert(r.status===200&&r.body.balances.some(row=>row.currency==="CAD"&&row.balance===1001&&row.totalUsdBasis===715&&row.averageRateCadPerUsd===1.4),"transfer adds customer CAD cash with its USD cost basis",r);
+    assert(r.body.movements.some(row=>row.transactionId===transactionId&&row.direction==="IN"&&row.currency==="CAD"&&row.quantity===1001&&row.usdBasis===715&&row.costRate===1.40&&row.deliveryRate===null&&row.realizedFx===0),"registration uses canonical transfer financials and has no realized FX",r);
+    const movementCount=r.body.movements.length;
+
+    r=await request("POST","/api/transactions",{...productionTransferRequest,costRate:0},token);
+    assert(r.status===400&&r.body.code==="TRANSACTION_COST_RATE_REQUIRED"&&r.body.message==="TRANSACTION_COST_RATE_REQUIRED","zero transaction cost rate is a validation error",r);
+    r=await request("POST","/api/transactions",Object.fromEntries(Object.entries(productionTransferRequest).filter(([key])=>key!=="costRate")),token);
+    assert(r.status===400&&r.body.code==="TRANSACTION_COST_RATE_REQUIRED"&&r.body.message==="TRANSACTION_COST_RATE_REQUIRED","missing transaction cost rate is a validation error",r);
+    r=await request("GET","/api/treasury",null,token);
+    assert(r.status===200&&r.body.movements.length===movementCount,"invalid cost rate creates no treasury movement",r);
+
+    r=await request("GET","/api/treasury/diagnostics/invalid-in",null,token);
+    assert(r.status===200&&r.body.total===0&&Array.isArray(r.body.invalidTransfers)&&Array.isArray(r.body.invalidOther),"read-only treasury invalid-IN diagnostic",r);
+
+    r=await request("POST","/api/treasury/cash-deliveries",{currency:"CAD",deliveryRate:1.38,quantity:300,occurredAt:"2026-08-25T12:00:00Z"},token);
+    assert(r.status===201&&r.body.direction==="OUT"&&r.body.transactionId===null,"general CAD cash delivery creates treasury OUT",r);
+
+    r=await request("GET","/api/treasury",null,token);
+    assert(r.status===200&&r.body.balances.some(row=>row.currency==="CAD"&&row.balance===701&&Math.abs(row.averageRateCadPerUsd-1.4)<0.000001),"partial CAD delivery reduces only CAD and preserves its average",r);
+    assert(r.body.movements.some(row=>row.sourceType==="CASH_DELIVERY"&&row.currency==="CAD"&&row.direction==="OUT"&&row.realizedFxUsd>0),"CAD delivery below average creates realized profit",r);
 
     r=await request("GET",`/api/transactions/${transactionId}/invoice`,null,token);
     assert(r.status===200,"invoice",r);
@@ -117,4 +157,4 @@ setTimeout(async()=>{
     fs.rmSync(dataDir,{recursive:true,force:true});
     process.exit(1);
   }
-},1200);
+},0);

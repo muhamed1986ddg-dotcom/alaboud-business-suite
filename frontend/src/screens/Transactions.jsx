@@ -274,6 +274,7 @@ export function Transactions({openInvoice}){
         </>}
 
         <input type="date" value={editingTransaction.transferDate||""} onChange={e=>setEditingTransaction({...editingTransaction,transferDate:e.target.value})}/>
+        <div className="transaction-edit-preview"><span>أثر الخزنة</span><strong>IN — دخول كاش</strong><small>التسليم الكاش يُسجل كحركة OUT مستقلة.</small></div>
 
         <div className="transaction-edit-preview"><span>المجموع بعد التعديل</span><strong>{editPreview.totalCustomerDue.toFixed(2)} CAD</strong></div>
         <div className="transaction-edit-preview"><span>ربح فرق السعر</span><strong>{editPreview.exchangeProfit.toFixed(2)} CAD</strong></div>

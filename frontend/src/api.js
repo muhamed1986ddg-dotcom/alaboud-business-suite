@@ -52,7 +52,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.14.106";
+  config.headers["X-Alaboud-Client-Version"]="25.14.107";
   // Durable writes have a bounded interactive recovery budget. If PostgreSQL
   // is temporarily unavailable, start commit verification promptly instead of
   // leaving add/edit/delete buttons spinning for more than a minute.
@@ -70,6 +70,7 @@ api.interceptors.request.use(config=>{
 const TOASTABLE_WRITE_ROUTES=[
   /^\/customers(?:\/|$)/,/^\/transactions(?:\/|$)/,/^\/debts(?:\/|$)/,
   /^\/expenses(?:\/|$)/,/^\/capital(?:\/|$)/,/^\/partners(?:\/|$)/,
+  /^\/treasury(?:\/|$)/,
   /^\/companies(?:\/|$)/,/^\/exchange-rates(?:\/|$)/,/^\/branches(?:\/|$)/,
   /^\/users(?:\/|$)/,/^\/notification-settings(?:\/|$)/,/^\/company-profile(?:\/|$)/,
   /^\/settings(?:\/|$)/,/^\/backup(?:\/|$)/

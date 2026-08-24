@@ -42,11 +42,15 @@ const {
   mirrorsExternalBalance
 } = require("./finance/CompanyDebtPosition");
 const { assertBalancedEntry, markSoftDeleted } = require("./finance/FinancialIntegrity");
+const { rebuildTreasury, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, planCadTreasuryBackfill, applyCadTreasuryBackfill, planLegacyUsdToCadConversion, applyLegacyUsdToCadConversion, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement, createInventoryCarryForwardMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements } = require("./finance/Treasury");
+const { inventoryScheduleDay, inventoryLocalDate, currentInventoryPeriod, previousInventoryPeriod } = require("./finance/InventoryPeriod");
 const { registerHealthRoutes } = require("./routes/health");
 const { registerDeveloperRoutes } = require("./routes/developer");
 const { registerNotificationRoutes } = require("./routes/notifications");
 const { registerMonthlyAccountMessagesJob } = require("./routes/monthly-account-messages-job"); const { registerOrganizationRoutes } = require("./routes/organization");
 const { registerFinanceOperationsRoutes } = require("./routes/finance-operations");
+const { registerTreasuryRoutes } = require("./routes/treasury");
+const { registerProfitRoutes } = require("./routes/profits");
 const { registerBackupRoutes } = require("./routes/backup");
 const { createServiceReadinessGate } = require("./middleware/service-readiness");
 const { createHybridRateLimiter } = require("./middleware/rate-limit");
@@ -76,6 +80,8 @@ const {
 } = require("./company-backup");
 
 const PORT = Number(process.env.PORT || 5000);
+const BUILD_IDENTIFIER=String(process.env.GIT_SHA||process.env.COMMIT_SHA||process.env.SOURCE_VERSION||process.env.K_REVISION||`${APP_VERSION}:local`).slice(0,128);
+const SOURCE_FINGERPRINT=crypto.createHash("sha256").update(fs.readFileSync(path.join(__dirname,"finance","Treasury.js"))).digest("hex").slice(0,16);
 const IS_PROD = process.env.NODE_ENV === "production";
 const JWT_SECRET = process.env.JWT_SECRET || "LOCAL_TRIAL_CHANGE_ME_6_0";
 if (IS_PROD && JWT_SECRET === "LOCAL_TRIAL_CHANGE_ME_6_0") { throw new Error("JWT_SECRET قوي ومخصص مطلوب في الإنتاج"); }
@@ -397,7 +403,7 @@ async function seedAdmin(){
       admin.companyId=company.id;
     }
 
-    const tenantArrays=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","sessions","monthlyInventories"];
+    const tenantArrays=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","devices","sessions","monthlyInventories","treasuryMovements"];
     for(const key of tenantArrays){
       for(const item of store[key]||[]){
         if(item&&!item.companyId)item.companyId=company.id;
@@ -816,7 +822,7 @@ function customerSummary(store, customer) {
 
 registerHealthRoutes(app,{
   databaseHealth,productionReadiness,nativeRepositories,now,
-  version:APP_VERSION,openApiDocument,docsHtml,telemetryHealth:()=>telemetryWriter.health(),
+  version:APP_VERSION,buildIdentifier:BUILD_IDENTIFIER,sourceFingerprint:SOURCE_FINGERPRINT,openApiDocument,docsHtml,telemetryHealth:()=>telemetryWriter.health(),
   getServiceState:()=>({serviceReady,startupAttempt,startupError:serviceStartupError?.message||null})
 });
 registerDeveloperRoutes(app,{
@@ -1512,18 +1518,6 @@ app.get("/api/capital-overview", auth, (req,res)=>{
 });
 
 
-function inventoryLocalDate(settings={}){
-  const timeZone=String(settings.timeZone||"America/Toronto");
-  try{
-    const parts=new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(new Date());
-    const values=Object.fromEntries(parts.map(part=>[part.type,part.value]));
-    return {date:`${values.year}-${values.month}-${values.day}`,time:`${values.hour}:${values.minute}`,year:Number(values.year),month:Number(values.month),day:Number(values.day),timeZone};
-  }catch(_error){
-    const date=new Date();
-    return {date:date.toISOString().slice(0,10),time:date.toISOString().slice(11,16),year:date.getUTCFullYear(),month:date.getUTCMonth()+1,day:date.getUTCDate(),timeZone:"UTC"};
-  }
-}
-
 function calculateInventoryNetCapital(store){
   // Equity is independent from the physical inventory count. Receivables,
   // payables and vault cash belong to net assets and are reconciled separately.
@@ -1551,7 +1545,10 @@ function calculateInventoryNetCapital(store){
     .reduce((sum,item)=>sum+movementCad(item),0);
   const grossRealizedProfit=transactions.reduce((sum,item)=>sum+transactionFinancials(item).totalProfit,0);
   const operatingExpenses=expenses.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-  const realizedNetProfit=grossRealizedProfit-operatingExpenses;
+  // Treasury OUT profit is a distinct realized component and enters equity
+  // exactly once here; transactionFinancials never contains delivery FX.
+  const treasuryRealizedFx=treasuryProfitForRange(store);
+  const realizedNetProfit=grossRealizedProfit+treasuryRealizedFx-operatingExpenses;
   const netCapital=calculateNetCapital({
     capitalContributions,
     capitalWithdrawals,
@@ -1570,6 +1567,8 @@ function calculateInventoryNetCapital(store){
 
 function monthlyInventoryDraft(store,{vaultCash=0,vaultCashByCurrency=null,vaultCashExchangeRates=null}={}){
   const capital=calculateInventoryNetCapital(store);
+  const treasuryPeriod=currentInventoryPeriod(store.notificationSettings||{});
+  const treasurySummary=treasuryRealizedForInventoryPeriod(store,treasuryPeriod);
   const missingRates=new Set(capital.missingRates);
   const toCad=(amount,currency="CAD")=>{
     const normalized=String(currency||"CAD").toUpperCase();
@@ -1601,6 +1600,11 @@ function monthlyInventoryDraft(store,{vaultCash=0,vaultCashByCurrency=null,vault
     capitalContributions:capital.capitalContributions,
     capitalWithdrawals:capital.capitalWithdrawals,
     realizedNetProfit:capital.realizedNetProfit,
+    currentTreasuryPeriod:{...treasuryPeriod,...treasurySummary},
+    treasuryRealizedProfit:treasurySummary.realizedProfit,
+    treasuryRealizedLoss:treasurySummary.realizedLoss,
+    treasuryRealizedFx:treasurySummary.realizedFx,
+    treasuryOutCount:treasurySummary.outCount,
     profitDistributions:capital.profitDistributions,
     missingRates:[...missingRates]
   };
@@ -1608,7 +1612,7 @@ function monthlyInventoryDraft(store,{vaultCash=0,vaultCashByCurrency=null,vault
 
 function inventoryAlert(store){
   const settings=store.notificationSettings||{};
-  const scheduleDay=Math.max(1,Math.min(28,Math.trunc(safeNumber(settings.inventoryDay,20)||20)));
+  const scheduleDay=inventoryScheduleDay(settings);
   const local=inventoryLocalDate(settings);
   const month=`${local.year}-${String(local.month).padStart(2,"0")}`;
   const closed=(Array.isArray(store.monthlyInventories)?store.monthlyInventories:[]).some(item=>item&&item.month===month&&!item.isDeleted);
@@ -1623,7 +1627,7 @@ function inventoryAlert(store){
 app.get("/api/monthly-inventory", auth, (req,res)=>{
   const store=readStore();
   const settings=store.notificationSettings||{};
-  const scheduleDay=Math.max(1,Math.min(28,Math.trunc(safeNumber(settings.inventoryDay,20)||20)));
+  const scheduleDay=inventoryScheduleDay(settings);
   const rows=Array.from(store.monthlyInventories||[])
     .filter(item=>item&&!item.isDeleted)
     .map(item=>{
@@ -1672,7 +1676,8 @@ app.post("/api/monthly-inventory/close", auth, async (req,res)=>{
   const result=await mutateDurable(store=>{
     const local=inventoryLocalDate(store.notificationSettings||{});
     const month=`${local.year}-${String(local.month).padStart(2,"0")}`;
-    const existing=(store.monthlyInventories||[]).find(item=>item&&item.month===month&&!item.isDeleted);
+    const period=previousInventoryPeriod(store.notificationSettings||{});
+    const existing=(store.monthlyInventories||[]).find(item=>item&&!item.isDeleted&&(item.month===month||(item.periodStart===period.start&&item.periodEnd===period.end)));
     if(existing){const error=new Error("تم تثبيت جرد هذا الشهر مسبقًا");error.statusCode=409;throw error;}
     const vaultSnapshot=hasCurrencyBreakdown
       ?calculateVaultCashSnapshot(req.body.vaultCashByCurrency,(from,to)=>currencyConversion(store,from,to))
@@ -1683,7 +1688,9 @@ app.post("/api/monthly-inventory/close", auth, async (req,res)=>{
     if(draft.missingRates.length){const error=new Error(`لا يمكن تثبيت الجرد قبل إضافة أسعار تحويل العملات: ${draft.missingRates.join(", ")}`);error.statusCode=400;throw error;}
     const inventoryId=id();
     const approvedAt=now();
-    const item={id:inventoryId,month,inventoryDate:local.date,scheduleDay:Math.max(1,Math.min(28,Math.trunc(safeNumber(store.notificationSettings?.inventoryDay,20)||20))),...draft,originalCapital:draft.finalInventory??draft.finalValue,originalCapitalDate:local.date,originalCapitalApprovedAt:approvedAt,originalCapitalInventoryId:inventoryId,notes:String(req.body?.notes||"").trim().slice(0,1000),fixedAt:approvedAt,fixedBy:req.user.id,fixedByName:req.user.name||"",createdAt:approvedAt};
+    const finalizedPeriod=previousInventoryPeriod(store.notificationSettings||{},approvedAt);
+    const treasurySnapshot=treasuryInventorySnapshot(store,finalizedPeriod,{inventoryId,finalizedAt:approvedAt});
+    const item={id:inventoryId,month,inventoryDate:local.date,scheduleDay:finalizedPeriod.scheduleDay,...draft,...treasurySnapshot,originalCapital:draft.finalInventory??draft.finalValue,originalCapitalDate:local.date,originalCapitalApprovedAt:approvedAt,originalCapitalInventoryId:inventoryId,notes:String(req.body?.notes||"").trim().slice(0,1000),fixedAt:approvedAt,fixedBy:req.user.id,fixedByName:req.user.name||"",createdAt:approvedAt};
     store.monthlyInventories.push(item);
     audit(store,req.user.id,"CREATE","MONTHLY_INVENTORY",item.id,{month,finalValue:item.finalValue,vaultCash:item.vaultCash,vaultCashByCurrency:item.vaultCashByCurrency});
     return item;
@@ -1706,7 +1713,8 @@ app.get("/api/monthly-report", auth, (req,res)=>{
   const transferTotal=transactions.reduce((sum,item)=>sum+transactionFinancials(item).convertedCad,0);
   const {transferFees:feesTotal,customerFees:customerFeesTotal,providerFees:providerFeesTotal,exchangeProfit,grossProfitBeforeProviderFees,grossProfit}=summarizeTransactionProfits(transactions);
   const expenseTotal=expenses.reduce((sum,item)=>sum+safeNumber(item.cadAmount??item.amount),0);
-  const netProfit=grossProfit-expenseTotal;
+  const treasuryFxProfit=treasuryProfitForRange(store,{from:`${month}-01`,to:`${month}-31`});
+  const netProfit=grossProfit+treasuryFxProfit-expenseTotal;
   const paidTotal=customerReceiptsTotal(payments);
   const capitalIn=capitalMovements
     .filter(item=>item.type==="IN")
@@ -1760,6 +1768,7 @@ app.get("/api/monthly-report", auth, (req,res)=>{
       exchangeProfit:+exchangeProfit.toFixed(2),
       grossProfitBeforeProviderFees:+grossProfitBeforeProviderFees.toFixed(2),
       grossProfit:+grossProfit.toFixed(2),
+      treasuryFxProfit:+treasuryFxProfit.toFixed(2),
       expenses:+expenseTotal.toFixed(2),
       netProfit:+netProfit.toFixed(2),
       paymentsReceived:+paidTotal.toFixed(2),
@@ -2137,6 +2146,10 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     transferDate=""
   }=req.body||{};
 
+  const requestedCostRate=Number(costRate);
+  if(!Number.isFinite(requestedCostRate)||requestedCostRate<=0){
+    return res.status(400).json({code:"TRANSACTION_COST_RATE_REQUIRED",message:"TRANSACTION_COST_RATE_REQUIRED"});
+  }
   const nums=[amount,costRate,finalRate,transferFee,providerFeeAmount,providerFeeRateCad].map(Number);
   if(nums.some(n=>!Number.isFinite(n))||nums[0]<=0||nums[1]<=0||nums[2]<=0||nums[3]<0||nums[4]<0||nums[5]<0){
     return res.status(400).json({message:"قيم الحوالة غير صحيحة"});
@@ -2163,6 +2176,9 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
     providerFeeCurrency:normalizedProviderFeeCurrency,
     providerFeeRateCad:executionFeeRate
   });
+  if(!Number.isFinite(financials.costRate)||financials.costRate<=0){
+    return res.status(400).json({code:"TRANSACTION_COST_RATE_REQUIRED",message:"TRANSACTION_COST_RATE_REQUIRED"});
+  }
   if(executionFeeAmount>0&&!financials.valid){
     return res.status(400).json({message:"أدخل سعر تحويل أجور الشركة إلى CAD أو اختر نفس عملة الحوالة"});
   }
@@ -2201,11 +2217,21 @@ app.post("/api/transactions", auth, requireIdempotencyKey, async (req,res)=>{
       totalProfit:financials.totalProfit,
       totalCustomerDue:financials.totalCustomerDue,
       status,
+      treasuryEffect:"IN",
+      deliveryRate:null,
       transferDate:transferDate||new Date().toISOString().slice(0,10),
       createdAt:now(),
       createdBy:req.user.id
     };
     s.transactions.push(t);
+    if(t.status!=="CANCELLED"){
+      try{
+        upsertTransferMovement(s,t,{id,now,userId:req.user.id,occurredAt:t.transferDate,entryRate:financials.costRate,cadAmountReceived:financials.convertedCad});
+      }catch(error){
+        if(error?.treasuryDiagnostic)console.error("[TREASURY_ENTRY_RATE_DIAGNOSTIC]",error.treasuryDiagnostic);
+        throw error;
+      }
+    }
 
     const normalizedPaymentStatus=String(paymentStatus||"UNPAID").toUpperCase();
     if(normalizedPaymentStatus==="PAID"){
@@ -2418,6 +2444,8 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
         const deletedAt=now();
         const reason=String(req.body?.reason||"حذف الحوالة");
         markSoftDeleted(transaction,{userId:req.user.id,reason,at:deletedAt});
+        cancelCashDeliveryMovement(state,transaction.id,{now,userId:req.user.id,reason});
+        cancelTransferMovement(state,transaction.id,{now,userId:req.user.id,reason});
         for(const payment of state.payments||[]){
           if(payment.transactionId===transaction.id&&!payment.isDeleted){
             markSoftDeleted(payment,{userId:req.user.id,reason:"حذف تابع لحوالة محذوفة",at:deletedAt});
@@ -2463,6 +2491,8 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
       const selectedPartner=resolveProviderPartner(s.partners||[],transaction.partnerId);
 
       transaction.currency=String(transaction.currency||"USD").toUpperCase();
+      transaction.treasuryEffect="IN";
+      transaction.deliveryRate=null;
       transaction.providerFeeCurrency=String(transaction.providerFeeCurrency||transaction.currency).toUpperCase();
       if(selectedPartner)transaction.providerFeeCompany=selectedPartner.name;
       const financials=transactionFinancials(transaction);
@@ -2493,6 +2523,13 @@ app.patch("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)=
         throw new Error("لا يمكن جعل إجمالي الحوالة أقل من الدفعات المسجلة");
       }
 
+      if(transaction.status!=="CANCELLED"){
+        upsertTransferMovement(s,transaction,{id,now,userId:req.user.id,occurredAt:transaction.transferDate,entryRate:financials.costRate,cadAmountReceived:financials.convertedCad});
+      }else{
+        cancelCashDeliveryMovement(s,transaction.id,{now,userId:req.user.id,reason:"إلغاء حوالة مرتبطة بتسليم كاش"});
+        cancelTransferMovement(s,transaction.id,{now,userId:req.user.id,reason:"تعديل أثر الحوالة على الخزنة"});
+      }
+
       audit(s,req.user.id,"UPDATE","TRANSACTION",transaction.id,{before:oldData,after:{...transaction},ip:req.ip,branchId:req.user.branchId,branchName:req.user.branchName});
       return transaction;
     });
@@ -2518,6 +2555,8 @@ app.delete("/api/transactions/:id", auth, requireIdempotencyKey, async (req,res)
       if(!transaction)return null;
       const deletedAt=now();
       markSoftDeleted(transaction,{userId:req.user.id,reason:req.body?.reason||"حذف الحوالة",at:deletedAt});
+      cancelCashDeliveryMovement(s,transaction.id,{now,userId:req.user.id,reason:req.body?.reason||"حذف الحوالة"});
+      cancelTransferMovement(s,transaction.id,{now,userId:req.user.id,reason:req.body?.reason||"حذف الحوالة"});
 
       for(const payment of s.payments){
         if(payment.transactionId===transaction.id&&!payment.isDeleted){
@@ -2723,62 +2762,8 @@ async function refreshAutomaticRates(userId="SYSTEM") {
   }
   return results;
 }
-app.get("/api/profits", auth, (req,res)=>{
-  const s = readStore();
-  const from = String(req.query.from || "");
-  const to = String(req.query.to || "");
-  const inRange = (iso) => {
-    const d = String(iso || "").slice(0,10);
-    return (!from || d >= from) && (!to || d <= to);
-  };
-
-  const transactions = s.transactions.filter((t)=>t&&!t.isDeleted&&t.status!=="CANCELLED" && inRange(t.transferDate||t.createdAt));
-  const expenses = s.expenses.filter((e)=>e&&!e.isDeleted&&inRange(e.date || e.createdAt));
-
-  const {exchangeProfit,transferFees,customerFees,providerFees,grossProfitBeforeProviderFees,grossProfit}=summarizeTransactionProfits(transactions);
-  const totalExpenses = expenses.reduce((a,e)=>a+Number(e.cadAmount??e.amount??0),0);
-  const netProfit = grossProfit-totalExpenses;
-
-  const byMonthMap = {};
-  for (const t of transactions) {
-    const month = String(t.transferDate||t.createdAt||"").slice(0,7);
-    byMonthMap[month] ||= {month,exchangeProfit:0,transferFees:0,customerFees:0,providerFees:0,grossProfitBeforeProviderFees:0,grossProfit:0,expenses:0,netProfit:0};
-    addTransactionProfitToBucket(byMonthMap[month],t);
-  }
-  for (const e of expenses) {
-    const month = String(e.date || e.createdAt).slice(0,7);
-    byMonthMap[month] ||= {month,exchangeProfit:0,transferFees:0,customerFees:0,providerFees:0,grossProfitBeforeProviderFees:0,grossProfit:0,expenses:0,netProfit:0};
-    byMonthMap[month].expenses += Number(e.cadAmount??e.amount??0);
-  }
-  const monthly = Object.values(byMonthMap)
-    .map((x)=>({...x,
-      exchangeProfit:+x.exchangeProfit.toFixed(2),
-      transferFees:+x.transferFees.toFixed(2),
-      customerFees:+x.customerFees.toFixed(2),
-      providerFees:+x.providerFees.toFixed(2),
-      grossProfitBeforeProviderFees:+x.grossProfitBeforeProviderFees.toFixed(2),
-      grossProfit:+x.grossProfit.toFixed(2),
-      expenses:+x.expenses.toFixed(2),
-      netProfit:+(x.grossProfit-x.expenses).toFixed(2)
-    }))
-    .sort((a,b)=>b.month.localeCompare(a.month));
-
-  res.json({
-    from: from || null,
-    to: to || null,
-    transactionCount: transactions.length,
-    exchangeProfit:+exchangeProfit.toFixed(2),
-    transferFees:+transferFees.toFixed(2),
-    customerFees:+customerFees.toFixed(2),
-    providerFees:+providerFees.toFixed(2),
-    grossProfitBeforeProviderFees:+grossProfitBeforeProviderFees.toFixed(2),
-    grossProfit:+grossProfit.toFixed(2),
-    expenses:+totalExpenses.toFixed(2),
-    netProfit:+netProfit.toFixed(2),
-    monthly,
-    transactions: transactions.slice().reverse().map(item=>({...item,...transactionFinancialView(transactionFinancials(item))}))
-  });
-});
+registerTreasuryRoutes(app,{auth,requirePermission,requireIdempotencyKey,readStore,mutateDurable,id,now,audit,rebuildTreasury,currentInventoryPeriod,treasuryRealizedForInventoryPeriod,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,planCadTreasuryBackfill,applyCadTreasuryBackfill,planLegacyUsdToCadConversion,applyLegacyUsdToCadConversion,upsertCashDeliveryMovement,createGeneralCashDeliveryMovement,createInventoryCarryForwardMovement});
+registerProfitRoutes(app,{auth,readStore,summarizeTransactionProfits,treasuryProfitForRange,addTransactionProfitToBucket,activeMovements,transactionFinancials,transactionFinancialView});
 
 
 app.post("/api/exchange-rates/refresh", auth, async (req,res)=>{
@@ -5940,7 +5925,7 @@ async function initializeApplicationWithRetry(){
 }
 async function startServer(){
   serverInstance=app.listen(PORT,"0.0.0.0",()=>{
-    console.log(`AlAboud Enterprise Cloud v${APP_VERSION} running on port ${PORT}`);
+    console.log(`AlAboud Enterprise Cloud v${APP_VERSION} build=${BUILD_IDENTIFIER} source=${SOURCE_FINGERPRINT} running on port ${PORT}`);
     console.log(`Frontend directory: ${publicDir}`);
     console.log("HTTP service is live; database initialization is running");
   });
