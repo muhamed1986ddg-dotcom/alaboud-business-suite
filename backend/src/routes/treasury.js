@@ -1,7 +1,7 @@
 "use strict";
 const APPROVED_TREASURY_REPAIR_MOVEMENT_ID="5a9ff1cb-859f-4c0c-a669-f78ac2fc0c5f";
 
-function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, currentInventoryPeriod, treasuryRealizedForInventoryPeriod, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, planCadTreasuryBackfill, applyCadTreasuryBackfill, planLegacyUsdToCadConversion, applyLegacyUsdToCadConversion, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement }) {
+function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempotencyKey, readStore, mutateDurable, id, now, audit, rebuildTreasury, currentInventoryPeriod, treasuryRealizedForInventoryPeriod, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, planCadTreasuryBackfill, applyCadTreasuryBackfill, planLegacyUsdToCadConversion, applyLegacyUsdToCadConversion, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement, createInventoryCarryForwardMovement }) {
   app.get("/api/treasury/diagnostics/invalid-in", auth, (_req,res)=>{
     res.json(diagnoseInvalidTreasuryInMovements(readStore()));
   });
@@ -126,6 +126,23 @@ function registerTreasuryRoutes(app, { auth, requirePermission, requireIdempoten
     }catch(error){
       const status=error?.code==="TREASURY_INSUFFICIENT_BALANCE"?409:400;
       res.status(status).json({message:error.message||"تعذر تنفيذ التسليم الكاش",code:error.code||null});
+    }
+  });
+
+  app.post("/api/treasury/inventory-carry-forward",auth,requireIdempotencyKey,async(req,res)=>{
+    try{
+      const movement=await mutateDurable(store=>{
+        const item=createInventoryCarryForwardMovement(store,{
+          currency:req.body?.currency,quantity:req.body?.quantity,averageRate:req.body?.averageRate,
+          inventoryId:req.body?.inventoryId,inventoryDate:req.body?.inventoryDate,periodKey:req.body?.periodKey,note:req.body?.note
+        },{id,now,userId:req.user.id});
+        audit(store,req.user.id,"CREATE","TREASURY_INVENTORY_CARRY_FORWARD",item.id,{currency:item.currency,quantity:item.quantity,averageRate:item.costRate,inventoryId:item.inventoryId,periodKey:item.periodKey});
+        return item;
+      });
+      res.status(201).json(movement);
+    }catch(error){
+      const status=error?.code==="TREASURY_CARRY_FORWARD_DUPLICATE"?409:400;
+      res.status(status).json({code:error.code||null,message:error.message||"تعذر ترحيل كاش الجرد السابق"});
     }
   });
 

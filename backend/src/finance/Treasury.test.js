@@ -1,6 +1,6 @@
 "use strict";
 const assert=require("assert");
-const {rebuildTreasury,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,planCadTreasuryBackfill,applyCadTreasuryBackfill,planLegacyUsdToCadConversion,applyLegacyUsdToCadConversion,upsertTransferMovement,cancelTransferMovement,upsertCashDeliveryMovement,createGeneralCashDeliveryMovement,treasuryProfitForRange,treasuryRealizedForInventoryPeriod,treasuryInventorySnapshot}=require("./Treasury");
+const {rebuildTreasury,diagnoseInvalidTreasuryInMovements,planTreasuryEntryRateRepair,applyTreasuryEntryRateRepair,planCadTreasuryBackfill,applyCadTreasuryBackfill,planLegacyUsdToCadConversion,applyLegacyUsdToCadConversion,upsertTransferMovement,cancelTransferMovement,upsertCashDeliveryMovement,createGeneralCashDeliveryMovement,createInventoryCarryForwardMovement,treasuryProfitForRange,treasuryRealizedForInventoryPeriod,treasuryInventorySnapshot}=require("./Treasury");
 const {transactionFinancials}=require("./TransactionFinancials");
 let sequence=0;
 const helpers={id:()=>`m${++sequence}`,now:()=>`2026-01-10T00:00:${String(sequence).padStart(2,"0")}Z`,userId:"u1"};
@@ -296,4 +296,30 @@ const rollbackPlan=planLegacyUsdToCadConversion(rollbackStore);
 assert.equal(rollbackPlan.repairable,false);assert(rollbackPlan.rebuildError);
 assert.throws(()=>applyLegacyUsdToCadConversion(rollbackStore,{fingerprint:rollbackPlan.fingerprint,expectedCount:1,summary:rollbackPlan.summary,...helpers}),error=>error.code==="TREASURY_LEGACY_CONVERSION_NOT_REPAIRABLE");
 assert.equal(JSON.stringify(rollbackStore),rollbackBefore);
+
+const finalizedInventory={id:"inventory-july",month:"2026-07",periodStart:"2026-07-01",periodEnd:"2026-07-31",status:"FINALIZED",finalInventory:9999,treasuryRealizedFx:45};
+const carryStore={treasuryMovements:[],monthlyInventories:[finalizedInventory]};
+const finalizedBefore=JSON.stringify(finalizedInventory);
+const carryMovement=createInventoryCarryForwardMovement(carryStore,{currency:"CAD",quantity:5000,averageRate:1.37,inventoryId:"inventory-july",inventoryDate:"2026-07-31",note:"opening cash"},helpers);
+const carryBalance=rebuildTreasury(carryStore).find(row=>row.currency==="CAD");
+assert.equal(carryMovement.sourceType,"INVENTORY_CARRY_FORWARD");assert.equal(carryMovement.sourceKey,"INVENTORY_CARRY_FORWARD:inventory-july:CAD");
+assert.equal(carryMovement.transactionId,null);assert(Math.abs(carryMovement.usdBasis-(5000/1.37))<0.001);
+assert.equal(carryBalance.balance,5000);assert(Math.abs(carryBalance.averageRateCadPerUsd-1.37)<0.000001);
+assert.equal(carryMovement.realizedFx,0);assert.equal(carryMovement.realizedProfit,0);assert.equal(carryMovement.realizedLoss,0);
+assert.equal(treasuryProfitForRange(carryStore,{from:"2026-01-01",to:"2026-12-31"}),0);
+assert.deepEqual(treasuryRealizedForInventoryPeriod(carryStore,{start:"2026-08-01",nextStart:"2026-09-01",timeZone:"America/Toronto"}),{realizedFx:0,realizedProfit:0,realizedLoss:0,outCount:0});
+assert.equal(JSON.stringify(finalizedInventory),finalizedBefore);
+const carryBeforeDuplicate=JSON.stringify(carryStore);
+assert.throws(()=>createInventoryCarryForwardMovement(carryStore,{currency:"CAD",quantity:5000,averageRate:1.37,inventoryId:"inventory-july",inventoryDate:"2026-07-31"},helpers),error=>error.code==="TREASURY_CARRY_FORWARD_DUPLICATE");
+assert.equal(JSON.stringify(carryStore),carryBeforeDuplicate);
+
+const mergedCarryStore={treasuryMovements:[{id:"existing-cad",sourceKey:"OPENING:CAD",sourceType:"MANUAL_ADJUSTMENT",direction:"IN",currency:"CAD",quantity:2740,costRate:1.37,usdBasis:2000,accountingModel:"CAD_CASH_USD_BASIS",occurredAt:"2026-08-01",createdAt:"2026-08-01"}],monthlyInventories:[{...finalizedInventory,id:"inventory-aug"}]};
+createInventoryCarryForwardMovement(mergedCarryStore,{currency:"CAD",quantity:6900,averageRate:1.38,inventoryId:"inventory-aug",inventoryDate:"2026-08-31"},helpers);
+const mergedCarryBalance=rebuildTreasury(mergedCarryStore).find(row=>row.currency==="CAD");
+assert.equal(mergedCarryBalance.balance,9640);assert.equal(mergedCarryBalance.totalUsdBasis,7000);assert.equal(mergedCarryBalance.averageRateCadPerUsd,1.37714286);
+
+const usdCarryStore={treasuryMovements:[],monthlyInventories:[]};
+createInventoryCarryForwardMovement(usdCarryStore,{currency:"USD",quantity:1000,averageRate:1.4,inventoryDate:"2026-06-30"},helpers);
+const usdCarryBalance=rebuildTreasury(usdCarryStore).find(row=>row.currency==="USD");
+assert.equal(usdCarryBalance.balance,1000);assert.equal(usdCarryBalance.totalCost,1400);assert.equal(usdCarryBalance.averageCost,1.4);
 console.log("Treasury tests passed: A-P");

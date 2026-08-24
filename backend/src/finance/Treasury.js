@@ -502,6 +502,38 @@ function createGeneralCashDeliveryMovement(store,{currency,quantity,deliveryRate
   return movement;
 }
 
+function createInventoryCarryForwardMovement(store,{currency,quantity,averageRate,inventoryId,inventoryDate,periodKey,note=""}={}, {id,now,userId}={}){
+  if(!Array.isArray(store.treasuryMovements))store.treasuryMovements=[];
+  const normalizedCurrency=String(currency||"").trim().toUpperCase();
+  if(!["CAD","USD"].includes(normalizedCurrency)){const error=new Error("عملة الترحيل يجب أن تكون CAD أو USD");error.code="TREASURY_CARRY_FORWARD_CURRENCY_INVALID";throw error;}
+  const amount=safeMoney(quantity,"مبلغ الكاش المرحل");
+  const rateValue=safeRate(averageRate,"متوسط تكلفة الجرد السابق");
+  if(amount<=0n){const error=new Error("مبلغ الكاش المرحل يجب أن يكون أكبر من صفر");error.code="TREASURY_CARRY_FORWARD_AMOUNT_REQUIRED";throw error;}
+  if(rateValue<=0n){const error=new Error("متوسط تكلفة الجرد السابق يجب أن يكون أكبر من صفر");error.code="TREASURY_CARRY_FORWARD_RATE_REQUIRED";throw error;}
+  const date=String(inventoryDate||"").slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){const error=new Error("تاريخ الجرد السابق مطلوب");error.code="TREASURY_CARRY_FORWARD_DATE_REQUIRED";throw error;}
+  const linkedInventory=inventoryId?(store.monthlyInventories||[]).find(row=>row&&!row.isDeleted&&String(row.id)===String(inventoryId)):null;
+  if(inventoryId&&!linkedInventory){const error=new Error("الجرد السابق المحدد غير موجود");error.code="TREASURY_CARRY_FORWARD_INVENTORY_NOT_FOUND";throw error;}
+  const stablePeriodKey=String(inventoryId||periodKey||date).trim();
+  const sourceKey=`INVENTORY_CARRY_FORWARD:${stablePeriodKey}:${normalizedCurrency}`;
+  if(store.treasuryMovements.some(row=>row&&row.sourceKey===sourceKey)){
+    const error=new Error("تم ترحيل كاش هذا الجرد وهذه العملة مسبقًا");error.code="TREASURY_CARRY_FORWARD_DUPLICATE";throw error;
+  }
+  const usdBasis=normalizedCurrency==="CAD"?roundedDivide(amount*RATE_SCALE,rateValue):null;
+  const movementId=id(),createdAt=now();
+  const movement={
+    id:movementId,sourceKey,sourceType:"INVENTORY_CARRY_FORWARD",sourceLabel:"كاش مرحل من الجرد السابق",transactionId:null,
+    movementType:"IN",direction:"IN",currency:normalizedCurrency,quantity:moneyToNumber(amount),costRate:rateToNumber(rateValue),
+    usdBasis:usdBasis==null?null:moneyToNumber(usdBasis),accountingModel:normalizedCurrency==="CAD"?CAD_CASH_USD_BASIS:null,
+    inventoryId:linkedInventory?.id||null,periodKey:stablePeriodKey,inventoryDate:date,note:String(note||"").trim().slice(0,500),
+    occurredAt:createdAt,deliveryRate:null,realizedFx:0,realizedProfit:0,realizedLoss:0,isCancelled:false,createdAt,createdBy:userId
+  };
+  rebuildTreasury({treasuryMovements:[...store.treasuryMovements.map(row=>({...row})),{...movement}]});
+  store.treasuryMovements.push(movement);
+  rebuildTreasury(store);
+  return movement;
+}
+
 function cancelCashDeliveryMovement(store, transactionId, { now, userId, reason = "إلغاء حوالة مرتبطة بتسليم كاش" } = {}) {
   const movement=(store.treasuryMovements||[]).find(row=>row&&row.sourceKey===`CASH_DELIVERY:${transactionId}`&&!row.isCancelled);
   if(!movement)return null;
@@ -556,4 +588,4 @@ function treasuryInventorySnapshot(store,period,{inventoryId="",finalizedAt=""}=
   });
 }
 
-module.exports = { rebuildTreasury, calculateTreasuryDeliveryFinancials, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, planCadTreasuryBackfill, applyCadTreasuryBackfill, planLegacyUsdToCadConversion, applyLegacyUsdToCadConversion, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements };
+module.exports = { rebuildTreasury, calculateTreasuryDeliveryFinancials, diagnoseInvalidTreasuryInMovements, planTreasuryEntryRateRepair, applyTreasuryEntryRateRepair, planCadTreasuryBackfill, applyCadTreasuryBackfill, planLegacyUsdToCadConversion, applyLegacyUsdToCadConversion, upsertTransferMovement, cancelTransferMovement, upsertCashDeliveryMovement, createGeneralCashDeliveryMovement, createInventoryCarryForwardMovement, cancelCashDeliveryMovement, treasuryProfitForRange, treasuryRealizedForInventoryPeriod, treasuryInventorySnapshot, activeMovements };

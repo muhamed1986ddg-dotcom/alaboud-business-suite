@@ -8,12 +8,15 @@ export function Treasury(){
   const [data,setData]=useState({balances:[],movements:[]});
   const [error,setError]=useState("");
   const [saving,setSaving]=useState(false);
+  const [showCarryForward,setShowCarryForward]=useState(false);
+  const [carryForward,setCarryForward]=useState({currency:"CAD",quantity:"",averageRate:"",inventoryId:"",inventoryDate:"",note:""});
   const [form,setForm]=useState({direction:"IN",currency:"USD",quantity:"",rate:"",reason:"",occurredAt:new Date().toISOString().slice(0,10)});
   const [delivery,setDelivery]=useState({currency:"USD",quantity:"",deliveryRate:"",occurredAt:new Date().toISOString().slice(0,16),note:""});
   async function load(){try{const treasuryResponse=await cachedGet("/treasury",{cacheTtl:0});setData(treasuryResponse.data||{balances:[],movements:[]});}catch(e){setError(e.response?.data?.message||"تعذر تحميل الخزنة");}}
   useEffect(()=>{void load();},[]);
   async function submit(event){event.preventDefault();setSaving(true);setError("");try{await api.post("/treasury/adjustments",{direction:form.direction,currency:form.currency,quantity:Number(form.quantity),costRate:form.direction==="IN"?Number(form.rate):null,deliveryRate:form.direction==="OUT"?Number(form.rate):null,reason:form.reason,occurredAt:form.occurredAt});clearApiGetCache();setForm(current=>({...current,quantity:"",rate:"",reason:""}));await load();}catch(e){setError(e.response?.data?.message||"تعذر حفظ التسوية");}finally{setSaving(false);}}
   async function deliverCash(event){event.preventDefault();setSaving(true);setError("");try{await api.post("/treasury/cash-deliveries",{currency:delivery.currency,quantity:Number(delivery.quantity),deliveryRate:Number(delivery.deliveryRate),occurredAt:delivery.occurredAt,note:delivery.note});clearApiGetCache();setDelivery(current=>({...current,quantity:"",deliveryRate:"",note:""}));await load();}catch(e){setError(e.response?.data?.message||"تعذر تنفيذ التسليم الكاش");}finally{setSaving(false);}}
+  async function submitCarryForward(event){event.preventDefault();setSaving(true);setError("");try{await api.post("/treasury/inventory-carry-forward",{currency:carryForward.currency,quantity:Number(carryForward.quantity),averageRate:Number(carryForward.averageRate),inventoryId:carryForward.inventoryId||undefined,inventoryDate:carryForward.inventoryDate,note:carryForward.note});clearApiGetCache();setCarryForward(current=>({...current,quantity:"",averageRate:"",note:""}));setShowCarryForward(false);await load();}catch(e){setError(e.response?.data?.message||"تعذر إضافة كاش الجرد السابق");}finally{setSaving(false);}}
   const columns=[
     {key:"occurredAt",label:"التاريخ والوقت",render:r=>String(r.occurredAt||r.createdAt||"").replace("T"," ").slice(0,19)},
     {key:"movementType",label:"نوع الحركة",render:r=>r.movementType==="ADJUSTMENT"?`تسوية (${r.direction==="IN"?"دخول":"خروج"})`:r.direction==="IN"?"دخول":"خروج"},
@@ -46,6 +49,11 @@ export function Treasury(){
   const realizedSummary=treasuryRealizedSummary(data.currentInventoryPeriod);
   const inventoryPeriodLabel=formatTreasuryInventoryPeriod(data.currentInventoryPeriod);
   const finalizedPeriods=Array.isArray(data.finalizedInventoryPeriods)?data.finalizedInventoryPeriods:[];
+  const carryBalance=(data.balances||[]).find(row=>row.currency===carryForward.currency)||{balance:0,totalCost:0,totalUsdBasis:0,averageCost:0};
+  const carryQuantity=Number(carryForward.quantity||0),carryRate=Number(carryForward.averageRate||0);
+  const carryUsdBasis=carryForward.currency==="CAD"&&carryRate>0?carryQuantity/carryRate:0;
+  const carryExpectedBalance=Number(carryBalance.balance||0)+carryQuantity;
+  const carryExpectedAverage=carryExpectedBalance>0?(carryForward.currency==="CAD"?(Number(carryBalance.totalUsdBasis||0)+carryUsdBasis>0?carryExpectedBalance/(Number(carryBalance.totalUsdBasis||0)+carryUsdBasis):0):(Number(carryBalance.totalCost||0)+carryQuantity*carryRate)/carryExpectedBalance):0;
   const realizedSign=realizedSummary.net>0?"+":"";
   const movementTypeLabel=row=>row.movementType==="ADJUSTMENT"?`تسوية (${row.direction==="IN"?"دخول":"خروج"})`:row.direction==="IN"?"دخول":"خروج";
   const movementStatus=row=>row.isCancelled?"ملغاة/معكوسة":row.movementType==="ADJUSTMENT"?"تسوية":"";
@@ -102,6 +110,25 @@ export function Treasury(){
       </div>
     </section>
     <section className="transaction-summary-grid">{data.balances.map(row=><div className="card transaction-summary-card" key={row.currency}><span>{row.currency}</span><strong>{money(row.balance)}</strong><small>{row.currency==="CAD"?`أساس التكلفة: ${money(row.totalUsdBasis)} USD · المتوسط: ${Number(row.averageRateCadPerUsd||0).toFixed(6)} CAD/USD`:`التكلفة: ${money(row.totalCost)} CAD · المتوسط: ${Number(row.averageCost||0).toFixed(6)} CAD/USD`}</small><small>ربح محقق: {money(row.realizedProfit)} CAD · خسارة: {money(row.realizedLoss)} CAD</small></div>)}</section>
+    <div className="treasury-carry-forward-action no-print"><button type="button" onClick={()=>setShowCarryForward(value=>!value)}>إضافة كاش من الجرد السابق</button></div>
+    {showCarryForward&&<form className="card form no-print treasury-carry-forward-form" onSubmit={submitCarryForward}>
+      <h3>إضافة كاش من الجرد السابق</h3>
+      <select value={carryForward.currency} onChange={e=>setCarryForward({...carryForward,currency:e.target.value})} aria-label="العملة"><option value="CAD">CAD — دولار كندي</option><option value="USD">USD — دولار أمريكي</option></select>
+      <input type="number" min=".0001" step=".0001" value={carryForward.quantity} onChange={e=>setCarryForward({...carryForward,quantity:e.target.value})} placeholder="المبلغ المرحّل" required/>
+      <input type="number" min=".00000001" step=".00000001" value={carryForward.averageRate} onChange={e=>setCarryForward({...carryForward,averageRate:e.target.value})} placeholder="متوسط تكلفة الجرد السابق CAD/USD" required/>
+      <select value={carryForward.inventoryId} onChange={e=>{const selected=finalizedPeriods.find(row=>row.inventoryId===e.target.value);setCarryForward({...carryForward,inventoryId:e.target.value,inventoryDate:selected?.periodEnd||carryForward.inventoryDate});}} aria-label="الجرد السابق"><option value="">بدون ربط بجرد محدد</option>{finalizedPeriods.map(row=><option key={row.inventoryId} value={row.inventoryId}>{row.month||row.periodEnd||row.inventoryId}</option>)}</select>
+      <input type="date" value={carryForward.inventoryDate} onChange={e=>setCarryForward({...carryForward,inventoryDate:e.target.value})} aria-label="تاريخ الجرد السابق" required/>
+      <input value={carryForward.note} maxLength="500" onChange={e=>setCarryForward({...carryForward,note:e.target.value})} placeholder="ملاحظة اختيارية"/>
+      <div className="treasury-carry-forward-preview" aria-label="معاينة ترحيل كاش الجرد السابق">
+        <div><span>الرصيد الحالي</span><strong>{money(carryBalance.balance)} {carryForward.currency}</strong></div>
+        <div><span>الكاش المرحّل</span><strong>{money(carryQuantity)} {carryForward.currency}</strong></div>
+        <div><span>الرصيد المتوقع</span><strong>{money(carryExpectedBalance)} {carryForward.currency}</strong></div>
+        <div><span>متوسط التكلفة السابق</span><strong>{carryRate>0?carryRate.toFixed(6):"—"} CAD/USD</strong></div>
+        <div><span>USD basis للكاش المرحّل</span><strong>{carryForward.currency==="CAD"?money(carryUsdBasis):"—"} USD</strong></div>
+        <div><span>متوسط الخزنة المتوقع</span><strong>{carryExpectedAverage.toFixed(6)} CAD/USD</strong></div>
+      </div>
+      <div className="treasury-carry-forward-buttons"><button disabled={saving}>{saving?"جارٍ الحفظ…":"حفظ الكاش المرحّل"}</button><button type="button" className="secondary" onClick={()=>setShowCarryForward(false)}>إلغاء</button></div>
+    </form>}
     <form className="card form no-print" onSubmit={deliverCash}><h3>تسليم كاش فعلي</h3>
       <label className="treasury-delivery-currency"><span>نوع العملة</span><select value={delivery.currency} onChange={e=>setDelivery({...delivery,currency:e.target.value,deliveryRate:""})} required><option value="USD">USD — دولار أمريكي</option><option value="CAD">CAD — دولار كندي</option></select></label>
       <div className="treasury-delivery-availability"><span>الرصيد العام المتاح</span><strong>{money(deliveryPreview.balance)} {delivery.currency}</strong><small>متوسط التكلفة الحالي: {deliveryPreview.averageCost.toFixed(6)} CAD/USD</small></div>
