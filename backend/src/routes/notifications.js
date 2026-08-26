@@ -17,8 +17,12 @@ function registerNotificationRoutes(app,{
       automaticTransferWhatsAppEnabled:Boolean(store.notificationSettings?.automaticTransferWhatsAppEnabled),
       zeroBalanceWhatsAppEnabled:Boolean(store.notificationSettings?.zeroBalanceWhatsAppEnabled),
       overdueWhatsAppEnabled:Boolean(store.notificationSettings?.overdueWhatsAppEnabled),
+      overdueFirstReminderDays:Math.max(1,Math.min(365,Math.round(safeNumber(store.notificationSettings?.overdueFirstReminderDays,store.notificationSettings?.overdueDays||7)||7))),
+      overdueSecondReminderEnabled:store.notificationSettings?.overdueSecondReminderEnabled!==false,
+      overdueSecondReminderDays:Math.max(2,Math.min(365,Math.round(safeNumber(store.notificationSettings?.overdueSecondReminderDays,15)||15))),
       overdueWhatsAppMessageTime:/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(store.notificationSettings?.overdueWhatsAppMessageTime||""))?String(store.notificationSettings.overdueWhatsAppMessageTime):"10:00",
       overdueWhatsAppTemplate:String(store.notificationSettings?.overdueWhatsAppTemplate||""),
+      overdueSecondWhatsAppTemplate:String(store.notificationSettings?.overdueSecondWhatsAppTemplate||""),
       automaticWhatsappSenderNumber:String(store.notificationSettings?.automaticWhatsappSenderNumber||""),
       manualWhatsappSenderNumber:String(store.notificationSettings?.manualWhatsappSenderNumber||""),
       timeZone:String(store.notificationSettings?.timeZone||"America/Toronto")
@@ -57,12 +61,25 @@ function registerNotificationRoutes(app,{
       if(req.body?.automaticTransferWhatsAppEnabled!==undefined)store.notificationSettings.automaticTransferWhatsAppEnabled=Boolean(req.body.automaticTransferWhatsAppEnabled);
       if(req.body?.zeroBalanceWhatsAppEnabled!==undefined)store.notificationSettings.zeroBalanceWhatsAppEnabled=Boolean(req.body.zeroBalanceWhatsAppEnabled);
       if(req.body?.overdueWhatsAppEnabled!==undefined)store.notificationSettings.overdueWhatsAppEnabled=Boolean(req.body.overdueWhatsAppEnabled);
+      if(req.body?.overdueFirstReminderDays!==undefined){
+        const value=Number(req.body.overdueFirstReminderDays);
+        if(!Number.isInteger(value)||value<1||value>365)throw new Error("التذكير الأول يجب أن يكون بين 1 و365 يومًا");
+        store.notificationSettings.overdueFirstReminderDays=value;
+      }
+      if(req.body?.overdueSecondReminderEnabled!==undefined)store.notificationSettings.overdueSecondReminderEnabled=Boolean(req.body.overdueSecondReminderEnabled);
+      if(req.body?.overdueSecondReminderDays!==undefined){
+        const value=Number(req.body.overdueSecondReminderDays);
+        const first=Math.max(1,Number(req.body?.overdueFirstReminderDays??store.notificationSettings.overdueFirstReminderDays??store.notificationSettings.overdueDays??7));
+        if(!Number.isInteger(value)||value<=first||value>365)throw new Error("التذكير الثاني يجب أن يكون بعد التذكير الأول وبحد أقصى 365 يومًا");
+        store.notificationSettings.overdueSecondReminderDays=value;
+      }
       if(req.body?.overdueWhatsAppMessageTime!==undefined){
         const value=String(req.body.overdueWhatsAppMessageTime||"");
         if(!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value))throw new Error("وقت رسائل المتأخرين غير صالح");
         store.notificationSettings.overdueWhatsAppMessageTime=value;
       }
       if(req.body?.overdueWhatsAppTemplate!==undefined)store.notificationSettings.overdueWhatsAppTemplate=String(req.body.overdueWhatsAppTemplate||"").slice(0,4000);
+      if(req.body?.overdueSecondWhatsAppTemplate!==undefined)store.notificationSettings.overdueSecondWhatsAppTemplate=String(req.body.overdueSecondWhatsAppTemplate||"").slice(0,4000);
       if(req.body?.automaticWhatsappSenderNumber!==undefined)store.notificationSettings.automaticWhatsappSenderNumber=String(req.body.automaticWhatsappSenderNumber||"").replace(/\D/g,"").slice(0,15);
       if(req.body?.manualWhatsappSenderNumber!==undefined)store.notificationSettings.manualWhatsappSenderNumber=String(req.body.manualWhatsappSenderNumber||"").replace(/\D/g,"").slice(0,15);
       if(req.body?.timeZone!==undefined){

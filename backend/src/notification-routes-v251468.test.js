@@ -87,7 +87,7 @@ async function runHandler(route,req){
   assert.strictEqual(routes.find(route=>route.method==="patch"&&route.path==="/api/transfer-fee-settings").handlers[1],adminPermission,"transfer fee settings write must keep admin permission middleware");
 
   const settings=await runHandler(routes.find(route=>route.method==="get"&&route.path==="/api/notification-settings"),{});
-  assert.deepStrictEqual(settings.body,{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true,overdueWhatsAppEnabled:false,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"});
+  assert.deepStrictEqual(settings.body,{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true,overdueWhatsAppEnabled:false,overdueFirstReminderDays:7,overdueSecondReminderEnabled:true,overdueSecondReminderDays:15,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",overdueSecondWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"});
 
   const patchSettings=routes.find(route=>route.method==="patch"&&route.path==="/api/notification-settings");
   const updated=await runHandler(patchSettings,{user:{id:"admin"},body:{overdueDays:15,lowCashLimit:750,whatsappTemplate:"updated"}});
