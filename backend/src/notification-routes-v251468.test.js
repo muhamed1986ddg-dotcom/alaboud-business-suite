@@ -33,7 +33,10 @@ async function runHandler(route,req){
   const today=new Date().toISOString().slice(0,10);
   const root={
     notificationSettings:{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true,zeroBalanceWhatsAppTemplate:"zero"},
-    customers:[{id:"customer-1",name:"Customer",phone:"+15190000000"}],
+    customers:[
+      {id:"customer-1",name:"Customer",phone:"+15190000000"},
+      {id:"customer-deleted",name:"Deleted Duplicate",phone:"+15190000001",isDeleted:true,deletedAt:"2026-08-12T11:00:00.000Z"}
+    ],
     capitalMovements:[{id:"capital-1",type:"IN",cadAmount:100}],
     transactions:[{id:"transaction-1",customerId:"customer-1",status:"PENDING"}],
     payments:[{id:"payment-1",transactionId:"transaction-1",paymentDate:"2026-08-10"}],
@@ -59,7 +62,7 @@ async function runHandler(route,req){
     audit:(_store,...args)=>audits.push(args),
     id:()=>"generated-action",
     now:()=>"2026-08-12T12:00:00.000Z",
-    customerSummary:(_store,customer)=>({...customer,overdue:true,overdueDays:61,finalBalance:100}),
+    customerSummary:(_store,customer)=>({...customer,overdue:true,overdueDays:customer.id==="customer-deleted"?120:61,finalBalance:customer.id==="customer-deleted"?9999:100}),
     capitalCadAmount:(_store,item)=>Number(item.cadAmount||0),
     previewMonthlyMessages:()=>[{customerId:"customer-1"}],
     sendMonthlyMessagesNow:async()=>[{customerId:"customer-1",status:"SENT"}]
@@ -103,6 +106,7 @@ async function runHandler(route,req){
   assert.strictEqual(notifications.body.overdueTotal,100);
   assert.deepStrictEqual(notifications.body.notifications.map(item=>item.type),["OVERDUE_CUSTOMER","LOW_CAPITAL","INCOMPLETE_TRANSFERS"]);
   assert.strictEqual(notifications.body.notifications[0].severity,"critical");
+  assert(!notifications.body.notifications.some(item=>item.customerId==="customer-deleted"),"soft-deleted customer must not appear in notifications");
 
   const createAction=routes.find(route=>route.method==="post"&&route.path==="/api/notification-actions");
   const created=await runHandler(createAction,{user:{id:"admin"},body:{customerId:"customer-1",notes:"call",promiseDate:today,expectedAmount:"42.25"}});
@@ -120,6 +124,7 @@ async function runHandler(route,req){
   assert.strictEqual(alerts.body.expectedToday,42.25);
   assert.strictEqual(alerts.body.rows[0].lastPaymentDate,"2026-08-10");
   assert.strictEqual(alerts.body.rows[0].contacted,true);
+  assert(!alerts.body.rows.some(item=>item.id==="customer-deleted"),"soft-deleted customer must not appear in customer alerts");
 
   const serverSource=fs.readFileSync(path.join(__dirname,"server.js"),"utf8");
   const routeSource=fs.readFileSync(path.join(__dirname,"routes/notifications.js"),"utf8");

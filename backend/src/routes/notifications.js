@@ -217,6 +217,7 @@ function registerNotificationRoutes(app,{
   app.get("/api/notifications", auth, (_req,res)=>{
     const store=readStore();
     const customers=(Array.isArray(store.customers)?store.customers:[])
+      .filter(customer=>customer&&!customer.isDeleted)
       .map(customer=>customerSummary(store,customer));
     const overdue=customers
       .filter(customer=>customer.overdue)
@@ -317,6 +318,7 @@ function registerNotificationRoutes(app,{
     }
 
     const rows = (Array.isArray(store.customers) ? store.customers : [])
+      .filter(customer=>customer&&!customer.isDeleted)
       .map((customer)=>{
         const summary=customerSummary(store,customer);
         const customerPayments=payments
