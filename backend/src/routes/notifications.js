@@ -16,6 +16,7 @@ function registerNotificationRoutes(app,{
       monthlyAccountMessageTemplate:String(store.notificationSettings?.monthlyAccountMessageTemplate||""),
       automaticTransferWhatsAppEnabled:Boolean(store.notificationSettings?.automaticTransferWhatsAppEnabled),
       zeroBalanceWhatsAppEnabled:Boolean(store.notificationSettings?.zeroBalanceWhatsAppEnabled),
+      zeroBalanceWhatsAppTemplate:String(store.notificationSettings?.zeroBalanceWhatsAppTemplate||""),
       overdueWhatsAppEnabled:Boolean(store.notificationSettings?.overdueWhatsAppEnabled),
       overdueFirstReminderDays:Math.max(1,Math.min(365,Math.round(safeNumber(store.notificationSettings?.overdueFirstReminderDays,store.notificationSettings?.overdueDays||7)||7))),
       overdueSecondReminderEnabled:store.notificationSettings?.overdueSecondReminderEnabled!==false,
@@ -60,6 +61,7 @@ function registerNotificationRoutes(app,{
       if(req.body?.monthlyAccountMessageTemplate!==undefined)store.notificationSettings.monthlyAccountMessageTemplate=String(req.body.monthlyAccountMessageTemplate||"").slice(0,4000);
       if(req.body?.automaticTransferWhatsAppEnabled!==undefined)store.notificationSettings.automaticTransferWhatsAppEnabled=Boolean(req.body.automaticTransferWhatsAppEnabled);
       if(req.body?.zeroBalanceWhatsAppEnabled!==undefined)store.notificationSettings.zeroBalanceWhatsAppEnabled=Boolean(req.body.zeroBalanceWhatsAppEnabled);
+      if(req.body?.zeroBalanceWhatsAppTemplate!==undefined)store.notificationSettings.zeroBalanceWhatsAppTemplate=String(req.body.zeroBalanceWhatsAppTemplate||"").slice(0,4000);
       if(req.body?.overdueWhatsAppEnabled!==undefined)store.notificationSettings.overdueWhatsAppEnabled=Boolean(req.body.overdueWhatsAppEnabled);
       if(req.body?.overdueFirstReminderDays!==undefined){
         const value=Number(req.body.overdueFirstReminderDays);
@@ -154,7 +156,7 @@ function registerNotificationRoutes(app,{
 
   app.post("/api/whatsapp-bot/test",auth,requirePermission("admin.only"),async(req,res)=>{
     const baseUrl=String(process.env.LOCAL_WHATSAPP_BOT_URL||"").trim().replace(/\/+$/,""),secret=String(process.env.LOCAL_WHATSAPP_BOT_SECRET||"").trim();
-    const phone=String(req.body?.phone||"").replace(/\D/g,""),message=String(req.body?.message||"رسالة اختبار من نظام العبود").trim().slice(0,1500);
+    const phone=String(req.body?.phone||"").replace(/\D/g,""),message=String(req.body?.message||"رسالة اختبار من أبو إسلام").trim().slice(0,1500);
     if(!baseUrl||!secret)return res.status(400).json({ok:false,message:"البوت المحلي غير مضبوط"});
     if(phone.length<8||phone.length>15)return res.status(400).json({ok:false,message:"رقم الاختبار غير صالح"});
     try{

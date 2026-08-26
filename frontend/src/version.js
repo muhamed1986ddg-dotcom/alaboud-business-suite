@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.112 — WhatsApp Settings UI + Saved Automation + 7/15 Reminders";
+export const APP_VERSION="v25.14.113 — Editable WhatsApp Templates + Abu Islam Signature";

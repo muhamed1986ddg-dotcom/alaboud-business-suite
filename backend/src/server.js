@@ -411,7 +411,7 @@ async function seedAdmin(){
       }
     }
     if(!store.companySettings[company.id]){
-      store.companySettings[company.id]={...(store.notificationSettings||{}),overdueDays:store.notificationSettings?.overdueDays||7,lowCashLimit:store.notificationSettings?.lowCashLimit||5000,whatsappTemplate:store.notificationSettings?.whatsappTemplate||"",monthlyAccountWhatsAppEnabled:Boolean(store.notificationSettings?.monthlyAccountWhatsAppEnabled??store.notificationSettings?.monthlyAccountMessagesEnabled),monthlyAccountMessageDay:store.notificationSettings?.monthlyAccountMessageDay||19,monthlyAccountMessageTime:store.notificationSettings?.monthlyAccountMessageTime||"09:00",monthlyAccountMessageTemplate:store.notificationSettings?.monthlyAccountMessageTemplate||"",automaticTransferWhatsAppEnabled:Boolean(store.notificationSettings?.automaticTransferWhatsAppEnabled),zeroBalanceWhatsAppEnabled:Boolean(store.notificationSettings?.zeroBalanceWhatsAppEnabled),timeZone:store.notificationSettings?.timeZone||"America/Toronto"};
+      store.companySettings[company.id]={...(store.notificationSettings||{}),overdueDays:store.notificationSettings?.overdueDays||7,lowCashLimit:store.notificationSettings?.lowCashLimit||5000,whatsappTemplate:store.notificationSettings?.whatsappTemplate||"",monthlyAccountWhatsAppEnabled:Boolean(store.notificationSettings?.monthlyAccountWhatsAppEnabled??store.notificationSettings?.monthlyAccountMessagesEnabled),monthlyAccountMessageDay:store.notificationSettings?.monthlyAccountMessageDay||19,monthlyAccountMessageTime:store.notificationSettings?.monthlyAccountMessageTime||"09:00",monthlyAccountMessageTemplate:store.notificationSettings?.monthlyAccountMessageTemplate||"",automaticTransferWhatsAppEnabled:Boolean(store.notificationSettings?.automaticTransferWhatsAppEnabled),zeroBalanceWhatsAppEnabled:Boolean(store.notificationSettings?.zeroBalanceWhatsAppEnabled),zeroBalanceWhatsAppTemplate:store.notificationSettings?.zeroBalanceWhatsAppTemplate||"",timeZone:store.notificationSettings?.timeZone||"America/Toronto"};
     }
   });
 }
@@ -1099,7 +1099,7 @@ app.post("/api/auth/register-company",rateLimit("register-company",5,60*60*1000)
       const user={id:id(),companyId:company.id,name:ownerName,email,passwordHash:hashPassword(password),role:"ADMIN",active:true,createdAt:now()};
       store.companies.push(company);
       store.users.push(user);
-      store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,overdueWhatsAppEnabled:false,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"};
+      store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,zeroBalanceWhatsAppTemplate:"",overdueWhatsAppEnabled:false,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"};
       return {company,user};
     });
     const session=await issueSession(result.user,result.company,{ip:req.ip,userAgent:req.get("user-agent")});

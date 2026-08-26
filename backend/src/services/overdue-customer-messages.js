@@ -3,8 +3,8 @@ const {normalizeWhatsappNumber}=require("./monthly-customer-balance-messages");
 function finite(v){const n=Number(v);return Number.isFinite(n)?n:0;}
 function overdueMessage(recipient,template="",stage="FIRST"){
   const values={customerName:recipient.name,name:recipient.name,balance:recipient.amount.toFixed(2),days:String(recipient.days)};
-  const fallbackFirst="مرحباً {customerName}\n\nنود تذكيركم بأن على حسابكم رصيداً متأخراً قدره:\n{balance} CAD\n\nمدة التأخير: {days} يوم\n\nيرجى مراجعة الحساب، وشكراً.\nشركة العبود";
-  const fallbackSecond="مرحباً {customerName}\n\nهذا تذكير ثانٍ بوجود رصيد متأخر على حسابكم قدره:\n{balance} CAD\n\nمدة التأخير الحالية: {days} يوم\n\nنرجو مراجعة الحساب عند أقرب فرصة، وشكراً.\nشركة العبود";
+  const fallbackFirst="مرحباً {customerName}\n\nنود تذكيركم بأن على حسابكم رصيداً متأخراً قدره:\n{balance} CAD\n\nمدة التأخير: {days} يوم\n\nيرجى مراجعة الحساب، وشكراً.\nأبو إسلام";
+  const fallbackSecond="مرحباً {customerName}\n\nهذا تذكير ثانٍ بوجود رصيد متأخر على حسابكم قدره:\n{balance} CAD\n\nمدة التأخير الحالية: {days} يوم\n\nنرجو مراجعة الحساب عند أقرب فرصة، وشكراً.\nأبو إسلام";
   return String(template||(stage==="SECOND"?fallbackSecond:fallbackFirst)).replace(/\{(customerName|name|balance|days)\}/g,(_m,k)=>values[k]);
 }
 function isOverdueRunDue(settings={},local={}){

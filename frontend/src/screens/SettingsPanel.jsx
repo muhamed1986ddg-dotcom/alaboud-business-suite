@@ -5,7 +5,7 @@ import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,
 import {AppModal} from "../components/ui";
 
 function NotificationSettings({embedded=false}){
-  const defaults={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,overdueWhatsAppEnabled:false,overdueFirstReminderDays:7,overdueSecondReminderEnabled:true,overdueSecondReminderDays:15,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",overdueSecondWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"};
+  const defaults={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,zeroBalanceWhatsAppTemplate:"",overdueWhatsAppEnabled:false,overdueFirstReminderDays:7,overdueSecondReminderEnabled:true,overdueSecondReminderDays:15,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",overdueSecondWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"};
   const [settings,setSettings]=useState(defaults);
   const [message,setMessage]=useState("");
   const [preview,setPreview]=useState(null),[logs,setLogs]=useState([]),[busy,setBusy]=useState(false);
@@ -57,6 +57,12 @@ function NotificationSettings({embedded=false}){
           <p className="settings-note">تغيير رقم البوت هنا يحدد الرقم المتوقع للتحقق فقط. تغيير حساب البوت فعليًا يتم من الأجهزة المرتبطة في WhatsApp.</p>
           <div className="monthly-message-actions whatsapp-bot-actions"><button type="button" onClick={checkBotStatus} disabled={busy}>فحص حالة البوت</button><input inputMode="tel" dir="ltr" value={testPhone} onChange={e=>setTestPhone(e.target.value)} placeholder="رقم رسالة الاختبار"/><button type="button" onClick={sendBotTest} disabled={busy}>إرسال رسالة اختبار</button></div>
           {botStatus&&<div className="monthly-message-preview whatsapp-bot-status"><strong>{botStatus.connected?"✅ البوت متصل":"❌ البوت غير متصل"}</strong><span>رقم البوت: <bdi dir="ltr">{botStatus.senderNumber||"غير متاح"}</bdi></span>{botStatus.expectedSenderNumber&&<span>{botStatus.senderMatches?"✅ الرقم مطابق للإعداد":"⚠️ الرقم المرتبط لا يطابق الرقم المتوقع"}</span>}</div>}
+        </section>
+
+        <section className="whatsapp-subsection">
+          <div className="whatsapp-section-heading"><div><strong>قالب رسالة تصفير الحساب</strong><small>يُستخدم عند انتقال رصيد العميل إلى 0.00 CAD. اتركه فارغًا لاستخدام القالب الافتراضي بتوقيع أبو إسلام.</small></div></div>
+          <label className="whatsapp-field"><span>نص رسالة تصفير الحساب</span><textarea rows="7" value={settings.zeroBalanceWhatsAppTemplate||""} onChange={e=>update({zeroBalanceWhatsAppTemplate:e.target.value})} placeholder={"مرحباً {customerName}\n\nتم تسوية حسابكم بالكامل.\n\nرصيد حسابكم الحالي:\n0.00 CAD\n\nحسابكم الآن صفر.\n\nشكراً لكم.\n\nأبو إسلام"}/></label>
+          <p className="settings-note">المتغيرات المتاحة: <bdi dir="ltr">{`{customerName}`}</bdi> أو <bdi dir="ltr">{`{name}`}</bdi>.</p>
         </section>
 
         <section className="whatsapp-subsection">

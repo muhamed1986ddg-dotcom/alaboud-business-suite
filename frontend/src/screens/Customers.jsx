@@ -347,7 +347,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
             "تم تسديد الحساب بالكامل وتحديث الرصيد بنجاح.",
             "الرصيد الحالي: 0.00 CAD",
             `التاريخ: ${new Date().toLocaleDateString("en-CA")}`,
-            "شكراً لتعاملكم معنا.","شركة العبود"
+            "شكراً لتعاملكم معنا.","أبو إسلام"
           ])
         });
       }
@@ -426,7 +426,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           `المبلغ: ${savedForm.amount||createdTransaction?.amount||""} ${savedForm.currency||createdTransaction?.currency||""}`,
           `التاريخ: ${savedForm.transferDate||createdTransaction?.transferDate||""}`,
           currentBalance!==""?`الرصيد الحالي: ${money(currentBalance)} CAD`:"",
-          "شركة العبود"
+          "أبو إسلام"
         ])
       });
 
@@ -498,7 +498,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           zeroBalance?"تم تسديد الحساب بالكامل وتحديث الرصيد بنجاح.":"تم تسجيل الدفعة وتحديث حسابكم بنجاح.",
           currentBalance!==""?`الرصيد الحالي: ${money(currentBalance)} CAD`:"",
           `التاريخ: ${savedPayment.paymentDate||""}`,
-          "شكراً لتعاملكم معنا.","شركة العبود"
+          "شكراً لتعاملكم معنا.","أبو إسلام"
         ])
       });
       setPaymentForm({
@@ -1009,14 +1009,14 @@ export function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
         `نذكّركم بلطف بوجود رصيد مستحق قدره ${cad(customer.finalBalance)}.`,
         `مدة التأخير: ${customer.overdueDays} يوم.`,
         `نرجو التكرم بالسداد في الوقت المناسب.`,
-        `شكراً لتعاملكم مع شركة العبود للتجارة.`
+        `أبو إسلام`
       ],
       formal:[
         `السيد/السيدة ${customer.name} المحترم/ة،`,
         `نفيدكم بوجود رصيد مستحق على حسابكم بقيمة ${cad(customer.finalBalance)}.`,
         `وقد تجاوزت مدة التأخير ${customer.overdueDays} يومًا.`,
         `يرجى تسوية الرصيد أو التواصل معنا لتحديد موعد الدفع.`,
-        `شركة العبود للتجارة.`
+        `أبو إسلام`
       ],
       statement:[
         `السلام عليكم ${customer.name}،`,
@@ -1024,7 +1024,8 @@ export function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
         `إجمالي الحساب: ${cad(customer.totalTransactions)}`,
         `إجمالي المدفوع: ${cad(customer.totalPaid)}`,
         `الرصيد المتبقي: ${cad(customer.finalBalance)}`,
-        `يمكننا تزويدكم بكشف الحساب الكامل عند الطلب.`
+        `يمكننا تزويدكم بكشف الحساب الكامل عند الطلب.`,
+        `أبو إسلام`
       ]
     };
     return (templates[type]||templates.gentle).join("\n");

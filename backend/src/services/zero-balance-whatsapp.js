@@ -7,7 +7,22 @@ function balanceAtCent(value){const number=Number(value);return Number.isFinite(
 function isZeroBalance(value){return balanceAtCent(value)===0n;}
 function isZeroBalanceTransition(previousBalance,currentBalance){return !isZeroBalance(previousBalance)&&isZeroBalance(currentBalance);}
 function zeroBalanceDedupeKey(companyId,customerId,operationId){return `zero-balance-whatsapp:${companyId}:${customerId}:${operationId}`;}
-function zeroBalanceMessage(customerName){return `مرحباً ${customerName}\n\nتم تسوية حسابكم بالكامل.\n\nرصيد حسابكم الحالي:\n0.00 CAD\n\nحسابكم الآن صفر.\n\nشكراً لكم.\nشركة العبود`;}
+function zeroBalanceMessage(customerName,template=""){
+  const values={customerName:String(customerName||"عميل"),name:String(customerName||"عميل")};
+  const fallback=`مرحباً {customerName}
+
+تم تسوية حسابكم بالكامل.
+
+رصيد حسابكم الحالي:
+0.00 CAD
+
+حسابكم الآن صفر.
+
+شكراً لكم.
+
+أبو إسلام`;
+  return String(template||fallback).replace(/\{(customerName|name)\}/g,(_m,key)=>values[key]);
+}
 
 async function executeZeroBalanceMessage({store,companyId,customerId,operationId,transactionId=null,previousBalance,customerSummary,mutateDurable,id,now,sendWhatsApp}){
   if(!store.notificationSettings?.zeroBalanceWhatsAppEnabled)return {status:"DISABLED",handled:false};
@@ -15,7 +30,7 @@ async function executeZeroBalanceMessage({store,companyId,customerId,operationId
   if(!customer)return {status:"NOT_APPLICABLE",handled:false};
   const summary=customerSummary(store,customer),currentBalance=Number(summary.finalBalance||0);
   if(!isZeroBalanceTransition(previousBalance,currentBalance))return {status:"NOT_ZERO_TRANSITION",handled:false,currentBalance};
-  const whatsappNumber=normalizeWhatsappNumber(customer.whatsapp||customer.phone),dedupeKey=zeroBalanceDedupeKey(companyId,customer.id,operationId),messageText=zeroBalanceMessage(String(summary.name||customer.name||"عميل"));
+  const whatsappNumber=normalizeWhatsappNumber(customer.whatsapp||customer.phone),dedupeKey=zeroBalanceDedupeKey(companyId,customer.id,operationId),messageText=zeroBalanceMessage(String(summary.name||customer.name||"عميل"),store.notificationSettings?.zeroBalanceWhatsAppTemplate);
   const claim=await mutateDurable(current=>{
     current.notificationActions||=[];
     if(current.notificationActions.some(item=>item?.dedupeKey===dedupeKey))return null;
