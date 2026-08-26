@@ -1,3 +1,20 @@
+## 25.14.111
+- WhatsApp automation settings: zero balance, monthly, overdue, bot status/test, separate Syrian manual sender reference.
+
+## 25.14.111-TEST — Bot Auto + Syrian Manual WhatsApp
+
+- Keeps automatic zero-balance delivery on the LOCAL_BOT channel.
+- Keeps the manual WhatsApp action available independently, including after successful bot delivery.
+- Android manual `wa.me` links prefer the regular WhatsApp package (`com.whatsapp`) so the Syrian regular-WhatsApp account remains the manual sender.
+- No accounting, treasury, profit, or balance logic changes.
+
+## 25.14.109-TEST — Zero Balance Local WhatsApp Bot
+
+- Adds optional LOCAL_BOT provider for zero-balance WhatsApp only.
+- Uses LOCAL_WHATSAPP_BOT_URL and LOCAL_WHATSAPP_BOT_SECRET from server environment; no secret is stored in source.
+- Preserves deterministic settlementId from the committed financial operation for bot-side deduplication.
+- No treasury, profit, capital, or accounting calculation changes.
+
 # Changelog
 
 ## 25.14.107 — Treasury

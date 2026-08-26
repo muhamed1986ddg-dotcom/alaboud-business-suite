@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity() {
         private const val APP_URL = "https://alaboud-business-suite-us-763786484727.us-central1.run.app/"
         private const val APP_ORIGIN = "https://alaboud-business-suite-us-763786484727.us-central1.run.app"
         private const val APP_HOST = "alaboud-business-suite-us-763786484727.us-central1.run.app"
-        private const val CLIENT_VERSION = "25.14.107"
+        private const val CLIENT_VERSION = "25.14.111"
         private const val FILE_CHOOSER_REQUEST = 9001
         private const val NOTIFICATION_PERMISSION_REQUEST = 9002
         private const val CHANNEL_ID = "alaboud_overdue_customers"
@@ -632,6 +632,23 @@ class MainActivity : AppCompatActivity() {
 
     private fun openExternal(uri: Uri) {
         try {
+            val isWhatsAppLink = uri.scheme.equals("whatsapp", ignoreCase = true) ||
+                (uri.scheme in listOf("http", "https") && uri.host.equals("wa.me", ignoreCase = true))
+
+            if (isWhatsAppLink) {
+                // Manual quick-send must stay on the regular WhatsApp account (Syrian number).
+                // The automatic zero-balance sender is a separate LOCAL_BOT server-side channel.
+                val regularWhatsApp = Intent(Intent.ACTION_VIEW, uri).apply {
+                    setPackage("com.whatsapp")
+                }
+                try {
+                    startActivity(regularWhatsApp)
+                    return
+                } catch (_: Exception) {
+                    // Fall back to the system handler if regular WhatsApp is not installed.
+                }
+            }
+
             val intent = if (uri.scheme == "intent") {
                 Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
             } else {

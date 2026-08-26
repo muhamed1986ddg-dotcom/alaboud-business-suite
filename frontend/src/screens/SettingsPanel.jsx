@@ -5,9 +5,10 @@ import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,
 import {AppModal} from "../components/ui";
 
 function NotificationSettings({embedded=false}){
-  const [settings,setSettings]=useState({overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,timeZone:"America/Toronto"});
+  const [settings,setSettings]=useState({overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,overdueWhatsAppEnabled:false,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"});
   const [message,setMessage]=useState("");
   const [preview,setPreview]=useState(null),[logs,setLogs]=useState([]),[busy,setBusy]=useState(false);
+  const [botStatus,setBotStatus]=useState(null),[testPhone,setTestPhone]=useState("");
 
   useEffect(()=>{
     cachedGet("/notification-settings").then(response=>setSettings(response.data));
@@ -41,6 +42,9 @@ function NotificationSettings({embedded=false}){
     finally{setBusy(false);}
   }
 
+  async function checkBotStatus(){setBusy(true);try{const {data}=await api.get("/whatsapp-bot/status");setBotStatus(data);setMessage(data.connected?"البوت متصل وجاهز":"البوت غير متصل");}catch(error){setMessage(error.response?.data?.message||"تعذر فحص البوت");}finally{setBusy(false);}}
+  async function sendBotTest(){if(!testPhone)return setMessage("أدخل رقم اختبار مع رمز الدولة");setBusy(true);try{await api.post("/whatsapp-bot/test",{phone:testPhone});setMessage("تم إرسال رسالة الاختبار من البوت");}catch(error){setMessage(error.response?.data?.message||"فشل إرسال رسالة الاختبار");}finally{setBusy(false);}}
+
   return <div className={embedded?"notification-settings-embedded":"notification-settings-page"}>
     {!embedded&&<h2>إعدادات التنبيهات وواتساب</h2>}
     {message&&<div className="card rate-message">{message}</div>}
@@ -57,8 +61,14 @@ function NotificationSettings({embedded=false}){
         placeholder="يمكن استخدام: {name} {balance} {days}"/>
       <button>حفظ الإعدادات</button>
       <fieldset className="monthly-account-message-settings">
-        <legend>رسائل الحساب الشهرية التلقائية عبر WhatsApp</legend>
-        <label className="settings-toggle"><input type="checkbox" checked={Boolean(settings.monthlyAccountWhatsAppEnabled)} onChange={e=>setSettings({...settings,monthlyAccountWhatsAppEnabled:e.target.checked})}/> تشغيل الرسائل الشهرية</label>
+        <legend>أتمتة رسائل WhatsApp</legend>
+        <label className="settings-toggle"><input type="checkbox" checked={Boolean(settings.zeroBalanceWhatsAppEnabled)} onChange={e=>setSettings({...settings,zeroBalanceWhatsAppEnabled:e.target.checked})}/> إرسال تلقائي عند تصفير حساب العميل</label>
+        <label className="settings-toggle"><input type="checkbox" checked={Boolean(settings.monthlyAccountWhatsAppEnabled)} onChange={e=>setSettings({...settings,monthlyAccountWhatsAppEnabled:e.target.checked})}/> الرسائل الشهرية للعملاء</label>
+        <label className="settings-toggle"><input type="checkbox" checked={Boolean(settings.overdueWhatsAppEnabled)} onChange={e=>setSettings({...settings,overdueWhatsAppEnabled:e.target.checked})}/> رسائل العملاء المتأخرين</label>
+        <div className="monthly-message-schedule"><label>رقم البوت المتوقع<input inputMode="tel" value={settings.automaticWhatsappSenderNumber||""} onChange={e=>setSettings({...settings,automaticWhatsappSenderNumber:e.target.value})} placeholder="مثال: 1705..."/></label><label>رقم واتساب السوري اليدوي<input inputMode="tel" value={settings.manualWhatsappSenderNumber||""} onChange={e=>setSettings({...settings,manualWhatsappSenderNumber:e.target.value})} placeholder="963..."/></label></div>
+        <p className="settings-note">تغيير رقم البوت هنا يحدد الرقم المتوقع للتحقق. تغيير حساب الإرسال فعليًا يتطلب ربط البوت بالرقم الجديد من الأجهزة المرتبطة. زر واتساب اليدوي يبقى على تطبيق WhatsApp العادي.</p>
+        <div className="monthly-message-actions"><button type="button" onClick={checkBotStatus} disabled={busy}>فحص حالة البوت</button><input inputMode="tel" value={testPhone} onChange={e=>setTestPhone(e.target.value)} placeholder="رقم رسالة الاختبار"/><button type="button" onClick={sendBotTest} disabled={busy}>إرسال رسالة اختبار</button></div>
+        {botStatus&&<div className="monthly-message-preview"><strong>{botStatus.connected?"✅ البوت متصل":"❌ البوت غير متصل"}</strong><span>رقم البوت: <bdi dir="ltr">{botStatus.senderNumber||"غير متاح"}</bdi></span>{botStatus.expectedSenderNumber&&<span>{botStatus.senderMatches?"✅ الرقم مطابق للإعداد":"⚠️ الرقم المرتبط لا يطابق الرقم المتوقع"}</span>}</div>}
         <div className="monthly-message-schedule">
           <label>يوم الإرسال (1–28)<input type="number" min="1" max="28" value={settings.monthlyAccountMessageDay} onChange={e=>setSettings({...settings,monthlyAccountMessageDay:e.target.value})}/></label>
           <label>وقت الإرسال<input type="time" value={settings.monthlyAccountMessageTime} onChange={e=>setSettings({...settings,monthlyAccountMessageTime:e.target.value})}/></label>
@@ -66,8 +76,10 @@ function NotificationSettings({embedded=false}){
         <label>المنطقة الزمنية<select value={settings.timeZone||"America/Toronto"} onChange={e=>setSettings({...settings,timeZone:e.target.value})}><option value="America/Toronto">America/Toronto</option><option value="America/New_York">America/New_York</option><option value="Asia/Damascus">Asia/Damascus</option><option value="Asia/Dubai">Asia/Dubai</option><option value="Europe/Istanbul">Europe/Istanbul</option></select></label>
         <label>قالب الرسالة الشهري</label>
         <textarea rows="7" value={settings.monthlyAccountMessageTemplate||""} onChange={e=>setSettings({...settings,monthlyAccountMessageTemplate:e.target.value})} placeholder="اتركه فارغًا لاستخدام القالب الرسمي. المتغيرات: {customerName} {date} {balance} {balanceDirection}"/>
+        <label>وقت رسائل العملاء المتأخرين<input type="time" value={settings.overdueWhatsAppMessageTime||"10:00"} onChange={e=>setSettings({...settings,overdueWhatsAppMessageTime:e.target.value})}/></label>
+        <label>قالب رسالة المتأخرين</label>
+        <textarea rows="5" value={settings.overdueWhatsAppTemplate||""} onChange={e=>setSettings({...settings,overdueWhatsAppTemplate:e.target.value})} placeholder="المتغيرات: {customerName} {balance} {days}"/>
         <label className="settings-toggle"><input type="checkbox" checked={Boolean(settings.automaticTransferWhatsAppEnabled)} onChange={e=>setSettings({...settings,automaticTransferWhatsAppEnabled:e.target.checked})}/> إرسال رسالة WhatsApp تلقائيًا بعد كل حوالة جديدة</label>
-        <label className="settings-toggle"><input type="checkbox" checked={Boolean(settings.zeroBalanceWhatsAppEnabled)} onChange={e=>setSettings({...settings,zeroBalanceWhatsAppEnabled:e.target.checked})}/> إرسال رسالة WhatsApp تلقائيًا عند تصفير حساب العميل</label>
         <div className="monthly-message-actions"><button type="button" onClick={loadPreview} disabled={busy}>معاينة رسائل هذا الشهر</button><button type="button" onClick={sendNow} disabled={busy}>إرسال الآن</button><button type="button" onClick={loadLogs}>سجل الرسائل السابقة</button></div>
         {preview&&<div className="monthly-message-preview"><strong>العملاء المستهدفون: {preview.count}</strong>{preview.recipients.map(item=><article key={item.customerId}><b>{item.name}</b><span dir="ltr">{item.whatsappNumber}</span><span>{item.amount.toFixed(2)} CAD — {item.direction==="CUSTOMER_OWES_US"?"المبلغ المستحق لنا":"المبلغ المستحق لكم"}</span><pre>{item.messageText}</pre></article>)}</div>}
         {logs.length>0&&<div className="monthly-message-log"><strong>آخر محاولات الإرسال</strong>{logs.slice(0,20).map(item=><div key={item.id}><span>{item.customerName}</span><span>{item.yearMonth}</span><span>{item.status||item.deliveryStatus}</span></div>)}</div>}
@@ -75,7 +87,7 @@ function NotificationSettings({embedded=false}){
     </form>
     <div className={embedded?"settings-help":"card"}>
       <strong>ملاحظة:</strong>
-      <p>زر واتساب يفتح الرسالة جاهزة للإرسال. الإرسال التلقائي دون ضغط يحتاج ربط WhatsApp Business API رسمي.</p>
+      <p>زر واتساب يفتح الرسالة جاهزة للإرسال. الإرسال التلقائي يعمل عبر البوت المحلي عند اختياره كمزوّد، أو عبر Meta/Twilio عند إعدادها. واتساب السوري اليدوي يبقى منفصلًا.</p>
     </div>
   </div>;
 }

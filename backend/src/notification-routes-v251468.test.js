@@ -73,6 +73,8 @@ async function runHandler(route,req){
     "get /api/monthly-account-messages/logs",
     "get /api/transfer-fee-settings",
     "patch /api/transfer-fee-settings",
+    "get /api/whatsapp-bot/status",
+    "post /api/whatsapp-bot/test",
     "get /api/notifications",
     "post /api/notification-actions",
     "get /api/notification-actions/:customerId",
@@ -80,12 +82,12 @@ async function runHandler(route,req){
   ];
   assert.deepStrictEqual(routes.map(route=>`${route.method} ${route.path}`),expected);
   assert(routes.every(route=>route.handlers[0]===auth),"all notification routes must remain authenticated");
-  assert.deepStrictEqual(requiredPermissions,["admin.only","admin.only","admin.only","admin.only","admin.only"]);
+  assert.deepStrictEqual(requiredPermissions,["admin.only","admin.only","admin.only","admin.only","admin.only","admin.only","admin.only"]);
   assert.strictEqual(routes.find(route=>route.method==="patch"&&route.path==="/api/notification-settings").handlers[1],adminPermission,"settings write must keep admin permission middleware");
   assert.strictEqual(routes.find(route=>route.method==="patch"&&route.path==="/api/transfer-fee-settings").handlers[1],adminPermission,"transfer fee settings write must keep admin permission middleware");
 
   const settings=await runHandler(routes.find(route=>route.method==="get"&&route.path==="/api/notification-settings"),{});
-  assert.deepStrictEqual(settings.body,{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true,timeZone:"America/Toronto"});
+  assert.deepStrictEqual(settings.body,{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true,overdueWhatsAppEnabled:false,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"});
 
   const patchSettings=routes.find(route=>route.method==="patch"&&route.path==="/api/notification-settings");
   const updated=await runHandler(patchSettings,{user:{id:"admin"},body:{overdueDays:15,lowCashLimit:750,whatsappTemplate:"updated"}});

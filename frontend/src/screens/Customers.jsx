@@ -324,21 +324,33 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     if(!confirmed)return;
     setError("");
     try{
-      await api.post(`/customers/${customer.id}/reset-account`,{});
+      const {data}=await api.post(`/customers/${customer.id}/reset-account`,{});
       clearApiGetCache();
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
       void Promise.allSettled([load(),loadDebtSummary()]);
-      setWhatsAppSuccess({
-        title:"تم تحديث حساب العميل بنجاح",
-        phone:customer.whatsapp||customer.mobile||customer.phone,
-        message:compactWhatsAppLines([
-          `مرحباً ${customer.name||""}`,
-          "تم تسديد الحساب بالكامل وتحديث الرصيد بنجاح.",
-          "الرصيد الحالي: 0.00 CAD",
-          `التاريخ: ${new Date().toLocaleDateString("en-CA")}`,
-          "شكراً لتعاملكم معنا.","شركة العبود"
-        ])
-      });
+      const delivery=data?.whatsappDelivery||null;
+      if(delivery?.status==="SENT"){
+        setWhatsAppSuccess({
+          title:"تم تحديث حساب العميل وإرسال واتساب تلقائيًا",
+          autoSent:true,
+          phone:customer.whatsapp||customer.mobile||customer.phone,
+          message:""
+        });
+      }else{
+        setWhatsAppSuccess({
+          title:"تم تحديث حساب العميل بنجاح",
+          autoSent:false,
+          deliveryStatus:delivery?.status||"UNKNOWN",
+          phone:customer.whatsapp||customer.mobile||customer.phone,
+          message:compactWhatsAppLines([
+            `مرحباً ${customer.name||""}`,
+            "تم تسديد الحساب بالكامل وتحديث الرصيد بنجاح.",
+            "الرصيد الحالي: 0.00 CAD",
+            `التاريخ: ${new Date().toLocaleDateString("en-CA")}`,
+            "شكراً لتعاملكم معنا.","شركة العبود"
+          ])
+        });
+      }
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تصفير حساب العميل");
     }
@@ -657,8 +669,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       <AppButton type="button" className="whatsapp-quick-send-button" onClick={()=>{
         const result=openWhatsAppMessage(whatsAppSuccess?.phone,whatsAppSuccess?.message);
         if(!result.ok)setError("لا يوجد رقم واتساب مسجل لهذا العميل أو أن الرقم غير صالح");
-      }}>إرسال عبر واتساب</AppButton>
-    </>}><p>يمكنك فتح الرسالة الجاهزة في واتساب، أو إغلاق النافذة والمتابعة.</p></AppModal>
+      }}>إرسال عبر واتساب السوري</AppButton>
+    </>}><p>{whatsAppSuccess?.autoSent?"تم إرسال رسالة تصفير الحساب تلقائيًا من البوت. ويمكنك أيضًا فتح واتساب السوري وإرسال الرسالة يدويًا عند الحاجة.":"تعذر تأكيد الإرسال التلقائي من البوت. يمكنك فتح الرسالة الجاهزة عبر واتساب السوري، أو إغلاق النافذة والمتابعة."}</p></AppModal>
     <h2>قائمة العملاء</h2>
     {error&&<div className="card customer-error">{error}</div>}
     {duplicateCustomer&&<div className="card duplicate-customer-alert">

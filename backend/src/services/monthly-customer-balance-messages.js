@@ -78,7 +78,7 @@ async function executeMonthlyAccountMessages({
     });
     if(!claim){results.push({customerId:recipient.customerId,status:"SKIPPED_DUPLICATE",reason:"DUPLICATE_IDEMPOTENCY"});continue;}
     let delivery;
-    try{delivery=await sendWhatsApp({templateType:"MONTHLY_ACCOUNT",to:recipient.whatsappNumber,body:messageText,contentVariables:{"1":recipient.name,"2":local.date,"3":recipient.amount.toFixed(2),"4":balanceDirectionText(recipient.direction)}});}
+    try{delivery=await sendWhatsApp({templateType:"MONTHLY_ACCOUNT",to:recipient.whatsappNumber,body:messageText,dedupeId:dedupeKey,contentVariables:{"1":recipient.name,"2":local.date,"3":recipient.amount.toFixed(2),"4":balanceDirectionText(recipient.direction)}});}
     catch(error){delivery={ok:false,reason:String(error?.message||"DELIVERY_ERROR")};}
     await mutateDurable(current=>{
       const item=(current.notificationActions||[]).find(entry=>entry.id===claim.id);if(!item)return;

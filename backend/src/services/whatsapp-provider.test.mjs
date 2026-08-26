@@ -61,3 +61,15 @@ test("test fixtures contain no credential-shaped production secrets",()=>{
   const source=JSON.stringify(baseEnv);
   assert.doesNotMatch(source,/EA[A-Za-z0-9]{30,}/);assert.doesNotMatch(source,/\b\d{15,}\b/);
 });
+
+test("LOCAL_BOT sends only zero-balance events with Bearer auth and deterministic settlement id",async()=>{
+  const env={WHATSAPP_PROVIDER:"LOCAL_BOT",LOCAL_WHATSAPP_BOT_URL:"https://example.trycloudflare.com",LOCAL_WHATSAPP_BOT_SECRET:"test-secret"};
+  assert.equal(selectedWhatsappProvider(env),"LOCAL_BOT");
+  let request;
+  const sender=createWhatsappSender({env,fetchImpl:async(url,options)=>{request={url,options};return {ok:true,status:200,json:async()=>({ok:true,messageId:"3EB-test"})};},logger:{error(){}}});
+  const result=await sender({templateType:"ZERO_BALANCE",to:"+1 519 555 0001",body:"zero",customerName:"Customer",previousBalance:100,settlementId:"payment-123"});
+  assert.equal(result.ok,true);assert.equal(result.provider,"LOCAL_BOT");assert.equal(result.providerMessageId,"3EB-test");
+  assert.equal(request.url,"https://example.trycloudflare.com/send-zero");assert.equal(request.options.headers.Authorization,"Bearer test-secret");
+  assert.deepEqual(JSON.parse(request.options.body),{phone:"15195550001",customerName:"Customer",previousBalance:100,currentBalance:0,settlementId:"payment-123",message:"zero"});
+  assert.equal((await sender({templateType:"TRANSFER_CREATED",to:"15195550001",body:"x",settlementId:"x"})).reason,"LOCAL_BOT_ZERO_BALANCE_ONLY");
+});

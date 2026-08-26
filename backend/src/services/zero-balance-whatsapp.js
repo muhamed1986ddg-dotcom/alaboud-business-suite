@@ -25,7 +25,7 @@ async function executeZeroBalanceMessage({store,companyId,customerId,operationId
   });
   if(claim===null)return {status:"SKIPPED_DUPLICATE",handled:true};
   if(claim===false)return {status:"SKIPPED_NO_WHATSAPP",handled:true};
-  let delivery;try{delivery=await sendWhatsApp({templateType:"ZERO_BALANCE",to:whatsappNumber,body:messageText,contentVariables:{"1":String(summary.name||customer.name||"عميل")}});}catch(error){delivery={ok:false,reason:String(error?.message||"DELIVERY_ERROR")};}
+  let delivery;try{delivery=await sendWhatsApp({templateType:"ZERO_BALANCE",to:whatsappNumber,body:messageText,settlementId:operationId,previousBalance:+Number(previousBalance||0).toFixed(2),customerName:String(summary.name||customer.name||"عميل"),contentVariables:{"1":String(summary.name||customer.name||"عميل")}});}catch(error){delivery={ok:false,reason:String(error?.message||"DELIVERY_ERROR")};}
   await mutateDurable(current=>{const item=(current.notificationActions||[]).find(entry=>entry.id===claim.id);if(!item)return;item.status=item.deliveryStatus=delivery?.ok?"SENT":"FAILED";item.provider=delivery?.provider||null;item.providerMessageId=delivery?.providerMessageId||null;item.error=delivery?.ok?null:String(delivery?.reason||"DELIVERY_FAILED");item.sentAt=delivery?.ok?now():null;item.updatedAt=now();});
   return {status:delivery?.ok?"SENT":"FAILED",handled:true,currentBalance:0};
 }

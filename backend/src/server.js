@@ -55,7 +55,7 @@ const { registerBackupRoutes } = require("./routes/backup");
 const { createServiceReadinessGate } = require("./middleware/service-readiness");
 const { createHybridRateLimiter } = require("./middleware/rate-limit");
 const { createTelemetryLifecycle } = require("./services/telemetry-lifecycle");
-const { selectMonthlyBalanceRecipients, monthlyBalanceMessage, isScheduledRunDue, executeMonthlyAccountMessages, executeTransferCreatedMessage } = require("./services/monthly-customer-balance-messages"); const { createTransferWhatsappDispatcher } = require("./services/transfer-whatsapp-dispatcher"); const { executeZeroBalanceMessage } = require("./services/zero-balance-whatsapp"); const { buildTwilioMessagePayload, sendAutomaticWhatsappTemplate } = require("./services/twilio-whatsapp-content"); const { createWhatsappSender, isWhatsappProviderConfigured } = require("./services/whatsapp-provider");
+const { selectMonthlyBalanceRecipients, monthlyBalanceMessage, isScheduledRunDue, executeMonthlyAccountMessages, executeTransferCreatedMessage } = require("./services/monthly-customer-balance-messages"); const { createTransferWhatsappDispatcher } = require("./services/transfer-whatsapp-dispatcher"); const { executeZeroBalanceMessage } = require("./services/zero-balance-whatsapp"); const { executeOverdueMessages,isOverdueRunDue } = require("./services/overdue-customer-messages"); const { buildTwilioMessagePayload, sendAutomaticWhatsappTemplate } = require("./services/twilio-whatsapp-content"); const { createWhatsappSender, isWhatsappProviderConfigured } = require("./services/whatsapp-provider");
 const { createGracefulShutdown } = require("./services/graceful-shutdown");
 const { editGroupedCustomerPayment } = require("./services/customer-payment-edit");
 const { createIdempotencyMiddleware, createRequireIdempotencyKey, operationScopeKey } = require("./reliability/idempotency");
@@ -1099,7 +1099,7 @@ app.post("/api/auth/register-company",rateLimit("register-company",5,60*60*1000)
       const user={id:id(),companyId:company.id,name:ownerName,email,passwordHash:hashPassword(password),role:"ADMIN",active:true,createdAt:now()};
       store.companies.push(company);
       store.users.push(user);
-      store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,timeZone:"America/Toronto"};
+      store.companySettings[company.id]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,overdueWhatsAppEnabled:false,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"};
       return {company,user};
     });
     const session=await issueSession(result.user,result.company,{ip:req.ip,userAgent:req.get("user-agent")});
@@ -1250,7 +1250,7 @@ app.get("/api/dashboard", auth, (req,res)=>{
 
 
 
-const runMonthlyCustomerBalanceMessages=registerMonthlyAccountMessagesJob(app,{crypto,readRootStore,readStore,runWithTenant,mutateDurable,id,now,customerSummary,inventoryLocalDate,isScheduledRunDue,executeMonthlyAccountMessages,sendWhatsApp:sendWhatsAppMessage,isServiceReady:()=>serviceReady});
+const runMonthlyCustomerBalanceMessages=registerMonthlyAccountMessagesJob(app,{crypto,readRootStore,readStore,runWithTenant,mutateDurable,id,now,customerSummary,inventoryLocalDate,isScheduledRunDue,executeMonthlyAccountMessages,executeOverdueMessages,isOverdueRunDue,sendWhatsApp:sendWhatsAppMessage,isServiceReady:()=>serviceReady});
 registerNotificationRoutes(app,{
   auth,requirePermission,readStore,mutateDurable,safeNumber,audit,id,now,
   customerSummary,capitalCadAmount,
@@ -1999,7 +1999,14 @@ app.post("/api/customers/:id/reset-account", auth, async (req,res)=>{
     });
 
     if(!result)return res.status(404).json({message:"العميل غير موجود"});
-    res.json({message:"تم تصفير حساب العميل وبدء حساب جديد مع حفظ الحساب السابق في الأرشيف",...result});
+    const whatsappDelivery=await transferWhatsAppDispatcher.dispatchZeroSafely({
+      companyId:req.user.companyId,
+      branchId:req.user.branchId,
+      customerId:req.params.id,
+      operationId:result.reset.id,
+      previousBalance
+    });
+    res.json({message:"تم تصفير حساب العميل وبدء حساب جديد مع حفظ الحساب السابق في الأرشيف",...result,whatsappDelivery});
   }catch(error){
     res.status(400).json({message:error.message||"تعذر تصفير حساب العميل"});
   }

@@ -1,6 +1,6 @@
 {
   "name": "alaboud-stable-backend",
-  "version": "25.14.107",
+  "version": "25.14.111",
   "private": true,
   "type": "commonjs",
   "scripts": {
@@ -38,6 +38,7 @@
     "test:partner-network": "node src/security/partner-network.test.js"
   },
   "dependencies": {
+    "alaboud-business-suite-cloud": "file:..",
     "bcryptjs": "^2.4.3",
     "express": "^4.21.2",
     "helmet": "^8.0.0",

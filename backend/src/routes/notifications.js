@@ -16,6 +16,11 @@ function registerNotificationRoutes(app,{
       monthlyAccountMessageTemplate:String(store.notificationSettings?.monthlyAccountMessageTemplate||""),
       automaticTransferWhatsAppEnabled:Boolean(store.notificationSettings?.automaticTransferWhatsAppEnabled),
       zeroBalanceWhatsAppEnabled:Boolean(store.notificationSettings?.zeroBalanceWhatsAppEnabled),
+      overdueWhatsAppEnabled:Boolean(store.notificationSettings?.overdueWhatsAppEnabled),
+      overdueWhatsAppMessageTime:/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(store.notificationSettings?.overdueWhatsAppMessageTime||""))?String(store.notificationSettings.overdueWhatsAppMessageTime):"10:00",
+      overdueWhatsAppTemplate:String(store.notificationSettings?.overdueWhatsAppTemplate||""),
+      automaticWhatsappSenderNumber:String(store.notificationSettings?.automaticWhatsappSenderNumber||""),
+      manualWhatsappSenderNumber:String(store.notificationSettings?.manualWhatsappSenderNumber||""),
       timeZone:String(store.notificationSettings?.timeZone||"America/Toronto")
     });
   });
@@ -51,6 +56,15 @@ function registerNotificationRoutes(app,{
       if(req.body?.monthlyAccountMessageTemplate!==undefined)store.notificationSettings.monthlyAccountMessageTemplate=String(req.body.monthlyAccountMessageTemplate||"").slice(0,4000);
       if(req.body?.automaticTransferWhatsAppEnabled!==undefined)store.notificationSettings.automaticTransferWhatsAppEnabled=Boolean(req.body.automaticTransferWhatsAppEnabled);
       if(req.body?.zeroBalanceWhatsAppEnabled!==undefined)store.notificationSettings.zeroBalanceWhatsAppEnabled=Boolean(req.body.zeroBalanceWhatsAppEnabled);
+      if(req.body?.overdueWhatsAppEnabled!==undefined)store.notificationSettings.overdueWhatsAppEnabled=Boolean(req.body.overdueWhatsAppEnabled);
+      if(req.body?.overdueWhatsAppMessageTime!==undefined){
+        const value=String(req.body.overdueWhatsAppMessageTime||"");
+        if(!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value))throw new Error("وقت رسائل المتأخرين غير صالح");
+        store.notificationSettings.overdueWhatsAppMessageTime=value;
+      }
+      if(req.body?.overdueWhatsAppTemplate!==undefined)store.notificationSettings.overdueWhatsAppTemplate=String(req.body.overdueWhatsAppTemplate||"").slice(0,4000);
+      if(req.body?.automaticWhatsappSenderNumber!==undefined)store.notificationSettings.automaticWhatsappSenderNumber=String(req.body.automaticWhatsappSenderNumber||"").replace(/\D/g,"").slice(0,15);
+      if(req.body?.manualWhatsappSenderNumber!==undefined)store.notificationSettings.manualWhatsappSenderNumber=String(req.body.manualWhatsappSenderNumber||"").replace(/\D/g,"").slice(0,15);
       if(req.body?.timeZone!==undefined){
         const value=String(req.body.timeZone||"").trim();
         try{new Intl.DateTimeFormat("en",{timeZone:value}).format();}catch{throw new Error("المنطقة الزمنية غير صالحة");}
@@ -106,6 +120,32 @@ function registerNotificationRoutes(app,{
       return result;
     });
     res.json(updated);
+  });
+
+
+  app.get("/api/whatsapp-bot/status",auth,requirePermission("admin.only"),async(_req,res)=>{
+    const baseUrl=String(process.env.LOCAL_WHATSAPP_BOT_URL||"").trim().replace(/\/+$/,"");
+    if(!baseUrl)return res.json({configured:false,connected:false,reason:"LOCAL_BOT_URL_MISSING"});
+    try{
+      const response=await fetch(`${baseUrl}/health`,{signal:AbortSignal.timeout(5000)});
+      let data={};try{data=await response.json();}catch{}
+      const store=readStore(),expected=String(store.notificationSettings?.automaticWhatsappSenderNumber||"").replace(/\D/g,"");
+      const actual=String(data?.senderNumber||"").replace(/\D/g,"");
+      res.json({configured:true,connected:Boolean(response.ok&&data?.whatsappReady),senderNumber:actual||null,expectedSenderNumber:expected||null,senderMatches:!expected||!actual||expected===actual,botVersion:data?.version||null});
+    }catch(error){res.json({configured:true,connected:false,reason:error?.name==="TimeoutError"?"TIMEOUT":"UNREACHABLE"});}
+  });
+
+  app.post("/api/whatsapp-bot/test",auth,requirePermission("admin.only"),async(req,res)=>{
+    const baseUrl=String(process.env.LOCAL_WHATSAPP_BOT_URL||"").trim().replace(/\/+$/,""),secret=String(process.env.LOCAL_WHATSAPP_BOT_SECRET||"").trim();
+    const phone=String(req.body?.phone||"").replace(/\D/g,""),message=String(req.body?.message||"رسالة اختبار من نظام العبود").trim().slice(0,1500);
+    if(!baseUrl||!secret)return res.status(400).json({ok:false,message:"البوت المحلي غير مضبوط"});
+    if(phone.length<8||phone.length>15)return res.status(400).json({ok:false,message:"رقم الاختبار غير صالح"});
+    try{
+      const response=await fetch(`${baseUrl}/send-message`,{method:"POST",headers:{Authorization:`Bearer ${secret}`,"Content-Type":"application/json"},body:JSON.stringify({type:"TEST",phone,message,dedupeId:`settings-test-${Date.now()}`}),signal:AbortSignal.timeout(10000)});
+      let data={};try{data=await response.json();}catch{}
+      if(!response.ok||!data?.ok)return res.status(502).json({ok:false,message:data?.error||"فشل إرسال رسالة الاختبار"});
+      res.json({ok:true,messageId:data.messageId||null});
+    }catch(error){res.status(502).json({ok:false,message:"تعذر الوصول إلى بوت واتساب"});}
   });
 
   app.get("/api/notifications", auth, (_req,res)=>{
