@@ -75,6 +75,9 @@ async function runHandler(route,req){
     "patch /api/transfer-fee-settings",
     "get /api/whatsapp-bot/status",
     "post /api/whatsapp-bot/test",
+    "get /api/overdue-whatsapp-test/recipients",
+    "post /api/overdue-whatsapp-test/preview",
+    "post /api/overdue-whatsapp-test/send",
     "get /api/notifications",
     "post /api/notification-actions",
     "get /api/notification-actions/:customerId",
@@ -82,7 +85,7 @@ async function runHandler(route,req){
   ];
   assert.deepStrictEqual(routes.map(route=>`${route.method} ${route.path}`),expected);
   assert(routes.every(route=>route.handlers[0]===auth),"all notification routes must remain authenticated");
-  assert.deepStrictEqual(requiredPermissions,["admin.only","admin.only","admin.only","admin.only","admin.only","admin.only","admin.only"]);
+  assert.deepStrictEqual(requiredPermissions,["admin.only","admin.only","admin.only","admin.only","admin.only","admin.only","admin.only","admin.only","admin.only","admin.only"]);
   assert.strictEqual(routes.find(route=>route.method==="patch"&&route.path==="/api/notification-settings").handlers[1],adminPermission,"settings write must keep admin permission middleware");
   assert.strictEqual(routes.find(route=>route.method==="patch"&&route.path==="/api/transfer-fee-settings").handlers[1],adminPermission,"transfer fee settings write must keep admin permission middleware");
 

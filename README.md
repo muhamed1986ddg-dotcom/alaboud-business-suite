@@ -1,6 +1,6 @@
 # AlAboud Business Suite — Production Master
 
-Current source version: **25.14.113**
+Current source version: **25.14.114**
 
 This directory is the canonical clean source tree for the AlAboud Business Suite. It contains the backend, frontend, Android source, database migrations, active regression tests, and Cloud Run/Docker deployment configuration. Generated builds, local dependencies, customer data, backups, logs, APK/AAB files, and historical release-report archives are intentionally excluded.
 

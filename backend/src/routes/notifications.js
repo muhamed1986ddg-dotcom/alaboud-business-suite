@@ -2,7 +2,10 @@
 
 function registerNotificationRoutes(app,{
   auth,requirePermission,readStore,mutateDurable,safeNumber,audit,id,now,
-  customerSummary,capitalCadAmount,previewMonthlyMessages=()=>[],sendMonthlyMessagesNow=async()=>[]
+  customerSummary,capitalCadAmount,previewMonthlyMessages=()=>[],sendMonthlyMessagesNow=async()=>[],
+  sendWhatsApp=async()=>({ok:false,reason:"WHATSAPP_SENDER_UNAVAILABLE"}),
+  normalizeWhatsappNumber=value=>String(value||"").replace(/\D/g,""),
+  overdueMessage=(recipient,template)=>String(template||"")
 }){
   app.get("/api/notification-settings", auth, (_req,res)=>{
     const store=readStore();
@@ -165,6 +168,50 @@ function registerNotificationRoutes(app,{
       if(!response.ok||!data?.ok)return res.status(502).json({ok:false,message:data?.error||"فشل إرسال رسالة الاختبار"});
       res.json({ok:true,messageId:data.messageId||null});
     }catch(error){res.status(502).json({ok:false,message:"تعذر الوصول إلى بوت واتساب"});}
+  });
+
+
+  app.get("/api/overdue-whatsapp-test/recipients",auth,requirePermission("admin.only"),(_req,res)=>{
+    const store=readStore();
+    const rows=(Array.isArray(store.customers)?store.customers:[])
+      .filter(customer=>customer&&!customer.isDeleted&&customer.active!==false)
+      .map(customer=>{
+        const summary=customerSummary(store,customer);
+        const whatsappNumber=normalizeWhatsappNumber(customer.whatsapp||customer.phone);
+        return {customerId:customer.id,name:String(summary.name||customer.name||"عميل"),whatsappNumber,balance:+Math.abs(Number(summary.finalBalance||0)).toFixed(2),days:Math.max(0,Math.round(Number(summary.overdueDays||0))),overdue:Boolean(summary.overdue)};
+      })
+      .filter(item=>item.overdue&&item.whatsappNumber)
+      .sort((a,b)=>b.days-a.days||b.balance-a.balance);
+    res.json({count:rows.length,recipients:rows});
+  });
+
+  app.post("/api/overdue-whatsapp-test/preview",auth,requirePermission("admin.only"),(req,res)=>{
+    const store=readStore(),customerId=String(req.body?.customerId||"").trim(),stage=String(req.body?.stage||"FIRST").trim().toUpperCase();
+    if(!["FIRST","SECOND"].includes(stage))return res.status(400).json({ok:false,message:"مرحلة التذكير غير صحيحة"});
+    const customer=(store.customers||[]).find(item=>item?.id===customerId&&!item.isDeleted&&item.active!==false);
+    if(!customer)return res.status(404).json({ok:false,message:"العميل غير موجود"});
+    const summary=customerSummary(store,customer),whatsappNumber=normalizeWhatsappNumber(customer.whatsapp||customer.phone);
+    if(!summary.overdue)return res.status(400).json({ok:false,message:"العميل غير مصنف كمتأخر حاليًا"});
+    if(!whatsappNumber)return res.status(400).json({ok:false,message:"لا يوجد رقم WhatsApp صالح للعميل"});
+    const recipient={customerId:customer.id,name:String(summary.name||customer.name||"عميل"),whatsappNumber,balance:+Number(summary.finalBalance||0).toFixed(2),amount:+Math.abs(Number(summary.finalBalance||0)).toFixed(2),days:Math.max(0,Math.round(Number(summary.overdueDays||0)))};
+    const template=stage==="SECOND"?(store.notificationSettings?.overdueSecondWhatsAppTemplate||store.notificationSettings?.overdueWhatsAppTemplate):store.notificationSettings?.overdueWhatsAppTemplate;
+    res.json({ok:true,testOnly:true,stage,recipient,messageText:overdueMessage(recipient,template,stage)});
+  });
+
+  app.post("/api/overdue-whatsapp-test/send",auth,requirePermission("admin.only"),async(req,res)=>{
+    const store=readStore(),customerId=String(req.body?.customerId||"").trim(),stage=String(req.body?.stage||"FIRST").trim().toUpperCase();
+    if(!["FIRST","SECOND"].includes(stage))return res.status(400).json({ok:false,message:"مرحلة التذكير غير صحيحة"});
+    const customer=(store.customers||[]).find(item=>item?.id===customerId&&!item.isDeleted&&item.active!==false);
+    if(!customer)return res.status(404).json({ok:false,message:"العميل غير موجود"});
+    const summary=customerSummary(store,customer),whatsappNumber=normalizeWhatsappNumber(customer.whatsapp||customer.phone);
+    if(!summary.overdue)return res.status(400).json({ok:false,message:"العميل غير مصنف كمتأخر حاليًا"});
+    if(!whatsappNumber)return res.status(400).json({ok:false,message:"لا يوجد رقم WhatsApp صالح للعميل"});
+    const recipient={customerId:customer.id,name:String(summary.name||customer.name||"عميل"),whatsappNumber,balance:+Number(summary.finalBalance||0).toFixed(2),amount:+Math.abs(Number(summary.finalBalance||0)).toFixed(2),days:Math.max(0,Math.round(Number(summary.overdueDays||0)))};
+    const template=stage==="SECOND"?(store.notificationSettings?.overdueSecondWhatsAppTemplate||store.notificationSettings?.overdueWhatsAppTemplate):store.notificationSettings?.overdueWhatsAppTemplate;
+    const messageText=overdueMessage(recipient,template,stage);
+    const delivery=await sendWhatsApp({templateType:"OVERDUE",to:whatsappNumber,body:messageText,dedupeId:`overdue-test:${req.user.companyId}:${customer.id}:${stage}:${Date.now()}`,contentVariables:{"1":recipient.name,"2":recipient.amount.toFixed(2),"3":String(recipient.days)}});
+    if(!delivery?.ok)return res.status(502).json({ok:false,testOnly:true,message:"فشل إرسال رسالة الاختبار",reason:delivery?.reason||"DELIVERY_FAILED"});
+    res.json({ok:true,testOnly:true,stage,customerId:customer.id,messageId:delivery.providerMessageId||null,messageText});
   });
 
   app.get("/api/notifications", auth, (_req,res)=>{

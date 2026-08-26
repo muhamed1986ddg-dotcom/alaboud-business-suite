@@ -1254,6 +1254,9 @@ const runMonthlyCustomerBalanceMessages=registerMonthlyAccountMessagesJob(app,{c
 registerNotificationRoutes(app,{
   auth,requirePermission,readStore,mutateDurable,safeNumber,audit,id,now,
   customerSummary,capitalCadAmount,
+  sendWhatsApp:sendWhatsAppMessage,
+  normalizeWhatsappNumber:require("./services/monthly-customer-balance-messages").normalizeWhatsappNumber,
+  overdueMessage:require("./services/overdue-customer-messages").overdueMessage,
   previewMonthlyMessages:()=>{
     const store=readStore();
     const local=inventoryLocalDate(store.notificationSettings||{});

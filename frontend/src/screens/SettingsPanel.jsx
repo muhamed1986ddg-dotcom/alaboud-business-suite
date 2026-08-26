@@ -11,6 +11,7 @@ function NotificationSettings({embedded=false}){
   const [preview,setPreview]=useState(null),[logs,setLogs]=useState([]),[busy,setBusy]=useState(false);
   const [botStatus,setBotStatus]=useState(null),[testPhone,setTestPhone]=useState("");
   const [dirty,setDirty]=useState(false),[saving,setSaving]=useState(false);
+  const [overdueTestRecipients,setOverdueTestRecipients]=useState([]),[overdueTestCustomerId,setOverdueTestCustomerId]=useState(""),[overdueTestStage,setOverdueTestStage]=useState("FIRST"),[overdueTestPreview,setOverdueTestPreview]=useState(null),[overdueTestBusy,setOverdueTestBusy]=useState(false);
 
   useEffect(()=>{cachedGet("/notification-settings",{cacheTtl:0}).then(response=>{setSettings({...defaults,...response.data});setDirty(false);}).catch(()=>setMessage("تعذر تحميل الإعدادات المحفوظة"));},[]);
   const update=(patch)=>{setSettings(current=>({...current,...patch}));setDirty(true);};
@@ -26,6 +27,9 @@ function NotificationSettings({embedded=false}){
   async function sendNow(){const currentPreview=preview||await loadPreview();const count=currentPreview?.count||0;if(count>1&&!window.confirm(`سيتم إرسال رسائل WhatsApp إلى ${count} عملاء. هل تريد المتابعة؟`))return;setBusy(true);setMessage("");try{const {data}=await api.post("/monthly-account-messages/send-now",{confirmed:true});setMessage(`تم الإرسال: ${data.sent}، فشل: ${data.failed}، متجاوز كمكرر: ${data.skipped}`);await loadLogs();}catch(error){setMessage(error.response?.data?.message||"تعذر إرسال الرسائل");}finally{setBusy(false);}}
   async function checkBotStatus(){setBusy(true);try{const {data}=await api.get("/whatsapp-bot/status");setBotStatus(data);setMessage(data.connected?"✅ البوت متصل وجاهز":"❌ البوت غير متصل");}catch(error){setMessage(error.response?.data?.message||"تعذر فحص البوت");}finally{setBusy(false);}}
   async function sendBotTest(){if(!testPhone)return setMessage("أدخل رقم اختبار مع رمز الدولة");setBusy(true);try{await api.post("/whatsapp-bot/test",{phone:testPhone});setMessage("✅ تم إرسال رسالة الاختبار من البوت");}catch(error){setMessage(error.response?.data?.message||"فشل إرسال رسالة الاختبار");}finally{setBusy(false);}}
+  async function loadOverdueTestRecipients(){setOverdueTestBusy(true);setMessage("");try{const {data}=await api.get("/overdue-whatsapp-test/recipients");setOverdueTestRecipients(data.recipients||[]);if(!overdueTestCustomerId&&data.recipients?.[0]?.customerId)setOverdueTestCustomerId(data.recipients[0].customerId);setMessage(`تم تحميل ${data.count||0} عميل متأخر مؤهل للاختبار`);}catch(error){setMessage(error.response?.data?.message||"تعذر تحميل العملاء المتأخرين");}finally{setOverdueTestBusy(false);}}
+  async function previewOverdueTest(){if(!overdueTestCustomerId)return setMessage("اختر عميلاً متأخرًا أولاً");setOverdueTestBusy(true);setMessage("");try{const {data}=await api.post("/overdue-whatsapp-test/preview",{customerId:overdueTestCustomerId,stage:overdueTestStage});setOverdueTestPreview(data);}catch(error){setOverdueTestPreview(null);setMessage(error.response?.data?.message||"تعذر معاينة رسالة الاختبار");}finally{setOverdueTestBusy(false);}}
+  async function sendOverdueTest(){if(!overdueTestCustomerId)return setMessage("اختر عميلاً متأخرًا أولاً");const selected=overdueTestRecipients.find(item=>item.customerId===overdueTestCustomerId);if(!window.confirm(`إرسال ${overdueTestStage==="SECOND"?"التذكير الثاني":"التذكير الأول"} كتجربة إلى ${selected?.name||"العميل"} فقط؟\nلن يُسجل كتذكير رسمي ولن يُرسل إلى بقية العملاء.`))return;setOverdueTestBusy(true);setMessage("");try{const {data}=await api.post("/overdue-whatsapp-test/send",{customerId:overdueTestCustomerId,stage:overdueTestStage});setOverdueTestPreview(data);setMessage("✅ تم إرسال رسالة الاختبار إلى العميل المحدد فقط — لم تُسجل كتذكير رسمي");}catch(error){setMessage(error.response?.data?.message||"فشل إرسال رسالة اختبار المتأخرين");}finally{setOverdueTestBusy(false);}}
 
   return <div className={embedded?"notification-settings-embedded":"notification-settings-page"}>
     {!embedded&&<h2>إعدادات التنبيهات وواتساب</h2>}
@@ -75,6 +79,18 @@ function NotificationSettings({embedded=false}){
           </div>
           <label className="whatsapp-field"><span>قالب التذكير الأول</span><textarea rows="4" value={settings.overdueWhatsAppTemplate||""} onChange={e=>update({overdueWhatsAppTemplate:e.target.value})} placeholder="اتركه فارغًا للقالب الرسمي. المتغيرات: {customerName} {balance} {days}"/></label>
           <label className="whatsapp-field"><span>قالب التذكير الثاني (اختياري)</span><textarea rows="4" value={settings.overdueSecondWhatsAppTemplate||""} onChange={e=>update({overdueSecondWhatsAppTemplate:e.target.value})} placeholder="اتركه فارغًا لاستخدام قالب التذكير الأول"/></label>
+        </section>
+
+        <section className="whatsapp-subsection overdue-safe-test">
+          <div className="whatsapp-section-heading"><div><strong>اختبار آمن لرسالة عميل متأخر</strong><small>يرسل إلى عميل واحد تختاره فقط. الاختبار لا يُسجل كتذكير رسمي ولا يرسل إلى بقية العملاء.</small></div></div>
+          <div className="monthly-message-actions"><button type="button" onClick={loadOverdueTestRecipients} disabled={overdueTestBusy}>تحميل العملاء المتأخرين</button></div>
+          <div className="whatsapp-settings-grid">
+            <label className="whatsapp-field"><span>العميل المتأخر</span><select value={overdueTestCustomerId} onChange={e=>{setOverdueTestCustomerId(e.target.value);setOverdueTestPreview(null);}}><option value="">اختر العميل</option>{overdueTestRecipients.map(item=><option key={item.customerId} value={item.customerId}>{item.name} — {item.balance.toFixed(2)} CAD — {item.days} يوم</option>)}</select></label>
+            <label className="whatsapp-field"><span>نوع التذكير التجريبي</span><select value={overdueTestStage} onChange={e=>{setOverdueTestStage(e.target.value);setOverdueTestPreview(null);}}><option value="FIRST">التذكير الأول</option><option value="SECOND">التذكير الثاني</option></select></label>
+          </div>
+          {overdueTestCustomerId&&(()=>{const item=overdueTestRecipients.find(x=>x.customerId===overdueTestCustomerId);return item?<div className="overdue-test-summary"><span>العميل: <b>{item.name}</b></span><span>الرصيد: <b>{item.balance.toFixed(2)} CAD</b></span><span>التأخير: <b>{item.days} يوم</b></span><span>WhatsApp: <bdi dir="ltr">{item.whatsappNumber}</bdi></span></div>:null;})()}
+          <div className="monthly-message-actions"><button type="button" onClick={previewOverdueTest} disabled={overdueTestBusy||!overdueTestCustomerId}>معاينة الرسالة</button><button type="button" className="settings-primary-button" onClick={sendOverdueTest} disabled={overdueTestBusy||!overdueTestCustomerId}>إرسال لهذا العميل فقط</button></div>
+          {overdueTestPreview?.messageText&&<div className="monthly-message-preview overdue-test-preview"><strong>{overdueTestStage==="SECOND"?"معاينة التذكير الثاني":"معاينة التذكير الأول"}</strong><pre>{overdueTestPreview.messageText}</pre><small>وضع اختبار فقط — لا يغيّر سجل FIRST/SECOND الرسمي.</small></div>}
         </section>
 
         <section className="whatsapp-subsection">
