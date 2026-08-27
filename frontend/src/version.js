@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.116 — WhatsApp Delivery Log + Customer Delete Cleanup";
+export const APP_VERSION="v25.14.117 — Safe Voice Commands";

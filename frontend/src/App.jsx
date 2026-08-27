@@ -1,4 +1,4 @@
-import React,{useEffect,useState}from"react";import DatabaseStatus from"./components/system/DatabaseStatus";import api,{cachedGet} from"./api";import {APP_VERSION} from"./version";import {Dashboard} from"./screens/Dashboard";
+import React,{useEffect,useState}from"react";import DatabaseStatus from"./components/system/DatabaseStatus";import {VoiceCommandAssistant} from"./components/VoiceCommandAssistant";import api,{cachedGet} from"./api";import {APP_VERSION} from"./version";import {Dashboard} from"./screens/Dashboard";
 import{money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction}from"./shared";
 
 // شاشات مؤجّلة التحميل: تُحمَّل فقط عند فتحها فعليًا، لا مع كل شاشة أساسية.
@@ -482,6 +482,7 @@ export default function App({onAuthExpired=()=>{}}){
         </button>
       </div>}
     </main>
+    <VoiceCommandAssistant navigate={navigate} onOpenCustomer={id=>{setCustomerId(id);setPage("customers");setMobileMenuOpen(false)}}/>
     <button className="ai-floating ai-floating-v172 no-print" onClick={()=>navigate("ai-center")} title="مركز القيادة الذكي"><span>🤖</span><b>AI</b></button>
     <nav className="mobile-bottom-nav no-print" aria-label="التنقل السريع">
       <button className={page==="customers"?"active":""} onClick={()=>navigate("customers")}>
