@@ -17,3 +17,5 @@ assert.match(settings,/قالب رسالة تصفير الحساب/);
 assert.match(settings,/أبو إسلام/);
 
 assert.match(settings,/اختبار آمن لرسالة عميل متأخر/);assert.match(settings,/إرسال لهذا العميل فقط/);assert.match(routes,/\/api\/overdue-whatsapp-test\/recipients/);assert.match(routes,/\/api\/overdue-whatsapp-test\/preview/);assert.match(routes,/\/api\/overdue-whatsapp-test\/send/);assert.match(routes,/testOnly:true/);
+
+assert.match(settings,/سجل إرسال WhatsApp/);assert.match(settings,/whatsapp-delivery-log/);assert.match(settings,/FIRST — التذكير الأول/);assert.match(settings,/SECOND — التذكير الثاني/);

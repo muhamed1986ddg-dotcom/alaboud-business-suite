@@ -2,7 +2,7 @@ import React,{useEffect,useRef,useState}from"react";
 import api,{cachedGet} from"../api";
 import {APP_VERSION} from"../version";
 import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,EXCHANGE_CURRENCY_CATALOG,debtCurrencies,CurrencyFlag,rateTrend,confirmAction} from"../shared";
-import {AppModal} from "../components/ui";
+import {AppModal,AppTable} from "../components/ui";
 
 function NotificationSettings({embedded=false}){
   const defaults={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,zeroBalanceWhatsAppTemplate:"",overdueWhatsAppEnabled:false,overdueFirstReminderDays:7,overdueSecondReminderEnabled:true,overdueSecondReminderDays:15,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",overdueSecondWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"};
@@ -12,6 +12,7 @@ function NotificationSettings({embedded=false}){
   const [botStatus,setBotStatus]=useState(null),[testPhone,setTestPhone]=useState("");
   const [dirty,setDirty]=useState(false),[saving,setSaving]=useState(false);
   const [overdueTestRecipients,setOverdueTestRecipients]=useState([]),[overdueTestCustomerId,setOverdueTestCustomerId]=useState(""),[overdueTestStage,setOverdueTestStage]=useState("FIRST"),[overdueTestPreview,setOverdueTestPreview]=useState(null),[overdueTestBusy,setOverdueTestBusy]=useState(false);
+  const [deliveryLog,setDeliveryLog]=useState({count:0,totals:{sent:0,failed:0,pending:0},rows:[]}),[deliveryLogStatus,setDeliveryLogStatus]=useState("ALL"),[deliveryLogStage,setDeliveryLogStage]=useState("ALL"),[deliveryLogBusy,setDeliveryLogBusy]=useState(false);
 
   useEffect(()=>{cachedGet("/notification-settings",{cacheTtl:0}).then(response=>{setSettings({...defaults,...response.data});setDirty(false);}).catch(()=>setMessage("تعذر تحميل الإعدادات المحفوظة"));},[]);
   const update=(patch)=>{setSettings(current=>({...current,...patch}));setDirty(true);};
@@ -29,6 +30,14 @@ function NotificationSettings({embedded=false}){
   async function sendBotTest(){if(!testPhone)return setMessage("أدخل رقم اختبار مع رمز الدولة");setBusy(true);try{await api.post("/whatsapp-bot/test",{phone:testPhone});setMessage("✅ تم إرسال رسالة الاختبار من البوت");}catch(error){setMessage(error.response?.data?.message||"فشل إرسال رسالة الاختبار");}finally{setBusy(false);}}
   async function loadOverdueTestRecipients(){setOverdueTestBusy(true);setMessage("");try{const {data}=await api.get("/overdue-whatsapp-test/recipients");setOverdueTestRecipients(data.recipients||[]);if(!overdueTestCustomerId&&data.recipients?.[0]?.customerId)setOverdueTestCustomerId(data.recipients[0].customerId);setMessage(`تم تحميل ${data.count||0} عميل متأخر مؤهل للاختبار`);}catch(error){setMessage(error.response?.data?.message||"تعذر تحميل العملاء المتأخرين");}finally{setOverdueTestBusy(false);}}
   async function previewOverdueTest(){if(!overdueTestCustomerId)return setMessage("اختر عميلاً متأخرًا أولاً");setOverdueTestBusy(true);setMessage("");try{const {data}=await api.post("/overdue-whatsapp-test/preview",{customerId:overdueTestCustomerId,stage:overdueTestStage});setOverdueTestPreview(data);}catch(error){setOverdueTestPreview(null);setMessage(error.response?.data?.message||"تعذر معاينة رسالة الاختبار");}finally{setOverdueTestBusy(false);}}
+  async function loadWhatsappDeliveryLog(status=deliveryLogStatus,stage=deliveryLogStage){
+    setDeliveryLogBusy(true);
+    try{
+      const {data}=await api.get("/whatsapp-delivery-log",{params:{status,stage,limit:200}});
+      setDeliveryLog(data||{count:0,totals:{sent:0,failed:0,pending:0},rows:[]});
+    }catch(error){setMessage(error.response?.data?.message||"تعذر تحميل سجل إرسال WhatsApp");}
+    finally{setDeliveryLogBusy(false);}
+  }
   async function sendOverdueTest(){if(!overdueTestCustomerId)return setMessage("اختر عميلاً متأخرًا أولاً");const selected=overdueTestRecipients.find(item=>item.customerId===overdueTestCustomerId);if(!window.confirm(`إرسال ${overdueTestStage==="SECOND"?"التذكير الثاني":"التذكير الأول"} كتجربة إلى ${selected?.name||"العميل"} فقط؟\nلن يُسجل كتذكير رسمي ولن يُرسل إلى بقية العملاء.`))return;setOverdueTestBusy(true);setMessage("");try{const {data}=await api.post("/overdue-whatsapp-test/send",{customerId:overdueTestCustomerId,stage:overdueTestStage});setOverdueTestPreview(data);setMessage("✅ تم إرسال رسالة الاختبار إلى العميل المحدد فقط — لم تُسجل كتذكير رسمي");}catch(error){setMessage(error.response?.data?.message||"فشل إرسال رسالة اختبار المتأخرين");}finally{setOverdueTestBusy(false);}}
 
   return <div className={embedded?"notification-settings-embedded":"notification-settings-page"}>
@@ -91,6 +100,33 @@ function NotificationSettings({embedded=false}){
           {overdueTestCustomerId&&(()=>{const item=overdueTestRecipients.find(x=>x.customerId===overdueTestCustomerId);return item?<div className="overdue-test-summary"><span>العميل: <b>{item.name}</b></span><span>الرصيد: <b>{item.balance.toFixed(2)} CAD</b></span><span>التأخير: <b>{item.days} يوم</b></span><span>WhatsApp: <bdi dir="ltr">{item.whatsappNumber}</bdi></span></div>:null;})()}
           <div className="monthly-message-actions"><button type="button" onClick={previewOverdueTest} disabled={overdueTestBusy||!overdueTestCustomerId}>معاينة الرسالة</button><button type="button" className="settings-primary-button" onClick={sendOverdueTest} disabled={overdueTestBusy||!overdueTestCustomerId}>إرسال لهذا العميل فقط</button></div>
           {overdueTestPreview?.messageText&&<div className="monthly-message-preview overdue-test-preview"><strong>{overdueTestStage==="SECOND"?"معاينة التذكير الثاني":"معاينة التذكير الأول"}</strong><pre>{overdueTestPreview.messageText}</pre><small>وضع اختبار فقط — لا يغيّر سجل FIRST/SECOND الرسمي.</small></div>}
+        </section>
+
+        <section className="whatsapp-subsection whatsapp-delivery-log-section">
+          <div className="whatsapp-section-heading"><div><strong>سجل إرسال WhatsApp</strong><small>متابعة الرسائل الفعلية: العميل، FIRST/SECOND، وقت الإرسال، والحالة SENT/FAILED.</small></div></div>
+          <div className="whatsapp-delivery-log-toolbar">
+            <label className="whatsapp-field"><span>الحالة</span><select value={deliveryLogStatus} onChange={e=>{const value=e.target.value;setDeliveryLogStatus(value);void loadWhatsappDeliveryLog(value,deliveryLogStage);}}><option value="ALL">الكل</option><option value="SENT">SENT</option><option value="FAILED">FAILED</option><option value="PENDING">PENDING</option></select></label>
+            <label className="whatsapp-field"><span>نوع الرسالة</span><select value={deliveryLogStage} onChange={e=>{const value=e.target.value;setDeliveryLogStage(value);void loadWhatsappDeliveryLog(deliveryLogStatus,value);}}><option value="ALL">الكل</option><option value="FIRST">FIRST — التذكير الأول</option><option value="SECOND">SECOND — التذكير الثاني</option><option value="ZERO">ZERO — تصفير الحساب</option><option value="MONTHLY">MONTHLY — شهري</option><option value="TRANSFER">TRANSFER — حوالة</option></select></label>
+            <button type="button" onClick={()=>loadWhatsappDeliveryLog()} disabled={deliveryLogBusy}>{deliveryLogBusy?"جارٍ التحديث…":"تحديث السجل"}</button>
+          </div>
+          <div className="whatsapp-delivery-summary"><span>المعروض: <b>{deliveryLog.count||0}</b></span><span>✅ SENT: <b>{deliveryLog.totals?.sent||0}</b></span><span>❌ FAILED: <b>{deliveryLog.totals?.failed||0}</b></span><span>⏳ PENDING: <b>{deliveryLog.totals?.pending||0}</b></span></div>
+          <div className="whatsapp-delivery-table-wrap">
+            <AppTable tableClassName="whatsapp-delivery-table">
+              <thead><tr><th>العميل</th><th>الرقم</th><th>النوع</th><th>الرصيد</th><th>التأخير</th><th>وقت الإرسال</th><th>الحالة</th></tr></thead>
+              <tbody>
+                {(deliveryLog.rows||[]).map(item=><tr key={item.id}>
+                  <td>{item.customerName}</td>
+                  <td><bdi dir="ltr">{item.whatsappNumber||"—"}</bdi></td>
+                  <td><span className={`delivery-stage delivery-stage-${String(item.stage||"").toLowerCase()}`}>{item.stage||"—"}</span></td>
+                  <td>{Number(item.balance||0).toFixed(2)} CAD</td>
+                  <td>{item.days?`${item.days} يوم`:"—"}</td>
+                  <td><bdi dir="ltr">{item.sentAt?new Date(item.sentAt).toLocaleString("ar-CA",{timeZone:settings.timeZone||"America/Toronto"}):item.createdAt?new Date(item.createdAt).toLocaleString("ar-CA",{timeZone:settings.timeZone||"America/Toronto"}):"—"}</bdi></td>
+                  <td><span className={`delivery-status delivery-status-${String(item.status||"").toLowerCase()}`}>{item.status||"UNKNOWN"}</span>{item.error&&<small className="delivery-error">{item.error}</small>}</td>
+                </tr>)}
+                {!deliveryLogBusy&&!(deliveryLog.rows||[]).length&&<tr><td colSpan="7" className="whatsapp-delivery-empty">اضغط «تحديث السجل» لعرض رسائل WhatsApp المسجلة.</td></tr>}
+              </tbody>
+            </AppTable>
+          </div>
         </section>
 
         <section className="whatsapp-subsection">

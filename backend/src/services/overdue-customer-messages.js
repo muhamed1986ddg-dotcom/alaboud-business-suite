@@ -31,6 +31,18 @@ function selectOverdueRecipients(store,{customerSummary}={}){
 }
 function sentOrPending(actions,key){return actions.some(x=>x?.dedupeKey===key&&["PENDING","SENT"].includes(x.deliveryStatus));}
 function wasSent(actions,key){return actions.some(x=>x?.dedupeKey===key&&x.deliveryStatus==="SENT");}
+const FAILED_RETRY_COOLDOWN_MS=60*60*1000;
+function latestFailedAction(actions,key){
+  return actions.filter(x=>x?.dedupeKey===key&&x.deliveryStatus==="FAILED")
+    .sort((a,b)=>String(b.updatedAt||b.createdAt||"").localeCompare(String(a.updatedAt||a.createdAt||"")))[0]||null;
+}
+function failedRetryCoolingDown(actions,key,nowValue){
+  const failed=latestFailedAction(actions,key);
+  if(!failed)return false;
+  const failedAt=Date.parse(String(failed.updatedAt||failed.createdAt||""));
+  const currentAt=Date.parse(String(nowValue||""));
+  return Number.isFinite(failedAt)&&Number.isFinite(currentAt)&&currentAt-failedAt<FAILED_RETRY_COOLDOWN_MS;
+}
 async function executeOverdueMessages({store,companyId,local,customerSummary,mutateDurable,id,now,sendWhatsApp}){
   if(!isOverdueRunDue(store.notificationSettings||{},local))return [];
   const settings=store.notificationSettings||{},cfg=reminderConfig(settings),date=String(local.date||String(now()).slice(0,10)),results=[];
@@ -38,26 +50,35 @@ async function executeOverdueMessages({store,companyId,local,customerSummary,mut
     const cycle=cycleStartDate(date,recipient.days),firstKey=`overdue-whatsapp:${companyId}:${recipient.customerId}:${cycle}:FIRST`,secondKey=`overdue-whatsapp:${companyId}:${recipient.customerId}:${cycle}:SECOND`;
     const actions=Array.isArray(store.notificationActions)?store.notificationActions:[];
     const firstAction=actions.find(x=>x?.dedupeKey===firstKey&&x.deliveryStatus==="SENT");
+    const nowValue=now();
     let stage=null,dedupeKey=null,template="";
     if(recipient.days>=cfg.first&&!sentOrPending(actions,firstKey)){
+      if(failedRetryCoolingDown(actions,firstKey,nowValue)){
+        results.push({customerId:recipient.customerId,status:"SKIPPED_RETRY_COOLDOWN",reminderStage:"FIRST"});
+        continue;
+      }
       stage="FIRST";dedupeKey=firstKey;template=settings.overdueWhatsAppTemplate;
     }else if(
       cfg.secondEnabled&&recipient.days>=cfg.second&&firstAction&&!sentOrPending(actions,secondKey)&&
       String(firstAction.sentAt||firstAction.updatedAt||firstAction.createdAt||"").slice(0,10)<date
     ){
+      if(failedRetryCoolingDown(actions,secondKey,nowValue)){
+        results.push({customerId:recipient.customerId,status:"SKIPPED_RETRY_COOLDOWN",reminderStage:"SECOND"});
+        continue;
+      }
       stage="SECOND";dedupeKey=secondKey;template=settings.overdueSecondWhatsAppTemplate||settings.overdueWhatsAppTemplate;
     }else{
       results.push({customerId:recipient.customerId,status:"SKIPPED_DUPLICATE"});
       continue;
     }
     const messageText=overdueMessage(recipient,template,stage);
-    const claim=await mutateDurable(current=>{current.notificationActions||=[];if(sentOrPending(current.notificationActions,dedupeKey))return null;const item={id:id(),action:"OVERDUE_WHATSAPP_MESSAGE",dedupeKey,reminderStage:stage,customerId:recipient.customerId,customerName:recipient.name,whatsappNumber:recipient.whatsappNumber,triggerType:stage==="SECOND"?"OVERDUE_SECOND_REMINDER":"OVERDUE_FIRST_REMINDER",balance:recipient.balance,days:recipient.days,messageText,channel:"WHATSAPP",status:"PENDING",deliveryStatus:"PENDING",provider:null,providerMessageId:null,error:null,createdAt:now(),sentAt:null,createdBy:"SYSTEM"};current.notificationActions.push(item);return item;});
+    const claim=await mutateDurable(current=>{current.notificationActions||=[];if(sentOrPending(current.notificationActions,dedupeKey))return null;const item={id:id(),action:"OVERDUE_WHATSAPP_MESSAGE",dedupeKey,reminderStage:stage,customerId:recipient.customerId,customerName:recipient.name,whatsappNumber:recipient.whatsappNumber,triggerType:stage==="SECOND"?"OVERDUE_SECOND_REMINDER":"OVERDUE_FIRST_REMINDER",balance:recipient.balance,days:recipient.days,messageText,channel:"WHATSAPP",status:"PENDING",deliveryStatus:"PENDING",provider:null,providerMessageId:null,error:null,createdAt:nowValue,sentAt:null,createdBy:"SYSTEM"};current.notificationActions.push(item);return item;});
     if(!claim){results.push({customerId:recipient.customerId,status:"SKIPPED_DUPLICATE"});continue;}
     let delivery;try{delivery=await sendWhatsApp({templateType:"OVERDUE",to:recipient.whatsappNumber,body:messageText,dedupeId:dedupeKey,contentVariables:{"1":recipient.name,"2":recipient.amount.toFixed(2),"3":String(recipient.days)}});}catch(error){delivery={ok:false,reason:String(error?.message||"DELIVERY_ERROR")};}
-    await mutateDurable(current=>{const item=(current.notificationActions||[]).find(x=>x.id===claim.id);if(!item)return;item.status=item.deliveryStatus=delivery?.ok?"SENT":"FAILED";item.provider=delivery?.provider||null;item.providerMessageId=delivery?.providerMessageId||null;item.error=delivery?.ok?null:String(delivery?.reason||"DELIVERY_FAILED");item.sentAt=delivery?.ok?now():null;item.updatedAt=now();});
+    await mutateDurable(current=>{const item=(current.notificationActions||[]).find(x=>x.id===claim.id);if(!item)return;item.status=item.deliveryStatus=delivery?.ok?"SENT":"FAILED";item.provider=delivery?.provider||null;item.providerMessageId=delivery?.providerMessageId||null;item.error=delivery?.ok?null:String(delivery?.reason||"DELIVERY_FAILED");item.sentAt=delivery?.ok?nowValue:null;item.updatedAt=nowValue;});
     results.push({customerId:recipient.customerId,status:delivery?.ok?"SENT":"FAILED",reminderStage:stage});
     break;
   }
   return results;
 }
-module.exports={overdueMessage,isOverdueRunDue,reminderConfig,cycleStartDate,selectOverdueRecipients,executeOverdueMessages};
+module.exports={overdueMessage,isOverdueRunDue,reminderConfig,cycleStartDate,selectOverdueRecipients,executeOverdueMessages,FAILED_RETRY_COOLDOWN_MS,failedRetryCoolingDown};

@@ -298,10 +298,24 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     }
   }
 
-  function startEditCustomer(customer){
-    setEditingCustomer({...customer});
-    setActivePanel("");
-    revealAppEditor('[data-app-editor="customer"]');
+  async function startEditCustomer(customer){
+    setError("");
+    try{
+      const {data}=await api.get(`/customers/${customer.id}`,{cacheTtl:0});
+      setEditingCustomer({...data});
+      setActivePanel("");
+      revealAppEditor('[data-app-editor="customer"]');
+    }catch(requestError){
+      if(requestError.response?.status===404){
+        clearApiGetCache();
+        setList(current=>current.filter(item=>item.id!==customer.id));
+        setCustomerOptions(current=>current.filter(item=>item.id!==customer.id));
+        setError("تم تنظيف بطاقة عميل محذوفة كانت ما تزال ظاهرة في الواجهة.");
+        void Promise.allSettled([load(sortMode,search,page),loadCustomerOptions(),loadDebtSummary()]);
+        return;
+      }
+      setError(requestError.response?.data?.message||"تعذر تحميل بيانات العميل للتعديل");
+    }
   }
 
   async function deleteCustomer(customer){
@@ -311,9 +325,22 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     try{
       await api.delete(`/customers/${customer.id}`);
       clearApiGetCache();
+      setList(current=>current.filter(item=>item.id!==customer.id));
+      setCustomerOptions(current=>current.filter(item=>item.id!==customer.id));
+      setServerTotal(current=>Math.max(0,current-1));
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
-      void Promise.allSettled([load(),loadDebtSummary()]);
+      setError(`✅ تم حذف ${customer.name} من الواجهة مع الحفاظ على سجلاته المالية`);
+      void Promise.allSettled([load(sortMode,search,page),loadCustomerOptions(),loadDebtSummary()]);
     }catch(requestError){
+      if(requestError.response?.status===404){
+        clearApiGetCache();
+        setList(current=>current.filter(item=>item.id!==customer.id));
+        setCustomerOptions(current=>current.filter(item=>item.id!==customer.id));
+        if(editingCustomer?.id===customer.id)setEditingCustomer(null);
+        setError("تم تنظيف بطاقة العميل القديمة؛ السجل كان محذوفًا مسبقًا.");
+        void Promise.allSettled([load(sortMode,search,page),loadCustomerOptions(),loadDebtSummary()]);
+        return;
+      }
       setError(requestError.response?.data?.message||"تعذر حذف العميل");
     }
   }

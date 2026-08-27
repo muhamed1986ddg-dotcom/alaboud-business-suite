@@ -16,7 +16,7 @@ const {customerMatchesSearch}=require("./customer-search");
 assert(customers.includes("customer-directory-grid overdue-dark-scope"),"customer directory must use the overdue-customer grid design");
 assert(customers.includes("overdue-customer-details expanded customer-directory-details"),"customer directory must keep overdue-style metric cards");
 assert(customers.includes("customer.customerNumber||customer.identityNumber"),"customer number must be visible in the directory");
-for(const preservedAction of ["open(customer.id)","resetCustomerAccount(customer)","setEditingCustomer({...customer})","deleteCustomer(customer)"]){
+for(const preservedAction of ["open(customer.id)","resetCustomerAccount(customer)","api.get(`/customers/${customer.id}`,{cacheTtl:0})","deleteCustomer(customer)"]){
   assert(customers.includes(preservedAction),`customer action disappeared: ${preservedAction}`);
 }
 

@@ -302,6 +302,60 @@ function registerNotificationRoutes(app,{
     res.json(rows);
   });
 
+
+  app.get("/api/whatsapp-delivery-log",auth,requirePermission("admin.only"),(req,res)=>{
+    const store=readStore();
+    const statusFilter=String(req.query?.status||"ALL").trim().toUpperCase();
+    const stageFilter=String(req.query?.stage||"ALL").trim().toUpperCase();
+    const limit=Math.min(500,Math.max(1,Math.round(safeNumber(req.query?.limit,100)||100)));
+    const allowedActions=new Set(["OVERDUE_WHATSAPP_MESSAGE","ZERO_BALANCE_WHATSAPP_MESSAGE","MONTHLY_BALANCE_MESSAGE","TRANSFER_WHATSAPP_MESSAGE"]);
+    const customerMap=new Map((Array.isArray(store.customers)?store.customers:[]).map(customer=>[customer?.id,customer]));
+    const rows=(Array.isArray(store.notificationActions)?store.notificationActions:[])
+      .filter(item=>item&&allowedActions.has(item.action))
+      .map(item=>{
+        const customer=customerMap.get(item.customerId)||null;
+        const stage=String(item.reminderStage||(
+          item.triggerType==="OVERDUE_SECOND_REMINDER"?"SECOND":
+          item.triggerType==="OVERDUE_FIRST_REMINDER"?"FIRST":
+          item.action==="ZERO_BALANCE_WHATSAPP_MESSAGE"?"ZERO":
+          item.action==="MONTHLY_BALANCE_MESSAGE"?"MONTHLY":
+          item.action==="TRANSFER_WHATSAPP_MESSAGE"?"TRANSFER":""
+        )).toUpperCase();
+        const status=String(item.deliveryStatus||item.status||"UNKNOWN").toUpperCase();
+        return {
+          id:item.id,
+          customerId:item.customerId||null,
+          customerName:String(item.customerName||customer?.name||"عميل"),
+          whatsappNumber:String(item.whatsappNumber||customer?.whatsapp||customer?.phone||""),
+          action:item.action,
+          stage,
+          status,
+          balance:+safeNumber(item.balance,0).toFixed(2),
+          days:Math.max(0,Math.round(safeNumber(item.days,0))),
+          provider:item.provider||null,
+          providerMessageId:item.providerMessageId||null,
+          error:item.error||null,
+          createdAt:item.createdAt||null,
+          sentAt:item.sentAt||null,
+          updatedAt:item.updatedAt||null
+        };
+      })
+      .filter(item=>statusFilter==="ALL"||item.status===statusFilter)
+      .filter(item=>stageFilter==="ALL"||item.stage===stageFilter)
+      .sort((a,b)=>String(b.sentAt||b.updatedAt||b.createdAt||"").localeCompare(String(a.sentAt||a.updatedAt||a.createdAt||"")))
+      .slice(0,limit);
+    res.set("Cache-Control","no-store");
+    res.json({
+      count:rows.length,
+      totals:{
+        sent:rows.filter(item=>item.status==="SENT").length,
+        failed:rows.filter(item=>item.status==="FAILED").length,
+        pending:rows.filter(item=>item.status==="PENDING").length
+      },
+      rows
+    });
+  });
+
   app.get("/api/customer-alerts", auth, (_req,res)=>{
     const store = readStore();
     const payments=Array.isArray(store.payments)?store.payments:[];
