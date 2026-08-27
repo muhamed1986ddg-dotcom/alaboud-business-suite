@@ -7504,3 +7504,8 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 .voice-command-listen-button{width:100%;margin-top:12px;min-height:44px}.voice-command-warning{display:block;margin-top:8px}
 @keyframes voicePulse{0%,100%{transform:scale(1)}50%{transform:scale(1.035)}}
 @media(max-width:800px){.voice-command-floating{left:12px;bottom:78px}.voice-command-panel{left:12px;bottom:136px;width:calc(100vw - 24px)}}
+
+/* v25.14.119 global voice launcher */
+.voice-command-floating{position:fixed!important;z-index:2147483000!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important}
+.voice-command-panel{position:fixed!important;z-index:2147483001!important}
+@media(max-width:800px){.voice-command-floating{left:12px!important;bottom:92px!important}.voice-command-panel{left:12px!important;bottom:150px!important}}

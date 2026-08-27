@@ -50,7 +50,23 @@ function isFinancialWrite(text){
   return ["اضف حواله","اضافه حواله","سجل دفعه","اضف دفعه","تصفير","صفر الحساب","احذف العميل","عدل العميل"].some(term=>value.includes(term));
 }
 
-export function VoiceCommandAssistant({navigate,onOpenCustomer}){
+
+const PAGE_ALIASES=[
+["dashboard",["الرئيسية","لوحة التحكم"]],["customers",["العملاء","قائمة العملاء"]],
+["overdue-customers",["المتأخرين","العملاء المتأخرين","العملاء المتأخرون"]],
+["transactions",["الحوالات","التحويلات"]],["debts",["الديون","الدين العام"]],
+["treasury",["الخزنة"]],["companies",["الشركات","أرصدة الشركات"]],
+["expenses",["المصروفات","المصاريف"]],["capital-overview",["رأس المال","راس المال"]],
+["rates",["أسعار الصرف","اسعار الصرف","العملات"]],["reports-profits",["التقارير","الأرباح"]],
+["settings",["الإعدادات","الاعدادات"]],["ai-center",["الذكاء الاصطناعي","مركز القيادة"]]
+];
+function wantsCurrentCustomerBalance(t){const n=normalizeArabic(t);return n.includes("رصيد هذا العميل")||n.includes("حساب هذا العميل")}
+function wantsLatestTransfer(t){const n=normalizeArabic(t);return n.includes("اخر حواله")||n.includes("احدث حواله")}
+function wantsOverdue(t){const n=normalizeArabic(t);return n.includes("اعرض المتاخرين")||n.includes("افتح المتاخرين")||n.includes("العملاء المتاخرين")}
+function wantsRateRefresh(t){const n=normalizeArabic(t);return n.includes("تحديث اسعار الصرف")||n.includes("حدث اسعار الصرف")||n.includes("تحديث العملات")}
+function wantsWhatsAppReminder(t){const n=normalizeArabic(t);return(n.includes("واتساب")||n.includes("واتس"))&&(n.includes("تذكير")||n.includes("الحساب")||n.includes("الرصيد"))}
+
+export function VoiceCommandAssistant({navigate,onOpenCustomer,currentCustomerId,onOpenWhatsAppReminder,onRefreshRates}){
   const [open,setOpen]=useState(false);
   const [listening,setListening]=useState(false);
   const [transcript,setTranscript]=useState("");
@@ -80,6 +96,22 @@ export function VoiceCommandAssistant({navigate,onOpenCustomer}){
     const raw=String(rawText||"").trim();
     const text=normalizeArabic(raw);
     if(!text)return setMessage("لم أسمع أمرًا واضحًا.");
+    if(wantsOverdue(raw)){navigate("overdue-customers");setOpen(false);return;}
+    if(wantsRateRefresh(raw)){if(typeof onRefreshRates==="function"){setMessage("جارٍ تجهيز تحديث أسعار الصرف…");await onRefreshRates();}else{navigate("rates");setMessage("فتحت أسعار الصرف للمراجعة والتحديث.");}setOpen(false);return;}
+    if(wantsCurrentCustomerBalance(raw)){
+      if(!currentCustomerId){setMessage("افتح حساب العميل أولًا ثم قل: اعرض رصيد هذا العميل.");return;}
+      try{const {data}=await api.get(`/customers/${currentCustomerId}`);const c=data?.customer||data;const b=Number(c?.finalBalance??c?.balance??c?.due??NaN);setMessage(Number.isFinite(b)?`رصيد ${c?.name||"العميل"}: ${b.toFixed(2)} CAD`:"تعذر قراءة رصيد العميل الحالي.");}catch(e){setMessage(e.response?.data?.message||"تعذر قراءة رصيد العميل الحالي.");}return;
+    }
+    if(wantsLatestTransfer(raw)){
+      if(!currentCustomerId){navigate("transactions");setMessage("فتحت الحوالات. افتح عميلًا أولًا لعرض آخر حوالة له.");setOpen(false);return;}
+      try{const {data}=await api.get("/transactions",{params:{customerId:currentCustomerId,page:1,pageSize:1,sort:"-date"}});const rows=Array.isArray(data?.items)?data.items:Array.isArray(data)?data:[];const tx=rows[0];if(!tx){setMessage("لا توجد حوالات لهذا العميل.");return;}navigate("transactions");setMessage(`آخر حوالة: ${tx.amount??""} ${tx.currency??""}`.trim());setOpen(false);}catch(e){setMessage(e.response?.data?.message||"تعذر قراءة آخر حوالة.");}return;
+    }
+    if(wantsWhatsAppReminder(raw)){
+      if(!currentCustomerId){setMessage("افتح حساب العميل المطلوب أولًا ثم اطلب إرسال تذكير واتساب.");return;}
+      if(typeof onOpenWhatsAppReminder==="function"){onOpenWhatsAppReminder(currentCustomerId);setMessage("تم تجهيز تذكير واتساب. راجع الاسم والرقم والرصيد والنص ثم أكد الإرسال.");setOpen(false);}else{onOpenCustomer(currentCustomerId);setMessage("تم فتح العميل. راجع رسالة واتساب قبل الإرسال.");setOpen(false);}return;
+    }
+    const alias=PAGE_ALIASES.find(([,xs])=>xs.some(x=>text.includes(normalizeArabic(x))));
+    if(alias&&(text.includes("افتح")||text.includes("اعرض")||text.includes("اذهب"))){navigate(alias[0]);setOpen(false);return;}
 
     if(isFinancialWrite(raw)){
       setMessage("الأوامر المالية لا تُنفذ صوتيًا في هذه المرحلة. افتح العملية من الشاشة وراجعها قبل الحفظ.");
@@ -177,7 +209,7 @@ export function VoiceCommandAssistant({navigate,onOpenCustomer}){
       {message&&<div className="voice-command-message">{message}</div>}
       <div className="voice-command-examples">
         <small>أمثلة:</small>
-        <span>«افتح العملاء»</span><span>«اعرض العملاء المتأخرين»</span><span>«افتح الخزنة»</span><span>«افتح العميل محمد»</span><span>«كم رصيد العميل أحمد؟»</span>
+        <span>«افتح العملاء»</span><span>«اعرض العملاء المتأخرين»</span><span>«افتح الخزنة»</span><span>«افتح العميل محمد»</span><span>«اعرض رصيد هذا العميل»</span><span>«افتح آخر حوالة»</span><span>«اعرض المتأخرين»</span><span>«تحديث أسعار الصرف»</span><span>«أرسل واتساب تذكير بالحساب»</span><span>«كم رصيد العميل أحمد؟»</span>
       </div>
       <button type="button" className="voice-command-listen-button" disabled={!supported||listening} onClick={startListening}>{listening?"جارٍ الاستماع…":"🎙️ تحدث الآن"}</button>
       {!supported&&<small className="voice-command-warning">المتصفح الحالي لا يدعم Web Speech API.</small>}

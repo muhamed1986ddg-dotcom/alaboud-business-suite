@@ -482,7 +482,10 @@ export default function App({onAuthExpired=()=>{}}){
         </button>
       </div>}
     </main>
-    <VoiceCommandAssistant navigate={navigate} onOpenCustomer={id=>{setCustomerId(id);setPage("customers");setMobileMenuOpen(false)}}/>
+    <VoiceCommandAssistant navigate={navigate} currentCustomerId={customerId}
+      onOpenCustomer={id=>{setCustomerId(id);setPage("customers");setMobileMenuOpen(false)}}
+      onOpenWhatsAppReminder={id=>{setCustomerId(id);setPage("customers");setMobileMenuOpen(false)}}
+      onRefreshRates={()=>{setPage("rates");setMobileMenuOpen(false)}}/>
     <button className="ai-floating ai-floating-v172 no-print" onClick={()=>navigate("ai-center")} title="مركز القيادة الذكي"><span>🤖</span><b>AI</b></button>
     <nav className="mobile-bottom-nav no-print" aria-label="التنقل السريع">
       <button className={page==="customers"?"active":""} onClick={()=>navigate("customers")}>
