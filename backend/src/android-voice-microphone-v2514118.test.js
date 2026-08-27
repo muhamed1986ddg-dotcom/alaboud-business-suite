@@ -1,0 +1,14 @@
+"use strict";
+const assert=require("assert/strict");
+const fs=require("fs");
+const path=require("path");
+const root=path.resolve(__dirname,"../..");
+const manifest=fs.readFileSync(path.join(root,"app/src/main/AndroidManifest.xml"),"utf8");
+const main=fs.readFileSync(path.join(root,"app/src/main/java/com/alaboud/businesssuite/MainActivity.kt"),"utf8");
+assert(manifest.includes("android.permission.RECORD_AUDIO"),"RECORD_AUDIO permission missing");
+assert(main.includes("PermissionRequest.RESOURCE_AUDIO_CAPTURE"),"WebView audio capture grant missing");
+assert(main.includes("MICROPHONE_PERMISSION_REQUEST"),"runtime microphone request missing");
+assert(main.includes("isTrustedWebPermissionOrigin"),"trusted-origin microphone gate missing");
+assert(main.includes("request.origin"),"WebView permission origin check missing");
+assert(main.includes("Manifest.permission.RECORD_AUDIO"),"runtime RECORD_AUDIO permission missing");
+console.log("android voice microphone v25.14.118: OK");

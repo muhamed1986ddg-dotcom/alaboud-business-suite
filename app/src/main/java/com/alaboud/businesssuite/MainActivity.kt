@@ -21,6 +21,7 @@ import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.DownloadListener
 import android.webkit.JavascriptInterface
+import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
@@ -56,15 +57,17 @@ class MainActivity : AppCompatActivity() {
         private const val APP_URL = "https://alaboud-business-suite-us-763786484727.us-central1.run.app/"
         private const val APP_ORIGIN = "https://alaboud-business-suite-us-763786484727.us-central1.run.app"
         private const val APP_HOST = "alaboud-business-suite-us-763786484727.us-central1.run.app"
-        private const val CLIENT_VERSION = "25.14.117"
+        private const val CLIENT_VERSION = "25.14.118"
         private const val FILE_CHOOSER_REQUEST = 9001
         private const val NOTIFICATION_PERMISSION_REQUEST = 9002
+        private const val MICROPHONE_PERMISSION_REQUEST = 9003
         private const val CHANNEL_ID = "alaboud_overdue_customers"
         private const val MAX_RATE_LIMIT_RETRIES = 2
     }
 
     private lateinit var webView: WebView
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private var pendingMicrophonePermissionRequest: PermissionRequest? = null
     private val nativeBridge by lazy { NativeBridge(this) }
     private var nativeBridgeAttached = false
     @Volatile private var trustedPageActive = false
@@ -271,6 +274,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                if (request == null) return
+                runOnUiThread { handleWebPermissionRequest(request) }
+            }
+
+            override fun onPermissionRequestCanceled(request: PermissionRequest?) {
+                if (pendingMicrophonePermissionRequest === request) {
+                    pendingMicrophonePermissionRequest = null
+                }
+                super.onPermissionRequestCanceled(request)
+            }
+
             override fun onShowFileChooser(
                 webView: WebView?,
                 callback: ValueCallback<Array<Uri>>?,
@@ -299,6 +314,34 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun isTrustedWebPermissionOrigin(origin: Uri?): Boolean {
+        if (origin == null) return false
+        return origin.scheme.equals("https", ignoreCase = true) &&
+            origin.host.equals(APP_HOST, ignoreCase = true) &&
+            effectivePort(origin) == 443
+    }
+
+    private fun handleWebPermissionRequest(request: PermissionRequest) {
+        val wantsAudio = request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+        if (!trustedPageActive || !isTrustedWebPermissionOrigin(request.origin) || !wantsAudio) {
+            request.deny()
+            return
+        }
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+            return
+        }
+
+        pendingMicrophonePermissionRequest?.deny()
+        pendingMicrophonePermissionRequest = request
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.RECORD_AUDIO),
+            MICROPHONE_PERMISSION_REQUEST
+        )
     }
 
     private fun configureDownloads() {
@@ -739,6 +782,36 @@ class MainActivity : AppCompatActivity() {
         </body>
         </html>
     """.trimIndent()
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        if (requestCode == MICROPHONE_PERMISSION_REQUEST) {
+            val request = pendingMicrophonePermissionRequest
+            pendingMicrophonePermissionRequest = null
+            val granted = grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED &&
+                trustedPageActive &&
+                isTrustedWebPermissionOrigin(request?.origin)
+
+            if (request != null) {
+                if (granted) {
+                    request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                } else {
+                    request.deny()
+                    Toast.makeText(
+                        this,
+                        "يجب السماح بالميكروفون لاستخدام الأوامر الصوتية",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            return
+        }
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == FILE_CHOOSER_REQUEST) {
