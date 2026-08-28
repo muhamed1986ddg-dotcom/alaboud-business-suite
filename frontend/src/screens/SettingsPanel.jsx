@@ -5,7 +5,7 @@ import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,
 import {AppModal,AppTable} from "../components/ui";
 
 function NotificationSettings({embedded=false}){
-  const defaults={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,zeroBalanceWhatsAppTemplate:"",overdueWhatsAppEnabled:false,overdueFirstReminderDays:7,overdueSecondReminderEnabled:true,overdueSecondReminderDays:15,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",overdueSecondWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"};
+  const defaults={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,zeroBalanceWhatsAppTemplate:"",finalBalanceWhatsAppTemplate:"",overdueWhatsAppEnabled:false,overdueFirstReminderDays:7,overdueSecondReminderEnabled:true,overdueSecondReminderDays:15,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",overdueSecondWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"};
   const [settings,setSettings]=useState(defaults);
   const [message,setMessage]=useState("");
   const [preview,setPreview]=useState(null),[logs,setLogs]=useState([]),[busy,setBusy]=useState(false);
@@ -76,6 +76,12 @@ function NotificationSettings({embedded=false}){
           <div className="whatsapp-section-heading"><div><strong>قالب رسالة تصفير الحساب</strong><small>يُستخدم عند انتقال رصيد العميل إلى 0.00 CAD. اتركه فارغًا لاستخدام القالب الافتراضي بتوقيع أبو إسلام.</small></div></div>
           <label className="whatsapp-field"><span>نص رسالة تصفير الحساب</span><textarea rows="7" value={settings.zeroBalanceWhatsAppTemplate||""} onChange={e=>update({zeroBalanceWhatsAppTemplate:e.target.value})} placeholder={"مرحباً {customerName}\n\nتم تسوية حسابكم بالكامل.\n\nرصيد حسابكم الحالي:\n0.00 CAD\n\nحسابكم الآن صفر.\n\nشكراً لكم.\n\nأبو إسلام"}/></label>
           <p className="settings-note">المتغيرات المتاحة: <bdi dir="ltr">{`{customerName}`}</bdi> أو <bdi dir="ltr">{`{name}`}</bdi>.</p>
+        </section>
+
+        <section className="whatsapp-subsection">
+          <div className="whatsapp-section-heading"><div><strong>قالب إرسال المجموع النهائي</strong><small>يستخدمه زر «إرسال المجموع النهائي» في صفحة العملاء، ويرسل الرصيد النهائي فقط بدون كشف حساب أو تفاصيل الحوالات والدفعات.</small></div></div>
+          <label className="whatsapp-field"><span>نص رسالة المجموع النهائي</span><textarea rows="6" value={settings.finalBalanceWhatsAppTemplate||""} onChange={e=>update({finalBalanceWhatsAppTemplate:e.target.value})} placeholder={"السلام عليكم {customerName}\n\nالمجموع النهائي {balanceDirection}:\n{balance} CAD\n\nأبو إسلام"}/></label>
+          <p className="settings-note">المتغيرات المتاحة: <bdi dir="ltr">{`{customerName}`}</bdi>، <bdi dir="ltr">{`{balance}`}</bdi>، <bdi dir="ltr">{`{balanceDirection}`}</bdi>، <bdi dir="ltr">{`{currency}`}</bdi>.</p>
         </section>
 
         <section className="whatsapp-subsection">

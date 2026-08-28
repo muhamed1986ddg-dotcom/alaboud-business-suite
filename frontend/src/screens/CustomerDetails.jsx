@@ -20,12 +20,12 @@ export function Customer({id,back,onStatement,onAddTransfer}){
   });
   const [editingTransaction,setEditingTransaction]=useState(null);
   const [editingPayment,setEditingPayment]=useState(null);
-  const [savingPayment,setSavingPayment]=useState(false);
-  const [paymentConfirmationState,setPaymentConfirmationState]=useState("");
-  const paymentMountedRef=useRef(true);
   const [oldBalanceForm,setOldBalanceForm]=useState("");
   const [oldBalanceType,setOldBalanceType]=useState("RECEIVABLE");
   const [savingOldBalance,setSavingOldBalance]=useState(false);
+  const [savingPayment,setSavingPayment]=useState(false);
+  const paymentSubmitRef=useRef(false);
+  const mountedRef=useRef(true);
 
   function startEditTransaction(transaction){
     setEditingPayment(null);
@@ -70,7 +70,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
   }
 
   useEffect(()=>{load();},[id]);
-  useEffect(()=>()=>{paymentMountedRef.current=false;},[]);
+  useEffect(()=>()=>{mountedRef.current=false;paymentSubmitRef.current=false;},[]);
 
   async function saveOldBalance(event){
     event.preventDefault();
@@ -99,9 +99,9 @@ export function Customer({id,back,onStatement,onAddTransfer}){
 
   async function addPayment(event){
     event.preventDefault();
-    if(savingPayment)return;
+    if(paymentSubmitRef.current)return;
+    paymentSubmitRef.current=true;
     setSavingPayment(true);
-    setPaymentConfirmationState("");
     setError("");
     try{
       await api.post(`/customers/${id}/payments`,{
@@ -110,7 +110,8 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         method:paymentForm.method,
         reference:paymentForm.reference,
         notes:paymentForm.notes
-      },{onConfirmationState:state=>{if(paymentMountedRef.current)setPaymentConfirmationState(state);}});
+      });
+      if(!mountedRef.current)return;
       setPaymentForm({
         amount:"",
         paymentDate:new Date().toISOString().slice(0,10),
@@ -118,13 +119,13 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         reference:"",
         notes:""
       });
-      void load();
+      clearApiGetCache();
+      await load();
     }catch(error){
-      setError(error.code==="OPERATION_STATUS_UNKNOWN"
-        ?"تعذر تأكيد حالة الدفعة حاليًا. يرجى تحديث حساب العميل قبل محاولة التسجيل مرة أخرى."
-        :error.message||error.response?.data?.message||"تعذر تسجيل الدفعة. لم يتم حفظ العملية.");
+      if(mountedRef.current)setError(error.alaboudUserMessage||error.response?.data?.message||"تعذر تأكيد حالة الدفعة حاليًا. يرجى تحديث حساب العميل قبل محاولة التسجيل مرة أخرى.");
     }finally{
-      setSavingPayment(false);
+      paymentSubmitRef.current=false;
+      if(mountedRef.current)setSavingPayment(false);
     }
   }
 
@@ -463,7 +464,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         </select>
         <input value={paymentForm.reference} onChange={e=>setPaymentForm({...paymentForm,reference:e.target.value})} placeholder="رقم المرجع"/>
         <input value={paymentForm.notes} onChange={e=>setPaymentForm({...paymentForm,notes:e.target.value})} placeholder="ملاحظات"/>
-        <button disabled={savingPayment}>{savingPayment?(paymentConfirmationState==="VERIFYING"?"جاري التحقق...":"جاري الحفظ..."):"حفظ الدفعة"}</button>
+        <button disabled={savingPayment}>{savingPayment?"جاري حفظ الدفعة والتحقق…":"حفظ الدفعة"}</button>
       </form>
     }
 

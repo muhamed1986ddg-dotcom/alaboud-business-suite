@@ -8,6 +8,7 @@ import {authoritativeCustomerRate} from "../customerRate";
 import {transferFinancialPreview} from "../transferFinancialPreview";
 import {compactWhatsAppLines,openWhatsAppMessage} from "../whatsapp";
 import {cadPerCurrency as cadPerCurrencyFromRows,resolveCurrencyConversion} from "../currencyConversion";
+import {buildFinalBalanceWhatsAppMessage} from "../finalBalanceWhatsApp";
 
 
 export function Customers({open,initialTransferRequest,onTransferRequestHandled,onTransferSaved}){
@@ -28,6 +29,9 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
   const [whatsAppSuccess,setWhatsAppSuccess]=useState(null);
   const retryTimerRef=useRef(null);
   const retryAttemptRef=useRef(0);
+  const paymentSubmitRef=useRef(false);
+  const mountedRef=useRef(true);
+  const [savingPayment,setSavingPayment]=useState(false);
 
   const [customerForm,setCustomerForm]=useState({customerNumber:"",name:"",phone:"",email:"",oldBalance:"",oldBalanceType:"RECEIVABLE"});
   const [editingCustomer,setEditingCustomer]=useState(null);
@@ -74,17 +78,12 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     method:"CASH",
     reference:""
   });
-  const [savingPayment,setSavingPayment]=useState(false);
-  const [paymentConfirmationState,setPaymentConfirmationState]=useState("");
-  const paymentMountedRef=useRef(true);
 
   const [activePanel,setActivePanel]=useState("");
   const [transferCustomerLocked,setTransferCustomerLocked]=useState(false);
   const [transferCustomerName,setTransferCustomerName]=useState("");
 
   const serverSortMode=true;
-
-  useEffect(()=>()=>{paymentMountedRef.current=false;},[]);
 
   async function loadDebtSummary(){
     try{
@@ -166,6 +165,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
   useEffect(()=>{loadCustomerOptions();loadPartnerOptions();loadProviderFeeSettings()},[]);
 
   useEffect(()=>()=>{if(retryTimerRef.current)clearTimeout(retryTimerRef.current)},[]);
+  useEffect(()=>()=>{mountedRef.current=false;paymentSubmitRef.current=false;},[]);
 
 
   useEffect(()=>{
@@ -533,9 +533,9 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
 
   async function addPayment(event){
     event.preventDefault();
-    if(savingPayment)return;
+    if(paymentSubmitRef.current)return;
+    paymentSubmitRef.current=true;
     setSavingPayment(true);
-    setPaymentConfirmationState("");
     setError("");
     const savedPayment={...paymentForm};
     try{
@@ -545,13 +545,15 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         paymentDate:paymentForm.paymentDate,
         method:paymentForm.method,
         reference:paymentForm.reference
-      },{onConfirmationState:state=>{if(paymentMountedRef.current)setPaymentConfirmationState(state);}});
+      });
+      if(!mountedRef.current)return;
       const customer=customerOptions.find(item=>item.id===savedPayment.customerId)||list.find(item=>item.id===savedPayment.customerId)||{};
       let currentBalance="";
       try{
         const {data}=await cachedGet(`/customers/${savedPayment.customerId}/statement`,{cacheTtl:0});
         currentBalance=data?.customer?.finalBalance??"";
       }catch{/* The payment is saved; omit an unavailable balance. */}
+      if(!mountedRef.current)return;
       const zeroBalance=currentBalance!==""&&Math.abs(Number(currentBalance))<0.005;
       setWhatsAppSuccess({
         title:"تم تحديث حساب العميل بنجاح",
@@ -574,11 +576,10 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       setActivePanel("");
       void Promise.allSettled([load(),loadDebtSummary()]);
     }catch(error){
-      setError(error.code==="OPERATION_STATUS_UNKNOWN"
-        ?"تعذر تأكيد حالة الدفعة حاليًا. يرجى تحديث حساب العميل قبل محاولة التسجيل مرة أخرى."
-        :error.message||error.response?.data?.message||"تعذر تسجيل الدفعة. لم يتم حفظ العملية.");
+      if(mountedRef.current)setError(error.alaboudUserMessage||error.response?.data?.message||"تعذر إضافة الدفعة. تحقق من حساب العميل قبل محاولة التسجيل مرة أخرى.");
     }finally{
-      setSavingPayment(false);
+      paymentSubmitRef.current=false;
+      if(mountedRef.current)setSavingPayment(false);
     }
   }
 
@@ -663,6 +664,23 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       if(e?.name==="AbortError")return;
       setError(e.response?.data?.message||e.message||"تعذر إنشاء صورة كشف الحساب");
     }
+  }
+
+  async function sendFinalBalanceWhatsApp(customer){
+    setError("");
+    const phone=String(customer.whatsapp||customer.mobile||customer.phone||"").replace(/\D/g,"");
+    if(!phone){
+      setError("لا يوجد رقم واتساب محفوظ لهذا العميل");
+      return;
+    }
+    let template="";
+    try{
+      const response=await cachedGet("/notification-settings",{cacheTtl:5000});
+      template=String(response?.data?.finalBalanceWhatsAppTemplate||"");
+    }catch{/* Keep manual WhatsApp available even if settings cannot be loaded. */}
+    const message=buildFinalBalanceWhatsAppMessage(customer,template);
+    const opened=openRegularWhatsApp(phone,message);
+    if(!opened)setError("تعذر فتح واتساب. تحقق من رقم العميل أو إعدادات الجهاز.");
   }
 
   async function whatsappFinalBalance(customer, urgent=false){
@@ -959,8 +977,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           <option value="CARD">بطاقة</option>
         </select>
         <input value={paymentForm.reference} onChange={e=>setPaymentForm({...paymentForm,reference:e.target.value})} placeholder="رقم المرجع"/>
-        <button disabled={savingPayment}>{savingPayment?(paymentConfirmationState==="VERIFYING"?"جاري التحقق...":"جاري الحفظ..."):"حفظ الدفعة"}</button>
-        <button type="button" onClick={()=>setActivePanel("")}>إلغاء</button>
+        <button disabled={savingPayment}>{savingPayment?"جاري حفظ الدفعة والتحقق…":"حفظ الدفعة"}</button>
+        <button type="button" disabled={savingPayment} onClick={()=>setActivePanel("")}>إلغاء</button>
       </form>
       </div>
     }
@@ -1015,6 +1033,14 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           </button>
           <button
             type="button"
+            className="customer-final-balance-whatsapp-button"
+            onClick={()=>sendFinalBalanceWhatsApp(customer)}
+            aria-label={`إرسال المجموع النهائي إلى ${customer.name}`}
+          >
+            💬 إرسال المجموع النهائي
+          </button>
+          <button
+            type="button"
             className="customer-edit-button"
             onClick={()=>startEditCustomer(customer)}
             aria-label={`تعديل ${customer.name}`}
@@ -1048,6 +1074,9 @@ export function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
   const [error,setError]=useState("");
   const retryTimerRef=useRef(null);
   const retryAttemptRef=useRef(0);
+  const paymentSubmitRef=useRef(false);
+  const mountedRef=useRef(true);
+  const [savingPayment,setSavingPayment]=useState(false);
   const [success,setSuccess]=useState("");
   const [drafts,setDrafts]=useState({});
   const [syncingId,setSyncingId]=useState("");

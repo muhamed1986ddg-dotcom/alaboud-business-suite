@@ -20,6 +20,7 @@ function registerNotificationRoutes(app,{
       automaticTransferWhatsAppEnabled:Boolean(store.notificationSettings?.automaticTransferWhatsAppEnabled),
       zeroBalanceWhatsAppEnabled:Boolean(store.notificationSettings?.zeroBalanceWhatsAppEnabled),
       zeroBalanceWhatsAppTemplate:String(store.notificationSettings?.zeroBalanceWhatsAppTemplate||""),
+      finalBalanceWhatsAppTemplate:String(store.notificationSettings?.finalBalanceWhatsAppTemplate||""),
       overdueWhatsAppEnabled:Boolean(store.notificationSettings?.overdueWhatsAppEnabled),
       overdueFirstReminderDays:Math.max(1,Math.min(365,Math.round(safeNumber(store.notificationSettings?.overdueFirstReminderDays,store.notificationSettings?.overdueDays||7)||7))),
       overdueSecondReminderEnabled:store.notificationSettings?.overdueSecondReminderEnabled!==false,
@@ -65,6 +66,7 @@ function registerNotificationRoutes(app,{
       if(req.body?.automaticTransferWhatsAppEnabled!==undefined)store.notificationSettings.automaticTransferWhatsAppEnabled=Boolean(req.body.automaticTransferWhatsAppEnabled);
       if(req.body?.zeroBalanceWhatsAppEnabled!==undefined)store.notificationSettings.zeroBalanceWhatsAppEnabled=Boolean(req.body.zeroBalanceWhatsAppEnabled);
       if(req.body?.zeroBalanceWhatsAppTemplate!==undefined)store.notificationSettings.zeroBalanceWhatsAppTemplate=String(req.body.zeroBalanceWhatsAppTemplate||"").slice(0,4000);
+      if(req.body?.finalBalanceWhatsAppTemplate!==undefined)store.notificationSettings.finalBalanceWhatsAppTemplate=String(req.body.finalBalanceWhatsAppTemplate||"").slice(0,4000);
       if(req.body?.overdueWhatsAppEnabled!==undefined)store.notificationSettings.overdueWhatsAppEnabled=Boolean(req.body.overdueWhatsAppEnabled);
       if(req.body?.overdueFirstReminderDays!==undefined){
         const value=Number(req.body.overdueFirstReminderDays);

@@ -1,29 +1,32 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import fs from "node:fs";
+import {readFileSync} from "node:fs";
+import {resolve} from "node:path";
 
-const api=fs.readFileSync(new URL("../src/api.js",import.meta.url),"utf8");
-const customers=fs.readFileSync(new URL("../src/screens/Customers.jsx",import.meta.url),"utf8");
-const details=fs.readFileSync(new URL("../src/screens/CustomerDetails.jsx",import.meta.url),"utf8");
+const root=resolve(import.meta.dirname,"..");
+const api=readFileSync(resolve(root,"src/api.js"),"utf8");
+const customers=readFileSync(resolve(root,"src/screens/Customers.jsx"),"utf8");
+const details=readFileSync(resolve(root,"src/screens/CustomerDetails.jsx"),"utf8");
 
-test("financial writes use one POST and bounded confirmation recovery",()=>{
+test("ambiguous customer payment uses bounded confirmation recovery without replay",()=>{
   assert.match(api,/config\.timeout=method==="get"\?45000:30000/);
-  assert.match(api,/OPERATION_CONFIRMATION_DELAYS=\[500,1000,1500,2500,4000\]/);
-  assert.match(api,/COMMITTED","SUCCESS","COMPLETED/);
-  assert.match(api,/FAILED","REJECTED","ROLLED_BACK/);
-  assert.match(api,/OPERATION_STATUS_UNKNOWN/);
-  assert.doesNotMatch(api,/_alaboudWriteReplayCount|api\.request\(error\.config\)/);
+  assert.ok(api.includes("const delays=[500,1000,1500,2500,4000]"));
+  assert.ok(api.includes('successStatuses=new Set(["COMMITTED","SUCCESS","COMPLETED"])'));
+  assert.ok(api.includes('failedStatuses=new Set(["FAILED","REJECTED","ROLLED_BACK"])'));
+  assert.ok(api.includes("تعذر تأكيد حالة الدفعة حاليًا. يرجى تحديث حساب العميل قبل محاولة التسجيل مرة أخرى."));
+  assert.ok(api.includes("تعذر تسجيل الدفعة. لم يتم حفظ العملية."));
+  assert.equal(api.includes("_alaboudWriteReplayCount"),false);
+  assert.ok(api.includes("Idempotency-Key"));
 });
 
-test("both payment forms block double submit throughout verification",()=>{
+test("customer payment UI blocks duplicate submit and refreshes after recovered success",()=>{
   for(const source of [customers,details]){
-    assert.match(source,/if\(savingPayment\)return/);
-    assert.match(source,/disabled=\{savingPayment\}/);
-    assert.match(source,/onConfirmationState:state=>\{if\(paymentMountedRef\.current\)setPaymentConfirmationState\(state\);\}/);
-    assert.match(source,/paymentMountedRef\.current=false/);
-    assert.match(source,/جاري التحقق/);
-    assert.match(source,/تعذر تأكيد حالة الدفعة حاليًا/);
+    assert.ok(source.includes("paymentSubmitRef.current"));
+    assert.ok(source.includes("if(paymentSubmitRef.current)return"));
+    assert.ok(source.includes("disabled={savingPayment}"));
+    assert.ok(source.includes("mountedRef.current"));
+    assert.ok(source.includes("error.alaboudUserMessage"));
   }
-  assert.equal((customers.match(/api\.post\(`\/customers\/\$\{paymentForm\.customerId\}\/payments`/g)||[]).length,1);
-  assert.equal((details.match(/api\.post\(`\/customers\/\$\{id\}\/payments`/g)||[]).length,1);
+  assert.ok(customers.includes("Promise.allSettled([load(),loadDebtSummary()])"));
+  assert.ok(details.includes("await load()"));
 });

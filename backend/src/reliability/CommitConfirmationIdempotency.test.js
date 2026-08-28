@@ -69,10 +69,12 @@ function makeRes(){
 
   const apiSource=fs.readFileSync(path.join(__dirname,"../../../frontend/src/api.js"),"utf8");
   assert(apiSource.includes("verifyCommittedOperation"));
-  assert(apiSource.includes("جاري التحقق من تسجيل العملية..."));
-  assert(apiSource.includes("OPERATION_CONFIRMATION_DELAYS=[500,1000,1500,2500,4000]"));
-  assert(!apiSource.includes("_alaboudWriteReplayCount"));
+  assert(apiSource.includes('const delays=[500,1000,1500,2500,4000]'));
+  assert(apiSource.includes('successStatuses=new Set(["COMMITTED","SUCCESS","COMPLETED"])'));
+  assert(apiSource.includes('failedStatuses=new Set(["FAILED","REJECTED","ROLLED_BACK"])'));
+  assert(apiSource.includes("تعذر تأكيد حالة الدفعة حاليًا"));
   assert(apiSource.includes("/api/operations/"));
+  assert(!apiSource.includes("_alaboudWriteReplayCount"));
 
   console.log("Commit confirmation & idempotency tests passed");
 })().catch(error=>{console.error(error);process.exit(1);});

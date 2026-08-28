@@ -1,9 +1,11 @@
 const fs=require("fs"),path=require("path"),assert=require("assert");
 const api=fs.readFileSync(path.join(__dirname,"../../frontend/src/api.js"),"utf8");
-assert(api.includes("OPERATION_CONFIRMATION_DELAYS=[500,1000,1500,2500,4000]"));
-assert(api.includes("timeout:5000"));
-assert(api.includes('error.code="OPERATION_STATUS_UNKNOWN"'));
-assert(api.includes("FAILED_OPERATION_STATUSES"));
-assert(!api.includes("_alaboudWriteReplayCount"));
-assert(api.includes("if(error?.response)return false"));
+assert(api.includes('const delays=[500,1000,1500,2500,4000]'));
+assert(api.includes('{headers,timeout:3000,withCredentials:true}'));
+assert(api.includes('successStatuses=new Set(["COMMITTED","SUCCESS","COMPLETED"])'));
+assert(api.includes('failedStatuses=new Set(["FAILED","REJECTED","ROLLED_BACK"])'));
+assert(api.includes('تعذر تأكيد حالة الدفعة حاليًا'));
+assert(api.includes('تعذر تسجيل الدفعة. لم يتم حفظ العملية.'));
+assert(!api.includes('_alaboudWriteReplayCount'));
+assert(api.includes('if(error?.response)return false'));
 console.log("bounded operation confirmation regression: OK");

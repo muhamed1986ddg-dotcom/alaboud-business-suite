@@ -7509,3 +7509,7 @@ button[aria-busy="true"]{cursor:wait;opacity:.78}.imperative-confirm-host{positi
 .voice-command-floating{position:fixed!important;z-index:2147483000!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important}
 .voice-command-panel{position:fixed!important;z-index:2147483001!important}
 @media(max-width:800px){.voice-command-floating{left:12px!important;bottom:92px!important}.voice-command-panel{left:12px!important;bottom:150px!important}}
+
+/* v25.14.123 — manual WhatsApp final-balance action */
+.customer-directory-actions .customer-final-balance-whatsapp-button{background:linear-gradient(135deg,#0b6f3f,#15945d);color:#fff;border-color:#22c55e}
+.customer-directory-actions .customer-final-balance-whatsapp-button:hover{filter:brightness(1.06)}

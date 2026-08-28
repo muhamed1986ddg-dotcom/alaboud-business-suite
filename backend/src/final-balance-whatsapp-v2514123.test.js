@@ -1,0 +1,17 @@
+"use strict";
+const assert=require("assert/strict");
+const fs=require("fs");
+const path=require("path");
+const root=path.resolve(__dirname,"../..");
+const customers=fs.readFileSync(path.join(root,"frontend/src/screens/Customers.jsx"),"utf8");
+const settings=fs.readFileSync(path.join(root,"frontend/src/screens/SettingsPanel.jsx"),"utf8");
+const routes=fs.readFileSync(path.join(root,"backend/src/routes/notifications.js"),"utf8");
+const store=fs.readFileSync(path.join(root,"backend/src/store.js"),"utf8");
+assert(customers.includes("إرسال المجموع النهائي"));
+assert(customers.includes("sendFinalBalanceWhatsApp(customer)"));
+assert(customers.includes("buildFinalBalanceWhatsAppMessage"));
+assert(settings.includes("finalBalanceWhatsAppTemplate"));
+assert(routes.includes("finalBalanceWhatsAppTemplate:String"));
+assert(routes.includes("req.body?.finalBalanceWhatsAppTemplate"));
+assert(store.includes("finalBalanceWhatsAppTemplate"));
+console.log("final-balance WhatsApp source v25.14.123: OK");

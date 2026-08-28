@@ -5,4 +5,5 @@ if(!adapter.includes('this.queueRelationalMirror(snapshot,{ immutableSnapshot: o
 if(adapter.includes('if (this.relationalMirrorEnabled) await this.projector.project(client, snapshot)'))throw new Error('mirror must not block interactive save');
 if(!adapter.includes('PG_WRITE_RETRY_BUDGET_MS'))throw new Error('write retry budget missing');
 if(!api.includes('config.timeout=method==="get"?45000:30000'))throw new Error('client timeout must bound stalled write requests');
+if(!api.includes('const delays=[500,1000,1500,2500,4000]'))throw new Error('bounded confirmation recovery missing');
 console.log('Fast durable operations test passed');

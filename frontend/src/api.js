@@ -52,7 +52,7 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.14.122";
+  config.headers["X-Alaboud-Client-Version"]="25.14.123";
   // Durable writes have a bounded interactive recovery budget. If PostgreSQL
   // is temporarily unavailable, start commit verification promptly instead of
   // leaving add/edit/delete buttons spinning for more than a minute.
@@ -115,6 +115,13 @@ function safeBackendMessage(error){
 }
 
 function errorToastMessage(method,error){
+  if(error?.alaboudUserMessage)return error.alaboudUserMessage;
+  if(error?._alaboudConfirmationUncertain){
+    return "تعذر تأكيد حالة الدفعة حاليًا. يرجى تحديث حساب العميل قبل محاولة التسجيل مرة أخرى.";
+  }
+  if(error?._alaboudConfirmationFailed){
+    return "تعذر تسجيل الدفعة. لم يتم حفظ العملية.";
+  }
   if(error?.code==="ECONNABORTED"||/timeout/i.test(String(error?.message||""))){
     return "لم يصل تأكيد العملية خلال المهلة. لا تضغط مرة أخرى؛ تحقق من حالة السجل أولًا.";
   }
@@ -150,14 +157,6 @@ function isAmbiguousWriteFailure(error){
   return error?.code==="ECONNABORTED" || /timeout/i.test(String(error?.message||"")) || !error?.response;
 }
 
-const OPERATION_CONFIRMATION_DELAYS=[500,1000,1500,2500,4000];
-const COMMITTED_OPERATION_STATUSES=new Set(["COMMITTED","SUCCESS","COMPLETED"]);
-const FAILED_OPERATION_STATUSES=new Set(["FAILED","REJECTED","ROLLED_BACK"]);
-
-function notifyConfirmationState(config,state){
-  try{config?.onConfirmationState?.(state)}catch{/* UI notification must never break recovery. */}
-}
-
 async function verifyCommittedOperation(error){
   const operationKey=headerValue(error?.config?.headers,"Idempotency-Key");
   if(!operationKey||!isAmbiguousWriteFailure(error))return null;
@@ -170,43 +169,48 @@ async function verifyCommittedOperation(error){
   if(token)headers.Authorization=`Bearer ${token}`;
   if(branchId)headers["X-Branch-ID"]=branchId;
 
-  notifyConfirmationState(error.config,"VERIFYING");
-  dispatchOperationToast("جاري التحقق من تسجيل العملية...","info");
-  for(const delay of OPERATION_CONFIRMATION_DELAYS){
+  const delays=[500,1000,1500,2500,4000];
+  const successStatuses=new Set(["COMMITTED","SUCCESS","COMPLETED"]);
+  const failedStatuses=new Set(["FAILED","REJECTED","ROLLED_BACK"]);
+  dispatchOperationToast("انقطع الرد بعد إرسال العملية. جاري التحقق من تسجيلها…","info");
+
+  for(const delay of delays){
     await sleep(delay);
     try{
       const response=await axios.get(
         `/api/operations/${encodeURIComponent(operationKey)}/status`,
-        {headers,timeout:5000,withCredentials:true}
+        {headers,timeout:3000,withCredentials:true}
       );
       const status=String(response?.data?.status||"").toUpperCase();
-      if(response?.data?.committed===true||COMMITTED_OPERATION_STATUSES.has(status)){
+      if(response?.data?.committed===true||successStatuses.has(status)){
         clearApiGetCache();
-        notifyConfirmationState(error.config,"COMMITTED");
-        dispatchOperationToast("تم تسجيل الدفعة بنجاح","success");
+        dispatchOperationToast("تم تسجيل العملية بنجاح","success");
         return {
-          data:response?.data?.response??{committed:true,operationKey,status:"COMMITTED"},
-          status:200,statusText:"OK",
+          data:response?.data?.response??{committed:true,operationKey,status:status||"COMMITTED"},
+          status:200,
+          statusText:"OK",
           headers:{"x-operation-committed":"true"},
-          config:error.config,request:error.request,
+          config:error.config,
+          request:error.request,
           recoveredFromAmbiguousCommit:true
         };
       }
-      if(FAILED_OPERATION_STATUSES.has(status)){
-        notifyConfirmationState(error.config,"FAILED");
-        error.code="OPERATION_CONFIRMED_FAILED";
-        error.message="تعذر تسجيل الدفعة. لم يتم حفظ العملية.";
+      if(failedStatuses.has(status)){
+        error._alaboudConfirmationFailed=true;
+        error.alaboudUserMessage="تعذر تسجيل الدفعة. لم يتم حفظ العملية.";
         return null;
       }
-      // PENDING / PROCESSING / UNKNOWN are checked again with the same key.
-      // The original financial mutation is never replayed.
+      // UNKNOWN / PENDING / PROCESSING are intentionally retried within the
+      // bounded recovery window. The original financial POST is never replayed.
     }catch(checkError){
-      if(checkError?.response?.status===401)break;
+      if(checkError?.response?.status===401)return null;
+      // A transient status-check failure is still ambiguous; keep the bounded
+      // recovery loop running without replaying the mutation.
     }
   }
-  notifyConfirmationState(error.config,"UNKNOWN");
-  error.code="OPERATION_STATUS_UNKNOWN";
-  error.message="تعذر تأكيد حالة الدفعة حاليًا. يرجى تحديث حساب العميل قبل محاولة التسجيل مرة أخرى.";
+
+  error._alaboudConfirmationUncertain=true;
+  error.alaboudUserMessage="تعذر تأكيد حالة الدفعة حاليًا. يرجى تحديث حساب العميل قبل محاولة التسجيل مرة أخرى.";
   return null;
 }
 
@@ -235,7 +239,7 @@ api.interceptors.response.use(
       const recovered=await verifyCommittedOperation(error);
       if(recovered)return recovered;
     }
-    if(method!=="get"&&shouldShowWriteToast(url,error.config)&&error.code!=="OPERATION_STATUS_UNKNOWN"){
+    if(method!=="get"&&shouldShowWriteToast(url,error.config)){
       dispatchOperationToast(errorToastMessage(method,error),"error");
     }
     return Promise.reject(error);

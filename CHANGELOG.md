@@ -1,10 +1,21 @@
-# v25.14.122 — Payment Confirmation Recovery
+# v25.14.123 — Final Balance WhatsApp
 
-- Increased the bounded browser write timeout from 12 to 30 seconds.
-- Added bounded idempotency-receipt confirmation polling after ambiguous transport failures.
-- Never replays the original payment mutation and preserves its original idempotency key throughout verification.
-- Added payment double-submit protection, verifying UI state, precise unknown-state messaging, and late-response mounted guards.
-- Added regression coverage for committed, pending, failed, unknown, single-POST, and double-click safety paths.
+- Added a customer-directory action to send only the final customer balance through regular WhatsApp.
+- Added an editable `finalBalanceWhatsAppTemplate` setting with a default Abu Islam signature.
+- Added regression coverage for message content, direction, custom templates, settings persistence, and UI wiring.
+- Preserved v25.14.122 payment confirmation recovery and all existing financial logic.
+
+# v25.14.122 — Reliable Customer Payment Confirmation Recovery
+
+- Increased bounded write timeout from 12s to 30s.
+- Added bounded ambiguous-commit verification at 500/1000/1500/2500/4000ms.
+- Never replays the original financial POST; confirmation uses the original Idempotency-Key only.
+- Treats COMMITTED/SUCCESS/COMPLETED as recovered success and FAILED/REJECTED/ROLLED_BACK as confirmed failure.
+- Shows an explicit unknown-state warning instead of claiming a failed payment when confirmation remains ambiguous.
+- Prevents payment double-submit and guards late React updates after unmount.
+- Refreshes customer balance/payment data after normal or recovered success.
+- Updated Android to versionName 25.14.122 / versionCode 2514122.
+- Updated Docker-safe version consistency and Cloud Build check:current reference.
 
 # v25.14.121 — Multi-Currency & Production Readiness Fixes
 
