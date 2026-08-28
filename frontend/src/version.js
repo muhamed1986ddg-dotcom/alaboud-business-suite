@@ -1,1 +1,1 @@
-export const APP_VERSION="v25.14.121 — Multi-Currency Rates & Production Readiness Fixes";
+export const APP_VERSION="v25.14.122 — Payment Confirmation Recovery";

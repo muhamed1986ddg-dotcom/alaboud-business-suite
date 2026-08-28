@@ -20,6 +20,9 @@ export function Customer({id,back,onStatement,onAddTransfer}){
   });
   const [editingTransaction,setEditingTransaction]=useState(null);
   const [editingPayment,setEditingPayment]=useState(null);
+  const [savingPayment,setSavingPayment]=useState(false);
+  const [paymentConfirmationState,setPaymentConfirmationState]=useState("");
+  const paymentMountedRef=useRef(true);
   const [oldBalanceForm,setOldBalanceForm]=useState("");
   const [oldBalanceType,setOldBalanceType]=useState("RECEIVABLE");
   const [savingOldBalance,setSavingOldBalance]=useState(false);
@@ -67,6 +70,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
   }
 
   useEffect(()=>{load();},[id]);
+  useEffect(()=>()=>{paymentMountedRef.current=false;},[]);
 
   async function saveOldBalance(event){
     event.preventDefault();
@@ -95,6 +99,10 @@ export function Customer({id,back,onStatement,onAddTransfer}){
 
   async function addPayment(event){
     event.preventDefault();
+    if(savingPayment)return;
+    setSavingPayment(true);
+    setPaymentConfirmationState("");
+    setError("");
     try{
       await api.post(`/customers/${id}/payments`,{
         amount:Number(paymentForm.amount),
@@ -102,7 +110,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         method:paymentForm.method,
         reference:paymentForm.reference,
         notes:paymentForm.notes
-      });
+      },{onConfirmationState:state=>{if(paymentMountedRef.current)setPaymentConfirmationState(state);}});
       setPaymentForm({
         amount:"",
         paymentDate:new Date().toISOString().slice(0,10),
@@ -112,7 +120,11 @@ export function Customer({id,back,onStatement,onAddTransfer}){
       });
       void load();
     }catch(error){
-      setError(error.response?.data?.message||"تعذر حفظ الدفعة. تحقق من اتصال قاعدة البيانات ثم حاول مرة أخرى.");
+      setError(error.code==="OPERATION_STATUS_UNKNOWN"
+        ?"تعذر تأكيد حالة الدفعة حاليًا. يرجى تحديث حساب العميل قبل محاولة التسجيل مرة أخرى."
+        :error.message||error.response?.data?.message||"تعذر تسجيل الدفعة. لم يتم حفظ العملية.");
+    }finally{
+      setSavingPayment(false);
     }
   }
 
@@ -451,7 +463,7 @@ export function Customer({id,back,onStatement,onAddTransfer}){
         </select>
         <input value={paymentForm.reference} onChange={e=>setPaymentForm({...paymentForm,reference:e.target.value})} placeholder="رقم المرجع"/>
         <input value={paymentForm.notes} onChange={e=>setPaymentForm({...paymentForm,notes:e.target.value})} placeholder="ملاحظات"/>
-        <button>حفظ الدفعة</button>
+        <button disabled={savingPayment}>{savingPayment?(paymentConfirmationState==="VERIFYING"?"جاري التحقق...":"جاري الحفظ..."):"حفظ الدفعة"}</button>
       </form>
     }
 

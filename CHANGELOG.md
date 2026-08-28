@@ -1,3 +1,11 @@
+# v25.14.122 — Payment Confirmation Recovery
+
+- Increased the bounded browser write timeout from 12 to 30 seconds.
+- Added bounded idempotency-receipt confirmation polling after ambiguous transport failures.
+- Never replays the original payment mutation and preserves its original idempotency key throughout verification.
+- Added payment double-submit protection, verifying UI state, precise unknown-state messaging, and late-response mounted guards.
+- Added regression coverage for committed, pending, failed, unknown, single-POST, and double-click safety paths.
+
 # v25.14.121 — Multi-Currency & Production Readiness Fixes
 
 - Fixed cross-currency transfer-rate conversion via USD/global rate paths instead of requiring direct CAD pairs.

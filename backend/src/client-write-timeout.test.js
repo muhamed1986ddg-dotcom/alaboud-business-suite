@@ -7,7 +7,7 @@ const source = fs.readFileSync(path.join(root, 'frontend/src/api.js'), 'utf8');
 const currentVersion = require(path.join(root, 'package.json')).version;
 
 assert(
-  source.includes('config.timeout=method==="get"?45000:12000'),
+  source.includes('config.timeout=method==="get"?45000:30000'),
   'write timeout must protect the UI from stalled requests'
 );
 

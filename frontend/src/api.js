@@ -52,12 +52,12 @@ api.interceptors.request.use(config=>{
   config.headers["X-Installation-ID"]=installationId;
   config.headers["X-Device-Name"]=navigator.userAgentData?.platform||navigator.platform||"Web Device";
   config.headers["X-Device-Platform"]=navigator.userAgent||"Web";
-  config.headers["X-Alaboud-Client-Version"]="25.14.121";
+  config.headers["X-Alaboud-Client-Version"]="25.14.122";
   // Durable writes have a bounded interactive recovery budget. If PostgreSQL
   // is temporarily unavailable, start commit verification promptly instead of
   // leaving add/edit/delete buttons spinning for more than a minute.
   const method=String(config.method||"get").toLowerCase();
-  config.timeout=method==="get"?45000:12000;
+  config.timeout=method==="get"?45000:30000;
   if(method!=="get"&&!config.headers["Idempotency-Key"]){
     config.headers["Idempotency-Key"]=(crypto?.randomUUID?.()||`op-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   }
@@ -150,6 +150,14 @@ function isAmbiguousWriteFailure(error){
   return error?.code==="ECONNABORTED" || /timeout/i.test(String(error?.message||"")) || !error?.response;
 }
 
+const OPERATION_CONFIRMATION_DELAYS=[500,1000,1500,2500,4000];
+const COMMITTED_OPERATION_STATUSES=new Set(["COMMITTED","SUCCESS","COMPLETED"]);
+const FAILED_OPERATION_STATUSES=new Set(["FAILED","REJECTED","ROLLED_BACK"]);
+
+function notifyConfirmationState(config,state){
+  try{config?.onConfirmationState?.(state)}catch{/* UI notification must never break recovery. */}
+}
+
 async function verifyCommittedOperation(error){
   const operationKey=headerValue(error?.config?.headers,"Idempotency-Key");
   if(!operationKey||!isAmbiguousWriteFailure(error))return null;
@@ -162,31 +170,43 @@ async function verifyCommittedOperation(error){
   if(token)headers.Authorization=`Bearer ${token}`;
   if(branchId)headers["X-Branch-ID"]=branchId;
 
-  dispatchOperationToast("انقطع تأكيد العملية. يتم إجراء تحقق واحد فقط…","info");
-  await sleep(500);
-  try{
-    const response=await axios.get(
-      `/api/operations/${encodeURIComponent(operationKey)}/status`,
-      {headers,timeout:2500,withCredentials:true}
-    );
-    if(response?.data?.committed===true){
-      clearApiGetCache();
-      dispatchOperationToast("تم تأكيد حفظ العملية بنجاح","success");
-      return {
-        data:response?.data?.response??{committed:true,operationKey},
-        status:200,
-        statusText:"OK",
-        headers:{"x-operation-committed":"true"},
-        config:error.config,
-        request:error.request,
-        recoveredFromAmbiguousCommit:true
-      };
+  notifyConfirmationState(error.config,"VERIFYING");
+  dispatchOperationToast("جاري التحقق من تسجيل العملية...","info");
+  for(const delay of OPERATION_CONFIRMATION_DELAYS){
+    await sleep(delay);
+    try{
+      const response=await axios.get(
+        `/api/operations/${encodeURIComponent(operationKey)}/status`,
+        {headers,timeout:5000,withCredentials:true}
+      );
+      const status=String(response?.data?.status||"").toUpperCase();
+      if(response?.data?.committed===true||COMMITTED_OPERATION_STATUSES.has(status)){
+        clearApiGetCache();
+        notifyConfirmationState(error.config,"COMMITTED");
+        dispatchOperationToast("تم تسجيل الدفعة بنجاح","success");
+        return {
+          data:response?.data?.response??{committed:true,operationKey,status:"COMMITTED"},
+          status:200,statusText:"OK",
+          headers:{"x-operation-committed":"true"},
+          config:error.config,request:error.request,
+          recoveredFromAmbiguousCommit:true
+        };
+      }
+      if(FAILED_OPERATION_STATUSES.has(status)){
+        notifyConfirmationState(error.config,"FAILED");
+        error.code="OPERATION_CONFIRMED_FAILED";
+        error.message="تعذر تسجيل الدفعة. لم يتم حفظ العملية.";
+        return null;
+      }
+      // PENDING / PROCESSING / UNKNOWN are checked again with the same key.
+      // The original financial mutation is never replayed.
+    }catch(checkError){
+      if(checkError?.response?.status===401)break;
     }
-  }catch(checkError){
-    if(checkError?.response?.status===401)return null;
   }
-  // Never replay PATCH/DELETE automatically and never start a second polling
-  // loop. This prevents dozens of /status requests and duplicate UI retries.
+  notifyConfirmationState(error.config,"UNKNOWN");
+  error.code="OPERATION_STATUS_UNKNOWN";
+  error.message="تعذر تأكيد حالة الدفعة حاليًا. يرجى تحديث حساب العميل قبل محاولة التسجيل مرة أخرى.";
   return null;
 }
 
@@ -215,7 +235,7 @@ api.interceptors.response.use(
       const recovered=await verifyCommittedOperation(error);
       if(recovered)return recovered;
     }
-    if(method!=="get"&&shouldShowWriteToast(url,error.config)){
+    if(method!=="get"&&shouldShowWriteToast(url,error.config)&&error.code!=="OPERATION_STATUS_UNKNOWN"){
       dispatchOperationToast(errorToastMessage(method,error),"error");
     }
     return Promise.reject(error);

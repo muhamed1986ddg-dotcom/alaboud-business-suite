@@ -57,7 +57,7 @@ class MainActivity : AppCompatActivity() {
         private const val APP_URL = "https://alaboud-business-suite-us-763786484727.us-central1.run.app/"
         private const val APP_ORIGIN = "https://alaboud-business-suite-us-763786484727.us-central1.run.app"
         private const val APP_HOST = "alaboud-business-suite-us-763786484727.us-central1.run.app"
-        private const val CLIENT_VERSION = "25.14.121"
+        private const val CLIENT_VERSION = "25.14.122"
         private const val FILE_CHOOSER_REQUEST = 9001
         private const val NOTIFICATION_PERMISSION_REQUEST = 9002
         private const val MICROPHONE_PERMISSION_REQUEST = 9003

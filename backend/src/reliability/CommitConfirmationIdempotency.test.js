@@ -69,7 +69,9 @@ function makeRes(){
 
   const apiSource=fs.readFileSync(path.join(__dirname,"../../../frontend/src/api.js"),"utf8");
   assert(apiSource.includes("verifyCommittedOperation"));
-  assert(apiSource.includes("انقطع تأكيد العملية. يتم إجراء تحقق واحد فقط"));
+  assert(apiSource.includes("جاري التحقق من تسجيل العملية..."));
+  assert(apiSource.includes("OPERATION_CONFIRMATION_DELAYS=[500,1000,1500,2500,4000]"));
+  assert(!apiSource.includes("_alaboudWriteReplayCount"));
   assert(apiSource.includes("/api/operations/"));
 
   console.log("Commit confirmation & idempotency tests passed");

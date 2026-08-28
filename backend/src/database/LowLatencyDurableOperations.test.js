@@ -9,5 +9,6 @@ assert(source.includes('PG_INTERACTIVE_WRITE_RETRIES || 2'), 'interactive retry 
 assert(source.includes('PG_INTERACTIVE_WRITE_BUDGET_MS || 7000'), 'interactive retry budget should be bounded');
 assert(source.includes('PG_INTERACTIVE_HARD_STEP_TIMEOUT_MS || 30000'), 'each interactive database step must be bounded');
 const api = fs.readFileSync(path.join(__dirname,'..','..','..','frontend','src','api.js'),'utf8');
-assert(api.includes('method==="get"?45000:12000'), 'frontend should begin ambiguous commit recovery promptly');
+assert(api.includes('method==="get"?45000:30000'), 'frontend write timeout should be production-safe and bounded');
+assert(api.includes('OPERATION_CONFIRMATION_DELAYS=[500,1000,1500,2500,4000]'), 'frontend should use bounded ambiguous commit recovery');
 console.log('Low-latency durable operations policy tests passed');
