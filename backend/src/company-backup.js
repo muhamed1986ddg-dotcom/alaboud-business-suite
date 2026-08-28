@@ -16,6 +16,7 @@ const OPERATIONAL_BRANCH_ARRAYS = [
   "notificationActions",
   "auditLogs",
   "monthlyInventories",
+  "treasuryMovements",
 ];
 
 const OPERATIONAL_COMPANY_ARRAYS = ["integrationLogs"];

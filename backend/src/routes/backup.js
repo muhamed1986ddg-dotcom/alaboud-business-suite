@@ -1,6 +1,6 @@
 "use strict";
 
-const LEGACY_BACKUP_ARRAYS=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","monthlyInventories"];
+const LEGACY_BACKUP_ARRAYS=["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","monthlyInventories","treasuryMovements"];
 
 function registerBackupRoutes(app, {
   auth,

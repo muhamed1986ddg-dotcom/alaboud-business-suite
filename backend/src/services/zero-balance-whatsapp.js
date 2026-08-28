@@ -7,7 +7,22 @@ function balanceAtCent(value){const number=Number(value);return Number.isFinite(
 function isZeroBalance(value){return balanceAtCent(value)===0n;}
 function isZeroBalanceTransition(previousBalance,currentBalance){return !isZeroBalance(previousBalance)&&isZeroBalance(currentBalance);}
 function zeroBalanceDedupeKey(companyId,customerId,operationId){return `zero-balance-whatsapp:${companyId}:${customerId}:${operationId}`;}
-function zeroBalanceMessage(customerName){return `مرحباً ${customerName}\n\nتم تسوية حسابكم بالكامل.\n\nرصيد حسابكم الحالي:\n0.00 CAD\n\nحسابكم الآن صفر.\n\nشكراً لكم.\nشركة العبود`;}
+function zeroBalanceMessage(customerName,template=""){
+  const values={customerName:String(customerName||"عميل"),name:String(customerName||"عميل")};
+  const fallback=`مرحباً {customerName}
+
+تم تسوية حسابكم بالكامل.
+
+رصيد حسابكم الحالي:
+0.00 CAD
+
+حسابكم الآن صفر.
+
+شكراً لكم.
+
+أبو إسلام`;
+  return String(template||fallback).replace(/\{(customerName|name)\}/g,(_m,key)=>values[key]);
+}
 
 async function executeZeroBalanceMessage({store,companyId,customerId,operationId,transactionId=null,previousBalance,customerSummary,mutateDurable,id,now,sendWhatsApp}){
   if(!store.notificationSettings?.zeroBalanceWhatsAppEnabled)return {status:"DISABLED",handled:false};
@@ -15,7 +30,7 @@ async function executeZeroBalanceMessage({store,companyId,customerId,operationId
   if(!customer)return {status:"NOT_APPLICABLE",handled:false};
   const summary=customerSummary(store,customer),currentBalance=Number(summary.finalBalance||0);
   if(!isZeroBalanceTransition(previousBalance,currentBalance))return {status:"NOT_ZERO_TRANSITION",handled:false,currentBalance};
-  const whatsappNumber=normalizeWhatsappNumber(customer.whatsapp||customer.phone),dedupeKey=zeroBalanceDedupeKey(companyId,customer.id,operationId),messageText=zeroBalanceMessage(String(summary.name||customer.name||"عميل"));
+  const whatsappNumber=normalizeWhatsappNumber(customer.whatsapp||customer.phone),dedupeKey=zeroBalanceDedupeKey(companyId,customer.id,operationId),messageText=zeroBalanceMessage(String(summary.name||customer.name||"عميل"),store.notificationSettings?.zeroBalanceWhatsAppTemplate);
   const claim=await mutateDurable(current=>{
     current.notificationActions||=[];
     if(current.notificationActions.some(item=>item?.dedupeKey===dedupeKey))return null;
@@ -25,7 +40,7 @@ async function executeZeroBalanceMessage({store,companyId,customerId,operationId
   });
   if(claim===null)return {status:"SKIPPED_DUPLICATE",handled:true};
   if(claim===false)return {status:"SKIPPED_NO_WHATSAPP",handled:true};
-  let delivery;try{delivery=await sendWhatsApp({templateType:"ZERO_BALANCE",to:whatsappNumber,body:messageText,contentVariables:{"1":String(summary.name||customer.name||"عميل")}});}catch(error){delivery={ok:false,reason:String(error?.message||"DELIVERY_ERROR")};}
+  let delivery;try{delivery=await sendWhatsApp({templateType:"ZERO_BALANCE",to:whatsappNumber,body:messageText,settlementId:operationId,previousBalance:+Number(previousBalance||0).toFixed(2),customerName:String(summary.name||customer.name||"عميل"),contentVariables:{"1":String(summary.name||customer.name||"عميل")}});}catch(error){delivery={ok:false,reason:String(error?.message||"DELIVERY_ERROR")};}
   await mutateDurable(current=>{const item=(current.notificationActions||[]).find(entry=>entry.id===claim.id);if(!item)return;item.status=item.deliveryStatus=delivery?.ok?"SENT":"FAILED";item.provider=delivery?.provider||null;item.providerMessageId=delivery?.providerMessageId||null;item.error=delivery?.ok?null:String(delivery?.reason||"DELIVERY_FAILED");item.sentAt=delivery?.ok?now():null;item.updatedAt=now();});
   return {status:delivery?.ok?"SENT":"FAILED",handled:true,currentBalance:0};
 }

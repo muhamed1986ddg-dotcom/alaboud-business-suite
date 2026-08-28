@@ -1,0 +1,15 @@
+"use strict";
+const fs=require("node:fs");
+const path=require("node:path");
+const assert=require("node:assert");
+const server=fs.readFileSync(path.join(__dirname,"server.js"),"utf8");
+const routeStart=server.indexOf('app.post("/api/customers/:id/reset-account"');
+assert(routeStart>=0,"reset-account route missing");
+const routeEnd=server.indexOf('app.delete("/api/customers/:id"',routeStart);
+assert(routeEnd>routeStart,"reset-account route boundary missing");
+const route=server.slice(routeStart,routeEnd);
+assert(route.includes('transferWhatsAppDispatcher.dispatchZeroSafely'),"reset-account must dispatch zero-balance WhatsApp after commit");
+assert(route.includes('operationId:result.reset.id'),"reset-account must use reset id as dedupe operation id");
+assert(route.includes('previousBalance'),"reset-account must pass previous balance to transition detector");
+assert(route.includes('whatsappDelivery'),"reset-account response must expose delivery result to UI");
+console.log("zero-balance reset-account dispatch v25.14.109: ok");

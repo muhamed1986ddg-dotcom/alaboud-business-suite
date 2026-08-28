@@ -109,6 +109,7 @@ function ReportsProfits(){
     providerFees:profits?.providerFees??summary.providerFeesTotal??0,
     grossProfitBeforeProviderFees:profits?.grossProfitBeforeProviderFees??summary.grossProfitBeforeProviderFees??0,
     grossProfit:profits?.grossProfit??summary.grossProfit??0,
+    treasuryFxProfit:profits?.treasuryFxProfit??summary.treasuryFxProfit??0,
     expenses:profits?.expenses??summary.expenses??0,
     netProfit:profits?.netProfit??summary.netProfit??0,
   };
@@ -135,6 +136,7 @@ function ReportsProfits(){
     {key:"customerFees",label:"أجور العميل",render:row=>money(row.customerFees)},
     {key:"providerFees",label:"أجور الشركات",render:row=>money(row.providerFees)},
     {key:"grossProfit",label:"ربح الحوالات بعد الأجور",render:row=>money(row.grossProfit)},
+    {key:"treasuryFxProfit",label:"ربح/خسارة فرق سعر الخزنة",render:row=>money(row.treasuryFxProfit)},
     {key:"expenses",label:"المصروفات العامة",render:row=>money(row.expenses)},
     {key:"netProfit",label:"صافي الربح",render:row=><strong className={Number(row.netProfit||0)<0?"value-negative":"value-positive"}>{money(row.netProfit)}</strong>},
   ],[]);
@@ -175,11 +177,12 @@ function ReportsProfits(){
           <AppStatCard label="أجور مأخوذة من العملاء" value={money(overview.customerFees)} tone="success"/>
           <AppStatCard label="أجور دهب/جاد والشركات" value={money(overview.providerFees)} tone="danger"/>
           <AppStatCard label="ربح الحوالات بعد أجور الشركات" value={money(overview.grossProfit)} tone={Number(overview.grossProfit)<0?"danger":"success"}/>
+          <AppStatCard label="ربح/خسارة فرق سعر الخزنة" value={money(overview.treasuryFxProfit)} tone={Number(overview.treasuryFxProfit)<0?"danger":"success"}/>
           <AppStatCard label="المصروفات العامة" value={money(overview.expenses)} tone="danger"/>
           <AppStatCard label="صافي الربح" value={money(overview.netProfit)} tone={Number(overview.netProfit)<0?"danger":"success"}/>
         </div>
         <AppCard className="profits-monthly-table-card" title="الأرباح الشهرية"><AppTable columns={monthlyColumns} rows={profits?.monthly||[]} rowKey="month" emptyText="لا توجد بيانات للفترة المحددة."/></AppCard>
-        <div className="profits-mobile-cards">{(profits?.monthly||[]).length?(profits?.monthly||[]).map(row=><article className="transaction-mobile-card profit-mobile-card" key={`profit-mobile-${row.month}`}><header className="transaction-mobile-card__head"><div><strong>{row.month}</strong><small>الأرباح الشهرية</small></div></header><div className="transaction-mobile-card__grid"><div><span>ربح فرق السعر</span><strong>{money(row.exchangeProfit)}</strong></div><div><span>أجور العميل</span><strong>{money(row.customerFees)}</strong></div><div><span>أجور الشركات</span><strong>- {money(row.providerFees)}</strong></div><div><span>ربح الحوالات بعد الأجور</span><strong>{money(row.grossProfit)}</strong></div><div><span>المصروفات العامة</span><strong>{money(row.expenses)}</strong></div><div className="transaction-mobile-card__total"><span>صافي الربح</span><strong className={Number(row.netProfit||0)<0?"value-negative":"value-positive"}>{money(row.netProfit)}</strong></div></div></article>):<div className="transaction-mobile-empty">لا توجد بيانات للفترة المحددة.</div>}</div>
+        <div className="profits-mobile-cards">{(profits?.monthly||[]).length?(profits?.monthly||[]).map(row=><article className="transaction-mobile-card profit-mobile-card" key={`profit-mobile-${row.month}`}><header className="transaction-mobile-card__head"><div><strong>{row.month}</strong><small>الأرباح الشهرية</small></div></header><div className="transaction-mobile-card__grid"><div><span>ربح فرق السعر</span><strong>{money(row.exchangeProfit)}</strong></div><div><span>أجور العميل</span><strong>{money(row.customerFees)}</strong></div><div><span>أجور الشركات</span><strong>- {money(row.providerFees)}</strong></div><div><span>ربح الحوالات بعد الأجور</span><strong>{money(row.grossProfit)}</strong></div><div><span>فرق سعر الخزنة</span><strong>{money(row.treasuryFxProfit)}</strong></div><div><span>المصروفات العامة</span><strong>{money(row.expenses)}</strong></div><div className="transaction-mobile-card__total"><span>صافي الربح</span><strong className={Number(row.netProfit||0)<0?"value-negative":"value-positive"}>{money(row.netProfit)}</strong></div></div></article>):<div className="transaction-mobile-empty">لا توجد بيانات للفترة المحددة.</div>}</div>
       </>}
     </>}
 
@@ -202,6 +205,7 @@ function ReportsProfits(){
           <AppStatCard label="أجور مأخوذة من العملاء" value={money(summary.customerFeesTotal)} tone="success"/>
           <AppStatCard label="أجور دهب/جاد والشركات" value={money(summary.providerFeesTotal)} tone="danger"/>
           <AppStatCard label="ربح الحوالات بعد أجور الشركات" value={money(summary.grossProfit)} tone={Number(summary.grossProfit||0)<0?"danger":"success"}/>
+          <AppStatCard label="ربح/خسارة فرق سعر الخزنة" value={money(summary.treasuryFxProfit)} tone={Number(summary.treasuryFxProfit||0)<0?"danger":"success"}/>
           <AppStatCard label="المصروفات العامة" value={money(summary.expenses)} tone="danger"/>
           <AppStatCard label="صافي الربح" value={money(summary.netProfit)} tone={Number(summary.netProfit||0)<0?"danger":"success"}/>
           <AppStatCard label="الدفعات المستلمة" value={money(summary.paymentsReceived)}/>
@@ -233,7 +237,7 @@ function ReportsProfits(){
           <div className="inventory-primary-grid">
             <div className="inventory-primary-card"><span>🏢 صافي الشركات</span><strong>{money(inventoryDisplay.netCompanies)} CAD</strong></div>
             <div className="inventory-primary-card"><span>👤 صافي ديون العملاء</span><strong>{money(inventoryDisplay.netCustomers)} CAD</strong></div>
-            <div className="inventory-primary-card inventory-primary-card--info"><span>📈 صافي الأرباح</span><strong>{money(inventoryDisplay.netProfit)} CAD</strong><small>للعرض فقط — لا يُضاف مرة ثانية إلى الجرد النهائي.</small></div>
+            <div className="inventory-primary-card inventory-primary-card--info"><span>📈 صافي الأرباح</span><strong>{money(inventoryDisplay.netProfit)} CAD</strong><small>ربح/خسارة فرق التسليم للدورة: {Number(inventoryDisplay.treasuryRealizedFx||0)>0?"+":""}{money(inventoryDisplay.treasuryRealizedFx)} CAD — محتسب مرة واحدة ضمن الصافي. للعرض فقط — لا يُضاف مرة ثانية إلى الجرد النهائي.</small></div>
             <div className="inventory-primary-card inventory-primary-card--vault">
               <div className="inventory-vault-heading"><span>💵 الكاش في الخزنة</span><strong>{money(inventoryDisplay.vaultCash)} CAD</strong></div>
               {vaultCashRows.length?<div className="inventory-vault-grid">
@@ -313,6 +317,7 @@ function ReportsProfits(){
                   <div><span>صافي رأس المال</span><strong>{money(row.netCapital)}</strong></div><div><span>الكاش في الخزنة</span><strong>{money(row.vaultCash)} CAD</strong></div>
                   {row.totalAssets!==undefined&&<div><span>إجمالي الأصول</span><strong>{money(row.totalAssets)}</strong></div>}
                   {row.totalLiabilities!==undefined&&<div><span>إجمالي الالتزامات</span><strong>{money(row.totalLiabilities)}</strong></div>}
+                  {row.treasuryRealizedFx!==undefined&&<div><span>ربح/خسارة فرق التسليم</span><strong className={Number(row.treasuryRealizedFx||0)<0?"value-negative":"value-positive"}>{Number(row.treasuryRealizedFx||0)>0?"+":""}{money(row.treasuryRealizedFx)} CAD</strong></div>}
                   {row.inventoryDifference!==undefined&&<div className="transaction-mobile-card__total"><span>فرق المطابقة الرقابي</span><strong className={Math.abs(Number(row.inventoryDifference||0))<0.005?"value-positive":"value-negative"}>{Number(row.inventoryDifference||0)>=0?"+":""}{money(row.inventoryDifference)}</strong></div>}
                   {diff!==null&&<div className="transaction-mobile-card__total"><span>الفرق عن الشهر السابق</span><strong className={diff<0?"value-negative":"value-positive"}>{diff>=0?"+":""}{money(diff)}</strong></div>}
                 </div>

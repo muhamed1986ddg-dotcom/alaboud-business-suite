@@ -93,12 +93,13 @@ assert.equal(missingRate.valid, false);
 // Provider fees are direct transfer costs. Reports subtract them inside totalProfit,
 // while general expenses remain a separate reduction; this guards against double subtraction.
 const server = fs.readFileSync(path.join(__dirname, "server.js"), "utf8");
+const profitsRoute = fs.readFileSync(path.join(__dirname, "routes/profits.js"), "utf8");
 const financeSource = fs.readFileSync(path.join(__dirname, "finance/TransactionFinancials.js"), "utf8");
-assert(server.includes('summarizeTransactionProfits(transactions)'), "profit reports must use the canonical transfer-profit summary");
-assert(server.includes('const netProfit = grossProfit-totalExpenses;'));
+assert(profitsRoute.includes('summarizeTransactionProfits(transactions)'), "profit reports must use the canonical transfer-profit summary");
+assert(profitsRoute.includes('const netProfit = grossProfit+treasuryFxProfit-totalExpenses;'));
 assert(financeSource.includes('bucket.providerFees = Number(bucket.providerFees || 0) + financials.providerFeeCad;'));
 assert(financeSource.includes('bucket.grossProfit = Number(bucket.grossProfit || 0) + financials.totalProfit;'));
-assert(!/totalExpenses\s*\+\s*providerFees|providerFees\s*\+\s*totalExpenses/.test(server), "provider fees must not be counted again as general expenses");
+assert(!/totalExpenses\s*\+\s*providerFees|providerFees\s*\+\s*totalExpenses/.test(profitsRoute), "provider fees must not be counted again as general expenses");
 assert(server.includes('"providerFeeCompany","providerFeeAmount","providerFeeCurrency","providerFeeRateCad"'), "provider fee fields must remain editable");
 
 console.log("v25.14.98 provider-fee net transfer profit: OK");

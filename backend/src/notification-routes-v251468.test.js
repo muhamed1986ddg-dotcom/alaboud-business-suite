@@ -32,8 +32,11 @@ async function runHandler(route,req){
 (async()=>{
   const today=new Date().toISOString().slice(0,10);
   const root={
-    notificationSettings:{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true},
-    customers:[{id:"customer-1",name:"Customer",phone:"+15190000000"}],
+    notificationSettings:{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true,zeroBalanceWhatsAppTemplate:"zero"},
+    customers:[
+      {id:"customer-1",name:"Customer",phone:"+15190000000"},
+      {id:"customer-deleted",name:"Deleted Duplicate",phone:"+15190000001",isDeleted:true,deletedAt:"2026-08-12T11:00:00.000Z"}
+    ],
     capitalMovements:[{id:"capital-1",type:"IN",cadAmount:100}],
     transactions:[{id:"transaction-1",customerId:"customer-1",status:"PENDING"}],
     payments:[{id:"payment-1",transactionId:"transaction-1",paymentDate:"2026-08-10"}],
@@ -59,7 +62,7 @@ async function runHandler(route,req){
     audit:(_store,...args)=>audits.push(args),
     id:()=>"generated-action",
     now:()=>"2026-08-12T12:00:00.000Z",
-    customerSummary:(_store,customer)=>({...customer,overdue:true,overdueDays:61,finalBalance:100}),
+    customerSummary:(_store,customer)=>({...customer,overdue:true,overdueDays:customer.id==="customer-deleted"?120:61,finalBalance:customer.id==="customer-deleted"?9999:100}),
     capitalCadAmount:(_store,item)=>Number(item.cadAmount||0),
     previewMonthlyMessages:()=>[{customerId:"customer-1"}],
     sendMonthlyMessagesNow:async()=>[{customerId:"customer-1",status:"SENT"}]
@@ -73,23 +76,29 @@ async function runHandler(route,req){
     "get /api/monthly-account-messages/logs",
     "get /api/transfer-fee-settings",
     "patch /api/transfer-fee-settings",
+    "get /api/whatsapp-bot/status",
+    "post /api/whatsapp-bot/test",
+    "get /api/overdue-whatsapp-test/recipients",
+    "post /api/overdue-whatsapp-test/preview",
+    "post /api/overdue-whatsapp-test/send",
     "get /api/notifications",
     "post /api/notification-actions",
     "get /api/notification-actions/:customerId",
+    "get /api/whatsapp-delivery-log",
     "get /api/customer-alerts"
   ];
   assert.deepStrictEqual(routes.map(route=>`${route.method} ${route.path}`),expected);
   assert(routes.every(route=>route.handlers[0]===auth),"all notification routes must remain authenticated");
-  assert.deepStrictEqual(requiredPermissions,["admin.only","admin.only","admin.only","admin.only","admin.only"]);
+  assert.deepStrictEqual(requiredPermissions,["admin.only","admin.only","admin.only","admin.only","admin.only","admin.only","admin.only","admin.only","admin.only","admin.only","admin.only"]);
   assert.strictEqual(routes.find(route=>route.method==="patch"&&route.path==="/api/notification-settings").handlers[1],adminPermission,"settings write must keep admin permission middleware");
   assert.strictEqual(routes.find(route=>route.method==="patch"&&route.path==="/api/transfer-fee-settings").handlers[1],adminPermission,"transfer fee settings write must keep admin permission middleware");
 
   const settings=await runHandler(routes.find(route=>route.method==="get"&&route.path==="/api/notification-settings"),{});
-  assert.deepStrictEqual(settings.body,{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true,timeZone:"America/Toronto"});
+  assert.deepStrictEqual(settings.body,{overdueDays:7,lowCashLimit:500,whatsappTemplate:"hello",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true,zeroBalanceWhatsAppTemplate:"zero",overdueWhatsAppEnabled:false,overdueFirstReminderDays:7,overdueSecondReminderEnabled:true,overdueSecondReminderDays:15,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",overdueSecondWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"});
 
   const patchSettings=routes.find(route=>route.method==="patch"&&route.path==="/api/notification-settings");
   const updated=await runHandler(patchSettings,{user:{id:"admin"},body:{overdueDays:15,lowCashLimit:750,whatsappTemplate:"updated"}});
-  assert.deepStrictEqual(updated.body,{overdueDays:15,lowCashLimit:750,whatsappTemplate:"updated",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true});
+  assert.deepStrictEqual(updated.body,{overdueDays:15,lowCashLimit:750,whatsappTemplate:"updated",monthlyAccountWhatsAppEnabled:true,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"10:30",monthlyAccountMessageTemplate:"monthly",automaticTransferWhatsAppEnabled:true,zeroBalanceWhatsAppEnabled:true,zeroBalanceWhatsAppTemplate:"zero"});
   assert.strictEqual(audits.at(-1)[1],"UPDATE");
 
   const notifications=await runHandler(routes.find(route=>route.path==="/api/notifications"),{});
@@ -98,6 +107,7 @@ async function runHandler(route,req){
   assert.strictEqual(notifications.body.overdueTotal,100);
   assert.deepStrictEqual(notifications.body.notifications.map(item=>item.type),["OVERDUE_CUSTOMER","LOW_CAPITAL","INCOMPLETE_TRANSFERS"]);
   assert.strictEqual(notifications.body.notifications[0].severity,"critical");
+  assert(!notifications.body.notifications.some(item=>item.customerId==="customer-deleted"),"soft-deleted customer must not appear in notifications");
 
   const createAction=routes.find(route=>route.method==="post"&&route.path==="/api/notification-actions");
   const created=await runHandler(createAction,{user:{id:"admin"},body:{customerId:"customer-1",notes:"call",promiseDate:today,expectedAmount:"42.25"}});
@@ -115,6 +125,7 @@ async function runHandler(route,req){
   assert.strictEqual(alerts.body.expectedToday,42.25);
   assert.strictEqual(alerts.body.rows[0].lastPaymentDate,"2026-08-10");
   assert.strictEqual(alerts.body.rows[0].contacted,true);
+  assert(!alerts.body.rows.some(item=>item.id==="customer-deleted"),"soft-deleted customer must not appear in customer alerts");
 
   const serverSource=fs.readFileSync(path.join(__dirname,"server.js"),"utf8");
   const routeSource=fs.readFileSync(path.join(__dirname,"routes/notifications.js"),"utf8");

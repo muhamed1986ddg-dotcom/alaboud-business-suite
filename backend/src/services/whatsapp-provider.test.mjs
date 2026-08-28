@@ -4,7 +4,7 @@ import test from "node:test";
 
 const require=createRequire(import.meta.url);
 const {META_TEMPLATE_ENV,selectedWhatsappProvider,normalizeMetaWhatsappNumber,buildMetaTemplatePayload,sendMetaWhatsappTemplate,createWhatsappSender}=require("./whatsapp-provider.js");
-const baseEnv={WHATSAPP_PROVIDER:"META",META_WHATSAPP_ACCESS_TOKEN:"test-token",META_WHATSAPP_PHONE_NUMBER_ID:"test-phone-id",META_WHATSAPP_API_VERSION:"v-test",META_WHATSAPP_MONTHLY_TEMPLATE:"monthly_account",META_WHATSAPP_TRANSFER_TEMPLATE:"transfer_created",META_WHATSAPP_ZERO_BALANCE_TEMPLATE:"zero_balance",META_WHATSAPP_TEMPLATE_LANGUAGE:"ar"};
+const baseEnv={WHATSAPP_PROVIDER:"META",META_WHATSAPP_ACCESS_TOKEN:"test-token",META_WHATSAPP_PHONE_NUMBER_ID:"test-phone-id",META_WHATSAPP_API_VERSION:"v-test",META_WHATSAPP_MONTHLY_TEMPLATE:"monthly_account",META_WHATSAPP_TRANSFER_TEMPLATE:"transfer_created",META_WHATSAPP_ZERO_BALANCE_TEMPLATE:"zero_balance",META_WHATSAPP_OVERDUE_TEMPLATE:"overdue",META_WHATSAPP_TEMPLATE_LANGUAGE:"ar"};
 
 test("provider selection is explicit and defaults safely to the existing Twilio provider",async()=>{
   assert.equal(selectedWhatsappProvider({WHATSAPP_PROVIDER:"meta"}),"META");
@@ -18,11 +18,12 @@ test("provider selection is explicit and defaults safely to the existing Twilio 
 });
 
 test("all approved Meta templates use ordered text parameters and normalized recipients",()=>{
-  assert.deepEqual(META_TEMPLATE_ENV,{MONTHLY_ACCOUNT:"META_WHATSAPP_MONTHLY_TEMPLATE",TRANSFER_CREATED:"META_WHATSAPP_TRANSFER_TEMPLATE",ZERO_BALANCE:"META_WHATSAPP_ZERO_BALANCE_TEMPLATE"});
+  assert.deepEqual(META_TEMPLATE_ENV,{MONTHLY_ACCOUNT:"META_WHATSAPP_MONTHLY_TEMPLATE",TRANSFER_CREATED:"META_WHATSAPP_TRANSFER_TEMPLATE",ZERO_BALANCE:"META_WHATSAPP_ZERO_BALANCE_TEMPLATE",OVERDUE:"META_WHATSAPP_OVERDUE_TEMPLATE"});
   const cases=[
     ["MONTHLY_ACCOUNT",{"1":"Customer","2":"2026-08-20","3":"125.50","4":"due"},"monthly_account"],
     ["TRANSFER_CREATED",{"1":"Customer","2":"100.00","3":"USD","4":"25.00","5":"credit"},"transfer_created"],
-    ["ZERO_BALANCE",{"1":"Customer"},"zero_balance"]
+    ["ZERO_BALANCE",{"1":"Customer"},"zero_balance"],
+    ["OVERDUE",{"1":"Customer","2":"100.00"},"overdue"]
   ];
   for(const [templateType,variables,name] of cases){
     const built=buildMetaTemplatePayload({templateType,to:"whatsapp:+1 (519) 555-0001",contentVariables:variables,env:baseEnv});
@@ -60,4 +61,16 @@ test("Meta 400/401/403/429/5xx and network timeout return failures without provi
 test("test fixtures contain no credential-shaped production secrets",()=>{
   const source=JSON.stringify(baseEnv);
   assert.doesNotMatch(source,/EA[A-Za-z0-9]{30,}/);assert.doesNotMatch(source,/\b\d{15,}\b/);
+});
+
+test("LOCAL_BOT accepts approved message types with Bearer auth and deterministic dedupe ids",async()=>{
+  const env={WHATSAPP_PROVIDER:"LOCAL_BOT",LOCAL_WHATSAPP_BOT_URL:"https://example.trycloudflare.com",LOCAL_WHATSAPP_BOT_SECRET:"test-secret"};
+  assert.equal(selectedWhatsappProvider(env),"LOCAL_BOT");
+  let request;
+  const sender=createWhatsappSender({env,fetchImpl:async(url,options)=>{request={url,options};return {ok:true,status:200,json:async()=>({ok:true,messageId:"3EB-test"})};},logger:{error(){}}});
+  const result=await sender({templateType:"ZERO_BALANCE",to:"+1 519 555 0001",body:"zero",customerName:"Customer",previousBalance:100,settlementId:"payment-123"});
+  assert.equal(result.ok,true);assert.equal(result.provider,"LOCAL_BOT");assert.equal(result.providerMessageId,"3EB-test");
+  assert.equal(request.url,"https://example.trycloudflare.com/send-zero");assert.equal(request.options.headers.Authorization,"Bearer test-secret");
+  assert.deepEqual(JSON.parse(request.options.body),{phone:"15195550001",customerName:"Customer",previousBalance:100,currentBalance:0,settlementId:"payment-123",message:"zero"});
+  assert.equal((await sender({templateType:"TRANSFER_CREATED",to:"15195550001",body:"x",settlementId:"x"})).reason,"LOCAL_BOT_MESSAGE_TYPE_NOT_ALLOWED");
 });

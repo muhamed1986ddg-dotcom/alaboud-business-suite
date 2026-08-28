@@ -1,4 +1,4 @@
-name: Build Android Enterprise APK
+name: Build Android Enterprise Release APK
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  build-apk:
+  build-release-apk:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -44,29 +44,61 @@ jobs:
           fi
           echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
-          echo "APK version: $VERSION_NAME ($VERSION_CODE)"
 
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
+      - name: Prepare release signing key
+        id: signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            echo "Android release signing secrets are required." >&2
+            exit 1
+          fi
+          KEYSTORE="$RUNNER_TEMP/alaboud-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          test -s "$KEYSTORE"
+          echo "keystore=$KEYSTORE" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare versioned APK
+      - name: Build release APK
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Align, sign and verify release APK
         id: apk
         shell: bash
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          APK_NAME="alaboud-business-suite-v${{ steps.version.outputs.name }}.apk"
+          UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -f "$UNSIGNED"
+          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n1)
+          test -x "$BUILD_TOOLS/zipalign"
+          test -x "$BUILD_TOOLS/apksigner"
+          APK_NAME="alaboud-business-suite-v${{ steps.version.outputs.name }}-release.apk"
           mkdir -p artifacts
-          cp app/build/outputs/apk/debug/app-debug.apk "artifacts/$APK_NAME"
+          "$BUILD_TOOLS/zipalign" -p -f 4 "$UNSIGNED" "$RUNNER_TEMP/alaboud-release-aligned.apk"
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks "${{ steps.signing.outputs.keystore }}" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD \
+            --out "artifacts/$APK_NAME" \
+            "$RUNNER_TEMP/alaboud-release-aligned.apk"
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "artifacts/$APK_NAME"
           APK_SIZE=$(du -h "artifacts/$APK_NAME" | cut -f1)
           echo "name=$APK_NAME" >> "$GITHUB_OUTPUT"
           echo "size=$APK_SIZE" >> "$GITHUB_OUTPUT"
-          echo "Final APK: $APK_NAME"
-          echo "APK size: $APK_SIZE"
           sha256sum "artifacts/$APK_NAME"
 
-      - name: Upload versioned APK
+      - name: Upload signed release APK
         uses: actions/upload-artifact@v4
         with:
-          name: alaboud-business-suite-v${{ steps.version.outputs.name }}-apk
+          name: alaboud-business-suite-v${{ steps.version.outputs.name }}-release-apk
           path: artifacts/${{ steps.apk.outputs.name }}
           if-no-files-found: error
           retention-days: 30
@@ -75,7 +107,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Android APK Build"
+            echo "## Android Signed Release APK"
             echo "- Version name: ${{ steps.version.outputs.name }}"
             echo "- Version code: ${{ steps.version.outputs.code }}"
             echo "- APK file: ${{ steps.apk.outputs.name }}"

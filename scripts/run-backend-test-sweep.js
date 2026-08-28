@@ -13,7 +13,7 @@ function collect(directory){
   for(const entry of fs.readdirSync(directory,{withFileTypes:true})){
     const target=path.join(directory,entry.name);
     if(entry.isDirectory()&&entry.name!=="node_modules")files.push(...collect(target));
-    else if(entry.isFile()&&entry.name.endsWith(".test.js"))files.push(target);
+    else if(entry.isFile()&&(entry.name.endsWith(".test.js")||entry.name.endsWith(".test.mjs")))files.push(target);
   }
   return files;
 }
@@ -28,8 +28,8 @@ const tests = roots
 
     // Version-consistency files are release-specific checks.
     // During the full backend sweep, run only the check for the current release.
-    if (/^version-consistency-v\d+\.test\.js$/.test(name)) {
-      return name === `version-consistency-${currentVersionToken}.test.js`;
+    if (/^version-consistency-v\d+\.test\.(?:js|mjs)$/.test(name)) {
+      return name === `version-consistency-${currentVersionToken}.test.js` || name === `version-consistency-${currentVersionToken}.test.mjs`;
     }
 
     return true;
@@ -41,7 +41,8 @@ const failures=[];
 
 for(const file of tests){
   const relative=path.relative(root,file).split(path.sep).join("/");
-  const result=spawnSync(process.execPath,[file],{
+  const args=file.endsWith(".test.mjs")?["--test",file]:[file];
+  const result=spawnSync(process.execPath,args,{
     cwd:root,
     env:{...process.env,NODE_ENV:"test",JWT_SECRET:process.env.JWT_SECRET||"backend-sweep-test-only-secret"},
     encoding:"utf8",

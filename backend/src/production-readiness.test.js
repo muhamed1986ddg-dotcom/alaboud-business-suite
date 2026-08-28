@@ -24,7 +24,11 @@ assert.equal(productionReadiness({
   NODE_ENV:"production",
   JWT_SECRET:"x".repeat(48),
   DATABASE_URL:"postgres://example",
-  CORS_ORIGIN:"https://example.com"
+  CORS_ORIGIN:"https://example.com",
+  APP_URL:"https://app.example.com"
 }).ok, true);
+assert.equal(productionReadiness({
+  NODE_ENV:"production",JWT_SECRET:"x".repeat(48),DATABASE_URL:"postgres://example",APP_URL:"http://localhost:5000"
+}).ok,false,"production APP_URL must use HTTPS");
 
 console.log("Production readiness selftest passed");

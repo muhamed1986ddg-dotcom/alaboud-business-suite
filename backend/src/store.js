@@ -24,14 +24,14 @@ if(isProduction && !databaseUrl){
 // records are company-wide: treating sessions/users/devices as branch rows made
 // logout unable to see the session created before a branch was selected and
 // made Array#push on filtered users/branches silently disappear.
-const BRANCH_DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","monthlyInventories"];
+const BRANCH_DATA_ARRAYS = ["customers","transactions","payments","expenses","capitalMovements","exchangeRates","generalDebts","generalDebtPayments","partners","partnerTransactions","partnerPayments","partnerSyncLogs","notificationActions","auditLogs","monthlyInventories","treasuryMovements"];
 const COMPANY_DATA_ARRAYS = ["users","branches","devices","apiKeys","webhooks","integrationLogs","sessions"];
 const DATA_ARRAYS = [...BRANCH_DATA_ARRAYS,...COMPANY_DATA_ARRAYS];
 const emptyStore = () => ({
   companies: [], branches: [], users: [], customers: [], transactions: [], payments: [], expenses: [],
   capitalMovements: [], exchangeRates: [], generalDebts: [], generalDebtPayments: [],
-  partners: [], partnerTransactions: [], partnerPayments: [], partnerSyncLogs: [],
-  notificationSettings: { overdueDays: 7, lowCashLimit: 5000, whatsappTemplate: "", monthlyAccountWhatsAppEnabled: false, monthlyAccountMessageDay: 19, monthlyAccountMessageTime: "09:00", monthlyAccountMessageTemplate: "", automaticTransferWhatsAppEnabled: false, zeroBalanceWhatsAppEnabled:false, timeZone:"America/Toronto", automaticProviderFeeEnabled: true, providerFeePer100: 0.40 },
+  partners: [], partnerTransactions: [], partnerPayments: [], partnerSyncLogs: [], treasuryMovements: [],
+  notificationSettings: { overdueDays: 7, lowCashLimit: 5000, whatsappTemplate: "", monthlyAccountWhatsAppEnabled: false, monthlyAccountMessageDay: 19, monthlyAccountMessageTime: "09:00", monthlyAccountMessageTemplate: "", automaticTransferWhatsAppEnabled: false, zeroBalanceWhatsAppEnabled:false, zeroBalanceWhatsAppTemplate:"", overdueWhatsAppEnabled:false, overdueFirstReminderDays:7, overdueSecondReminderEnabled:true, overdueSecondReminderDays:15, overdueWhatsAppMessageTime:"10:00", overdueWhatsAppTemplate:"", overdueSecondWhatsAppTemplate:"", automaticWhatsappSenderNumber:"", manualWhatsappSenderNumber:"", timeZone:"America/Toronto", automaticProviderFeeEnabled: true, providerFeePer100: 0.40 },
   companySettings: {}, notificationActions: [], auditLogs: [], devices: [], apiKeys: [], webhooks: [], integrationLogs: [], monthlyInventories: [], sessions: []
 });
 
@@ -116,7 +116,7 @@ function tenantArray(root,key,companyId,branchId,{branchScoped=true}={}){
 }
 function tenantView(root,companyId,branchId){
   root=unwrapStore(root);
-  if(!root.companySettings[companyId])root.companySettings[companyId]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,timeZone:"America/Toronto"};
+  if(!root.companySettings[companyId])root.companySettings[companyId]={overdueDays:7,lowCashLimit:5000,whatsappTemplate:"",monthlyAccountWhatsAppEnabled:false,monthlyAccountMessageDay:19,monthlyAccountMessageTime:"09:00",monthlyAccountMessageTemplate:"",automaticTransferWhatsAppEnabled:false,zeroBalanceWhatsAppEnabled:false,zeroBalanceWhatsAppTemplate:"",overdueWhatsAppEnabled:false,overdueWhatsAppMessageTime:"10:00",overdueWhatsAppTemplate:"",automaticWhatsappSenderNumber:"",manualWhatsappSenderNumber:"",timeZone:"America/Toronto"};
   return new Proxy(root,{
     get(target,prop){
       if(prop===RAW_STORE)return target;

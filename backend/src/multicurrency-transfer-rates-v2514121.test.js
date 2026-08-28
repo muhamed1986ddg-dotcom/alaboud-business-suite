@@ -1,0 +1,11 @@
+"use strict";
+const assert=require("assert/strict");
+const fs=require("fs");
+const path=require("path");
+const customers=fs.readFileSync(path.resolve(__dirname,"../../frontend/src/screens/Customers.jsx"),"utf8");
+const utility=fs.readFileSync(path.resolve(__dirname,"../../frontend/src/currencyConversion.js"),"utf8");
+assert.match(customers,/resolveCurrencyConversion\(rates,transferForm\.currency,"CAD"\)/,"automatic transfer cost must resolve cross-currency paths");
+assert.match(customers,/resolveCurrencyConversion\(rates,transferForm\.costRateCurrency,"CAD"\)/,"quote currency must resolve to CAD before deriving the displayed rate");
+assert.match(utility,/current\.factor\*edge\.factor/,"currency conversion must multiply path factors");
+assert.match(utility,/add\(quote,base,1\/factor/ ,"currency graph must include inverse edges");
+console.log("multicurrency transfer rates v25.14.121 source regression: OK");

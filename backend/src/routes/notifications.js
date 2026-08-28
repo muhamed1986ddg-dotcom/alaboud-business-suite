@@ -2,7 +2,10 @@
 
 function registerNotificationRoutes(app,{
   auth,requirePermission,readStore,mutateDurable,safeNumber,audit,id,now,
-  customerSummary,capitalCadAmount,previewMonthlyMessages=()=>[],sendMonthlyMessagesNow=async()=>[]
+  customerSummary,capitalCadAmount,previewMonthlyMessages=()=>[],sendMonthlyMessagesNow=async()=>[],
+  sendWhatsApp=async()=>({ok:false,reason:"WHATSAPP_SENDER_UNAVAILABLE"}),
+  normalizeWhatsappNumber=value=>String(value||"").replace(/\D/g,""),
+  overdueMessage=(recipient,template)=>String(template||"")
 }){
   app.get("/api/notification-settings", auth, (_req,res)=>{
     const store=readStore();
@@ -16,6 +19,16 @@ function registerNotificationRoutes(app,{
       monthlyAccountMessageTemplate:String(store.notificationSettings?.monthlyAccountMessageTemplate||""),
       automaticTransferWhatsAppEnabled:Boolean(store.notificationSettings?.automaticTransferWhatsAppEnabled),
       zeroBalanceWhatsAppEnabled:Boolean(store.notificationSettings?.zeroBalanceWhatsAppEnabled),
+      zeroBalanceWhatsAppTemplate:String(store.notificationSettings?.zeroBalanceWhatsAppTemplate||""),
+      overdueWhatsAppEnabled:Boolean(store.notificationSettings?.overdueWhatsAppEnabled),
+      overdueFirstReminderDays:Math.max(1,Math.min(365,Math.round(safeNumber(store.notificationSettings?.overdueFirstReminderDays,store.notificationSettings?.overdueDays||7)||7))),
+      overdueSecondReminderEnabled:store.notificationSettings?.overdueSecondReminderEnabled!==false,
+      overdueSecondReminderDays:Math.max(2,Math.min(365,Math.round(safeNumber(store.notificationSettings?.overdueSecondReminderDays,15)||15))),
+      overdueWhatsAppMessageTime:/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(String(store.notificationSettings?.overdueWhatsAppMessageTime||""))?String(store.notificationSettings.overdueWhatsAppMessageTime):"10:00",
+      overdueWhatsAppTemplate:String(store.notificationSettings?.overdueWhatsAppTemplate||""),
+      overdueSecondWhatsAppTemplate:String(store.notificationSettings?.overdueSecondWhatsAppTemplate||""),
+      automaticWhatsappSenderNumber:String(store.notificationSettings?.automaticWhatsappSenderNumber||""),
+      manualWhatsappSenderNumber:String(store.notificationSettings?.manualWhatsappSenderNumber||""),
       timeZone:String(store.notificationSettings?.timeZone||"America/Toronto")
     });
   });
@@ -51,6 +64,29 @@ function registerNotificationRoutes(app,{
       if(req.body?.monthlyAccountMessageTemplate!==undefined)store.notificationSettings.monthlyAccountMessageTemplate=String(req.body.monthlyAccountMessageTemplate||"").slice(0,4000);
       if(req.body?.automaticTransferWhatsAppEnabled!==undefined)store.notificationSettings.automaticTransferWhatsAppEnabled=Boolean(req.body.automaticTransferWhatsAppEnabled);
       if(req.body?.zeroBalanceWhatsAppEnabled!==undefined)store.notificationSettings.zeroBalanceWhatsAppEnabled=Boolean(req.body.zeroBalanceWhatsAppEnabled);
+      if(req.body?.zeroBalanceWhatsAppTemplate!==undefined)store.notificationSettings.zeroBalanceWhatsAppTemplate=String(req.body.zeroBalanceWhatsAppTemplate||"").slice(0,4000);
+      if(req.body?.overdueWhatsAppEnabled!==undefined)store.notificationSettings.overdueWhatsAppEnabled=Boolean(req.body.overdueWhatsAppEnabled);
+      if(req.body?.overdueFirstReminderDays!==undefined){
+        const value=Number(req.body.overdueFirstReminderDays);
+        if(!Number.isInteger(value)||value<1||value>365)throw new Error("التذكير الأول يجب أن يكون بين 1 و365 يومًا");
+        store.notificationSettings.overdueFirstReminderDays=value;
+      }
+      if(req.body?.overdueSecondReminderEnabled!==undefined)store.notificationSettings.overdueSecondReminderEnabled=Boolean(req.body.overdueSecondReminderEnabled);
+      if(req.body?.overdueSecondReminderDays!==undefined){
+        const value=Number(req.body.overdueSecondReminderDays);
+        const first=Math.max(1,Number(req.body?.overdueFirstReminderDays??store.notificationSettings.overdueFirstReminderDays??store.notificationSettings.overdueDays??7));
+        if(!Number.isInteger(value)||value<=first||value>365)throw new Error("التذكير الثاني يجب أن يكون بعد التذكير الأول وبحد أقصى 365 يومًا");
+        store.notificationSettings.overdueSecondReminderDays=value;
+      }
+      if(req.body?.overdueWhatsAppMessageTime!==undefined){
+        const value=String(req.body.overdueWhatsAppMessageTime||"");
+        if(!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value))throw new Error("وقت رسائل المتأخرين غير صالح");
+        store.notificationSettings.overdueWhatsAppMessageTime=value;
+      }
+      if(req.body?.overdueWhatsAppTemplate!==undefined)store.notificationSettings.overdueWhatsAppTemplate=String(req.body.overdueWhatsAppTemplate||"").slice(0,4000);
+      if(req.body?.overdueSecondWhatsAppTemplate!==undefined)store.notificationSettings.overdueSecondWhatsAppTemplate=String(req.body.overdueSecondWhatsAppTemplate||"").slice(0,4000);
+      if(req.body?.automaticWhatsappSenderNumber!==undefined)store.notificationSettings.automaticWhatsappSenderNumber=String(req.body.automaticWhatsappSenderNumber||"").replace(/\D/g,"").slice(0,15);
+      if(req.body?.manualWhatsappSenderNumber!==undefined)store.notificationSettings.manualWhatsappSenderNumber=String(req.body.manualWhatsappSenderNumber||"").replace(/\D/g,"").slice(0,15);
       if(req.body?.timeZone!==undefined){
         const value=String(req.body.timeZone||"").trim();
         try{new Intl.DateTimeFormat("en",{timeZone:value}).format();}catch{throw new Error("المنطقة الزمنية غير صالحة");}
@@ -108,9 +144,80 @@ function registerNotificationRoutes(app,{
     res.json(updated);
   });
 
+
+  app.get("/api/whatsapp-bot/status",auth,requirePermission("admin.only"),async(_req,res)=>{
+    const baseUrl=String(process.env.LOCAL_WHATSAPP_BOT_URL||"").trim().replace(/\/+$/,"");
+    if(!baseUrl)return res.json({configured:false,connected:false,reason:"LOCAL_BOT_URL_MISSING"});
+    try{
+      const response=await fetch(`${baseUrl}/health`,{signal:AbortSignal.timeout(5000)});
+      let data={};try{data=await response.json();}catch{}
+      const store=readStore(),expected=String(store.notificationSettings?.automaticWhatsappSenderNumber||"").replace(/\D/g,"");
+      const actual=String(data?.senderNumber||"").replace(/\D/g,"");
+      res.json({configured:true,connected:Boolean(response.ok&&data?.whatsappReady),senderNumber:actual||null,expectedSenderNumber:expected||null,senderMatches:!expected||!actual||expected===actual,botVersion:data?.version||null});
+    }catch(error){res.json({configured:true,connected:false,reason:error?.name==="TimeoutError"?"TIMEOUT":"UNREACHABLE"});}
+  });
+
+  app.post("/api/whatsapp-bot/test",auth,requirePermission("admin.only"),async(req,res)=>{
+    const baseUrl=String(process.env.LOCAL_WHATSAPP_BOT_URL||"").trim().replace(/\/+$/,""),secret=String(process.env.LOCAL_WHATSAPP_BOT_SECRET||"").trim();
+    const phone=String(req.body?.phone||"").replace(/\D/g,""),message=String(req.body?.message||"رسالة اختبار من أبو إسلام").trim().slice(0,1500);
+    if(!baseUrl||!secret)return res.status(400).json({ok:false,message:"البوت المحلي غير مضبوط"});
+    if(phone.length<8||phone.length>15)return res.status(400).json({ok:false,message:"رقم الاختبار غير صالح"});
+    try{
+      const response=await fetch(`${baseUrl}/send-message`,{method:"POST",headers:{Authorization:`Bearer ${secret}`,"Content-Type":"application/json"},body:JSON.stringify({type:"TEST",phone,message,dedupeId:`settings-test-${Date.now()}`}),signal:AbortSignal.timeout(10000)});
+      let data={};try{data=await response.json();}catch{}
+      if(!response.ok||!data?.ok)return res.status(502).json({ok:false,message:data?.error||"فشل إرسال رسالة الاختبار"});
+      res.json({ok:true,messageId:data.messageId||null});
+    }catch(error){res.status(502).json({ok:false,message:"تعذر الوصول إلى بوت واتساب"});}
+  });
+
+
+  app.get("/api/overdue-whatsapp-test/recipients",auth,requirePermission("admin.only"),(_req,res)=>{
+    const store=readStore();
+    const rows=(Array.isArray(store.customers)?store.customers:[])
+      .filter(customer=>customer&&!customer.isDeleted&&customer.active!==false)
+      .map(customer=>{
+        const summary=customerSummary(store,customer);
+        const whatsappNumber=normalizeWhatsappNumber(customer.whatsapp||customer.phone);
+        return {customerId:customer.id,name:String(summary.name||customer.name||"عميل"),whatsappNumber,balance:+Math.abs(Number(summary.finalBalance||0)).toFixed(2),days:Math.max(0,Math.round(Number(summary.overdueDays||0))),overdue:Boolean(summary.overdue)};
+      })
+      .filter(item=>item.overdue&&item.whatsappNumber)
+      .sort((a,b)=>b.days-a.days||b.balance-a.balance);
+    res.json({count:rows.length,recipients:rows});
+  });
+
+  app.post("/api/overdue-whatsapp-test/preview",auth,requirePermission("admin.only"),(req,res)=>{
+    const store=readStore(),customerId=String(req.body?.customerId||"").trim(),stage=String(req.body?.stage||"FIRST").trim().toUpperCase();
+    if(!["FIRST","SECOND"].includes(stage))return res.status(400).json({ok:false,message:"مرحلة التذكير غير صحيحة"});
+    const customer=(store.customers||[]).find(item=>item?.id===customerId&&!item.isDeleted&&item.active!==false);
+    if(!customer)return res.status(404).json({ok:false,message:"العميل غير موجود"});
+    const summary=customerSummary(store,customer),whatsappNumber=normalizeWhatsappNumber(customer.whatsapp||customer.phone);
+    if(!summary.overdue)return res.status(400).json({ok:false,message:"العميل غير مصنف كمتأخر حاليًا"});
+    if(!whatsappNumber)return res.status(400).json({ok:false,message:"لا يوجد رقم WhatsApp صالح للعميل"});
+    const recipient={customerId:customer.id,name:String(summary.name||customer.name||"عميل"),whatsappNumber,balance:+Number(summary.finalBalance||0).toFixed(2),amount:+Math.abs(Number(summary.finalBalance||0)).toFixed(2),days:Math.max(0,Math.round(Number(summary.overdueDays||0)))};
+    const template=stage==="SECOND"?(store.notificationSettings?.overdueSecondWhatsAppTemplate||store.notificationSettings?.overdueWhatsAppTemplate):store.notificationSettings?.overdueWhatsAppTemplate;
+    res.json({ok:true,testOnly:true,stage,recipient,messageText:overdueMessage(recipient,template,stage)});
+  });
+
+  app.post("/api/overdue-whatsapp-test/send",auth,requirePermission("admin.only"),async(req,res)=>{
+    const store=readStore(),customerId=String(req.body?.customerId||"").trim(),stage=String(req.body?.stage||"FIRST").trim().toUpperCase();
+    if(!["FIRST","SECOND"].includes(stage))return res.status(400).json({ok:false,message:"مرحلة التذكير غير صحيحة"});
+    const customer=(store.customers||[]).find(item=>item?.id===customerId&&!item.isDeleted&&item.active!==false);
+    if(!customer)return res.status(404).json({ok:false,message:"العميل غير موجود"});
+    const summary=customerSummary(store,customer),whatsappNumber=normalizeWhatsappNumber(customer.whatsapp||customer.phone);
+    if(!summary.overdue)return res.status(400).json({ok:false,message:"العميل غير مصنف كمتأخر حاليًا"});
+    if(!whatsappNumber)return res.status(400).json({ok:false,message:"لا يوجد رقم WhatsApp صالح للعميل"});
+    const recipient={customerId:customer.id,name:String(summary.name||customer.name||"عميل"),whatsappNumber,balance:+Number(summary.finalBalance||0).toFixed(2),amount:+Math.abs(Number(summary.finalBalance||0)).toFixed(2),days:Math.max(0,Math.round(Number(summary.overdueDays||0)))};
+    const template=stage==="SECOND"?(store.notificationSettings?.overdueSecondWhatsAppTemplate||store.notificationSettings?.overdueWhatsAppTemplate):store.notificationSettings?.overdueWhatsAppTemplate;
+    const messageText=overdueMessage(recipient,template,stage);
+    const delivery=await sendWhatsApp({templateType:"OVERDUE",to:whatsappNumber,body:messageText,dedupeId:`overdue-test:${req.user.companyId}:${customer.id}:${stage}:${Date.now()}`,contentVariables:{"1":recipient.name,"2":recipient.amount.toFixed(2),"3":String(recipient.days)}});
+    if(!delivery?.ok)return res.status(502).json({ok:false,testOnly:true,message:"فشل إرسال رسالة الاختبار",reason:delivery?.reason||"DELIVERY_FAILED"});
+    res.json({ok:true,testOnly:true,stage,customerId:customer.id,messageId:delivery.providerMessageId||null,messageText});
+  });
+
   app.get("/api/notifications", auth, (_req,res)=>{
     const store=readStore();
     const customers=(Array.isArray(store.customers)?store.customers:[])
+      .filter(customer=>customer&&!customer.isDeleted)
       .map(customer=>customerSummary(store,customer));
     const overdue=customers
       .filter(customer=>customer.overdue)
@@ -195,6 +302,60 @@ function registerNotificationRoutes(app,{
     res.json(rows);
   });
 
+
+  app.get("/api/whatsapp-delivery-log",auth,requirePermission("admin.only"),(req,res)=>{
+    const store=readStore();
+    const statusFilter=String(req.query?.status||"ALL").trim().toUpperCase();
+    const stageFilter=String(req.query?.stage||"ALL").trim().toUpperCase();
+    const limit=Math.min(500,Math.max(1,Math.round(safeNumber(req.query?.limit,100)||100)));
+    const allowedActions=new Set(["OVERDUE_WHATSAPP_MESSAGE","ZERO_BALANCE_WHATSAPP_MESSAGE","MONTHLY_BALANCE_MESSAGE","TRANSFER_WHATSAPP_MESSAGE"]);
+    const customerMap=new Map((Array.isArray(store.customers)?store.customers:[]).map(customer=>[customer?.id,customer]));
+    const rows=(Array.isArray(store.notificationActions)?store.notificationActions:[])
+      .filter(item=>item&&allowedActions.has(item.action))
+      .map(item=>{
+        const customer=customerMap.get(item.customerId)||null;
+        const stage=String(item.reminderStage||(
+          item.triggerType==="OVERDUE_SECOND_REMINDER"?"SECOND":
+          item.triggerType==="OVERDUE_FIRST_REMINDER"?"FIRST":
+          item.action==="ZERO_BALANCE_WHATSAPP_MESSAGE"?"ZERO":
+          item.action==="MONTHLY_BALANCE_MESSAGE"?"MONTHLY":
+          item.action==="TRANSFER_WHATSAPP_MESSAGE"?"TRANSFER":""
+        )).toUpperCase();
+        const status=String(item.deliveryStatus||item.status||"UNKNOWN").toUpperCase();
+        return {
+          id:item.id,
+          customerId:item.customerId||null,
+          customerName:String(item.customerName||customer?.name||"عميل"),
+          whatsappNumber:String(item.whatsappNumber||customer?.whatsapp||customer?.phone||""),
+          action:item.action,
+          stage,
+          status,
+          balance:+safeNumber(item.balance,0).toFixed(2),
+          days:Math.max(0,Math.round(safeNumber(item.days,0))),
+          provider:item.provider||null,
+          providerMessageId:item.providerMessageId||null,
+          error:item.error||null,
+          createdAt:item.createdAt||null,
+          sentAt:item.sentAt||null,
+          updatedAt:item.updatedAt||null
+        };
+      })
+      .filter(item=>statusFilter==="ALL"||item.status===statusFilter)
+      .filter(item=>stageFilter==="ALL"||item.stage===stageFilter)
+      .sort((a,b)=>String(b.sentAt||b.updatedAt||b.createdAt||"").localeCompare(String(a.sentAt||a.updatedAt||a.createdAt||"")))
+      .slice(0,limit);
+    res.set("Cache-Control","no-store");
+    res.json({
+      count:rows.length,
+      totals:{
+        sent:rows.filter(item=>item.status==="SENT").length,
+        failed:rows.filter(item=>item.status==="FAILED").length,
+        pending:rows.filter(item=>item.status==="PENDING").length
+      },
+      rows
+    });
+  });
+
   app.get("/api/customer-alerts", auth, (_req,res)=>{
     const store = readStore();
     const payments=Array.isArray(store.payments)?store.payments:[];
@@ -211,6 +372,7 @@ function registerNotificationRoutes(app,{
     }
 
     const rows = (Array.isArray(store.customers) ? store.customers : [])
+      .filter(customer=>customer&&!customer.isDeleted)
       .map((customer)=>{
         const summary=customerSummary(store,customer);
         const customerPayments=payments

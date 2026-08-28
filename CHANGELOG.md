@@ -1,4 +1,43 @@
+# v25.14.121 — Multi-Currency & Production Readiness Fixes
+
+- Fixed cross-currency transfer-rate conversion via USD/global rate paths instead of requiring direct CAD pairs.
+- Added treasury movements to company operational backup/restore with regression coverage.
+- Preserved original quoted-rate audit metadata on unchanged edits and normalized changed legacy CAD edits safely.
+- Expanded backend sweep coverage to `.test.mjs`.
+- Bumped Android versionCode and changed CI to signed Release APK output.
+- Added production HTTPS APP_URL readiness validation and corrected the public-registration environment variable name.
+
+# v25.14.120 — Multi-Currency Transfer Rates
+
+- إضافة اختيار عملة لسعر التكلفة ولسعر التحويل للعميل: CAD / USD / EUR / SYP.
+- تحويل السعر المُدخل إلى CAD داخليًا قبل احتساب ذمة العميل والربح والخزنة، للحفاظ على النموذج المحاسبي الحالي.
+- حفظ السعر الأصلي وعملته داخل الحوالة لأغراض التدقيق، مع بقاء costRate/finalRate بالقيمة المحاسبية CAD للتوافق مع التقارير القديمة.
+- الحفاظ على جميع وظائف v25.14.119 والأوامر الصوتية المرحلة الثانية.
+
+## 25.14.111
+- WhatsApp automation settings: zero balance, monthly, overdue, bot status/test, separate Syrian manual sender reference.
+
+## 25.14.111-TEST — Bot Auto + Syrian Manual WhatsApp
+
+- Keeps automatic zero-balance delivery on the LOCAL_BOT channel.
+- Keeps the manual WhatsApp action available independently, including after successful bot delivery.
+- Android manual `wa.me` links prefer the regular WhatsApp package (`com.whatsapp`) so the Syrian regular-WhatsApp account remains the manual sender.
+- No accounting, treasury, profit, or balance logic changes.
+
+## 25.14.109-TEST — Zero Balance Local WhatsApp Bot
+
+- Adds optional LOCAL_BOT provider for zero-balance WhatsApp only.
+- Uses LOCAL_WHATSAPP_BOT_URL and LOCAL_WHATSAPP_BOT_SECRET from server environment; no secret is stored in source.
+- Preserves deterministic settlementId from the committed financial operation for bot-side deduplication.
+- No treasury, profit, capital, or accounting calculation changes.
+
 # Changelog
+
+## 25.14.107 — Treasury
+
+- Added per-currency treasury balances, weighted-average cost, and a complete movement ledger.
+- Added IN, OUT, and NONE transfer effects with safe edit, cancellation, idempotency, and negative-balance protection.
+- Added realized treasury FX profit/loss to final net profit without changing original transfer profit.
 
 ## 25.14.106 — WhatsApp Quick Send
 

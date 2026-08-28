@@ -40,7 +40,7 @@ function balanceDirectionText(direction){return direction==="CUSTOMER_OWES_US"?"
 
 function monthlyBalanceMessage(recipient,date,template=""){
   const values={customerName:recipient.name,name:recipient.name,date:String(date||""),balance:recipient.amount.toFixed(2),balanceDirection:balanceDirectionText(recipient.direction)};
-  const fallback="مرحباً {customerName}\n\nمجموع حسابكم حتى تاريخ {date}:\n{balance} CAD\n\n{balanceDirection}\n\nيرجى مراجعة الحساب، وشكراً.\nشركة العبود";
+  const fallback="مرحباً {customerName}\n\nمجموع حسابكم حتى تاريخ {date}:\n{balance} CAD\n\n{balanceDirection}\n\nيرجى مراجعة الحساب، وشكراً.\nأبو إسلام";
   return String(template||fallback).replace(/\{(customerName|name|date|balance|balanceDirection)\}/g,(_match,key)=>values[key]);
 }
 
@@ -78,7 +78,7 @@ async function executeMonthlyAccountMessages({
     });
     if(!claim){results.push({customerId:recipient.customerId,status:"SKIPPED_DUPLICATE",reason:"DUPLICATE_IDEMPOTENCY"});continue;}
     let delivery;
-    try{delivery=await sendWhatsApp({templateType:"MONTHLY_ACCOUNT",to:recipient.whatsappNumber,body:messageText,contentVariables:{"1":recipient.name,"2":local.date,"3":recipient.amount.toFixed(2),"4":balanceDirectionText(recipient.direction)}});}
+    try{delivery=await sendWhatsApp({templateType:"MONTHLY_ACCOUNT",to:recipient.whatsappNumber,body:messageText,dedupeId:dedupeKey,contentVariables:{"1":recipient.name,"2":local.date,"3":recipient.amount.toFixed(2),"4":balanceDirectionText(recipient.direction)}});}
     catch(error){delivery={ok:false,reason:String(error?.message||"DELIVERY_ERROR")};}
     await mutateDurable(current=>{
       const item=(current.notificationActions||[]).find(entry=>entry.id===claim.id);if(!item)return;
@@ -91,7 +91,7 @@ async function executeMonthlyAccountMessages({
 }
 
 function transferMessage(recipient,transaction){
-  return `مرحباً ${recipient.name}\n\nتم تسجيل حوالة جديدة على حسابكم.\n\nمبلغ الحوالة:\n${finite(transaction.amount).toFixed(2)} ${String(transaction.currency||"CAD").toUpperCase()}\n\nمجموع حسابكم الحالي:\n${recipient.amount.toFixed(2)} CAD\n\n${balanceDirectionText(recipient.direction)}\n\nشركة العبود`;
+  return `مرحباً ${recipient.name}\n\nتم تسجيل حوالة جديدة على حسابكم.\n\nمبلغ الحوالة:\n${finite(transaction.amount).toFixed(2)} ${String(transaction.currency||"CAD").toUpperCase()}\n\nمجموع حسابكم الحالي:\n${recipient.amount.toFixed(2)} CAD\n\n${balanceDirectionText(recipient.direction)}\n\nأبو إسلام`;
 }
 
 function transferMessageDedupeKey(companyId,customerId,transactionId){return `transfer-created-whatsapp:${companyId}:${customerId}:${transactionId}`;}

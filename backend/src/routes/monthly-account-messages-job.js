@@ -1,15 +1,18 @@
 "use strict";
 
-function registerMonthlyAccountMessagesJob(app,{crypto,readRootStore,readStore,runWithTenant,mutateDurable,id,now,customerSummary,inventoryLocalDate,isScheduledRunDue,executeMonthlyAccountMessages,sendWhatsApp,isServiceReady}){
+function registerMonthlyAccountMessagesJob(app,{crypto,readRootStore,readStore,runWithTenant,mutateDurable,id,now,customerSummary,inventoryLocalDate,isScheduledRunDue,executeMonthlyAccountMessages,executeOverdueMessages,isOverdueRunDue,sendWhatsApp,isServiceReady}){
   const run=async({triggerType="MONTHLY_ACCOUNT",companyId=null,branchId=null,force=false}={})=>{
     if(!isServiceReady())return {results:[],eligibleTenantCount:0};
     const root=readRootStore(),results=[];let eligibleTenantCount=0;
     const branches=(Array.isArray(root.branches)?root.branches:[]).filter(branch=>branch&&branch.active!==false&&branch.companyId&&(!companyId||branch.companyId===companyId)&&(!branchId||branch.id===branchId));
     for(const branch of branches)await runWithTenant(branch.companyId,branch.id,async()=>{
       const store=readStore(),local=inventoryLocalDate(store.notificationSettings||{});
-      if(!force&&!isScheduledRunDue(store.notificationSettings||{},local))return;
+      const monthlyDue=force||isScheduledRunDue(store.notificationSettings||{},local);
+      const overdueDue=triggerType==="MONTHLY_ACCOUNT"&&typeof isOverdueRunDue==="function"&&isOverdueRunDue(store.notificationSettings||{},local);
+      if(!monthlyDue&&!overdueDue)return;
       eligibleTenantCount+=1;
-      results.push(...await executeMonthlyAccountMessages({store,companyId:branch.companyId,triggerType,force:true,local,customerSummary,mutateDurable,id,now,sendWhatsApp}));
+      if(monthlyDue)results.push(...await executeMonthlyAccountMessages({store,companyId:branch.companyId,triggerType,force:true,local,customerSummary,mutateDurable,id,now,sendWhatsApp}));
+      if(overdueDue&&typeof executeOverdueMessages==="function")results.push(...await executeOverdueMessages({store,companyId:branch.companyId,local,customerSummary,mutateDurable,id,now,sendWhatsApp}));
     });
     return {results,eligibleTenantCount};
   };

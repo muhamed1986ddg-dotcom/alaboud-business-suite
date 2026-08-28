@@ -76,4 +76,11 @@ const profit=calculateInventoryMonthProfit(store,{month:"2026-08",transactionFin
 assert.strictEqual(profit.grossProfit,50);
 assert.strictEqual(profit.expenses,12.5);
 assert.strictEqual(profit.netProfit,37.5);
+const profitWithTreasury=calculateInventoryMonthProfit({...store,treasuryMovements:[
+  {id:"out-profit",direction:"OUT",occurredAt:"2026-08-20",realizedFx:500},
+  {id:"out-loss",direction:"OUT",occurredAt:"2026-08-21",realizedFx:-300},
+  {id:"in-ignored",direction:"IN",occurredAt:"2026-08-22",realizedFx:999},
+  {id:"outside",direction:"OUT",occurredAt:"2026-09-01",realizedFx:800}
+]},{month:"2026-08",transactionFinancials:()=>({totalProfit:50})});
+assert.deepStrictEqual(profitWithTreasury,{grossProfit:50,treasuryFxProfit:200,expenses:12.5,netProfit:237.5});
 console.log("MonthlyInventoryFinancials.test.js: OK");

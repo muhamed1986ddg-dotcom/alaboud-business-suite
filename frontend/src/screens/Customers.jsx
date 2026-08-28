@@ -7,6 +7,7 @@ import {money,cad,openRegularWhatsApp,currencyFlag,flagOf,cleanConnectorMessage,
 import {authoritativeCustomerRate} from "../customerRate";
 import {transferFinancialPreview} from "../transferFinancialPreview";
 import {compactWhatsAppLines,openWhatsAppMessage} from "../whatsapp";
+import {cadPerCurrency as cadPerCurrencyFromRows,resolveCurrencyConversion} from "../currencyConversion";
 
 
 export function Customers({open,initialTransferRequest,onTransferRequestHandled,onTransferSaved}){
@@ -37,7 +38,9 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     currency:"USD",
     amount:"",
     costRate:"",
+    costRateCurrency:"CAD",
     finalRate:"",
+    finalRateCurrency:"CAD",
     feeMethod:"SPREAD",
     transferFee:"",
     partnerId:"",
@@ -54,6 +57,15 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     rateUpdatedAt:null
   });
   const [selectedRateMeta,setSelectedRateMeta]=useState(null);
+  const [exchangeRateRows,setExchangeRateRows]=useState([]);
+  const rateQuoteCurrencies=["CAD","USD","EUR","SYP"];
+  function cadPerCurrency(code,rows=exchangeRateRows){
+    return cadPerCurrencyFromRows(rows,code);
+  }
+  function canonicalRate(value,quoteCurrency){
+    const raw=Number(value||0), factor=cadPerCurrency(quoteCurrency);
+    return raw>0&&factor>0?raw*factor:0;
+  }
 
   const [paymentForm,setPaymentForm]=useState({
     customerId:"",
@@ -164,7 +176,9 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       customerId:requestedCustomerId,
       amount:"",
       costRate:"",
+      costRateCurrency:"CAD",
       finalRate:"",
+      finalRateCurrency:"CAD",
       feeMethod:"SPREAD",
       transferFee:"",
       partnerId:"",
@@ -199,7 +213,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
   useEffect(()=>{
     if(activePanel!=="transfer"||!transferForm.currency)return;
 
-    if(transferForm.currency==="CAD"){
+    if(transferForm.currency==="CAD"&&transferForm.costRateCurrency==="CAD"){
       setSelectedRateMeta({
         baseCurrency:"CAD",
         quoteCurrency:"CAD",
@@ -218,12 +232,11 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     cachedGet("/exchange-rates")
       .then(response=>{
         const rates=Array.isArray(response.data)?response.data:[];
-        const direct=rates.find(item=>
-          String(item.baseCurrency||"").toUpperCase()===transferForm.currency &&
-          String(item.quoteCurrency||"").toUpperCase()==="CAD"
-        );
+        setExchangeRateRows(rates);
+        const transferToCad=resolveCurrencyConversion(rates,transferForm.currency,"CAD");
+        const quoteToCad=resolveCurrencyConversion(rates,transferForm.costRateCurrency,"CAD");
 
-        if(!direct){
+        if(!transferToCad||!quoteToCad||!Number.isFinite(Number(transferToCad.factor))||Number(transferToCad.factor)<=0||!Number.isFinite(Number(quoteToCad.factor))||Number(quoteToCad.factor)<=0){
           setSelectedRateMeta(null);
           if(transferForm.rateMode==="auto"){
             setTransferForm(current=>({...current,costRate:"",rateUpdatedAt:null}));
@@ -231,14 +244,17 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           return;
         }
 
-        const automaticRate=Number(direct.buyRate||direct.sellRate||0);
-        setSelectedRateMeta(direct);
+        const automaticRate=Number(transferToCad.factor)/Number(quoteToCad.factor);
+        setSelectedRateMeta({
+          baseCurrency:transferForm.currency,quoteCurrency:"CAD",buyRate:Number(transferToCad.factor),sellRate:Number(transferToCad.factor),
+          createdAt:transferToCad.updatedAt||quoteToCad.updatedAt||null,source:transferToCad.source||quoteToCad.source||"exchange-rates",path:transferToCad.path
+        });
         if(automaticRate>0&&transferForm.rateMode==="auto"){
           setTransferForm(current=>({
             ...current,
             costRate:String(automaticRate),
             rateSource:"exchange-rates",
-            rateUpdatedAt:direct.createdAt||null
+            rateUpdatedAt:transferToCad.updatedAt||quoteToCad.updatedAt||null
           }));
         }
       })
@@ -248,7 +264,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           setTransferForm(current=>({...current,costRate:"",rateUpdatedAt:null}));
         }
       });
-  },[activePanel,transferForm.currency,transferForm.rateMode]);
+  },[activePanel,transferForm.currency,transferForm.costRateCurrency,transferForm.rateMode]);
 
   async function addCustomer(event){
     event.preventDefault();
@@ -298,10 +314,24 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     }
   }
 
-  function startEditCustomer(customer){
-    setEditingCustomer({...customer});
-    setActivePanel("");
-    revealAppEditor('[data-app-editor="customer"]');
+  async function startEditCustomer(customer){
+    setError("");
+    try{
+      const {data}=await api.get(`/customers/${customer.id}`,{cacheTtl:0});
+      setEditingCustomer({...data});
+      setActivePanel("");
+      revealAppEditor('[data-app-editor="customer"]');
+    }catch(requestError){
+      if(requestError.response?.status===404){
+        clearApiGetCache();
+        setList(current=>current.filter(item=>item.id!==customer.id));
+        setCustomerOptions(current=>current.filter(item=>item.id!==customer.id));
+        setError("تم تنظيف بطاقة عميل محذوفة كانت ما تزال ظاهرة في الواجهة.");
+        void Promise.allSettled([load(sortMode,search,page),loadCustomerOptions(),loadDebtSummary()]);
+        return;
+      }
+      setError(requestError.response?.data?.message||"تعذر تحميل بيانات العميل للتعديل");
+    }
   }
 
   async function deleteCustomer(customer){
@@ -311,9 +341,22 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     try{
       await api.delete(`/customers/${customer.id}`);
       clearApiGetCache();
+      setList(current=>current.filter(item=>item.id!==customer.id));
+      setCustomerOptions(current=>current.filter(item=>item.id!==customer.id));
+      setServerTotal(current=>Math.max(0,current-1));
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
-      void Promise.allSettled([load(),loadDebtSummary()]);
+      setError(`✅ تم حذف ${customer.name} من الواجهة مع الحفاظ على سجلاته المالية`);
+      void Promise.allSettled([load(sortMode,search,page),loadCustomerOptions(),loadDebtSummary()]);
     }catch(requestError){
+      if(requestError.response?.status===404){
+        clearApiGetCache();
+        setList(current=>current.filter(item=>item.id!==customer.id));
+        setCustomerOptions(current=>current.filter(item=>item.id!==customer.id));
+        if(editingCustomer?.id===customer.id)setEditingCustomer(null);
+        setError("تم تنظيف بطاقة العميل القديمة؛ السجل كان محذوفًا مسبقًا.");
+        void Promise.allSettled([load(sortMode,search,page),loadCustomerOptions(),loadDebtSummary()]);
+        return;
+      }
       setError(requestError.response?.data?.message||"تعذر حذف العميل");
     }
   }
@@ -324,21 +367,33 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     if(!confirmed)return;
     setError("");
     try{
-      await api.post(`/customers/${customer.id}/reset-account`,{});
+      const {data}=await api.post(`/customers/${customer.id}/reset-account`,{});
       clearApiGetCache();
       if(editingCustomer?.id===customer.id)setEditingCustomer(null);
       void Promise.allSettled([load(),loadDebtSummary()]);
-      setWhatsAppSuccess({
-        title:"تم تحديث حساب العميل بنجاح",
-        phone:customer.whatsapp||customer.mobile||customer.phone,
-        message:compactWhatsAppLines([
-          `مرحباً ${customer.name||""}`,
-          "تم تسديد الحساب بالكامل وتحديث الرصيد بنجاح.",
-          "الرصيد الحالي: 0.00 CAD",
-          `التاريخ: ${new Date().toLocaleDateString("en-CA")}`,
-          "شكراً لتعاملكم معنا.","شركة العبود"
-        ])
-      });
+      const delivery=data?.whatsappDelivery||null;
+      if(delivery?.status==="SENT"){
+        setWhatsAppSuccess({
+          title:"تم تحديث حساب العميل وإرسال واتساب تلقائيًا",
+          autoSent:true,
+          phone:customer.whatsapp||customer.mobile||customer.phone,
+          message:""
+        });
+      }else{
+        setWhatsAppSuccess({
+          title:"تم تحديث حساب العميل بنجاح",
+          autoSent:false,
+          deliveryStatus:delivery?.status||"UNKNOWN",
+          phone:customer.whatsapp||customer.mobile||customer.phone,
+          message:compactWhatsAppLines([
+            `مرحباً ${customer.name||""}`,
+            "تم تسديد الحساب بالكامل وتحديث الرصيد بنجاح.",
+            "الرصيد الحالي: 0.00 CAD",
+            `التاريخ: ${new Date().toLocaleDateString("en-CA")}`,
+            "شكراً لتعاملكم معنا.","أبو إسلام"
+          ])
+        });
+      }
     }catch(requestError){
       setError(requestError.response?.data?.message||"تعذر تصفير حساب العميل");
     }
@@ -352,7 +407,9 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       currency:"USD",
       amount:"",
       costRate:"",
+      costRateCurrency:"CAD",
       finalRate:"",
+      finalRateCurrency:"CAD",
       feeMethod:"SPREAD",
       transferFee:"",
       partnerId:"",
@@ -377,12 +434,19 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
     const savedCustomerId=transferForm.customerId;
     const savedForm={...transferForm};
     try{
-      const preview=transferFinancialPreview(transferForm);
+      const preview=transferFinancialPreview({...transferForm,
+        costRate:canonicalRate(transferForm.costRate,transferForm.costRateCurrency),
+        finalRate:canonicalRate(transferForm.finalRate,transferForm.finalRateCurrency)
+      });
       const transactionResponse=await api.post("/transactions",{
         ...transferForm,
         amount:Number(transferForm.amount),
-        costRate:Number(transferForm.costRate),
-        finalRate:Number(transferForm.finalRate),
+        costRate:canonicalRate(transferForm.costRate,transferForm.costRateCurrency),
+        costRateQuoted:Number(transferForm.costRate),
+        costRateQuoteCurrency:transferForm.costRateCurrency,
+        finalRate:canonicalRate(transferForm.finalRate,transferForm.finalRateCurrency),
+        finalRateQuoted:Number(transferForm.finalRate),
+        finalRateQuoteCurrency:transferForm.finalRateCurrency,
         feeMethod:transferForm.feeMethod,
         transferFee:transferForm.feeMethod==="PAID"?Number(transferForm.transferFee||0):0,
         partnerId:transferForm.partnerId||"",
@@ -414,7 +478,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           `المبلغ: ${savedForm.amount||createdTransaction?.amount||""} ${savedForm.currency||createdTransaction?.currency||""}`,
           `التاريخ: ${savedForm.transferDate||createdTransaction?.transferDate||""}`,
           currentBalance!==""?`الرصيد الحالي: ${money(currentBalance)} CAD`:"",
-          "شركة العبود"
+          "أبو إسلام"
         ])
       });
 
@@ -423,7 +487,9 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
         currency:"USD",
         amount:"",
         costRate:"",
+        costRateCurrency:"CAD",
         finalRate:"",
+        finalRateCurrency:"CAD",
         feeMethod:"SPREAD",
         transferFee:"",
         partnerId:"",
@@ -486,7 +552,7 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           zeroBalance?"تم تسديد الحساب بالكامل وتحديث الرصيد بنجاح.":"تم تسجيل الدفعة وتحديث حسابكم بنجاح.",
           currentBalance!==""?`الرصيد الحالي: ${money(currentBalance)} CAD`:"",
           `التاريخ: ${savedPayment.paymentDate||""}`,
-          "شكراً لتعاملكم معنا.","شركة العبود"
+          "شكراً لتعاملكم معنا.","أبو إسلام"
         ])
       });
       setPaymentForm({
@@ -647,7 +713,10 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
   useEffect(()=>{if(page>effectiveTotalPages)setPage(effectiveTotalPages)},[page,effectiveTotalPages]);
 
   const customerActionFocus=activePanel==="transfer"||activePanel==="payment";
-  const transferPreview=transferFinancialPreview(transferForm);
+  const transferPreview=transferFinancialPreview({...transferForm,
+    costRate:canonicalRate(transferForm.costRate,transferForm.costRateCurrency),
+    finalRate:canonicalRate(transferForm.finalRate,transferForm.finalRateCurrency)
+  });
   const providerFeeSelection=transferForm.partnerId||(transferForm.providerFeeCompany?"__OTHER__":"");
   const providerFeeCurrencies=[...new Set([transferForm.currency,"CAD","USD","EUR","TRY","SYP","SAR","JOD"].filter(Boolean))];
 
@@ -657,8 +726,8 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
       <AppButton type="button" className="whatsapp-quick-send-button" onClick={()=>{
         const result=openWhatsAppMessage(whatsAppSuccess?.phone,whatsAppSuccess?.message);
         if(!result.ok)setError("لا يوجد رقم واتساب مسجل لهذا العميل أو أن الرقم غير صالح");
-      }}>إرسال عبر واتساب</AppButton>
-    </>}><p>يمكنك فتح الرسالة الجاهزة في واتساب، أو إغلاق النافذة والمتابعة.</p></AppModal>
+      }}>إرسال عبر واتساب السوري</AppButton>
+    </>}><p>{whatsAppSuccess?.autoSent?"تم إرسال رسالة تصفير الحساب تلقائيًا من البوت. ويمكنك أيضًا فتح واتساب السوري وإرسال الرسالة يدويًا عند الحاجة.":"تعذر تأكيد الإرسال التلقائي من البوت. يمكنك فتح الرسالة الجاهزة عبر واتساب السوري، أو إغلاق النافذة والمتابعة."}</p></AppModal>
     <h2>قائمة العملاء</h2>
     {error&&<div className="card customer-error">{error}</div>}
     {duplicateCustomer&&<div className="card duplicate-customer-alert">
@@ -745,8 +814,11 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           <small>المبلغ بعملة {transferForm.currency}</small>
         </label>
         <label className="currency-field">
-          <span className="currency-field-title">سعر التكلفة مقابل CAD</span>
-          <span className="currency-badge cad">CAD</span>
+          <span className="currency-field-title">سعر التكلفة مقابل</span>
+          <span className="currency-badge cad">{transferForm.costRateCurrency}</span>
+          <select value={transferForm.costRateCurrency} onChange={e=>setTransferForm(current=>({...current,costRateCurrency:e.target.value,costRate:"",rateMode:"manual"}))}>
+            {rateQuoteCurrencies.map(code=><option key={code} value={code}>{code}</option>)}
+          </select>
           <div className="rate-mode-switch">
             <button type="button" className={transferForm.rateMode==="auto"?"active":""} onClick={()=>setTransferForm({...transferForm,rateMode:"auto"})}>السعر الآلي</button>
             <button type="button" className={transferForm.rateMode==="manual"?"active":""} onClick={()=>setTransferForm({...transferForm,rateMode:"manual"})}>سعر يدوي</button>
@@ -755,11 +827,15 @@ export function Customers({open,initialTransferRequest,onTransferRequestHandled,
           <small>{(selectedRateMeta?.createdAt||selectedRateMeta?.updatedAt)?`آخر تحديث: ${new Date(selectedRateMeta.createdAt||selectedRateMeta.updatedAt).toLocaleString("ar-CA")}`:transferForm.rateMode==="manual"?"يُستخدم هذا السعر لهذه الحوالة فقط":"لا يوجد سعر آلي لهذه العملة؛ اختر سعر يدوي"}</small>
         </label>
         <label className="currency-field">
-          <span className="currency-field-title">سعر التحويل للعميل</span>
-          <span className="currency-badge cad">CAD</span>
+          <span className="currency-field-title">سعر التحويل للعميل مقابل</span>
+          <span className="currency-badge cad">{transferForm.finalRateCurrency}</span>
+          <select value={transferForm.finalRateCurrency} onChange={e=>setTransferForm(current=>({...current,finalRateCurrency:e.target.value,finalRate:""}))}>
+            {rateQuoteCurrencies.map(code=><option key={code} value={code}>{code}</option>)}
+          </select>
           <input type="number" inputMode="decimal" min=".0001" step=".0001" value={transferForm.finalRate} onChange={e=>setTransferForm({...transferForm,finalRate:e.target.value})} placeholder="0.0000" required/>
-          <small>السعر الذي يُحاسب عليه العميل مقابل كل وحدة من عملة الحوالة</small>
+          <small>السعر الذي يُحاسب عليه العميل بعملة {transferForm.finalRateCurrency} مقابل كل وحدة من عملة الحوالة. يحوّله النظام إلى CAD محاسبيًا.</small>
         </label>
+        <div className="transaction-edit-preview"><span>أثر الخزنة</span><strong>دخول {transferForm.currency}</strong><small>تسجيل الحوالة يزيد رصيد الخزنة؛ الخروج يُسجل فقط عند التسليم الكاش.</small></div>
         <label className="currency-field">
           <span className="currency-field-title">طريقة احتساب أجور الحوالة</span>
           <select value={transferForm.feeMethod} onChange={e=>setTransferForm({...transferForm,feeMethod:e.target.value,transferFee:e.target.value==="PAID"?transferForm.transferFee:""})}>
@@ -996,14 +1072,14 @@ export function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
         `نذكّركم بلطف بوجود رصيد مستحق قدره ${cad(customer.finalBalance)}.`,
         `مدة التأخير: ${customer.overdueDays} يوم.`,
         `نرجو التكرم بالسداد في الوقت المناسب.`,
-        `شكراً لتعاملكم مع شركة العبود للتجارة.`
+        `أبو إسلام`
       ],
       formal:[
         `السيد/السيدة ${customer.name} المحترم/ة،`,
         `نفيدكم بوجود رصيد مستحق على حسابكم بقيمة ${cad(customer.finalBalance)}.`,
         `وقد تجاوزت مدة التأخير ${customer.overdueDays} يومًا.`,
         `يرجى تسوية الرصيد أو التواصل معنا لتحديد موعد الدفع.`,
-        `شركة العبود للتجارة.`
+        `أبو إسلام`
       ],
       statement:[
         `السلام عليكم ${customer.name}،`,
@@ -1011,7 +1087,8 @@ export function OverdueCustomers({openCustomer,onStatement,navigateCustomers}){
         `إجمالي الحساب: ${cad(customer.totalTransactions)}`,
         `إجمالي المدفوع: ${cad(customer.totalPaid)}`,
         `الرصيد المتبقي: ${cad(customer.finalBalance)}`,
-        `يمكننا تزويدكم بكشف الحساب الكامل عند الطلب.`
+        `يمكننا تزويدكم بكشف الحساب الكامل عند الطلب.`,
+        `أبو إسلام`
       ]
     };
     return (templates[type]||templates.gentle).join("\n");

@@ -1,0 +1,11 @@
+import fs from "node:fs";
+import path from "node:path";
+import assert from "node:assert/strict";
+const source=fs.readFileSync(path.join(process.cwd(),"src/screens/Customers.jsx"),"utf8");
+assert.match(source,/const \{data\}=await api\.post\(`\/customers\/\$\{customer\.id\}\/reset-account`,\{\}\)/);
+assert.match(source,/delivery\?\.status==="SENT"/);
+assert.match(source,/autoSent:true/);
+assert.match(source,/تم تحديث حساب العميل وإرسال واتساب تلقائيًا/);
+assert.doesNotMatch(source,/!whatsAppSuccess\?\.autoSent&&<AppButton/);
+assert.match(source,/تم إرسال رسالة تصفير الحساب تلقائيًا من البوت/);
+console.log("zero-balance automatic WhatsApp UI v25.14.109: ok");

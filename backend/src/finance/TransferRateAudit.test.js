@@ -1,0 +1,17 @@
+"use strict";
+const assert=require("assert/strict");
+const {normalizeQuotedRateAudit}=require("./TransferRateAudit");
+const previous={costRate:1.4,costRateQuoted:1,costRateQuoteCurrency:"USD",finalRate:1.428,finalRateQuoted:1.02,finalRateQuoteCurrency:"USD"};
+const unchanged={...previous};
+normalizeQuotedRateAudit(unchanged,previous,{costRate:1.4,finalRate:1.428});
+assert.equal(unchanged.costRateQuoteCurrency,"USD");
+assert.equal(unchanged.finalRateQuoteCurrency,"USD");
+const changed={...previous,costRate:1.41,finalRate:1.44};
+normalizeQuotedRateAudit(changed,previous,{costRate:1.41,finalRate:1.44});
+assert.equal(changed.costRateQuoted,1.41);assert.equal(changed.costRateQuoteCurrency,"CAD");
+assert.equal(changed.finalRateQuoted,1.44);assert.equal(changed.finalRateQuoteCurrency,"CAD");
+const explicit={...previous,costRate:1.5,costRateQuoted:1.07,costRateQuoteCurrency:"eur"};
+normalizeQuotedRateAudit(explicit,previous,{costRate:1.5,costRateQuoted:1.07,costRateQuoteCurrency:"eur"});
+assert.equal(explicit.costRateQuoted,1.07);assert.equal(explicit.costRateQuoteCurrency,"EUR");
+assert.throws(()=>normalizeQuotedRateAudit({...previous,costRateQuoted:0},previous,{costRateQuoted:0}),/غير صحيحة/);
+console.log("transfer rate audit metadata: OK");
