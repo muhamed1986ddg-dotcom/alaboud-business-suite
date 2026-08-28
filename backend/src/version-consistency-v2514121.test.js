@@ -1,4 +1,4 @@
-﻿"use strict";
+"use strict";
 const assert=require("assert/strict");
 const fs=require("fs");
 const path=require("path");
@@ -23,8 +23,13 @@ if(fs.existsSync(workflowPath)){
 }else{
   console.log("Android workflow check skipped: workflow is not included in the Docker build context");
 }
-const envExample=fs.readFileSync(path.join(root,".env.example"),"utf8");
-assert(envExample.includes("PUBLIC_COMPANY_REGISTRATION=false"));
-assert(!envExample.includes("PUBLIC_COMPANY_REGISTRATION_ENABLED="));
+const envExamplePath=path.join(root,".env.example");
+if(fs.existsSync(envExamplePath)){
+  const envExample=fs.readFileSync(envExamplePath,"utf8");
+  assert(envExample.includes("PUBLIC_COMPANY_REGISTRATION=false"));
+  assert(!envExample.includes("PUBLIC_COMPANY_REGISTRATION_ENABLED="));
+}else{
+  console.log(".env.example check skipped: file is not included in the Docker image");
+}
 console.log("version consistency v25.14.121: OK");
 
